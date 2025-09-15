@@ -26,6 +26,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.performHttpLogin
 import okhttp3.OkHttpClient
@@ -72,8 +73,29 @@ fun LoginScreen(navController: NavController, modifier: Modifier = Modifier, app
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
-                    onClick = { performHttpLogin(url, username, password, appViewModel, client, scope, sharedPreferences) },
-                    enabled = url.isNotBlank() && username.isNotBlank() && password.isNotBlank(),
+                    onClick = {
+                        appViewModel.isLoading = true
+                        performHttpLogin(
+                            url = url,
+                            username = username,
+                            password = password,
+                            client = client,
+                            scope = scope,
+                            sharedPreferences = sharedPreferences,
+                            onSuccess = {
+                                scope.launch {
+                                    appViewModel.isLoading = false
+                                    navController.navigate("auth_check")
+                                }
+                            },
+                            onFailure = {
+                                scope.launch {
+                                    appViewModel.isLoading = false
+                                }
+                            }
+                        )
+                    },
+                    enabled = url.isNotBlank() && username.isNotBlank() && password.isNotBlank() && !appViewModel.isLoading,
                 ) {
                     Text(text = if (appViewModel.isLoading) "Logging in..." else "Login")
                 }

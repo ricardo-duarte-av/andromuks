@@ -2,21 +2,20 @@ package net.vrkknn.andromuks.utils
 
 import android.content.SharedPreferences
 import android.util.Log
+import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
-import net.vrkknn.andromuks.AppViewModel
 import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Callback
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import okio.IOException
-import org.json.JSONObject
-import androidx.core.content.edit
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
+import okio.IOException
+import org.json.JSONObject
 
 fun buildAuthHttpUrl(rawUrl: String): String {
     var authUrl = rawUrl.lowercase().trim()
@@ -35,31 +34,29 @@ fun performHttpLogin(
     url: String,
     username: String,
     password: String,
-    appViewModel: AppViewModel,
     client: OkHttpClient,
     scope: CoroutineScope,
-    sharedPreferences: SharedPreferences
+    sharedPreferences: SharedPreferences,
+    onSuccess: () -> Unit,
+    onFailure: () -> Unit
 ) {
-    appViewModel.isLoading = true
     val authUrl = buildAuthHttpUrl(url)
     val credentials = okhttp3.Credentials.basic(username, password)
     Log.d("LoginScreen", "Attempting HTTP(S) login to: $authUrl with user: $username")
 
     val request = buildRequest(authUrl, credentials)
 
-    client.newCall(request).enqueue(object: Callback {
+    client.newCall(request).enqueue(object : Callback {
         override fun onFailure(call: Call, e: IOException) {
-            scope.launch {
-                appViewModel.isLoading = false
-            }
             Log.e("LoginScreen", "HTTP(S) Login onFailure", e)
+            scope.launch {
+                onFailure()
+            }
         }
 
         override fun onResponse(call: Call, response: Response) {
             val responseBodyString = response.body.string()
-            var token: String? = null
-
-            if (response.isSuccessful){
+            if (response.isSuccessful) {
                 try {
                     val jsonResponse = JSONObject(responseBodyString)
                     val receivedToken = jsonResponse.optString("token", "")
@@ -68,26 +65,33 @@ fun performHttpLogin(
                             putString("gomuks_auth_token", receivedToken)
                             putString("homeserver_url", url)
                         }
-                        Log.d("LoginScreen", "URL: $authUrl")
-                        token = receivedToken
-                        Log.d("LoginScreen", "Token and server base URL saved to SharedPreferences.")
-                        connectToWebsocket(url, client, scope, token)
+                        Log.d(
+                            "LoginScreen",
+                            "Token and server base URL saved to SharedPreferences."
+                        )
                         scope.launch {
-                            appViewModel.isLoading = false
+                            onSuccess()
                         }
                     } else {
-                        return
+                        Log.w("LoginScreen", "Login successful, but no token in response")
+                        scope.launch {
+                            onFailure()
+                        }
                     }
                 } catch (e: Exception) {
+                    Log.e("LoginScreen", "JSON Parsing Error", e)
                     scope.launch {
-                        appViewModel.isLoading = false
-                        Log.e("LoginScreen", "JSON Parsing Error", e)
+                        onFailure()
                     }
+                }
+            } else {
+                Log.e("LoginScreen", "HTTP Login failed: ${response.code}")
+                scope.launch {
+                    onFailure()
                 }
             }
         }
     })
-
 }
 
 fun buildRequest(url: String, credentials: String): Request {
