@@ -35,7 +35,9 @@ class MainActivity : ComponentActivity() {
 fun AppNavigation(modifier: Modifier) {
     val navController = rememberNavController()
     val appViewModel: AppViewModel = viewModel()
-    NavHost(navController = navController, startDestination = "login", modifier = modifier) {
+    NavHost(navController = navController, startDestination = "auth_check", modifier = modifier) {
         composable("login") { LoginScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
+        composable("auth_check") { AuthCheckScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
+        composable("room_list") { RoomListScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
     }
 }

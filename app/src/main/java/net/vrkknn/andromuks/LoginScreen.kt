@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -22,11 +23,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import androidx.navigation.compose.rememberNavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.performHttpLogin
 import okhttp3.OkHttpClient
@@ -38,6 +37,10 @@ fun LoginScreen(navController: NavController, modifier: Modifier = Modifier, app
     var password by remember { mutableStateOf("") }
     val client = remember { OkHttpClient.Builder().build() }
     val scope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val sharedPreferences = remember {
+        context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+    }
 
     AndromuksTheme {
         Surface {
@@ -69,25 +72,18 @@ fun LoginScreen(navController: NavController, modifier: Modifier = Modifier, app
                 )
                 Spacer(modifier = Modifier.height(16.dp))
                 Button(
-                    onClick = { performHttpLogin(url, username, password, appViewModel, client, scope) },
+                    onClick = { performHttpLogin(url, username, password, appViewModel, client, scope, sharedPreferences) },
                     enabled = url.isNotBlank() && username.isNotBlank() && password.isNotBlank(),
                 ) {
-                    if (appViewModel.isLoading) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp))
-                        Spacer(modifier = Modifier.size(8.dp))
-                        Text("Logging in...")
-                    } else {
-                        Text("Login")
-                    }
+                    Text(text = if (appViewModel.isLoading) "Logging in..." else "Login")
                 }
                 Spacer(modifier = Modifier.height(16.dp))
+                if (appViewModel.isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
         }
     }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun LoginScreenPreview() {
-    AndromuksTheme { LoginScreen(navController = rememberNavController()) }
 }
