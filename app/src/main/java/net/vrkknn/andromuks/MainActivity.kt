@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -33,7 +34,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppNavigation(modifier: Modifier) {
     val navController = rememberNavController()
+    val appViewModel: AppViewModel = viewModel()
     NavHost(navController = navController, startDestination = "login", modifier = modifier) {
-        composable("login") { LoginScreen(navController = navController, modifier = modifier) }
+        composable("login") { LoginScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
     }
 }
