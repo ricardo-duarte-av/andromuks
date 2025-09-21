@@ -47,7 +47,12 @@ class AppViewModel : ViewModel() {
         if (syncMessageCount >= 3 && allRooms.isNotEmpty() && !spacesLoaded) {
             android.util.Log.d("Andromuks", "AppViewModel: Workaround - navigating after $syncMessageCount sync messages")
             spacesLoaded = true
-            onNavigateToRoomList?.invoke()
+            if (onNavigateToRoomList != null) {
+                onNavigateToRoomList?.invoke()
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: Navigation callback not set yet, marking as pending")
+                pendingNavigation = true
+            }
         }
     }
     
@@ -55,14 +60,27 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: onInitComplete called - setting spacesLoaded = true")
         spacesLoaded = true
         android.util.Log.d("Andromuks", "AppViewModel: Calling navigation callback (callback is ${if (onNavigateToRoomList != null) "set" else "null"})")
-        onNavigateToRoomList?.invoke()
+        if (onNavigateToRoomList != null) {
+            onNavigateToRoomList?.invoke()
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: Navigation callback not set yet, marking as pending")
+            pendingNavigation = true
+        }
     }
     
     // Navigation callback
     var onNavigateToRoomList: (() -> Unit)? = null
+    private var pendingNavigation = false
     
     fun setNavigationCallback(callback: () -> Unit) {
         android.util.Log.d("Andromuks", "AppViewModel: Navigation callback set")
         onNavigateToRoomList = callback
+        
+        // If we have a pending navigation, trigger it now
+        if (pendingNavigation) {
+            android.util.Log.d("Andromuks", "AppViewModel: Triggering pending navigation")
+            pendingNavigation = false
+            callback()
+        }
     }
 }

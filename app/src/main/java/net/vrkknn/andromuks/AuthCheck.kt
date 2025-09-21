@@ -36,12 +36,13 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
 
         if (token != null && homeserverUrl != null) {
             Log.d("AuthCheckScreen", "Token and server URL found. Attempting auto WebSocket connect.")
-            // Set up navigation callback
+            // Set up navigation callback BEFORE connecting websocket
             appViewModel.setNavigationCallback {
                 android.util.Log.d("Andromuks", "AuthCheck: Navigation callback triggered - navigating to room_list")
                 appViewModel.isLoading = false
                 navController.navigate("room_list")
             }
+            // Now connect websocket
             connectToWebsocket(homeserverUrl, client, scope, token, appViewModel)
             // Do not navigate yet; wait for spacesLoaded
         } else {
