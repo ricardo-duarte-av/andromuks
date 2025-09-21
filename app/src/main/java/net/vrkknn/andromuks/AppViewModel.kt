@@ -65,7 +65,8 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${roomMap.size} (updated: ${syncResult.updatedRooms.size}, new: ${syncResult.newRooms.size}, removed: ${syncResult.removedRoomIds.size}) - sync message #$syncMessageCount")
         
         // Update the UI with the current room list
-        setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = roomMap.values.toList())))
+        val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+        setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
         
         // Temporary workaround: navigate after 3 sync messages if we have rooms
         if (syncMessageCount >= 3 && roomMap.isNotEmpty() && !spacesLoaded) {
