@@ -152,6 +152,7 @@ fun connectToWebsocket(
                     "response" -> {
                         val requestId = jsonObject.optInt("request_id")
                         val data = jsonObject.opt("data")
+                        Log.d("Andromuks", "NetworkUtils: Routing response to handleTimelineResponse, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
                         scope.launch(Dispatchers.Main) {
                             appViewModel.handleTimelineResponse(requestId, data)
                         }
