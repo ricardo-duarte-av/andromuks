@@ -51,8 +51,8 @@ fun RoomTimelineScreen(
     modifier: Modifier = Modifier,
     appViewModel: AppViewModel = viewModel()
 ) {
-    var timelineEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
+    val timelineEvents = appViewModel.timelineEvents
+    val isLoading = appViewModel.isTimelineLoading
     
     LaunchedEffect(roomId) {
         Log.d("Andromuks", "RoomTimelineScreen: Loading timeline for room: $roomId")
