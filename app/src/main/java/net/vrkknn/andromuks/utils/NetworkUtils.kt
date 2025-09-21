@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import android.util.Log
 import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import okhttp3.Call
 import okhttp3.Callback
@@ -16,6 +17,7 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 import okio.IOException
 import org.json.JSONObject
+import net.vrkknn.andromuks.AppViewModel
 
 fun buildAuthHttpUrl(rawUrl: String): String {
     var authUrl = rawUrl.lowercase().trim()
@@ -110,7 +112,8 @@ fun connectToWebsocket(
     url: String,
     client: OkHttpClient,
     scope: CoroutineScope,
-    token: String
+    token: String,
+    appViewModel: AppViewModel
 ) {
     Log.d("NetworkUtils", "connectToWebsocket: Initializing...")
 
@@ -128,6 +131,13 @@ fun connectToWebsocket(
 
         override fun onMessage(webSocket: WebSocket, text: String) {
             Log.d("NetworkUtils", "WebSocket TextMessage: $text")
+            val jsonObject = try { JSONObject(text) } catch (e: Exception) { null }
+            if (jsonObject != null && jsonObject.optString("command") == "sync_complete") {
+                Log.d("NetworkUtils", "Calling updateSpacesFromSyncJson with sync JSON")
+                scope.launch(Dispatchers.Main) {
+                    appViewModel.updateSpacesFromSyncJson(jsonObject)
+                }
+            }
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
