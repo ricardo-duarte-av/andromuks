@@ -21,3 +21,11 @@ data class RoomItem(
     val avatarUrl: String?,
 //    val isInvite: Boolean
 )
+
+@Immutable
+data class SpaceItem(
+    val id: String,
+    val name: String,
+    val avatarUrl: String?,
+    val rooms: List<RoomItem>
+)

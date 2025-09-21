@@ -21,6 +21,14 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.Image
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.ColorFilter
 
 val mockRoomList = listOf(
     RoomItem(id = "1", name = "There is a chat that never goes out", messagePreview = "last message", unreadCount = 1, avatarUrl = null),
@@ -39,19 +47,65 @@ fun RoomListScreen(
 ) {
     AndromuksTheme {
         Surface {
-            TopAppBar(
-                title = { Text("Chats") }
-            )
-            LazyColumn(
-                modifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-
+            var selectedSpaceId by remember { mutableStateOf<String?>(null) }
+            val spaces = appViewModel.spaceList
+            Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
+                Text("Spaces", style = MaterialTheme.typography.titleLarge)
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    verticalArrangement = Arrangement.Top
+                ) {
+                    items(spaces.size) { idx ->
+                        val space = spaces[idx]
+                        SpaceListItem(
+                            space = space,
+                            isSelected = space.id == selectedSpaceId,
+                            onClick = { selectedSpaceId = space.id }
+                        )
+                    }
+                }
+                if (selectedSpaceId != null) {
+                    val selectedSpace = spaces.find { it.id == selectedSpaceId }
+                    if (selectedSpace != null) {
+                        Text("Rooms in ${selectedSpace.name}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
+                        LazyColumn(
+                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            verticalArrangement = Arrangement.Top
+                        ) {
+                            items(selectedSpace.rooms.size) { idx ->
+                                val room = selectedSpace.rooms[idx]
+                                RoomListItem(
+                                    room = room,
+                                    onRoomClick = { /* TODO: Navigate to room timeline */ }
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    Text("Select a space to view its rooms", modifier = Modifier.padding(top = 16.dp))
+                }
             }
         }
     }
 }
+
+@Composable
+fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 8.dp, horizontal = 8.dp)
+    ) {
+        Text(
+            text = space.name,
+            style = if (isSelected) MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.primary)
+            else MaterialTheme.typography.titleMedium
+        )
+        // TODO: Add avatar image if available
+    }
+}
+
 @Composable
 fun RoomListItem(
     room: RoomItem,
