@@ -126,7 +126,8 @@ fun connectToWebsocket(
 
     val websocketListener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
-            Log.d("Andromuks", "NetworkUtils: onOpen: ws opened on ${response.message}")
+            Log.d("Andromuks", "NetworkUtils: onOpen: ws opened on "+response.message)
+            appViewModel.setWebSocket(webSocket)
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {

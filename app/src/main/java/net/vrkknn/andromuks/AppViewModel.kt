@@ -8,6 +8,7 @@ import net.vrkknn.andromuks.SpaceItem
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.SpaceRoomParser
 import org.json.JSONObject
+import okhttp3.WebSocket
 
 class AppViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
@@ -126,6 +127,12 @@ class AppViewModel : ViewModel() {
     private var requestIdCounter = 100
     private val pendingRequests = mutableMapOf<Int, String>() // requestId -> roomId
     
+    private var webSocket: WebSocket? = null
+
+    fun setWebSocket(webSocket: WebSocket) {
+        this.webSocket = webSocket
+    }
+    
     fun requestRoomTimeline(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId")
         currentRoomId = roomId
@@ -220,7 +227,19 @@ class AppViewModel : ViewModel() {
     }
     
     private fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>) {
-        // This will be implemented to send commands via websocket
-        android.util.Log.d("Andromuks", "AppViewModel: Would send command: $command, requestId: $requestId")
+        val ws = webSocket
+        if (ws == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, cannot send command: $command")
+            return
+        }
+        val json = org.json.JSONObject()
+        json.put("command", command)
+        json.put("request_id", requestId)
+        for ((key, value) in data) {
+            json.put(key, value)
+        }
+        val jsonString = json.toString()
+        android.util.Log.d("Andromuks", "AppViewModel: Sending command: $jsonString")
+        ws.send(jsonString)
     }
 }
