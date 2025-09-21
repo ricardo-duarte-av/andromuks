@@ -47,11 +47,20 @@ class AppViewModel : ViewModel() {
         if (syncMessageCount >= 3 && allRooms.isNotEmpty() && !spacesLoaded) {
             android.util.Log.d("Andromuks", "AppViewModel: Workaround - navigating after $syncMessageCount sync messages")
             spacesLoaded = true
+            onNavigateToRoomList?.invoke()
         }
     }
     
     fun onInitComplete() {
         android.util.Log.d("Andromuks", "AppViewModel: onInitComplete called - setting spacesLoaded = true")
         spacesLoaded = true
+        onNavigateToRoomList?.invoke()
+    }
+    
+    // Navigation callback
+    var onNavigateToRoomList: (() -> Unit)? = null
+    
+    fun setNavigationCallback(callback: () -> Unit) {
+        onNavigateToRoomList = callback
     }
 }
