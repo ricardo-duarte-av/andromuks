@@ -144,6 +144,7 @@ fun connectToWebsocket(
                     "init_complete" -> {
                         Log.d("Andromuks", "NetworkUtils: Received init_complete - initialization finished")
                         scope.launch(Dispatchers.Main) {
+                            Log.d("Andromuks", "NetworkUtils: Calling onInitComplete on main thread")
                             appViewModel.onInitComplete()
                         }
                     }

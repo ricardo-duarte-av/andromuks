@@ -54,6 +54,7 @@ class AppViewModel : ViewModel() {
     fun onInitComplete() {
         android.util.Log.d("Andromuks", "AppViewModel: onInitComplete called - setting spacesLoaded = true")
         spacesLoaded = true
+        android.util.Log.d("Andromuks", "AppViewModel: Calling navigation callback (callback is ${if (onNavigateToRoomList != null) "set" else "null"})")
         onNavigateToRoomList?.invoke()
     }
     
@@ -61,6 +62,7 @@ class AppViewModel : ViewModel() {
     var onNavigateToRoomList: (() -> Unit)? = null
     
     fun setNavigationCallback(callback: () -> Unit) {
+        android.util.Log.d("Andromuks", "AppViewModel: Navigation callback set")
         onNavigateToRoomList = callback
     }
 }
