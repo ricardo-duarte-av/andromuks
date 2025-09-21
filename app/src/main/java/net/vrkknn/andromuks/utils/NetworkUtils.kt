@@ -132,10 +132,21 @@ fun connectToWebsocket(
         override fun onMessage(webSocket: WebSocket, text: String) {
             Log.d("NetworkUtils", "WebSocket TextMessage: $text")
             val jsonObject = try { JSONObject(text) } catch (e: Exception) { null }
-            if (jsonObject != null && jsonObject.optString("command") == "sync_complete") {
-                Log.d("NetworkUtils", "Calling updateSpacesFromSyncJson with sync JSON")
-                scope.launch(Dispatchers.Main) {
-                    appViewModel.updateSpacesFromSyncJson(jsonObject)
+            if (jsonObject != null) {
+                val command = jsonObject.optString("command")
+                when (command) {
+                    "sync_complete" -> {
+                        Log.d("NetworkUtils", "Processing sync_complete message")
+                        scope.launch(Dispatchers.Main) {
+                            appViewModel.updateRoomsFromSyncJson(jsonObject)
+                        }
+                    }
+                    "init_complete" -> {
+                        Log.d("NetworkUtils", "Received init_complete - initialization finished")
+                        scope.launch(Dispatchers.Main) {
+                            appViewModel.onInitComplete()
+                        }
+                    }
                 }
             }
         }

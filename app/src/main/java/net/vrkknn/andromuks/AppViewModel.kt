@@ -30,9 +30,15 @@ class AppViewModel : ViewModel() {
         isLoading = false
     }
 
-    fun updateSpacesFromSyncJson(syncJson: JSONObject) {
-        val spaces = SpaceRoomParser.parseSpacesAndRooms(syncJson)
-        setSpaces(spaces)
+    private val allRooms = mutableListOf<RoomItem>()
+    
+    fun updateRoomsFromSyncJson(syncJson: JSONObject) {
+        val rooms = SpaceRoomParser.parseRooms(syncJson)
+        allRooms.addAll(rooms)
+        setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = allRooms.toList())))
+    }
+    
+    fun onInitComplete() {
         spacesLoaded = true
     }
 }

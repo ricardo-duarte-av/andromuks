@@ -1,82 +1,68 @@
 package net.vrkknn.andromuks.utils
 
-import net.vrkknn.andromuks.RoomItem
-import net.vrkknn.andromuks.SpaceItem
-import org.json.JSONObject
 import android.util.Log
+import net.vrkknn.andromuks.RoomItem
+import org.json.JSONObject
 
 object SpaceRoomParser {
     /**
-     * Parses the sync JSON and returns a list of SpaceItem, each with its RoomItem children.
-     * Only top-level spaces and their direct room children are included (subspaces ignored).
+     * Parses the sync JSON and returns a list of all non-space rooms.
+     * Ignores spaces for now and just shows a flat list of rooms.
      */
-    fun parseSpacesAndRooms(syncJson: JSONObject): List<SpaceItem> {
+    fun parseRooms(syncJson: JSONObject): List<RoomItem> {
         val data = syncJson.optJSONObject("data") ?: return emptyList()
         val roomsJson = data.optJSONObject("rooms") ?: return emptyList()
-        val topLevelSpaces = data.optJSONArray("top_level_spaces") ?: return emptyList()
-        val spaceEdges = data.optJSONObject("space_edges") ?: JSONObject()
 
-        // Build a map of all rooms (including spaces)
-        val allRooms = mutableMapOf<String, RoomItem>()
-        val allSpaces = mutableMapOf<String, SpaceItem>()
+        val rooms = mutableListOf<RoomItem>()
 
-        // First, collect all rooms and spaces
+        // Iterate through all rooms
         val roomKeys = roomsJson.keys()
         while (roomKeys.hasNext()) {
             val roomId = roomKeys.next()
             val roomObj = roomsJson.optJSONObject(roomId) ?: continue
             val meta = roomObj.optJSONObject("meta") ?: continue
-            val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
-            val avatar = meta.optString("avatar")?.takeIf { it.isNotBlank() }
+            
+            // Check if this is a space (skip spaces for now)
             val type = meta.optJSONObject("creation_content")?.optString("type")?.takeIf { it.isNotBlank() }
             if (type == "m.space") {
-                // Space, will be constructed below
+                Log.d("SpaceRoomParser", "Skipping space: $roomId")
                 continue
-            } else {
-                // Regular room
-                allRooms[roomId] = RoomItem(
-                    id = roomId,
-                    name = name,
-                    messagePreview = null,
-                    unreadCount = null,
-                    avatarUrl = avatar
-                )
             }
-        }
 
-        Log.d("SpaceRoomParser", "Top-level spaces count: ${topLevelSpaces.length()}")
-        // Now, build SpaceItems for top-level spaces
-        val result = mutableListOf<SpaceItem>()
-        for (i in 0 until topLevelSpaces.length()) {
-            val spaceId = topLevelSpaces.optString(i)
-            Log.d("SpaceRoomParser", "Parsing space: $spaceId")
-            val spaceObj = roomsJson.optJSONObject(spaceId) ?: continue
-            val meta = spaceObj.optJSONObject("meta") ?: continue
-            val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: spaceId
+            // This is a regular room
+            val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
             val avatar = meta.optString("avatar")?.takeIf { it.isNotBlank() }
-            // Get children from space_edges
-            val children = mutableListOf<RoomItem>()
-            val edgeArr = spaceEdges.optJSONArray(spaceId) ?: continue
-            for (j in 0 until edgeArr.length()) {
-                val child = edgeArr.optJSONObject(j) ?: continue
-                val childId = child.optString("child_id")?.takeIf { it.isNotBlank() } ?: continue
-                Log.d("SpaceRoomParser", "Space $spaceId child $childId is in allRooms: ${allRooms.containsKey(childId)}")
-                // Only add if it's a room (not a space)
-                val childRoom = allRooms[childId]
-                if (childRoom != null) {
-                    children.add(childRoom)
+            
+            // Extract unread count from meta
+            val unreadMessages = meta.optInt("unread_messages", 0)
+            
+            // Extract last message preview from events if available
+            val events = roomObj.optJSONArray("events")
+            var messagePreview: String? = null
+            if (events != null && events.length() > 0) {
+                // Get the last event (most recent)
+                val lastEvent = events.optJSONObject(events.length() - 1)
+                if (lastEvent != null && lastEvent.optString("type") == "m.room.message") {
+                    val content = lastEvent.optJSONObject("content")
+                    messagePreview = content?.optString("body")?.takeIf { it.isNotBlank() }
                 }
             }
-            Log.d("SpaceRoomParser", "Space $spaceId has ${children.size} rooms")
-            result.add(
-                SpaceItem(
-                    id = spaceId,
+
+            rooms.add(
+                RoomItem(
+                    id = roomId,
                     name = name,
-                    avatarUrl = avatar,
-                    rooms = children
+                    messagePreview = messagePreview,
+                    unreadCount = if (unreadMessages > 0) unreadMessages else null,
+                    avatarUrl = avatar
                 )
             )
         }
-        return result
+
+        Log.d("SpaceRoomParser", "Parsed ${rooms.size} rooms from sync JSON")
+        rooms.forEach { room ->
+            Log.d("SpaceRoomParser", "Room: ${room.name} (${room.id})")
+        }
+        return rooms
     }
 }

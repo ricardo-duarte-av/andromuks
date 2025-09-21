@@ -49,11 +49,11 @@ fun RoomListScreen(
         Surface {
             val spaces = appViewModel.spaceList
             if (spaces.isEmpty()) {
-                Text("Loading spaces...", modifier = Modifier.padding(16.dp))
+                Text("Loading rooms...", modifier = Modifier.padding(16.dp))
             } else {
                 var selectedSpaceId by remember { mutableStateOf<String?>(null) }
                 Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
-                    Text("Spaces", style = MaterialTheme.typography.titleLarge)
+                    Text("Rooms", style = MaterialTheme.typography.titleLarge)
                     LazyColumn(
                         modifier = Modifier.fillMaxWidth().weight(1f),
                         verticalArrangement = Arrangement.Top
@@ -86,7 +86,7 @@ fun RoomListScreen(
                             }
                         }
                     } else {
-                        Text("Select a space to view its rooms", modifier = Modifier.padding(top = 16.dp))
+                        Text("Select a room group to view its rooms", modifier = Modifier.padding(top = 16.dp))
                     }
                 }
             }
