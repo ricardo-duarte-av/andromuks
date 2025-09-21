@@ -235,9 +235,7 @@ class AppViewModel : ViewModel() {
         val json = org.json.JSONObject()
         json.put("command", command)
         json.put("request_id", requestId)
-        for ((key, value) in data) {
-            json.put(key, value)
-        }
+        json.put("data", org.json.JSONObject(data))
         val jsonString = json.toString()
         android.util.Log.d("Andromuks", "AppViewModel: Sending command: $jsonString")
         ws.send(jsonString)
