@@ -47,47 +47,47 @@ fun RoomListScreen(
 ) {
     AndromuksTheme {
         Surface {
-            var selectedSpaceId by remember { mutableStateOf<String?>(null) }
             val spaces = appViewModel.spaceList
             if (spaces.isEmpty()) {
                 Text("Loading spaces...", modifier = Modifier.padding(16.dp))
-                return
-            }
-            Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
-                Text("Spaces", style = MaterialTheme.typography.titleLarge)
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    verticalArrangement = Arrangement.Top
-                ) {
-                    items(spaces.size) { idx ->
-                        val space = spaces[idx]
-                        SpaceListItem(
-                            space = space,
-                            isSelected = space.id == selectedSpaceId,
-                            onClick = { selectedSpaceId = space.id }
-                        )
-                    }
-                }
-                if (selectedSpaceId != null) {
-                    val selectedSpace = spaces.find { it.id == selectedSpaceId }
-                    Log.d("RoomListScreen", "Selected space ${selectedSpace?.name} has ${selectedSpace?.rooms?.size} rooms")
-                    if (selectedSpace != null) {
-                        Text("Rooms in ${selectedSpace.name}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
-                        LazyColumn(
-                            modifier = Modifier.fillMaxWidth().weight(1f),
-                            verticalArrangement = Arrangement.Top
-                        ) {
-                            items(selectedSpace.rooms.size) { idx ->
-                                val room = selectedSpace.rooms[idx]
-                                RoomListItem(
-                                    room = room,
-                                    onRoomClick = { /* TODO: Navigate to room timeline */ }
-                                )
-                            }
+            } else {
+                var selectedSpaceId by remember { mutableStateOf<String?>(null) }
+                Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
+                    Text("Spaces", style = MaterialTheme.typography.titleLarge)
+                    LazyColumn(
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        verticalArrangement = Arrangement.Top
+                    ) {
+                        items(spaces.size) { idx ->
+                            val space = spaces[idx]
+                            SpaceListItem(
+                                space = space,
+                                isSelected = space.id == selectedSpaceId,
+                                onClick = { selectedSpaceId = space.id }
+                            )
                         }
                     }
-                } else {
-                    Text("Select a space to view its rooms", modifier = Modifier.padding(top = 16.dp))
+                    if (selectedSpaceId != null) {
+                        val selectedSpace = spaces.find { it.id == selectedSpaceId }
+                        Log.d("RoomListScreen", "Selected space ${selectedSpace?.name} has ${selectedSpace?.rooms?.size} rooms")
+                        if (selectedSpace != null) {
+                            Text("Rooms in ${selectedSpace.name}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
+                            LazyColumn(
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                verticalArrangement = Arrangement.Top
+                            ) {
+                                items(selectedSpace.rooms.size) { idx ->
+                                    val room = selectedSpace.rooms[idx]
+                                    RoomListItem(
+                                        room = room,
+                                        onRoomClick = { /* TODO: Navigate to room timeline */ }
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Text("Select a space to view its rooms", modifier = Modifier.padding(top = 16.dp))
+                    }
                 }
             }
         }
