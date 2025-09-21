@@ -86,7 +86,7 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    fun setHomeserverUrl(url: String) {
+    fun updateHomeserverUrl(url: String) {
         homeserverUrl = url
     }
 }
