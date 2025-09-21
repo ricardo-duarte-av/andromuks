@@ -2,33 +2,38 @@ package net.vrkknn.andromuks
 
 import android.util.Log
 import android.view.Surface
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavController
-import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.foundation.Image
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.navigation.NavController
+import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 
 val mockRoomList = listOf(
     RoomItem(id = "1", name = "There is a chat that never goes out", messagePreview = "last message", unreadCount = 1, avatarUrl = null),
@@ -51,42 +56,51 @@ fun RoomListScreen(
             if (spaces.isEmpty()) {
                 Text("Loading rooms...", modifier = Modifier.padding(16.dp))
             } else {
-                var selectedSpaceId by remember { mutableStateOf<String?>(null) }
-                Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
-                    Text("Rooms", style = MaterialTheme.typography.titleLarge)
-                    LazyColumn(
-                        modifier = Modifier.fillMaxWidth().weight(1f),
-                        verticalArrangement = Arrangement.Top
-                    ) {
-                        items(spaces.size) { idx ->
-                            val space = spaces[idx]
-                            SpaceListItem(
-                                space = space,
-                                isSelected = space.id == selectedSpaceId,
-                                onClick = { selectedSpaceId = space.id }
-                            )
-                        }
-                    }
-                    if (selectedSpaceId != null) {
-                        val selectedSpace = spaces.find { it.id == selectedSpaceId }
-                        Log.d("Andromuks", "RoomListScreen: Selected space ${selectedSpace?.name} has ${selectedSpace?.rooms?.size} rooms")
-                        if (selectedSpace != null) {
-                            Text("Rooms in ${selectedSpace.name}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
-                            LazyColumn(
-                                modifier = Modifier.fillMaxWidth().weight(1f),
-                                verticalArrangement = Arrangement.Top
-                            ) {
-                                items(selectedSpace.rooms.size) { idx ->
-                                    val room = selectedSpace.rooms[idx]
-                                    RoomListItem(
-                                        room = room,
-                                        onRoomClick = { /* TODO: Navigate to room timeline */ }
-                                    )
-                                }
+                // Get all rooms from the first space (which should be "All Rooms")
+                val allRooms = spaces.firstOrNull()?.rooms ?: emptyList()
+                var searchQuery by remember { mutableStateOf("") }
+                
+                Column(modifier = modifier.fillMaxSize()) {
+                    // Top App Bar with profile and name
+                    TopAppBar(
+                        title = { 
+                            Column {
+                                Text("Profile", style = MaterialTheme.typography.titleMedium)
+                                Text("@daedric:aguiarvieira.pt", style = MaterialTheme.typography.bodySmall)
                             }
                         }
-                    } else {
-                        Text("Select a room group to view its rooms", modifier = Modifier.padding(top = 16.dp))
+                    )
+                    
+                    // Search box
+                    TextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search rooms...") },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp)
+                    )
+                    
+                    // Room list
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.Top
+                    ) {
+                        val filteredRooms = if (searchQuery.isBlank()) {
+                            allRooms
+                        } else {
+                            allRooms.filter { room ->
+                                room.name.contains(searchQuery, ignoreCase = true)
+                            }
+                        }
+                        
+                        items(filteredRooms.size) { idx ->
+                            val room = filteredRooms[idx]
+                            RoomListItem(
+                                room = room,
+                                onRoomClick = { /* TODO: Navigate to room timeline */ }
+                            )
+                        }
                     }
                 }
             }
@@ -117,16 +131,69 @@ fun RoomListItem(
     onRoomClick: (RoomItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Row(
         modifier = modifier
             .fillMaxWidth()
             .clickable { onRoomClick(room) }
-            .padding(vertical = 12.dp, horizontal = 16.dp)
+            .padding(vertical = 12.dp, horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = room.name,
-            style = MaterialTheme.typography.titleMedium
-        )
-        // rest of room details here
+        // Room avatar placeholder (you can add actual avatar loading later)
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .background(
+                    MaterialTheme.colorScheme.primaryContainer,
+                    CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = room.name.take(1).uppercase(),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
+        }
+        
+        Spacer(modifier = Modifier.width(12.dp))
+        
+        // Room info
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = room.name,
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (room.messagePreview != null) {
+                Text(
+                    text = room.messagePreview,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        
+        // Unread count badge
+        if (room.unreadCount != null && room.unreadCount > 0) {
+            Box(
+                modifier = Modifier
+                    .background(
+                        MaterialTheme.colorScheme.primary,
+                        CircleShape
+                    )
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    text = room.unreadCount.toString(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
     }
 }
