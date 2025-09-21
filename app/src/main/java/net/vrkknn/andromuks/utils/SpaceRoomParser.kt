@@ -153,12 +153,16 @@ object SpaceRoomParser {
                 }
             }
             
+            // Extract sorting_timestamp from meta
+            val sortingTimestamp = meta.optLong("sorting_timestamp", 0L).takeIf { it != 0L }
+            
             return RoomItem(
                 id = roomId,
                 name = name,
                 messagePreview = messagePreview,
                 unreadCount = if (unreadMessages > 0) unreadMessages else null,
-                avatarUrl = avatar
+                avatarUrl = avatar,
+                sortingTimestamp = sortingTimestamp
             )
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error parsing room $roomId", e)

@@ -19,7 +19,7 @@ data class RoomItem(
     val messagePreview: String?,
     val unreadCount: Int?,
     val avatarUrl: String?,
-//    val isInvite: Boolean
+    val sortingTimestamp: Long? = null
 )
 
 @Immutable
