@@ -60,6 +60,7 @@ object SpaceRoomParser {
             for (j in 0 until edgeArr.length()) {
                 val child = edgeArr.optJSONObject(j) ?: continue
                 val childId = child.optString("child_id")?.takeIf { it.isNotBlank() } ?: continue
+                Log.d("SpaceRoomParser", "Space $spaceId child $childId is in allRooms: ${allRooms.containsKey(childId)}")
                 // Only add if it's a room (not a space)
                 val childRoom = allRooms[childId]
                 if (childRoom != null) {

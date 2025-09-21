@@ -49,6 +49,10 @@ fun RoomListScreen(
         Surface {
             var selectedSpaceId by remember { mutableStateOf<String?>(null) }
             val spaces = appViewModel.spaceList
+            if (spaces.isEmpty()) {
+                Text("Loading spaces...", modifier = Modifier.padding(16.dp))
+                return
+            }
             Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
                 Text("Spaces", style = MaterialTheme.typography.titleLarge)
                 LazyColumn(
