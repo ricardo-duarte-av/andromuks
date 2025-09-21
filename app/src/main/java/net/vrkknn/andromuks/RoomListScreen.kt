@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import android.content.Context
 
 val mockRoomList = listOf(
     RoomItem(id = "1", name = "There is a chat that never goes out", messagePreview = "last message", unreadCount = 1, avatarUrl = null),
@@ -50,6 +51,10 @@ fun RoomListScreen(
     modifier: Modifier = Modifier,
     appViewModel: AppViewModel = viewModel()
 ) {
+    val context = LocalContext.current
+    val sharedPreferences = remember { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
+    val authToken = remember { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
+    
     AndromuksTheme {
         Surface {
             val spaces = appViewModel.spaceList
@@ -98,6 +103,8 @@ fun RoomListScreen(
                             val room = filteredRooms[idx]
                             RoomListItem(
                                 room = room,
+                                homeserverUrl = appViewModel.homeserverUrl,
+                                authToken = authToken,
                                 onRoomClick = { /* TODO: Navigate to room timeline */ }
                             )
                         }
@@ -128,6 +135,8 @@ fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
 @Composable
 fun RoomListItem(
     room: RoomItem,
+    homeserverUrl: String,
+    authToken: String,
     onRoomClick: (RoomItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -138,22 +147,14 @@ fun RoomListItem(
             .padding(vertical = 12.dp, horizontal = 16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Room avatar placeholder (you can add actual avatar loading later)
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .background(
-                    MaterialTheme.colorScheme.primaryContainer,
-                    CircleShape
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = room.name.take(1).uppercase(),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        }
+        // Room avatar
+        net.vrkknn.andromuks.ui.components.AvatarImage(
+            mxcUrl = room.avatarUrl,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            fallbackText = room.name,
+            size = 48.dp
+        )
         
         Spacer(modifier = Modifier.width(12.dp))
         

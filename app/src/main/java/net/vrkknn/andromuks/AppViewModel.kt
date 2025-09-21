@@ -10,6 +10,8 @@ import org.json.JSONObject
 
 class AppViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
+    var homeserverUrl by mutableStateOf("")
+        private set
 
     // List of spaces, each with their rooms
     var spaceList by mutableStateOf(listOf<SpaceItem>())
@@ -82,5 +84,9 @@ class AppViewModel : ViewModel() {
             pendingNavigation = false
             callback()
         }
+    }
+    
+    fun setHomeserverUrl(url: String) {
+        homeserverUrl = url
     }
 }
