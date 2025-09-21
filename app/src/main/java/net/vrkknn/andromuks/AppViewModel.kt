@@ -31,6 +31,7 @@ class AppViewModel : ViewModel() {
     }
 
     private val allRooms = mutableListOf<RoomItem>()
+    private var syncMessageCount = 0
     
     fun updateRoomsFromSyncJson(syncJson: JSONObject) {
         val rooms = SpaceRoomParser.parseRooms(syncJson)
@@ -38,11 +39,19 @@ class AppViewModel : ViewModel() {
         val existingIds = allRooms.map { it.id }.toSet()
         val newRooms = rooms.filter { !existingIds.contains(it.id) }
         allRooms.addAll(newRooms)
-        android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${allRooms.size} (added ${newRooms.size} new)")
+        syncMessageCount++
+        android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${allRooms.size} (added ${newRooms.size} new) - sync message #$syncMessageCount")
         setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = allRooms.toList())))
+        
+        // Temporary workaround: navigate after 3 sync messages if we have rooms
+        if (syncMessageCount >= 3 && allRooms.isNotEmpty() && !spacesLoaded) {
+            android.util.Log.d("Andromuks", "AppViewModel: Workaround - navigating after $syncMessageCount sync messages")
+            spacesLoaded = true
+        }
     }
     
     fun onInitComplete() {
+        android.util.Log.d("Andromuks", "AppViewModel: onInitComplete called - setting spacesLoaded = true")
         spacesLoaded = true
     }
 }

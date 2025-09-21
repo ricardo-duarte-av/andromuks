@@ -46,7 +46,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
     }
 
     LaunchedEffect(appViewModel.spacesLoaded) {
+        android.util.Log.d("Andromuks", "AuthCheck: spacesLoaded changed to ${appViewModel.spacesLoaded}")
         if (appViewModel.spacesLoaded) {
+            android.util.Log.d("Andromuks", "AuthCheck: Navigating to room_list")
             appViewModel.isLoading = false
             navController.navigate("room_list")
         }
