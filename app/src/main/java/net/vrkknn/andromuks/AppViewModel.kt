@@ -169,11 +169,10 @@ class AppViewModel : ViewModel() {
             return
         }
 
-        android.util.Log.d("Andromuks", "AppViewModel: Handling timeline response for room: $roomId, requestId: $requestId")
+        android.util.Log.d("Andromuks", "AppViewModel: Handling timeline response for room: $roomId, requestId: $requestId, data type: ${data::class.java.simpleName}")
 
         when (data) {
             is JSONArray -> {
-                // Room state response
                 val events = mutableListOf<TimelineEvent>()
                 for (i in 0 until data.length()) {
                     val eventJson = data.optJSONObject(i)
@@ -181,12 +180,12 @@ class AppViewModel : ViewModel() {
                         events.add(TimelineEvent.fromJson(eventJson))
                     }
                 }
-                android.util.Log.d("Andromuks", "AppViewModel: Received ${events.size} room state events")
+                android.util.Log.d("Andromuks", "AppViewModel: Processed JSONArray, ${events.size} events: ${events.joinToString { it.type }}")
                 timelineEvents = events
                 isTimelineLoading = false
+                android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set from JSONArray, isTimelineLoading set to false")
             }
             is JSONObject -> {
-                // Paginate response
                 val eventsArray = data.optJSONArray("events")
                 if (eventsArray != null) {
                     val events = mutableListOf<TimelineEvent>()
@@ -196,14 +195,19 @@ class AppViewModel : ViewModel() {
                             events.add(TimelineEvent.fromJson(eventJson))
                         }
                     }
-                    android.util.Log.d("Andromuks", "AppViewModel: Received ${events.size} timeline events")
+                    android.util.Log.d("Andromuks", "AppViewModel: Processed JSONObject.events, ${events.size} events: ${events.joinToString { it.type }}")
                     timelineEvents = events
                     isTimelineLoading = false
+                    android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set from JSONObject.events, isTimelineLoading set to false")
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: JSONObject did not contain 'events' array")
                 }
+            }
+            else -> {
+                android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleTimelineResponse: ${data::class.java.simpleName}")
             }
         }
 
-        // Remove the request from pending
         pendingRequests.remove(requestId)
     }
     
