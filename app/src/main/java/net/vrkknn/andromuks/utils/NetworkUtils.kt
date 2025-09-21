@@ -149,6 +149,13 @@ fun connectToWebsocket(
                             appViewModel.onInitComplete()
                         }
                     }
+                    "response" -> {
+                        val requestId = jsonObject.optInt("request_id")
+                        val data = jsonObject.opt("data")
+                        scope.launch(Dispatchers.Main) {
+                            appViewModel.handleTimelineResponse(requestId, data)
+                        }
+                    }
                 }
             }
         }
