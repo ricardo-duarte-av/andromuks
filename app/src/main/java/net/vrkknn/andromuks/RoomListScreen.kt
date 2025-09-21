@@ -66,6 +66,7 @@ fun RoomListScreen(
                 }
                 if (selectedSpaceId != null) {
                     val selectedSpace = spaces.find { it.id == selectedSpaceId }
+                    Log.d("RoomListScreen", "Selected space ${selectedSpace?.name} has ${selectedSpace?.rooms?.size} rooms")
                     if (selectedSpace != null) {
                         Text("Rooms in ${selectedSpace.name}", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
                         LazyColumn(
