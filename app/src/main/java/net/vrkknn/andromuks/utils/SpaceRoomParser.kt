@@ -36,6 +36,8 @@ object SpaceRoomParser {
                 allRooms[roomId] = RoomItem(
                     id = roomId,
                     name = name,
+                    messagePreview = null,
+                    unreadCount = null,
                     avatarUrl = avatar
                 )
             }
