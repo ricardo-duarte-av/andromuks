@@ -34,7 +34,11 @@ class AppViewModel : ViewModel() {
     
     fun updateRoomsFromSyncJson(syncJson: JSONObject) {
         val rooms = SpaceRoomParser.parseRooms(syncJson)
-        allRooms.addAll(rooms)
+        // Use a Set to avoid duplicates based on room ID
+        val existingIds = allRooms.map { it.id }.toSet()
+        val newRooms = rooms.filter { !existingIds.contains(it.id) }
+        allRooms.addAll(newRooms)
+        android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${allRooms.size} (added ${newRooms.size} new)")
         setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = allRooms.toList())))
     }
     

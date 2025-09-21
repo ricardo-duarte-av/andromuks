@@ -126,23 +126,23 @@ fun connectToWebsocket(
 
     val websocketListener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
-            Log.d("NetworkUtils", "onOpen: ws opened on ${response.message}")
+            Log.d("Andromuks", "NetworkUtils: onOpen: ws opened on ${response.message}")
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            Log.d("NetworkUtils", "WebSocket TextMessage: $text")
+            Log.d("Andromuks", "NetworkUtils: WebSocket TextMessage: $text")
             val jsonObject = try { JSONObject(text) } catch (e: Exception) { null }
             if (jsonObject != null) {
                 val command = jsonObject.optString("command")
                 when (command) {
                     "sync_complete" -> {
-                        Log.d("NetworkUtils", "Processing sync_complete message")
+                        Log.d("Andromuks", "NetworkUtils: Processing sync_complete message")
                         scope.launch(Dispatchers.Main) {
                             appViewModel.updateRoomsFromSyncJson(jsonObject)
                         }
                     }
                     "init_complete" -> {
-                        Log.d("NetworkUtils", "Received init_complete - initialization finished")
+                        Log.d("Andromuks", "NetworkUtils: Received init_complete - initialization finished")
                         scope.launch(Dispatchers.Main) {
                             appViewModel.onInitComplete()
                         }
@@ -152,14 +152,14 @@ fun connectToWebsocket(
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-            Log.d("NetworkUtils", "WebSocket ByteMessage: ${bytes.hex()}")
+            Log.d("Andromuks", "NetworkUtils: WebSocket ByteMessage: ${bytes.hex()}")
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-            Log.d("NetworkUtils", "WebSocket Closing ($code): $reason")
+            Log.d("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
             if (code != 1000 && code != 1001) { // 1000 = normal, 1001 = going away
                 scope.launch {
-                    Log.w("NetworkUtils", "WebSocket closed unexpectedly while potentially active.")
+                    Log.w("Andromuks", "NetworkUtils: WebSocket closed unexpectedly while potentially active.")
                 }
             }
         }

@@ -25,7 +25,7 @@ object SpaceRoomParser {
             // Check if this is a space (skip spaces for now)
             val type = meta.optJSONObject("creation_content")?.optString("type")?.takeIf { it.isNotBlank() }
             if (type == "m.space") {
-                Log.d("SpaceRoomParser", "Skipping space: $roomId")
+                Log.d("Andromuks", "SpaceRoomParser: Skipping space: $roomId")
                 continue
             }
 
@@ -59,9 +59,9 @@ object SpaceRoomParser {
             )
         }
 
-        Log.d("SpaceRoomParser", "Parsed ${rooms.size} rooms from sync JSON")
+        Log.d("Andromuks", "SpaceRoomParser: Parsed ${rooms.size} rooms from sync JSON")
         rooms.forEach { room ->
-            Log.d("SpaceRoomParser", "Room: ${room.name} (${room.id})")
+            Log.d("Andromuks", "SpaceRoomParser: Room: ${room.name} (${room.id})")
         }
         return rooms
     }
