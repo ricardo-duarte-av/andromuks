@@ -9,6 +9,7 @@ import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.SpaceRoomParser
 import org.json.JSONObject
 import okhttp3.WebSocket
+import org.json.JSONArray
 
 class AppViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
@@ -167,14 +168,22 @@ class AppViewModel : ViewModel() {
             android.util.Log.w("Andromuks", "AppViewModel: Received response for unknown request ID: $requestId")
             return
         }
-        
+
         android.util.Log.d("Andromuks", "AppViewModel: Handling timeline response for room: $roomId, requestId: $requestId")
-        
+
         when (data) {
-            is List<*> -> {
+            is JSONArray -> {
                 // Room state response
-                val events = data.filterIsInstance<JSONObject>().map { TimelineEvent.fromJson(it) }
+                val events = mutableListOf<TimelineEvent>()
+                for (i in 0 until data.length()) {
+                    val eventJson = data.optJSONObject(i)
+                    if (eventJson != null) {
+                        events.add(TimelineEvent.fromJson(eventJson))
+                    }
+                }
                 android.util.Log.d("Andromuks", "AppViewModel: Received ${events.size} room state events")
+                timelineEvents = events
+                isTimelineLoading = false
             }
             is JSONObject -> {
                 // Paginate response
@@ -190,18 +199,10 @@ class AppViewModel : ViewModel() {
                     android.util.Log.d("Andromuks", "AppViewModel: Received ${events.size} timeline events")
                     timelineEvents = events
                     isTimelineLoading = false
-                    
-                    // Mark room as read with the latest event ID
-                    if (events.isNotEmpty()) {
-                        val latestEvent = events.maxByOrNull { it.timelineRowid }
-                        if (latestEvent != null) {
-                            markRoomAsRead(roomId, latestEvent.eventId)
-                        }
-                    }
                 }
             }
         }
-        
+
         // Remove the request from pending
         pendingRequests.remove(requestId)
     }
