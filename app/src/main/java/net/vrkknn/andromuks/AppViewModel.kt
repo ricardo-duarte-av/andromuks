@@ -163,6 +163,7 @@ class AppViewModel : ViewModel() {
     }
     
     fun handleTimelineResponse(requestId: Int, data: Any) {
+        android.util.Log.d("Andromuks", "AppViewModel: handleTimelineResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
         val roomId = pendingRequests[requestId]
         if (roomId == null) {
             android.util.Log.w("Andromuks", "AppViewModel: Received response for unknown request ID: $requestId")
