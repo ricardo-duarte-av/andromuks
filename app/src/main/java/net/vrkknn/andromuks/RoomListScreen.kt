@@ -106,7 +106,9 @@ fun RoomListScreen(
                                 room = room,
                                 homeserverUrl = appViewModel.homeserverUrl,
                                 authToken = authToken,
-                                onRoomClick = { /* TODO: Navigate to room timeline */ }
+                                onRoomClick = { 
+                                    navController.navigate("room_timeline/${room.id}/${room.name}")
+                                }
                             )
                         }
                     }

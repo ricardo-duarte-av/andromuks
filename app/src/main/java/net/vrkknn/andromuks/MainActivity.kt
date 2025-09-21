@@ -39,5 +39,16 @@ fun AppNavigation(modifier: Modifier) {
         composable("login") { LoginScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
         composable("auth_check") { AuthCheckScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
         composable("room_list") { RoomListScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
+        composable("room_timeline/{roomId}/{roomName}") { backStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+            val roomName = backStackEntry.arguments?.getString("roomName") ?: ""
+            RoomTimelineScreen(
+                roomId = roomId,
+                roomName = roomName,
+                navController = navController,
+                modifier = modifier,
+                appViewModel = appViewModel
+            )
+        }
     }
 }
