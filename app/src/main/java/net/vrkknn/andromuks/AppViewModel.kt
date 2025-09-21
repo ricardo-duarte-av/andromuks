@@ -15,6 +15,9 @@ class AppViewModel : ViewModel() {
     var spaceList by mutableStateOf(listOf<SpaceItem>())
         private set
 
+    var spacesLoaded by mutableStateOf(false)
+        private set
+
     fun setSpaces(spaces: List<SpaceItem>) {
         spaceList = spaces
     }
@@ -30,5 +33,6 @@ class AppViewModel : ViewModel() {
     fun updateSpacesFromSyncJson(syncJson: JSONObject) {
         val spaces = SpaceRoomParser.parseSpacesAndRooms(syncJson)
         setSpaces(spaces)
+        spacesLoaded = true
     }
 }

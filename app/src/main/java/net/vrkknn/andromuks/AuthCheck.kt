@@ -37,12 +37,18 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
         if (token != null && homeserverUrl != null) {
             Log.d("AuthCheckScreen", "Token and server URL found. Attempting auto WebSocket connect.")
             connectToWebsocket(homeserverUrl, client, scope, token, appViewModel)
-            appViewModel.isLoading = false
-            navController.navigate("room_list")
+            // Do not navigate yet; wait for spacesLoaded
         } else {
             Log.d("AuthCheckScreen", "No token or server URL found. Going to login.")
             appViewModel.isLoading = false
             navController.navigate("login")
+        }
+    }
+
+    LaunchedEffect(appViewModel.spacesLoaded) {
+        if (appViewModel.spacesLoaded) {
+            appViewModel.isLoading = false
+            navController.navigate("room_list")
         }
     }
 
