@@ -25,9 +25,9 @@ object SpaceRoomParser {
             val roomId = roomKeys.next()
             val roomObj = roomsJson.optJSONObject(roomId) ?: continue
             val meta = roomObj.optJSONObject("meta") ?: continue
-            val name = meta.optString("name", roomId)
-            val avatar = meta.optString("avatar", null)
-            val type = meta.optJSONObject("creation_content")?.optString("type", null)
+            val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
+            val avatar = meta.optString("avatar")?.takeIf { it.isNotBlank() }
+            val type = meta.optJSONObject("creation_content")?.optString("type")?.takeIf { it.isNotBlank() }
             if (type == "m.space") {
                 // Space, will be constructed below
                 continue
@@ -49,14 +49,14 @@ object SpaceRoomParser {
             val spaceId = topLevelSpaces.optString(i)
             val spaceObj = roomsJson.optJSONObject(spaceId) ?: continue
             val meta = spaceObj.optJSONObject("meta") ?: continue
-            val name = meta.optString("name", spaceId)
-            val avatar = meta.optString("avatar", null)
+            val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: spaceId
+            val avatar = meta.optString("avatar")?.takeIf { it.isNotBlank() }
             // Get children from space_edges
             val children = mutableListOf<RoomItem>()
             val edgeArr = spaceEdges.optJSONArray(spaceId) ?: continue
             for (j in 0 until edgeArr.length()) {
                 val child = edgeArr.optJSONObject(j) ?: continue
-                val childId = child.optString("child_id", null) ?: continue
+                val childId = child.optString("child_id")?.takeIf { it.isNotBlank() } ?: continue
                 // Only add if it's a room (not a space)
                 val childRoom = allRooms[childId]
                 if (childRoom != null) {
