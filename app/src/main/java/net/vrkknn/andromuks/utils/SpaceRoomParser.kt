@@ -3,6 +3,7 @@ package net.vrkknn.andromuks.utils
 import net.vrkknn.andromuks.RoomItem
 import net.vrkknn.andromuks.SpaceItem
 import org.json.JSONObject
+import android.util.Log
 
 object SpaceRoomParser {
     /**
@@ -43,10 +44,12 @@ object SpaceRoomParser {
             }
         }
 
+        Log.d("SpaceRoomParser", "Top-level spaces count: ${topLevelSpaces.length()}")
         // Now, build SpaceItems for top-level spaces
         val result = mutableListOf<SpaceItem>()
         for (i in 0 until topLevelSpaces.length()) {
             val spaceId = topLevelSpaces.optString(i)
+            Log.d("SpaceRoomParser", "Parsing space: $spaceId")
             val spaceObj = roomsJson.optJSONObject(spaceId) ?: continue
             val meta = spaceObj.optJSONObject("meta") ?: continue
             val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: spaceId
@@ -63,6 +66,7 @@ object SpaceRoomParser {
                     children.add(childRoom)
                 }
             }
+            Log.d("SpaceRoomParser", "Space $spaceId has ${children.size} rooms")
             result.add(
                 SpaceItem(
                     id = spaceId,
