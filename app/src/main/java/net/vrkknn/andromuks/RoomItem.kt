@@ -29,3 +29,10 @@ data class SpaceItem(
     val avatarUrl: String?,
     val rooms: List<RoomItem>
 )
+
+@Immutable
+data class SyncUpdateResult(
+    val updatedRooms: List<RoomItem>,
+    val newRooms: List<RoomItem>,
+    val removedRoomIds: List<String>
+)

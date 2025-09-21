@@ -33,21 +33,41 @@ class AppViewModel : ViewModel() {
         isLoading = false
     }
 
-    private val allRooms = mutableListOf<RoomItem>()
+    // Use a Map for efficient room lookups and updates
+    private val roomMap = mutableMapOf<String, RoomItem>()
     private var syncMessageCount = 0
     
     fun updateRoomsFromSyncJson(syncJson: JSONObject) {
-        val rooms = SpaceRoomParser.parseRooms(syncJson)
-        // Use a Set to avoid duplicates based on room ID
-        val existingIds = allRooms.map { it.id }.toSet()
-        val newRooms = rooms.filter { !existingIds.contains(it.id) }
-        allRooms.addAll(newRooms)
+        val syncResult = SpaceRoomParser.parseSyncUpdate(syncJson)
         syncMessageCount++
-        android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${allRooms.size} (added ${newRooms.size} new) - sync message #$syncMessageCount")
-        setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = allRooms.toList())))
+        
+        // Update existing rooms
+        syncResult.updatedRooms.forEach { room ->
+            roomMap[room.id] = room
+            android.util.Log.d("Andromuks", "AppViewModel: Updated room: ${room.name} (unread: ${room.unreadCount})")
+        }
+        
+        // Add new rooms
+        syncResult.newRooms.forEach { room ->
+            roomMap[room.id] = room
+            android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name}")
+        }
+        
+        // Remove left rooms
+        syncResult.removedRoomIds.forEach { roomId ->
+            val removedRoom = roomMap.remove(roomId)
+            if (removedRoom != null) {
+                android.util.Log.d("Andromuks", "AppViewModel: Removed room: ${removedRoom.name}")
+            }
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${roomMap.size} (updated: ${syncResult.updatedRooms.size}, new: ${syncResult.newRooms.size}, removed: ${syncResult.removedRoomIds.size}) - sync message #$syncMessageCount")
+        
+        // Update the UI with the current room list
+        setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = roomMap.values.toList())))
         
         // Temporary workaround: navigate after 3 sync messages if we have rooms
-        if (syncMessageCount >= 3 && allRooms.isNotEmpty() && !spacesLoaded) {
+        if (syncMessageCount >= 3 && roomMap.isNotEmpty() && !spacesLoaded) {
             android.util.Log.d("Andromuks", "AppViewModel: Workaround - navigating after $syncMessageCount sync messages")
             spacesLoaded = true
             if (onNavigateToRoomList != null) {
@@ -89,6 +109,10 @@ class AppViewModel : ViewModel() {
     
     fun updateHomeserverUrl(url: String) {
         homeserverUrl = url
+    }
+    
+    fun getRoomById(roomId: String): RoomItem? {
+        return roomMap[roomId]
     }
     
     // Room timeline state
