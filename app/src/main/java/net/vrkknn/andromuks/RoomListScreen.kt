@@ -155,10 +155,12 @@ fun RoomListScreen(
                     //.fillMaxSize()
                     .weight(1f)
                     .padding(horizontal = 16.dp)
-                    .navigationBarsPadding()
+                    //.navigationBarsPadding()
             ) {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding(),
                     verticalArrangement = Arrangement.Top,
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                         top = 8.dp,
