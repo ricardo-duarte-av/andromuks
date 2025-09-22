@@ -31,11 +31,10 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AndromuksTheme {
-                val systemUiController = rememberSystemUiController()
-                val bottomBarColor = MaterialTheme.colorScheme.surface
-                SideEffect {
-                    systemUiController.setNavigationBarColor(color = bottomBarColor)
-                }
+                //val bottomBarColor = MaterialTheme.colorScheme.surface
+                //SideEffect {
+                //    systemUiController.setNavigationBarColor(color = bottomBarColor)
+                //}
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     AppNavigation(
                         modifier = Modifier.padding(innerPadding)

@@ -159,12 +159,12 @@ fun RoomListScreen(
             ) {
                 LazyColumn(
                     modifier = Modifier
-                    .fillMaxSize()
-                    .navigationBarsPadding(),
+                    .fillMaxSize(),
                     verticalArrangement = Arrangement.Top,
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                         top = 8.dp,
-                        bottom = 8.dp
+                        //bottom = 8.dp
+                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp
                     )
                 ) {
                     val filteredRooms = if (searchQuery.isBlank()) {
