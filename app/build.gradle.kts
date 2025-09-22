@@ -50,6 +50,8 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.okhttp)
     implementation(libs.androidx.compose.foundation.layout)
+    // Accompanist for navigation animations
+    implementation("com.google.accompanist:accompanist-navigation-animation:0.34.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -10,9 +10,15 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavBackStackEntry
+import androidx.navigation.NavType
+import androidx.navigation.navArgument
+import com.google.accompanist.navigation.animation.AnimatedNavHost
+import com.google.accompanist.navigation.animation.composable
+import com.google.accompanist.navigation.animation.rememberAnimatedNavController
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 
 class MainActivity : ComponentActivity() {
@@ -33,13 +39,24 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun AppNavigation(modifier: Modifier) {
-    val navController = rememberNavController()
+    val navController = rememberAnimatedNavController()
     val appViewModel: AppViewModel = viewModel()
-    NavHost(navController = navController, startDestination = "auth_check", modifier = modifier) {
+    AnimatedNavHost(
+        navController = navController,
+        startDestination = "auth_check",
+        modifier = modifier,
+        enterTransition = { slideInHorizontally(initialOffsetX = { +it }, animationSpec = tween(250)) },
+        exitTransition = { slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(250)) },
+        popEnterTransition = { slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(250)) },
+        popExitTransition = { slideOutHorizontally(targetOffsetX = { +it }, animationSpec = tween(250)) }
+    ) {
         composable("login") { LoginScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
         composable("auth_check") { AuthCheckScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
         composable("room_list") { RoomListScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
-        composable("room_timeline/{roomId}") { backStackEntry ->
+        composable(
+            route = "room_timeline/{roomId}",
+            arguments = listOf(navArgument("roomId") { type = NavType.StringType })
+        ) { backStackEntry: NavBackStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
             val roomName = appViewModel.getRoomById(roomId)?.name ?: ""
             RoomTimelineScreen(
