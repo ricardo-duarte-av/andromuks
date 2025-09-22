@@ -37,11 +37,9 @@ class MainActivity : ComponentActivity() {
                         color = androidx.compose.ui.graphics.Color.Transparent
                     )
                 }
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    AppNavigation(
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+                AppNavigation(
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
     }
