@@ -39,6 +39,7 @@ import java.util.Date
 import java.util.Locale
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.platform.LocalContext
@@ -48,6 +49,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.material3.TextField
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.paddingFrom
@@ -153,7 +156,7 @@ fun RoomTimelineScreen(
                                 start = 16.dp,
                                 end = 16.dp,
                                 top = 16.dp,
-                                bottom = 96.dp // leave space for bottom input bar
+                                bottom = 96.dp // leave space for bottom input area
                             )
                         ) {
                             items(sortedEvents) { event ->
@@ -169,8 +172,54 @@ fun RoomTimelineScreen(
                         }
                     }
                     
-                    // Bottom input bar
-                    BottomInputBar()
+                    // Bottom area: full-width section matching app surface, with rounded text box and action button inside
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                    ) {
+                        // Inner rounded text box (no prefilled text)
+                        var draft by remember { mutableStateOf("") }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                shape = RoundedCornerShape(24.dp),
+                                tonalElevation = 1.dp,
+                                modifier = Modifier
+                                    .weight(1f)
+                            ) {
+                                TextField(
+                                    value = draft,
+                                    onValueChange = { draft = it },
+                                    placeholder = { Text("Message") },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                                    singleLine = true
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Button(
+                                onClick = { /* TODO: send */ },
+                                shape = RoundedCornerShape(20.dp), // slightly smaller radius than the message bar
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                                contentPadding = androidx.compose.ui.unit.PaddingValues(horizontal = 14.dp, vertical = 10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Send,
+                                    contentDescription = "Send",
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -299,6 +348,55 @@ fun TimelineEventItem(
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                             )
                         }
+                    }
+                }
+                "m.room.encrypted" -> {
+                    val decryptedType = event.decryptedType
+                    val decrypted = event.decrypted
+                    if (decryptedType == "m.room.message") {
+                        val body = decrypted?.optString("body", "") ?: ""
+                        val bubbleShape = if (isMine) {
+                            RoundedCornerShape(
+                                topStart = 16.dp,
+                                topEnd = 16.dp,
+                                bottomEnd = 8.dp,
+                                bottomStart = 16.dp
+                            )
+                        } else {
+                            RoundedCornerShape(
+                                topStart = 16.dp,
+                                topEnd = 16.dp,
+                                bottomEnd = 16.dp,
+                                bottomStart = 8.dp
+                            )
+                        }
+                        val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                        val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                        ) {
+                            Surface(
+                                color = bubbleColor,
+                                shape = bubbleShape,
+                                tonalElevation = 2.dp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                Text(
+                                    text = body,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = textColor,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = "Encrypted message",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
                 "m.room.member" -> {

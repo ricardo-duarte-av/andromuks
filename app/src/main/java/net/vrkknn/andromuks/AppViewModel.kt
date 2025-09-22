@@ -201,14 +201,16 @@ class AppViewModel : ViewModel() {
                 if (eventJson != null) {
                     val event = TimelineEvent.fromJson(eventJson)
                     if (event.type == "m.room.member" && event.timelineRowid == -1L) {
-                        // State member event; update cache
+                        // State member event; update cache only
                         val userId = event.stateKey ?: event.sender
                         val displayName = event.content?.optString("displayname", null)
                         val avatarUrl = event.content?.optString("avatar_url", null)
                         memberMap[userId] = MemberProfile(displayName, avatarUrl)
                     } else {
-                        // Timeline event
-                        timelineList.add(event)
+                        // Only render paginate timeline entries (timeline_rowid >= 0)
+                        if (event.timelineRowid >= 0L) {
+                            timelineList.add(event)
+                        }
                     }
                 }
             }

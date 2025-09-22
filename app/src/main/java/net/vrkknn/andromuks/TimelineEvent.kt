@@ -13,7 +13,9 @@ data class TimelineEvent(
     val type: String,
     val timestamp: Long,
     val content: JSONObject?,
-    val stateKey: String? = null
+    val stateKey: String? = null,
+    val decrypted: JSONObject? = null,
+    val decryptedType: String? = null
 ) {
     companion object {
         fun fromJson(json: JSONObject): TimelineEvent {
@@ -26,7 +28,9 @@ data class TimelineEvent(
                 type = json.optString("type", ""),
                 timestamp = json.optLong("timestamp", 0),
                 content = json.optJSONObject("content"),
-                stateKey = json.optString("state_key", null)
+                stateKey = json.optString("state_key", null),
+                decrypted = json.optJSONObject("decrypted"),
+                decryptedType = json.optString("decrypted_type", null)
             )
         }
     }

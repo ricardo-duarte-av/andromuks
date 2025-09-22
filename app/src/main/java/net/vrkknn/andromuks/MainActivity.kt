@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
@@ -21,6 +22,8 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.ExperimentalAnimationApi
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import com.google.accompanist.systemuicontroller.rememberSystemUiController
+import androidx.compose.material3.MaterialTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -28,6 +31,11 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AndromuksTheme {
+                val systemUiController = rememberSystemUiController()
+                val bottomBarColor = MaterialTheme.colorScheme.surface
+                SideEffect {
+                    systemUiController.setNavigationBarColor(color = bottomBarColor)
+                }
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     AppNavigation(
                         modifier = Modifier.padding(innerPadding)

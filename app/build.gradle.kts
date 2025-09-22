@@ -52,6 +52,8 @@ dependencies {
     implementation(libs.androidx.compose.foundation.layout)
     // Accompanist for navigation animations
     implementation("com.google.accompanist:accompanist-navigation-animation:0.34.0")
+    // Accompanist for system UI controller (status/navigation bars)
+    implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

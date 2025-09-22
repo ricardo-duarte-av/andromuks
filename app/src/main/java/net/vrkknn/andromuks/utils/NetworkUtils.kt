@@ -72,6 +72,18 @@ fun performHttpLogin(
                             "LoginScreen",
                             "Token and server base URL saved to SharedPreferences."
                         )
+                        // Log a dump of SharedPreferences (mask sensitive values)
+                        try {
+                            val allPrefs = sharedPreferences.all
+                            Log.d("LoginScreen", "SharedPreferences dump start →")
+                            for ((key, value) in allPrefs) {
+                                val masked = if (key.contains("token", ignoreCase = true) || key.contains("password", ignoreCase = true)) "<redacted>" else value?.toString()
+                                Log.d("LoginScreen", "pref[$key] = $masked")
+                            }
+                            Log.d("LoginScreen", "← SharedPreferences dump end")
+                        } catch (e: Exception) {
+                            Log.w("LoginScreen", "Failed to dump SharedPreferences", e)
+                        }
                         scope.launch {
                             onSuccess()
                         }
