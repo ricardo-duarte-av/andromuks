@@ -75,7 +75,9 @@ fun RoomListScreen(
         var searchQuery by remember { mutableStateOf("") }
         val me = appViewModel.currentUserProfile
         
-        Column(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = modifier.fillMaxSize()
+        ) {
             // Compact header with our avatar and name (no colored area)
             Row(
                 modifier = Modifier
@@ -155,18 +157,15 @@ fun RoomListScreen(
                 ),
                 tonalElevation = 2.dp,
                 modifier = Modifier
-                    //.fillMaxSize()
                     .weight(1f)
+                    .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    //.navigationBarsPadding()
             ) {
                 LazyColumn(
-                    modifier = Modifier
-                    .fillMaxSize(),
+                    modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.Top,
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                         top = 8.dp,
-                        //bottom = 8.dp
                         bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp
                     )
                 ) {
