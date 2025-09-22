@@ -76,7 +76,10 @@ fun RoomListScreen(
         val me = appViewModel.currentUserProfile
         
         Column(
-            modifier = modifier.fillMaxSize()
+            modifier = modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
         ) {
             // Compact header with our avatar and name (no colored area)
             Row(

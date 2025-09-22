@@ -36,6 +36,9 @@ class MainActivity : ComponentActivity() {
                     systemUiController.setNavigationBarColor(
                         color = androidx.compose.ui.graphics.Color.Transparent
                     )
+                    systemUiController.setStatusBarColor(
+                        color = androidx.compose.ui.graphics.Color.Transparent
+                    )
                 }
                 AppNavigation(
                     modifier = Modifier.fillMaxSize()
