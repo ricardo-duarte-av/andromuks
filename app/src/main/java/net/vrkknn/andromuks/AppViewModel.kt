@@ -10,6 +10,10 @@ import net.vrkknn.andromuks.utils.SpaceRoomParser
 import org.json.JSONObject
 import okhttp3.WebSocket
 import org.json.JSONArray
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 data class MemberProfile(
     val displayName: String?,
@@ -191,9 +195,42 @@ class AppViewModel : ViewModel() {
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> userId
     
     private var webSocket: WebSocket? = null
+    private var pingJob: Job? = null
+    private var lastReceivedRequestId: Int = 0
 
     fun setWebSocket(webSocket: WebSocket) {
         this.webSocket = webSocket
+        startPingLoop()
+    }
+
+    fun clearWebSocket() {
+        this.webSocket = null
+        pingJob?.cancel()
+        pingJob = null
+    }
+
+    fun noteIncomingRequestId(requestId: Int) {
+        if (requestId != 0) {
+            lastReceivedRequestId = requestId
+        }
+    }
+
+    private fun startPingLoop() {
+        pingJob?.cancel()
+        val ws = webSocket ?: return
+        pingJob = viewModelScope.launch {
+            while (isActive) {
+                delay(15_000)
+                val currentWs = webSocket
+                if (currentWs == null) {
+                    // Socket gone; stop loop
+                    break
+                }
+                val reqId = requestIdCounter++
+                val data = mapOf("last_received_id" to lastReceivedRequestId)
+                sendWebSocketCommand("ping", reqId, data)
+            }
+        }
     }
 
     fun requestUserProfile(userId: String) {

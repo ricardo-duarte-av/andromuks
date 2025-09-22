@@ -147,6 +147,11 @@ fun connectToWebsocket(
             Log.d("Andromuks", "NetworkUtils: WebSocket TextMessage: $text")
             val jsonObject = try { JSONObject(text) } catch (e: Exception) { null }
             if (jsonObject != null) {
+                // Track last received request_id for ping purposes
+                val receivedReqId = jsonObject.optInt("request_id", 0)
+                if (receivedReqId != 0) {
+                    appViewModel.noteIncomingRequestId(receivedReqId)
+                }
                 val command = jsonObject.optString("command")
                 when (command) {
                     "sync_complete" -> {
@@ -202,6 +207,8 @@ fun connectToWebsocket(
                     Log.w("Andromuks", "NetworkUtils: WebSocket closed unexpectedly while potentially active.")
                 }
             }
+            // Clear socket so ping loop stops
+            appViewModel.clearWebSocket()
         }
     }
 
