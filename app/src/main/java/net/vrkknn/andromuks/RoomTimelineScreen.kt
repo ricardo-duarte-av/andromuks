@@ -56,6 +56,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.paddingFrom
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeContent
+import androidx.compose.foundation.layout.PaddingValues
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -210,7 +211,7 @@ fun RoomTimelineScreen(
                                 onClick = { /* TODO: send */ },
                                 shape = RoundedCornerShape(20.dp), // slightly smaller radius than the message bar
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                                contentPadding = androidx.compose.ui.unit.PaddingValues(horizontal = 14.dp, vertical = 10.dp)
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Send,
