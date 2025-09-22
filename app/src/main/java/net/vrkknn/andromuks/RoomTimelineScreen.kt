@@ -70,6 +70,7 @@ fun RoomTimelineScreen(
     val context = LocalContext.current
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
+    val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     val myUserId = remember(sharedPreferences) {
         sharedPreferences.getString("matrix_user_id", null)
             ?: sharedPreferences.getString("user_id", null)
@@ -165,7 +166,7 @@ fun RoomTimelineScreen(
                                 TimelineEventItem(
                                     event = event,
                                     homeserverUrl = homeserverUrl,
-                                    authToken = authToken,
+                                    authToken = imageToken,
                                     userProfileCache = appViewModel.getMemberMap(roomId),
                                     isMine = isMine
                                 )
