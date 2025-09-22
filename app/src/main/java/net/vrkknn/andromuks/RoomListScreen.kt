@@ -118,7 +118,7 @@ fun RoomListScreen(
             
             // Search box with rounded look and trailing search icon
             Surface(
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                color = MaterialTheme.colorScheme.surface,
                 shape = CircleShape,
                 tonalElevation = 1.dp,
                 modifier = Modifier
@@ -152,7 +152,7 @@ fun RoomListScreen(
             
             // Room list in elevated frame
             Surface(
-                color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                color = MaterialTheme.colorScheme.surface,
                 shape = RoundedCornerShape(
                     topStart = 24.dp,
                     topEnd = 24.dp,
