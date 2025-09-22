@@ -143,6 +143,7 @@ fun RoomListItem(
     onRoomClick: (RoomItem) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     Row(
         modifier = modifier
             .fillMaxWidth()

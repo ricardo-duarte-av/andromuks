@@ -28,7 +28,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.File
 import java.io.IOException
+import okhttp3.Cache
+
+private var sharedClient: OkHttpClient? = null
+
+private fun getCachedOkHttpClient(context: android.content.Context): OkHttpClient {
+    if (sharedClient == null) {
+        val cacheSize = 10L * 1024 * 1024 // 10 MB
+        val cacheDir = File(context.cacheDir, "okhttp_avatar_cache")
+        val cache = Cache(cacheDir, cacheSize)
+        sharedClient = OkHttpClient.Builder()
+            .cache(cache)
+            .build()
+    }
+    return sharedClient!!
+}
 
 @Composable
 fun AvatarImage(
@@ -63,7 +79,7 @@ fun AvatarImage(
             }
             
             val bitmap = withContext(Dispatchers.IO) {
-                loadAvatarBitmap(httpUrl, authToken)
+                loadAvatarBitmapWithCache(context, httpUrl, authToken)
             }
             
             if (bitmap != null) {
@@ -116,15 +132,14 @@ fun AvatarImage(
     }
 }
 
-private suspend fun loadAvatarBitmap(url: String, authToken: String): android.graphics.Bitmap? {
+private suspend fun loadAvatarBitmapWithCache(context: android.content.Context, url: String, authToken: String): android.graphics.Bitmap? {
     return withContext(Dispatchers.IO) {
         try {
-            val client = OkHttpClient()
+            val client = getCachedOkHttpClient(context)
             val request = Request.Builder()
                 .url(url)
                 .addHeader("Cookie", "gomuks_auth=$authToken")
                 .build()
-            
             val response = client.newCall(request).execute()
             if (response.isSuccessful) {
                 val inputStream = response.body?.byteStream()

@@ -41,6 +41,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.ui.platform.LocalContext
+import android.content.Context
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,6 +53,10 @@ fun RoomTimelineScreen(
     modifier: Modifier = Modifier,
     appViewModel: AppViewModel = viewModel()
 ) {
+    val context = LocalContext.current
+    val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
+    val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
+    val homeserverUrl = appViewModel.homeserverUrl
     Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
     val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
@@ -98,7 +104,11 @@ fun RoomTimelineScreen(
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
                     ) {
                         items(timelineEvents) { event ->
-                            TimelineEventItem(event = event)
+                            TimelineEventItem(
+                                event = event,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken
+                            )
                         }
                     }
                 }
@@ -108,7 +118,19 @@ fun RoomTimelineScreen(
 }
 
 @Composable
-fun TimelineEventItem(event: TimelineEvent) {
+fun TimelineEventItem(
+    event: TimelineEvent,
+    homeserverUrl: String,
+    authToken: String
+) {
+    val context = LocalContext.current
+    // Try to extract display name and avatar from event content if available
+    val (displayName, avatarUrl) = remember(event) {
+        val content = event.content
+        val display = content?.optString("displayname", null)
+        val avatar = content?.optString("avatar_url", null)
+        Pair(display, avatar)
+    }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -117,10 +139,10 @@ fun TimelineEventItem(event: TimelineEvent) {
     ) {
         // Sender avatar
         AvatarImage(
-            mxcUrl = null, // TODO: Get sender avatar
-            homeserverUrl = "", // TODO: Get from ViewModel
-            authToken = "", // TODO: Get from SharedPreferences
-            fallbackText = event.sender.take(1),
+            mxcUrl = avatarUrl,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            fallbackText = (displayName ?: event.sender).take(1),
             size = 32.dp
         )
         
@@ -130,7 +152,7 @@ fun TimelineEventItem(event: TimelineEvent) {
         Column(modifier = Modifier.weight(1f)) {
             Row {
                 Text(
-                    text = event.sender,
+                    text = displayName ?: event.sender,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
