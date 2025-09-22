@@ -43,6 +43,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.platform.LocalContext
 import android.content.Context
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.surfaceColorAtElevation
+import androidx.compose.material3.TextField
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.paddingFrom
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeContent
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -56,6 +66,10 @@ fun RoomTimelineScreen(
     val context = LocalContext.current
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
+    val myUserId = remember(sharedPreferences) {
+        sharedPreferences.getString("matrix_user_id", null)
+            ?: sharedPreferences.getString("user_id", null)
+    }
     val homeserverUrl = appViewModel.homeserverUrl
     Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
     val timelineEvents = appViewModel.timelineEvents
@@ -74,6 +88,19 @@ fun RoomTimelineScreen(
             }
         }
         map
+    }
+
+    // Sort events so newer messages are at the bottom
+    val sortedEvents = remember(timelineEvents) {
+        timelineEvents.sortedBy { it.timestamp }
+    }
+
+    // List state and auto-scroll to bottom when data loads/changes
+    val listState = rememberLazyListState()
+    LaunchedEffect(sortedEvents.size, isLoading) {
+        if (!isLoading && sortedEvents.isNotEmpty()) {
+            listState.scrollToItem(sortedEvents.lastIndex)
+        }
     }
 
     LaunchedEffect(roomId) {
@@ -102,7 +129,10 @@ fun RoomTimelineScreen(
                                 contentDescription = "Back"
                             )
                         }
-                    }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+                    )
                 )
                 
                 if (isLoading) {
@@ -113,22 +143,68 @@ fun RoomTimelineScreen(
                         Text("Loading timeline...")
                     }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp)
-                    ) {
-                        items(timelineEvents) { event ->
-                            TimelineEventItem(
-                                event = event,
-                                homeserverUrl = homeserverUrl,
-                                authToken = authToken,
-                                userProfileCache = appViewModel.getMemberMap(roomId)
+                    // Timeline list takes remaining height
+                    Box(modifier = Modifier.weight(1f)) {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            state = listState,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = 16.dp,
+                                bottom = 96.dp // leave space for bottom input bar
                             )
+                        ) {
+                            items(sortedEvents) { event ->
+                                val isMine = myUserId != null && event.sender == myUserId
+                                TimelineEventItem(
+                                    event = event,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    userProfileCache = appViewModel.getMemberMap(roomId),
+                                    isMine = isMine
+                                )
+                            }
                         }
                     }
+                    
+                    // Bottom input bar
+                    BottomInputBar()
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BottomInputBar() {
+    var draft by remember { mutableStateOf("") }
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
+        tonalElevation = 3.dp,
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+    ) {
+        // Inner rounded horizontal bar
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+            shape = RoundedCornerShape(24.dp),
+            tonalElevation = 1.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp)
+        ) {
+            TextField(
+                value = draft,
+                onValueChange = { draft = it },
+                placeholder = { Text("Message") },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                singleLine = true
+            )
         }
     }
 }
@@ -138,7 +214,8 @@ fun TimelineEventItem(
     event: TimelineEvent,
     homeserverUrl: String,
     authToken: String,
-    userProfileCache: Map<String, MemberProfile>
+    userProfileCache: Map<String, MemberProfile>,
+    isMine: Boolean
 ) {
     val context = LocalContext.current
     // Lookup display name and avatar from cache
@@ -151,20 +228,25 @@ fun TimelineEventItem(
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
-        // Sender avatar
-        AvatarImage(
-            mxcUrl = avatarUrl,
-            homeserverUrl = homeserverUrl,
-            authToken = authToken,
-            fallbackText = (displayName ?: event.sender).take(1),
-            size = 32.dp
-        )
-        
-        Spacer(modifier = Modifier.width(8.dp))
+        if (!isMine) {
+            AvatarImage(
+                mxcUrl = avatarUrl,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                fallbackText = (displayName ?: event.sender).take(1),
+                size = 32.dp
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+        } else {
+            Spacer(modifier = Modifier.width(40.dp))
+        }
         
         // Event content
         Column(modifier = Modifier.weight(1f)) {
-            Row {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+            ) {
                 Text(
                     text = displayName ?: event.sender,
                     style = MaterialTheme.typography.labelMedium,
@@ -181,13 +263,43 @@ fun TimelineEventItem(
             when (event.type) {
                 "m.room.message" -> {
                     val content = event.content
-                    val body = content?.optString("body", "")
-                    val msgtype = content?.optString("msgtype", "")
-                    
-                    Text(
-                        text = body ?: "",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    val body = content?.optString("body", "") ?: ""
+                    val bubbleShape = if (isMine) {
+                        RoundedCornerShape(
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
+                            bottomEnd = 8.dp,
+                            bottomStart = 16.dp
+                        )
+                    } else {
+                        RoundedCornerShape(
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
+                            bottomEnd = 16.dp,
+                            bottomStart = 8.dp
+                        )
+                    }
+                    val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                    val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                    ) {
+                        Surface(
+                            color = bubbleColor,
+                            shape = bubbleShape,
+                            tonalElevation = 2.dp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            Text(
+                                text = body,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = textColor,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
+                        }
+                    }
                 }
                 "m.room.member" -> {
                     val content = event.content
@@ -213,6 +325,10 @@ fun TimelineEventItem(
                     )
                 }
             }
+        }
+        
+        if (isMine) {
+            Spacer(modifier = Modifier.width(8.dp))
         }
     }
 }

@@ -16,12 +16,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,7 +37,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import android.content.Context
 
 val mockRoomList = listOf(
@@ -56,62 +58,70 @@ fun RoomListScreen(
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     
-    AndromuksTheme {
-        Surface {
-            val spaces = appViewModel.spaceList
-            if (spaces.isEmpty()) {
-                Text("Loading rooms...", modifier = Modifier.padding(16.dp))
-            } else {
-                // Get all rooms from the first space (which should be "All Rooms")
-                val allRooms = spaces.firstOrNull()?.rooms ?: emptyList()
-                var searchQuery by remember { mutableStateOf("") }
-                
-                Column(modifier = modifier.fillMaxSize()) {
-                    // Top App Bar with profile and name
-                    TopAppBar(
-                        title = { 
-                            Column {
-                                Text("Profile", style = MaterialTheme.typography.titleMedium)
-                                Text("@daedric:aguiarvieira.pt", style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
-                    )
-                    
-                    // Search box
-                    TextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        placeholder = { Text("Search rooms...") },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp)
-                    )
-                    
-                    // Room list
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.Top
-                    ) {
-                        val filteredRooms = if (searchQuery.isBlank()) {
-                            allRooms
-                        } else {
-                            allRooms.filter { room ->
-                                room.name.contains(searchQuery, ignoreCase = true)
-                            }
-                        }
-                        
-                        items(filteredRooms.size) { idx ->
-                            val room = filteredRooms[idx]
-                            RoomListItem(
-                                room = room,
-                                homeserverUrl = appViewModel.homeserverUrl,
-                                authToken = authToken,
-                                onRoomClick = { 
-                                    navController.navigate("room_timeline/${room.id}")
-                                }
-                            )
-                        }
+    val spaces = appViewModel.spaceList
+    if (spaces.isEmpty()) {
+        Text("Loading rooms...", modifier = Modifier.padding(16.dp))
+    } else {
+        // Get all rooms from the first space (which should be "All Rooms")
+        val allRooms = spaces.firstOrNull()?.rooms ?: emptyList()
+        var searchQuery by remember { mutableStateOf("") }
+        
+        Column(modifier = modifier.fillMaxSize()) {
+            // Top App Bar with profile and name
+            TopAppBar(
+                title = { 
+                    Column {
+                        Text("Profile", style = MaterialTheme.typography.titleMedium)
+                        Text("@daedric:aguiarvieira.pt", style = MaterialTheme.typography.bodySmall)
                     }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+                )
+            )
+            
+            // Search box with tonal elevation effect via Surface
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                shape = RoundedCornerShape(16.dp),
+                tonalElevation = 1.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                TextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    placeholder = { Text("Search rooms...") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(4.dp)
+                )
+            }
+            
+            // Room list
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.Top
+            ) {
+                val filteredRooms = if (searchQuery.isBlank()) {
+                    allRooms
+                } else {
+                    allRooms.filter { room ->
+                        room.name.contains(searchQuery, ignoreCase = true)
+                    }
+                }
+                
+                items(filteredRooms.size) { idx ->
+                    val room = filteredRooms[idx]
+                    RoomListItem(
+                        room = room,
+                        homeserverUrl = appViewModel.homeserverUrl,
+                        authToken = authToken,
+                        onRoomClick = { 
+                            navController.navigate("room_timeline/${room.id}")
+                        }
+                    )
                 }
             }
         }

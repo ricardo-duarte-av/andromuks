@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
@@ -27,7 +26,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
-import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.performHttpLogin
 import okhttp3.OkHttpClient
 
@@ -43,69 +41,65 @@ fun LoginScreen(navController: NavController, modifier: Modifier = Modifier, app
         context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
     }
 
-    AndromuksTheme {
-        Surface {
-            Column(
-                modifier = modifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                TextField(
-                    value = url,
-                    onValueChange = { url = it },
-                    label = { Text("Homeserver URL") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                TextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text("Username") },
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                TextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text("Password") },
-                    modifier = Modifier.fillMaxWidth(),
-                    visualTransformation = PasswordVisualTransformation()
-                )
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = {
-                        appViewModel.isLoading = true
-                        performHttpLogin(
-                            url = url,
-                            username = username,
-                            password = password,
-                            client = client,
-                            scope = scope,
-                            sharedPreferences = sharedPreferences,
-                            onSuccess = {
-                                scope.launch {
-                                    appViewModel.isLoading = false
-                                    navController.navigate("auth_check")
-                                }
-                            },
-                            onFailure = {
-                                scope.launch {
-                                    appViewModel.isLoading = false
-                                }
-                            }
-                        )
+    Column(
+        modifier = modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        TextField(
+            value = url,
+            onValueChange = { url = it },
+            label = { Text("Homeserver URL") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        TextField(
+            value = username,
+            onValueChange = { username = it },
+            label = { Text("Username") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        TextField(
+            value = password,
+            onValueChange = { password = it },
+            label = { Text("Password") },
+            modifier = Modifier.fillMaxWidth(),
+            visualTransformation = PasswordVisualTransformation()
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Button(
+            onClick = {
+                appViewModel.isLoading = true
+                performHttpLogin(
+                    url = url,
+                    username = username,
+                    password = password,
+                    client = client,
+                    scope = scope,
+                    sharedPreferences = sharedPreferences,
+                    onSuccess = {
+                        scope.launch {
+                            appViewModel.isLoading = false
+                            navController.navigate("auth_check")
+                        }
                     },
-                    enabled = url.isNotBlank() && username.isNotBlank() && password.isNotBlank() && !appViewModel.isLoading,
-                ) {
-                    Text(text = if (appViewModel.isLoading) "Logging in..." else "Login")
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                if (appViewModel.isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(24.dp)
-                    )
-                }
-            }
+                    onFailure = {
+                        scope.launch {
+                            appViewModel.isLoading = false
+                        }
+                    }
+                )
+            },
+            enabled = url.isNotBlank() && username.isNotBlank() && password.isNotBlank() && !appViewModel.isLoading,
+        ) {
+            Text(text = if (appViewModel.isLoading) "Logging in..." else "Login")
+        }
+        Spacer(modifier = Modifier.height(16.dp))
+        if (appViewModel.isLoading) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(24.dp)
+            )
         }
     }
 }
