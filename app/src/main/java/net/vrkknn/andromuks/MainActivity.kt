@@ -19,6 +19,7 @@ import com.google.accompanist.navigation.animation.rememberAnimatedNavController
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.ExperimentalAnimationApi
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 
 class MainActivity : ComponentActivity() {
@@ -37,6 +38,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun AppNavigation(modifier: Modifier) {
     val navController = rememberAnimatedNavController()
