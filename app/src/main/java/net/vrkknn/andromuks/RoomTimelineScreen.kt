@@ -138,11 +138,13 @@ fun TimelineEventItem(
     event: TimelineEvent,
     homeserverUrl: String,
     authToken: String,
-    userProfileCache: Map<String, Pair<String?, String?>>
+    userProfileCache: Map<String, MemberProfile>
 ) {
     val context = LocalContext.current
     // Lookup display name and avatar from cache
-    val (displayName, avatarUrl) = userProfileCache[event.sender] ?: Pair(null, null)
+    val profile = userProfileCache[event.sender]
+    val displayName = profile?.displayName
+    val avatarUrl = profile?.avatarUrl
     Row(
         modifier = Modifier
             .fillMaxWidth()
