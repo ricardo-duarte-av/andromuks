@@ -60,7 +60,22 @@ fun RoomTimelineScreen(
     Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
     val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
-    
+
+    // Build user profile cache from m.room.member events
+    val userProfileCache = remember(timelineEvents) {
+        val map = mutableMapOf<String, Pair<String?, String?>>() // userId -> (displayName, avatarUrl)
+        for (event in timelineEvents) {
+            if (event.type == "m.room.member") {
+                val userId = event.stateKey ?: event.sender
+                val content = event.content
+                val displayName = content?.optString("displayname", null)
+                val avatarUrl = content?.optString("avatar_url", null)
+                map[userId] = Pair(displayName, avatarUrl)
+            }
+        }
+        map
+    }
+
     LaunchedEffect(roomId) {
         Log.d("Andromuks", "RoomTimelineScreen: Loading timeline for room: $roomId")
         // Request room state and timeline
@@ -107,7 +122,8 @@ fun RoomTimelineScreen(
                             TimelineEventItem(
                                 event = event,
                                 homeserverUrl = homeserverUrl,
-                                authToken = authToken
+                                authToken = authToken,
+                                userProfileCache = appViewModel.getMemberMap(roomId)
                             )
                         }
                     }
@@ -121,16 +137,12 @@ fun RoomTimelineScreen(
 fun TimelineEventItem(
     event: TimelineEvent,
     homeserverUrl: String,
-    authToken: String
+    authToken: String,
+    userProfileCache: Map<String, Pair<String?, String?>>
 ) {
     val context = LocalContext.current
-    // Try to extract display name and avatar from event content if available
-    val (displayName, avatarUrl) = remember(event) {
-        val content = event.content
-        val display = content?.optString("displayname", null)
-        val avatar = content?.optString("avatar_url", null)
-        Pair(display, avatar)
-    }
+    // Lookup display name and avatar from cache
+    val (displayName, avatarUrl) = userProfileCache[event.sender] ?: Pair(null, null)
     Row(
         modifier = Modifier
             .fillMaxWidth()

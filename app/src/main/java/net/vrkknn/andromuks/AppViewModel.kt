@@ -11,6 +11,11 @@ import org.json.JSONObject
 import okhttp3.WebSocket
 import org.json.JSONArray
 
+data class MemberProfile(
+    val displayName: String?,
+    val avatarUrl: String?
+)
+
 class AppViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
     var homeserverUrl by mutableStateOf("")
@@ -38,7 +43,18 @@ class AppViewModel : ViewModel() {
     // Use a Map for efficient room lookups and updates
     private val roomMap = mutableMapOf<String, RoomItem>()
     private var syncMessageCount = 0
-    
+
+    // Per-room member cache: roomId -> (userId -> MemberProfile)
+    private val roomMemberCache = mutableMapOf<String, MutableMap<String, MemberProfile>>()
+
+    fun getMemberProfile(roomId: String, userId: String): MemberProfile? {
+        return roomMemberCache[roomId]?.get(userId)
+    }
+
+    fun getMemberMap(roomId: String): Map<String, MemberProfile> {
+        return roomMemberCache[roomId] ?: emptyMap()
+    }
+
     fun updateRoomsFromSyncJson(syncJson: JSONObject) {
         val syncResult = SpaceRoomParser.parseSyncUpdate(syncJson)
         syncMessageCount++
@@ -141,12 +157,17 @@ class AppViewModel : ViewModel() {
         timelineEvents = emptyList()
         isTimelineLoading = true
         
-        // Send get_room_state command
+        // Ensure member cache exists for this room
+        if (roomMemberCache[roomId] == null) {
+            roomMemberCache[roomId] = mutableMapOf()
+        }
+        
+        // Send get_room_state command with include_members = true
         val stateRequestId = requestIdCounter++
         pendingRequests[stateRequestId] = roomId
         sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
             "room_id" to roomId,
-            "include_members" to false,
+            "include_members" to true,
             "fetch_members" to false,
             "refetch" to false
         ))
@@ -172,34 +193,41 @@ class AppViewModel : ViewModel() {
 
         android.util.Log.d("Andromuks", "AppViewModel: Handling timeline response for room: $roomId, requestId: $requestId, data type: ${data::class.java.simpleName}")
 
-        when (data) {
-            is JSONArray -> {
-                val events = mutableListOf<TimelineEvent>()
-                for (i in 0 until data.length()) {
-                    val eventJson = data.optJSONObject(i)
-                    if (eventJson != null) {
-                        events.add(TimelineEvent.fromJson(eventJson))
+        fun processEventsArray(eventsArray: JSONArray) {
+            val timelineList = mutableListOf<TimelineEvent>()
+            val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+            for (i in 0 until eventsArray.length()) {
+                val eventJson = eventsArray.optJSONObject(i)
+                if (eventJson != null) {
+                    val event = TimelineEvent.fromJson(eventJson)
+                    if (event.type == "m.room.member" && event.timelineRowid == -1L) {
+                        // State member event; update cache
+                        val userId = event.stateKey ?: event.sender
+                        val displayName = event.content?.optString("displayname", null)
+                        val avatarUrl = event.content?.optString("avatar_url", null)
+                        memberMap[userId] = MemberProfile(displayName, avatarUrl)
+                    } else {
+                        // Timeline event
+                        timelineList.add(event)
                     }
                 }
-                android.util.Log.d("Andromuks", "AppViewModel: Processed JSONArray, ${events.size} events: ${events.joinToString { it.type }}")
-                timelineEvents = events
+            }
+            android.util.Log.d("Andromuks", "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}")
+            if (timelineList.isNotEmpty()) {
+                timelineEvents = timelineList
                 isTimelineLoading = false
-                android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set from JSONArray, isTimelineLoading set to false")
+                android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
+            }
+        }
+
+        when (data) {
+            is JSONArray -> {
+                processEventsArray(data)
             }
             is JSONObject -> {
                 val eventsArray = data.optJSONArray("events")
                 if (eventsArray != null) {
-                    val events = mutableListOf<TimelineEvent>()
-                    for (i in 0 until eventsArray.length()) {
-                        val eventJson = eventsArray.optJSONObject(i)
-                        if (eventJson != null) {
-                            events.add(TimelineEvent.fromJson(eventJson))
-                        }
-                    }
-                    android.util.Log.d("Andromuks", "AppViewModel: Processed JSONObject.events, ${events.size} events: ${events.joinToString { it.type }}")
-                    timelineEvents = events
-                    isTimelineLoading = false
-                    android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set from JSONObject.events, isTimelineLoading set to false")
+                    processEventsArray(eventsArray)
                 } else {
                     android.util.Log.d("Andromuks", "AppViewModel: JSONObject did not contain 'events' array")
                 }
