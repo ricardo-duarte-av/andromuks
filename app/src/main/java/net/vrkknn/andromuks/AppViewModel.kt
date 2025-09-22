@@ -16,9 +16,25 @@ data class MemberProfile(
     val avatarUrl: String?
 )
 
+data class UserProfile(
+    val userId: String,
+    val displayName: String?,
+    val avatarUrl: String?
+)
+
 class AppViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
     var homeserverUrl by mutableStateOf("")
+        private set
+
+    // Auth/client state
+    var currentUserId by mutableStateOf("")
+        private set
+    var deviceId by mutableStateOf("")
+        private set
+    var imageAuthToken by mutableStateOf("")
+        private set
+    var currentUserProfile by mutableStateOf<UserProfile?>(null)
         private set
 
     // List of spaces, each with their rooms
@@ -38,6 +54,24 @@ class AppViewModel : ViewModel() {
 
     fun hideLoading() {
         isLoading = false
+    }
+
+    fun updateHomeserverUrl(url: String) {
+        homeserverUrl = url
+    }
+
+    fun handleClientState(userId: String?, device: String?, homeserver: String?) {
+        if (!userId.isNullOrBlank()) currentUserId = userId
+        if (!device.isNullOrBlank()) deviceId = device
+        if (!homeserver.isNullOrBlank()) updateHomeserverUrl(homeserver)
+        // Optionally, fetch profile for current user
+        if (!currentUserId.isNullOrBlank()) {
+            requestUserProfile(currentUserId)
+        }
+    }
+
+    fun updateImageAuthToken(token: String) {
+        imageAuthToken = token
     }
 
     // Use a Map for efficient room lookups and updates
@@ -125,11 +159,7 @@ class AppViewModel : ViewModel() {
             callback()
         }
     }
-    
-    fun updateHomeserverUrl(url: String) {
-        homeserverUrl = url
-    }
-    
+
     fun getRoomById(roomId: String): RoomItem? {
         return roomMap[roomId]
     }
@@ -143,12 +173,28 @@ class AppViewModel : ViewModel() {
         private set
     
     private var requestIdCounter = 100
-    private val pendingRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    private val profileRequests = mutableMapOf<Int, String>() // requestId -> userId
     
     private var webSocket: WebSocket? = null
 
     fun setWebSocket(webSocket: WebSocket) {
         this.webSocket = webSocket
+    }
+
+    fun requestUserProfile(userId: String) {
+        val ws = webSocket ?: return
+        val reqId = requestIdCounter++
+        profileRequests[reqId] = userId
+        val json = org.json.JSONObject()
+        json.put("command", "get_profile")
+        json.put("request_id", reqId)
+        val data = org.json.JSONObject()
+        data.put("user_id", userId)
+        json.put("data", data)
+        val payload = json.toString()
+        android.util.Log.d("Andromuks", "AppViewModel: Sending get_profile: $payload")
+        ws.send(payload)
     }
     
     fun requestRoomTimeline(roomId: String) {
@@ -164,7 +210,7 @@ class AppViewModel : ViewModel() {
         
         // Send get_room_state command with include_members = true
         val stateRequestId = requestIdCounter++
-        pendingRequests[stateRequestId] = roomId
+        timelineRequests[stateRequestId] = roomId
         sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
             "room_id" to roomId,
             "include_members" to true,
@@ -174,7 +220,7 @@ class AppViewModel : ViewModel() {
         
         // Send paginate command
         val paginateRequestId = requestIdCounter++
-        pendingRequests[paginateRequestId] = roomId
+        timelineRequests[paginateRequestId] = roomId
         sendWebSocketCommand("paginate", paginateRequestId, mapOf(
             "room_id" to roomId,
             "max_timeline_id" to 0,
@@ -182,10 +228,31 @@ class AppViewModel : ViewModel() {
             "reset" to false
         ))
     }
+
+    fun handleResponse(requestId: Int, data: Any) {
+        if (profileRequests.containsKey(requestId)) {
+            handleProfileResponse(requestId, data)
+        } else if (timelineRequests.containsKey(requestId)) {
+            handleTimelineResponse(requestId, data)
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: Unknown response requestId=$requestId")
+        }
+    }
+    
+    private fun handleProfileResponse(requestId: Int, data: Any) {
+        val userId = profileRequests.remove(requestId) ?: return
+        val obj = data as? JSONObject ?: return
+        val avatar = obj.optString("avatar_url", null)
+        val display = obj.optString("displayname", null)
+        if (userId == currentUserId) {
+            currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
+        }
+        android.util.Log.d("Andromuks", "AppViewModel: Profile updated for $userId display=$display avatar=${avatar != null}")
+    }
     
     fun handleTimelineResponse(requestId: Int, data: Any) {
         android.util.Log.d("Andromuks", "AppViewModel: handleTimelineResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
-        val roomId = pendingRequests[requestId]
+        val roomId = timelineRequests[requestId]
         if (roomId == null) {
             android.util.Log.w("Andromuks", "AppViewModel: Received response for unknown request ID: $requestId")
             return
@@ -239,14 +306,14 @@ class AppViewModel : ViewModel() {
             }
         }
 
-        pendingRequests.remove(requestId)
+        timelineRequests.remove(requestId)
     }
     
     private fun markRoomAsRead(roomId: String, eventId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Marking room as read: $roomId, eventId: $eventId")
         
         val markReadRequestId = requestIdCounter++
-        pendingRequests[markReadRequestId] = roomId
+        timelineRequests[markReadRequestId] = roomId
         sendWebSocketCommand("mark_read", markReadRequestId, mapOf(
             "room_id" to roomId,
             "event_id" to eventId,
@@ -255,11 +322,11 @@ class AppViewModel : ViewModel() {
     }
     
     fun handleMarkReadResponse(requestId: Int, success: Boolean) {
-        val roomId = pendingRequests[requestId]
+        val roomId = timelineRequests[requestId]
         if (roomId != null) {
             android.util.Log.d("Andromuks", "AppViewModel: Mark read response for room $roomId: $success")
             // Remove the request from pending
-            pendingRequests.remove(requestId)
+            timelineRequests.remove(requestId)
         }
     }
     

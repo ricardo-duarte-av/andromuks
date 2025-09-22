@@ -162,13 +162,29 @@ fun connectToWebsocket(
                             appViewModel.onInitComplete()
                         }
                     }
+                    "client_state" -> {
+                        val data = jsonObject.optJSONObject("data")
+                        val userId = data?.optString("user_id")
+                        val deviceId = data?.optString("device_id")
+                        val hs = data?.optString("homeserver_url")
+                        Log.d("Andromuks", "NetworkUtils: client_state user=$userId device=$deviceId homeserver=$hs")
+                        appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                            appViewModel.handleClientState(userId, deviceId, hs)
+                        }
+                    }
+                    "image_auth_token" -> {
+                        val token = jsonObject.optString("data", "")
+                        Log.d("Andromuks", "NetworkUtils: image_auth_token received: ${token.isNotBlank()}")
+                        appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                            appViewModel.updateImageAuthToken(token)
+                        }
+                    }
                     "response" -> {
                         val requestId = jsonObject.optInt("request_id")
                         val data = jsonObject.opt("data")
-                        Log.d("Andromuks", "NetworkUtils: Routing response to handleTimelineResponse, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
+                        Log.d("Andromuks", "NetworkUtils: Routing response, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
                         appViewModel.viewModelScope.launch(Dispatchers.Main) {
-                            Log.d("Andromuks", "NetworkUtils: [COROUTINE START] AppViewModel instance: $appViewModel, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
-                            appViewModel.handleTimelineResponse(requestId, data)
+                            appViewModel.handleResponse(requestId, data ?: Any())
                         }
                     }
                 }

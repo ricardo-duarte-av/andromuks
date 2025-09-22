@@ -17,13 +17,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -57,6 +59,7 @@ fun RoomListScreen(
     val context = LocalContext.current
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
+    val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     
     val spaces = appViewModel.spaceList
     if (spaces.isEmpty()) {
@@ -65,37 +68,73 @@ fun RoomListScreen(
         // Get all rooms from the first space (which should be "All Rooms")
         val allRooms = spaces.firstOrNull()?.rooms ?: emptyList()
         var searchQuery by remember { mutableStateOf("") }
+        val me = appViewModel.currentUserProfile
         
         Column(modifier = modifier.fillMaxSize()) {
-            // Top App Bar with profile and name
-            TopAppBar(
-                title = { 
-                    Column {
-                        Text("Profile", style = MaterialTheme.typography.titleMedium)
-                        Text("@daedric:aguiarvieira.pt", style = MaterialTheme.typography.bodySmall)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+            // Compact header with our avatar and name (no colored area)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                net.vrkknn.andromuks.ui.components.AvatarImage(
+                    mxcUrl = me?.avatarUrl,
+                    homeserverUrl = appViewModel.homeserverUrl,
+                    authToken = imageToken,
+                    fallbackText = me?.displayName ?: appViewModel.currentUserId,
+                    size = 40.dp
                 )
-            )
+                Spacer(modifier = Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = me?.displayName ?: appViewModel.currentUserId.ifBlank { "Profile" },
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (!me?.displayName.isNullOrBlank() && appViewModel.currentUserId.isNotBlank()) {
+                        Text(
+                            text = appViewModel.currentUserId,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
             
-            // Search box with tonal elevation effect via Surface
+            // Search box with rounded look and trailing search icon
             Surface(
                 color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(24.dp),
                 tonalElevation = 1.dp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 TextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search rooms...") },
+                    placeholder = { Text("Search rooms…") },
+                    trailingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    },
+                    colors = TextFieldDefaults.colors(
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                        unfocusedIndicatorColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                        focusedIndicatorColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
+                    ),
+                    singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(4.dp)
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
                 )
             }
             
@@ -117,7 +156,7 @@ fun RoomListScreen(
                     RoomListItem(
                         room = room,
                         homeserverUrl = appViewModel.homeserverUrl,
-                        authToken = authToken,
+                        authToken = imageToken,
                         onRoomClick = { 
                             navController.navigate("room_timeline/${room.id}")
                         }
