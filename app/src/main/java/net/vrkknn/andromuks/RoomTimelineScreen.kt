@@ -107,7 +107,7 @@ fun RoomTimelineScreen(
             listState.scrollToItem(sortedEvents.lastIndex)
         }
     }
-
+    
     LaunchedEffect(roomId) {
         Log.d("Andromuks", "RoomTimelineScreen: Loading timeline for room: $roomId")
         // Request room state and timeline
@@ -150,10 +150,10 @@ fun RoomTimelineScreen(
                 } else {
                     // Timeline list takes remaining height
                     Box(modifier = Modifier.weight(1f)) {
-                        LazyColumn(
-                            modifier = Modifier.fillMaxSize(),
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
                             state = listState,
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                                 start = 16.dp,
                                 end = 16.dp,
@@ -280,14 +280,14 @@ fun TimelineEventItem(
         verticalAlignment = Alignment.Top
     ) {
         if (!isMine) {
-            AvatarImage(
+        AvatarImage(
                 mxcUrl = avatarUrl,
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
                 fallbackText = (displayName ?: event.sender).take(1),
-                size = 32.dp
-            )
-            Spacer(modifier = Modifier.width(8.dp))
+            size = 32.dp
+        )
+        Spacer(modifier = Modifier.width(8.dp))
         } else {
             Spacer(modifier = Modifier.width(40.dp))
         }
@@ -394,11 +394,11 @@ fun TimelineEventItem(
                             }
                         }
                     } else {
-                        Text(
+                    Text(
                             text = "Encrypted message",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    )
                     }
                 }
                 "m.room.member" -> {

@@ -152,7 +152,9 @@ fun RoomListScreen(
                 ),
                 tonalElevation = 2.dp,
                 modifier = Modifier
-                    .fillMaxSize()
+                    //.fillMaxSize()
+                    .weight(1f)
+                    .padding(horizontal = 16.dp)
                     .navigationBarsPadding()
             ) {
                 LazyColumn(
