@@ -51,6 +51,7 @@ fun RoomTimelineScreen(
     modifier: Modifier = Modifier,
     appViewModel: AppViewModel = viewModel()
 ) {
+    Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
     val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
     

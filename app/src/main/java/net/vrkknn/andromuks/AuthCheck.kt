@@ -44,6 +44,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 appViewModel.isLoading = false
                 navController.navigate("room_list")
             }
+            Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
             // Now connect websocket
             connectToWebsocket(homeserverUrl, client, scope, token, appViewModel)
             // Do not navigate yet; wait for spacesLoaded
