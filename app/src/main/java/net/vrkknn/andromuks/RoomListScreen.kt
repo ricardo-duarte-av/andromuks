@@ -140,29 +140,47 @@ fun RoomListScreen(
                 )
             }
             
-            // Room list
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.Top
+            // Room list in elevated frame
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                shape = RoundedCornerShape(
+                    topStart = 24.dp,
+                    topEnd = 24.dp,
+                    bottomStart = 0.dp,
+                    bottomEnd = 0.dp
+                ),
+                tonalElevation = 2.dp,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding()
             ) {
-                val filteredRooms = if (searchQuery.isBlank()) {
-                    allRooms
-                } else {
-                    allRooms.filter { room ->
-                        room.name.contains(searchQuery, ignoreCase = true)
-                    }
-                }
-                
-                items(filteredRooms.size) { idx ->
-                    val room = filteredRooms[idx]
-                    RoomListItem(
-                        room = room,
-                        homeserverUrl = appViewModel.homeserverUrl,
-                        authToken = authToken,
-                        onRoomClick = { 
-                            navController.navigate("room_timeline/${room.id}")
-                        }
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.Top,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        top = 8.dp,
+                        bottom = 8.dp
                     )
+                ) {
+                    val filteredRooms = if (searchQuery.isBlank()) {
+                        allRooms
+                    } else {
+                        allRooms.filter { room ->
+                            room.name.contains(searchQuery, ignoreCase = true)
+                        }
+                    }
+                    
+                    items(filteredRooms.size) { idx ->
+                        val room = filteredRooms[idx]
+                        RoomListItem(
+                            room = room,
+                            homeserverUrl = appViewModel.homeserverUrl,
+                            authToken = authToken,
+                            onRoomClick = { 
+                                navController.navigate("room_timeline/${room.id}")
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -200,7 +218,7 @@ fun RoomListItem(
             .fillMaxWidth()
             .clickable { onRoomClick(room) }
             .padding(vertical = 12.dp, horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.Top
     ) {
         // Room avatar
         net.vrkknn.andromuks.ui.components.AvatarImage(
@@ -213,43 +231,82 @@ fun RoomListItem(
         
         Spacer(modifier = Modifier.width(12.dp))
         
-        // Room info
-        Column(
+        // Room info with time and unread badge
+        Box(
             modifier = Modifier.weight(1f)
         ) {
-            Text(
-                text = room.name,
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (room.messagePreview != null) {
-                Text(
-                    text = room.messagePreview,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-        
-        // Unread count badge
-        if (room.unreadCount != null && room.unreadCount > 0) {
-            Box(
-                modifier = Modifier
-                    .background(
-                        MaterialTheme.colorScheme.primary,
-                        CircleShape
+            Column {
+                // Room name and unread badge row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = room.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = room.unreadCount.toString(),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
+                    // Right side: unread pill (top) and time (below)
+                    Column(horizontalAlignment = Alignment.End) {
+                        if (room.unreadCount != null && room.unreadCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        MaterialTheme.colorScheme.primary,
+                                        CircleShape
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = room.unreadCount.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimary
+                                )
+                            }
+                        }
+
+                        val timeAgoInline = formatTimeAgo(room.sortingTimestamp)
+                        if (timeAgoInline.isNotEmpty()) {
+                            Text(
+                                text = timeAgoInline,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                    }
+                }
+                
+                // Message preview
+                if (room.messagePreview != null) {
+                    Text(
+                        text = room.messagePreview,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
             }
         }
+    }
+}
+
+private fun formatTimeAgo(timestamp: Long?): String {
+    if (timestamp == null) return ""
+    
+    val now = System.currentTimeMillis()
+    val diff = now - timestamp
+    
+    return when {
+        diff < 60_000 -> "${diff / 1000}s" // Less than 1 minute: show seconds
+        diff < 3_600_000 -> "${diff / 60_000}m" // Less than 1 hour: show minutes
+        diff < 86_400_000 -> "${diff / 3_600_000}h" // Less than 1 day: show hours
+        diff < 604_800_000 -> "${diff / 86_400_000}d" // Less than 1 week: show days
+        else -> "${diff / 604_800_000}w" // More than 1 week: show weeks
     }
 }
