@@ -63,7 +63,9 @@ class AppViewModel : ViewModel() {
     fun handleClientState(userId: String?, device: String?, homeserver: String?) {
         if (!userId.isNullOrBlank()) currentUserId = userId
         if (!device.isNullOrBlank()) deviceId = device
-        if (!homeserver.isNullOrBlank()) updateHomeserverUrl(homeserver)
+        // IMPORTANT: Do NOT override gomuks backend URL with Matrix homeserver URL from client_state
+        // The backend URL is set via AuthCheck from SharedPreferences (e.g., https://webmuks.aguiarvieira.pt)
+        // if (!homeserver.isNullOrBlank()) updateHomeserverUrl(homeserver)
         // Optionally, fetch profile for current user
         if (!currentUserId.isNullOrBlank()) {
             requestUserProfile(currentUserId)
