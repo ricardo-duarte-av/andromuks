@@ -108,10 +108,11 @@ fun RoomListScreen(
             // Search box with rounded look and trailing search icon
             Surface(
                 color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                shape = RoundedCornerShape(24.dp),
+                shape = CircleShape,
                 tonalElevation = 1.dp,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(48.dp) // pick your pill height
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 TextField(
