@@ -17,6 +17,7 @@ data class RoomItem(
     val id: String,
     val name: String,
     val messagePreview: String?,
+    val messageSender: String?,
     val unreadCount: Int?,
     val avatarUrl: String?,
     val sortingTimestamp: Long? = null

@@ -48,11 +48,11 @@ import androidx.navigation.NavController
 import android.content.Context
 
 val mockRoomList = listOf(
-    RoomItem(id = "1", name = "There is a chat that never goes out", messagePreview = "last message", unreadCount = 1, avatarUrl = null),
-    RoomItem(id = "2", name = "Chatting up the hill", messagePreview = "last message", unreadCount = 0, avatarUrl = null),
-    RoomItem(id = "3", name = "Chat suey", messagePreview = "last message", unreadCount = 0, avatarUrl = null),
-    RoomItem(id = "4", name = "Chatter's delight", messagePreview = "last message", unreadCount = 12, avatarUrl = null),
-    RoomItem(id = "5", name = "Chat of glass", messagePreview = "last message", unreadCount = 0, avatarUrl = null)
+    RoomItem(id = "1", name = "There is a chat that never goes out", messagePreview = "This is a message", messageSender = "Cursor", unreadCount = 1, avatarUrl = null),
+    RoomItem(id = "2", name = "Chatting up the hill", messagePreview = "Hello everyone!", messageSender = "Alice", unreadCount = 0, avatarUrl = null),
+    RoomItem(id = "3", name = "Chat suey", messagePreview = "How's it going?", messageSender = "Bob", unreadCount = 0, avatarUrl = null),
+    RoomItem(id = "4", name = "Chatter's delight", messagePreview = "See you tomorrow", messageSender = "Charlie", unreadCount = 12, avatarUrl = null),
+    RoomItem(id = "5", name = "Chat of glass", messagePreview = "Thanks for the help!", messageSender = "Diana", unreadCount = 0, avatarUrl = null)
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -293,8 +293,13 @@ fun RoomListItem(
                 
                 // Message preview
                 if (room.messagePreview != null) {
+                    val messageText = if (room.messageSender != null) {
+                        "${room.messageSender}: ${room.messagePreview}"
+                    } else {
+                        room.messagePreview
+                    }
                     Text(
-                        text = room.messagePreview,
+                        text = messageText,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
