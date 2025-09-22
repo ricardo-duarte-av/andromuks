@@ -81,7 +81,7 @@ fun RoomListScreen(
                 net.vrkknn.andromuks.ui.components.AvatarImage(
                     mxcUrl = me?.avatarUrl,
                     homeserverUrl = appViewModel.homeserverUrl,
-                    authToken = imageToken,
+                    authToken = authToken,
                     fallbackText = me?.displayName ?: appViewModel.currentUserId,
                     size = 40.dp
                 )
@@ -156,7 +156,7 @@ fun RoomListScreen(
                     RoomListItem(
                         room = room,
                         homeserverUrl = appViewModel.homeserverUrl,
-                        authToken = imageToken,
+                        authToken = authToken,
                         onRoomClick = { 
                             navController.navigate("room_timeline/${room.id}")
                         }

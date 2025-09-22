@@ -166,7 +166,7 @@ fun RoomTimelineScreen(
                                 TimelineEventItem(
                                     event = event,
                                     homeserverUrl = homeserverUrl,
-                                    authToken = imageToken,
+                                    authToken = authToken,
                                     userProfileCache = appViewModel.getMemberMap(roomId),
                                     isMine = isMine
                                 )
