@@ -34,7 +34,7 @@ class MainActivity : ComponentActivity() {
                 val systemUiController = rememberSystemUiController()
                 SideEffect {
                     systemUiController.setNavigationBarColor(
-                        color = android.graphics.Color.TRANSPARENT
+                        color = androidx.compose.ui.graphics.Color.Transparent
                     )
                 }
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
