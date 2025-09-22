@@ -97,8 +97,20 @@ class AppViewModel : ViewModel() {
         
         // Update existing rooms
         syncResult.updatedRooms.forEach { room ->
-            roomMap[room.id] = room
-            android.util.Log.d("Andromuks", "AppViewModel: Updated room: ${room.name} (unread: ${room.unreadCount})")
+            val existingRoom = roomMap[room.id]
+            if (existingRoom != null) {
+                // Preserve existing message preview if new room data doesn't have one
+                val updatedRoom = if (room.messagePreview.isNullOrBlank() && !existingRoom.messagePreview.isNullOrBlank()) {
+                    room.copy(messagePreview = existingRoom.messagePreview)
+                } else {
+                    room
+                }
+                roomMap[room.id] = updatedRoom
+                android.util.Log.d("Andromuks", "AppViewModel: Updated room: ${updatedRoom.name} (unread: ${updatedRoom.unreadCount}, message: ${updatedRoom.messagePreview?.take(20)}...)")
+            } else {
+                roomMap[room.id] = room
+                android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (unread: ${room.unreadCount})")
+            }
         }
         
         // Add new rooms

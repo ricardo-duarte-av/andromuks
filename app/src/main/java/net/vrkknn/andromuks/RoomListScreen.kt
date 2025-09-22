@@ -113,7 +113,7 @@ fun RoomListScreen(
                 tonalElevation = 1.dp,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp) // pick your pill height
+                    .height(56.dp) // pick your pill height
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) {
                 TextField(

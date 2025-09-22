@@ -42,11 +42,43 @@ object SpaceRoomParser {
             val events = roomObj.optJSONArray("events")
             var messagePreview: String? = null
             if (events != null && events.length() > 0) {
-                // Get the last event (most recent)
-                val lastEvent = events.optJSONObject(events.length() - 1)
-                if (lastEvent != null && lastEvent.optString("type") == "m.room.message") {
-                    val content = lastEvent.optJSONObject("content")
-                    messagePreview = content?.optString("body")?.takeIf { it.isNotBlank() }
+                // Look through all events to find the last actual message
+                // Skip non-message events like typing, member changes, state events, etc.
+                for (i in events.length() - 1 downTo 0) {
+                    val event = events.optJSONObject(i)
+                    if (event != null) {
+                        val eventType = event.optString("type")
+                        when (eventType) {
+                            "m.room.message" -> {
+                                val content = event.optJSONObject("content")
+                                val body = content?.optString("body")?.takeIf { it.isNotBlank() }
+                                if (body != null) {
+                                    messagePreview = body
+                                    break // Found the last message, stop looking
+                                }
+                            }
+                            "m.room.encrypted" -> {
+                                // Check if it's a decrypted message
+                                val decryptedType = event.optString("decrypted_type")
+                                if (decryptedType == "m.room.message") {
+                                    val decrypted = event.optJSONObject("decrypted")
+                                    val body = decrypted?.optString("body")?.takeIf { it.isNotBlank() }
+                                    if (body != null) {
+                                        messagePreview = body
+                                        break // Found the last message, stop looking
+                                    }
+                                }
+                            }
+                            // Skip other event types like:
+                            // - "typing" (typing indicators)
+                            // - "m.room.member" (joins/leaves)
+                            // - "m.room.name" (room name changes)
+                            // - "m.room.topic" (room topic changes)
+                            // - "m.room.avatar" (room avatar changes)
+                            // - state events
+                            // - etc.
+                        }
+                    }
                 }
             }
 
@@ -145,11 +177,43 @@ object SpaceRoomParser {
             val events = roomObj.optJSONArray("events")
             var messagePreview: String? = null
             if (events != null && events.length() > 0) {
-                // Get the last event (most recent)
-                val lastEvent = events.optJSONObject(events.length() - 1)
-                if (lastEvent != null && lastEvent.optString("type") == "m.room.message") {
-                    val content = lastEvent.optJSONObject("content")
-                    messagePreview = content?.optString("body")?.takeIf { it.isNotBlank() }
+                // Look through all events to find the last actual message
+                // Skip non-message events like typing, member changes, state events, etc.
+                for (i in events.length() - 1 downTo 0) {
+                    val event = events.optJSONObject(i)
+                    if (event != null) {
+                        val eventType = event.optString("type")
+                        when (eventType) {
+                            "m.room.message" -> {
+                                val content = event.optJSONObject("content")
+                                val body = content?.optString("body")?.takeIf { it.isNotBlank() }
+                                if (body != null) {
+                                    messagePreview = body
+                                    break // Found the last message, stop looking
+                                }
+                            }
+                            "m.room.encrypted" -> {
+                                // Check if it's a decrypted message
+                                val decryptedType = event.optString("decrypted_type")
+                                if (decryptedType == "m.room.message") {
+                                    val decrypted = event.optJSONObject("decrypted")
+                                    val body = decrypted?.optString("body")?.takeIf { it.isNotBlank() }
+                                    if (body != null) {
+                                        messagePreview = body
+                                        break // Found the last message, stop looking
+                                    }
+                                }
+                            }
+                            // Skip other event types like:
+                            // - "typing" (typing indicators)
+                            // - "m.room.member" (joins/leaves)
+                            // - "m.room.name" (room name changes)
+                            // - "m.room.topic" (room topic changes)
+                            // - "m.room.avatar" (room avatar changes)
+                            // - state events
+                            // - etc.
+                        }
+                    }
                 }
             }
             
