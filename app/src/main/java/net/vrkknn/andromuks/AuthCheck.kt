@@ -46,7 +46,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             }
             Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
             // Now connect websocket
-            connectToWebsocket(homeserverUrl, client, scope, token, appViewModel)
+            connectToWebsocket(homeserverUrl, client, token, appViewModel)
             // Do not navigate yet; wait for spacesLoaded
         } else {
             Log.d("AuthCheckScreen", "No token or server URL found. Going to login.")

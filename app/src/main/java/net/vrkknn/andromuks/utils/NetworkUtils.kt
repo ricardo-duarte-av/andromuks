@@ -18,6 +18,7 @@ import okio.ByteString
 import okio.IOException
 import org.json.JSONObject
 import net.vrkknn.andromuks.AppViewModel
+import androidx.lifecycle.viewModelScope
 
 fun buildAuthHttpUrl(rawUrl: String): String {
     var authUrl = rawUrl.lowercase().trim()
@@ -111,7 +112,6 @@ fun buildRequest(url: String, credentials: String): Request {
 fun connectToWebsocket(
     url: String,
     client: OkHttpClient,
-    scope: CoroutineScope,
     token: String,
     appViewModel: AppViewModel
 ) {
@@ -128,6 +128,7 @@ fun connectToWebsocket(
         override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.d("Andromuks", "NetworkUtils: onOpen: ws opened on "+response.message)
             appViewModel.setWebSocket(webSocket)
+            Log.d("Andromuks", "NetworkUtils: connectToWebsocket using AppViewModel instance: $appViewModel")
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -138,13 +139,13 @@ fun connectToWebsocket(
                 when (command) {
                     "sync_complete" -> {
                         Log.d("Andromuks", "NetworkUtils: Processing sync_complete message")
-                        scope.launch(Dispatchers.Main) {
+                        appViewModel.viewModelScope.launch(Dispatchers.Main) {
                             appViewModel.updateRoomsFromSyncJson(jsonObject)
                         }
                     }
                     "init_complete" -> {
                         Log.d("Andromuks", "NetworkUtils: Received init_complete - initialization finished")
-                        scope.launch(Dispatchers.Main) {
+                        appViewModel.viewModelScope.launch(Dispatchers.Main) {
                             Log.d("Andromuks", "NetworkUtils: Calling onInitComplete on main thread")
                             appViewModel.onInitComplete()
                         }
@@ -153,8 +154,8 @@ fun connectToWebsocket(
                         val requestId = jsonObject.optInt("request_id")
                         val data = jsonObject.opt("data")
                         Log.d("Andromuks", "NetworkUtils: Routing response to handleTimelineResponse, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
-                        scope.launch(Dispatchers.Main) {
-                            Log.d("Andromuks", "NetworkUtils: About to call handleTimelineResponse on AppViewModel instance: $appViewModel")
+                        appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                            Log.d("Andromuks", "NetworkUtils: [COROUTINE START] AppViewModel instance: $appViewModel, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
                             appViewModel.handleTimelineResponse(requestId, data)
                         }
                     }
@@ -169,7 +170,7 @@ fun connectToWebsocket(
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             Log.d("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
             if (code != 1000 && code != 1001) { // 1000 = normal, 1001 = going away
-                scope.launch {
+                appViewModel.viewModelScope.launch {
                     Log.w("Andromuks", "NetworkUtils: WebSocket closed unexpectedly while potentially active.")
                 }
             }
