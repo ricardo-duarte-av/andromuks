@@ -295,14 +295,9 @@ fun SpaceListItem(
             
             if (totalRooms > 0) {
                 Text(
-                    text = if (unreadRooms > 0) {
-                        "$totalRooms rooms • $unreadRooms with unread ($totalUnreadMessages messages)"
-                    } else {
-                        "$totalRooms rooms"
-                    },
+                    text = "$totalRooms rooms",
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (unreadRooms > 0) MaterialTheme.colorScheme.primary 
-                           else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp)
@@ -313,12 +308,13 @@ fun SpaceListItem(
         // Unread badge - shows number of rooms with unread messages
         if (unreadRooms > 0) {
             Badge(
-                modifier = Modifier.padding(start = 8.dp)
+                modifier = Modifier.padding(start = 8.dp),
+                containerColor = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError
             ) {
                 Text(
                     text = if (unreadRooms > 99) "99+" else "$unreadRooms",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimary
+                    style = MaterialTheme.typography.labelSmall
                 )
             }
         }
