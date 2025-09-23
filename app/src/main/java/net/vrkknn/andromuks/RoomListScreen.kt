@@ -68,11 +68,15 @@ fun RoomListScreen(
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     
     val spaces = appViewModel.spaceList
+    // Force recomposition by observing the update counter
+    val updateCounter = appViewModel.updateCounter
+    android.util.Log.d("Andromuks", "RoomListScreen: spaces.size = ${spaces.size}, updateCounter = $updateCounter")
     if (spaces.isEmpty()) {
         Text("Loading rooms...", modifier = Modifier.padding(16.dp))
     } else {
         // Get all rooms from the first space (which should be "All Rooms")
         val allRooms = spaces.firstOrNull()?.rooms ?: emptyList()
+        android.util.Log.d("Andromuks", "RoomListScreen: allRooms.size = ${allRooms.size}")
         var searchQuery by remember { mutableStateOf("") }
         val me = appViewModel.currentUserProfile
         

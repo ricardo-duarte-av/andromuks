@@ -45,12 +45,19 @@ class AppViewModel : ViewModel() {
     // List of spaces, each with their rooms
     var spaceList by mutableStateOf(listOf<SpaceItem>())
         private set
+    
+    // Force recomposition counter
+    var updateCounter by mutableStateOf(0)
+        private set
 
     var spacesLoaded by mutableStateOf(false)
         private set
 
     fun setSpaces(spaces: List<SpaceItem>) {
+        android.util.Log.d("Andromuks", "AppViewModel: setSpaces called with ${spaces.size} spaces")
         spaceList = spaces
+        updateCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: spaceList set to ${spaceList.size} spaces, updateCounter: $updateCounter")
     }
 
     fun showLoading() {
@@ -171,7 +178,9 @@ class AppViewModel : ViewModel() {
         
         // Update the UI with the current room list
         val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+        android.util.Log.d("Andromuks", "AppViewModel: Updating spaceList with ${sortedRooms.size} rooms")
         setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
+        android.util.Log.d("Andromuks", "AppViewModel: spaceList updated, current size: ${spaceList.size}")
         
         // Temporary workaround: navigate after 3 sync messages if we have rooms
         if (syncMessageCount >= 3 && roomMap.isNotEmpty() && !spacesLoaded) {
