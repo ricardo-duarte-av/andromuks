@@ -115,9 +115,17 @@ object SpaceRoomParser {
         // Parse spaces from sync data (only if top_level_spaces is present)
         val topLevelSpaces = data.optJSONArray("top_level_spaces")
         if (topLevelSpaces != null) {
-            val spaces = parseSpacesFromSync(data)
-            android.util.Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces from sync data")
+            // Only parse basic space info, don't populate edges yet
+            val spaces = parseSpacesBasic(data)
+            android.util.Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces from sync data (basic info only)")
             appViewModel?.updateAllSpaces(spaces)
+            
+            // Store space edges for later processing after init_complete
+            val spaceEdges = data.optJSONObject("space_edges")
+            if (spaceEdges != null) {
+                android.util.Log.d("Andromuks", "SpaceRoomParser: Storing space_edges for later processing")
+                appViewModel?.storeSpaceEdges(spaceEdges)
+            }
         } else {
             android.util.Log.d("Andromuks", "SpaceRoomParser: No top_level_spaces in this sync, keeping existing spaces")
             // Even if no top_level_spaces, try to update space edges for existing spaces
@@ -349,6 +357,51 @@ object SpaceRoomParser {
             Log.e("Andromuks", "SpaceRoomParser: Error detecting DM status for room $roomId", e)
             return false
         }
+    }
+    
+    /**
+     * Parses basic space info from sync data (without edges)
+     */
+    private fun parseSpacesBasic(data: JSONObject): List<net.vrkknn.andromuks.SpaceItem> {
+        val spaces = mutableListOf<net.vrkknn.andromuks.SpaceItem>()
+        
+        try {
+            // Get top_level_spaces array from sync data
+            val topLevelSpaces = data.optJSONArray("top_level_spaces")
+            if (topLevelSpaces != null) {
+                Log.d("Andromuks", "SpaceRoomParser: Found top_level_spaces with ${topLevelSpaces.length()} spaces")
+                Log.d("Andromuks", "SpaceRoomParser: top_level_spaces content: ${topLevelSpaces.toString()}")
+                
+                for (i in 0 until topLevelSpaces.length()) {
+                    val spaceId = topLevelSpaces.optString(i)
+                    if (spaceId.isNotBlank()) {
+                        // Try to get space details from rooms data
+                        val roomsJson = data.optJSONObject("rooms")
+                        val spaceDetails = roomsJson?.optJSONObject(spaceId)
+                        val meta = spaceDetails?.optJSONObject("meta")
+                        
+                        val name = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: spaceId
+                        val avatar = meta?.optString("avatar")?.takeIf { it.isNotBlank() }
+                        
+                        val spaceItem = net.vrkknn.andromuks.SpaceItem(
+                            id = spaceId,
+                            name = name,
+                            avatarUrl = avatar,
+                            rooms = emptyList() // No rooms yet - will be populated later
+                        )
+                        spaces.add(spaceItem)
+                        Log.d("Andromuks", "SpaceRoomParser: Found space: $name (ID: $spaceId) - basic info only")
+                    }
+                }
+            } else {
+                Log.d("Andromuks", "SpaceRoomParser: No top_level_spaces found in sync data")
+            }
+        } catch (e: Exception) {
+            Log.e("Andromuks", "SpaceRoomParser: Error parsing spaces", e)
+        }
+        
+        Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces (basic)")
+        return spaces
     }
     
     /**

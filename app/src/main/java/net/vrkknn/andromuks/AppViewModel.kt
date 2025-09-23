@@ -62,6 +62,9 @@ class AppViewModel : ViewModel() {
     var currentSpaceId by mutableStateOf<String?>(null)
         private set
     
+    // Store space edges data for later processing
+    private var storedSpaceEdges: JSONObject? = null
+    
     // Force recomposition counter
     var updateCounter by mutableStateOf(0)
         private set
@@ -300,6 +303,10 @@ class AppViewModel : ViewModel() {
     fun onInitComplete() {
         android.util.Log.d("Andromuks", "AppViewModel: onInitComplete called - setting spacesLoaded = true")
         spacesLoaded = true
+        
+        // Now that all rooms are loaded, populate space edges
+        populateSpaceEdges()
+        
         android.util.Log.d("Andromuks", "AppViewModel: Calling navigation callback (callback is ${if (onNavigateToRoomList != null) "set" else "null"})")
         if (onNavigateToRoomList != null) {
             onNavigateToRoomList?.invoke()
@@ -307,6 +314,41 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: Navigation callback not set yet, marking as pending")
             pendingNavigation = true
         }
+    }
+    
+    /**
+     * Stores space edges for later processing after init_complete
+     */
+    fun storeSpaceEdges(spaceEdges: JSONObject) {
+        android.util.Log.d("Andromuks", "AppViewModel: Storing space edges for later processing")
+        storedSpaceEdges = spaceEdges
+    }
+    
+    /**
+     * Populates space edges after init_complete when all rooms are loaded
+     */
+    private fun populateSpaceEdges() {
+        if (storedSpaceEdges == null) {
+            android.util.Log.d("Andromuks", "AppViewModel: No stored space edges to populate")
+            return
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Populating space edges with ${allSpaces.size} spaces")
+        
+        // Create a mock sync data object with the stored space edges
+        val mockSyncData = JSONObject()
+        mockSyncData.put("rooms", JSONObject()) // Empty rooms object since we have all rooms in allRooms
+        mockSyncData.put("space_edges", storedSpaceEdges)
+        
+        // Use the existing updateExistingSpacesWithEdges function
+        net.vrkknn.andromuks.utils.SpaceRoomParser.updateExistingSpacesWithEdges(
+            storedSpaceEdges!!, 
+            mockSyncData, 
+            this
+        )
+        
+        // Clear stored space edges
+        storedSpaceEdges = null
     }
     
     // Navigation callback
