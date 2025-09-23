@@ -13,13 +13,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
-import com.google.accompanist.navigation.animation.AnimatedNavHost
-import com.google.accompanist.navigation.animation.composable
-import com.google.accompanist.navigation.animation.rememberAnimatedNavController
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 
 class MainActivity : ComponentActivity() {
@@ -36,19 +32,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun AppNavigation(modifier: Modifier) {
-    val navController = rememberAnimatedNavController()
+    val navController = rememberNavController()
     val appViewModel: AppViewModel = viewModel()
-    AnimatedNavHost(
+    NavHost(
         navController = navController,
         startDestination = "auth_check",
-        modifier = modifier,
-        enterTransition = { slideInHorizontally(initialOffsetX = { +it }, animationSpec = tween(250)) },
-        exitTransition = { slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(250)) },
-        popEnterTransition = { slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(250)) },
-        popExitTransition = { slideOutHorizontally(targetOffsetX = { +it }, animationSpec = tween(250)) }
+        modifier = modifier
     ) {
         composable("login") { LoginScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
         composable("auth_check") { AuthCheckScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }

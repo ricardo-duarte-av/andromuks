@@ -87,8 +87,8 @@ fun RoomTimelineScreen(
             if (event.type == "m.room.member") {
                 val userId = event.stateKey ?: event.sender
                 val content = event.content
-                val displayName = content?.optString("displayname", null)
-                val avatarUrl = content?.optString("avatar_url", null)
+                val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
                 map[userId] = Pair(displayName, avatarUrl)
             }
         }
@@ -130,7 +130,7 @@ fun RoomTimelineScreen(
                             onClick = { navController.popBackStack() }
                         ) {
                             Icon(
-                                imageVector = Icons.Default.ArrowBack,
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Back"
                             )
                         }
@@ -215,7 +215,7 @@ fun RoomTimelineScreen(
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Send,
+                                    imageVector = Icons.AutoMirrored.Filled.Send,
                                     contentDescription = "Send",
                                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                                 )

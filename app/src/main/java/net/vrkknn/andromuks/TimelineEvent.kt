@@ -28,9 +28,9 @@ data class TimelineEvent(
                 type = json.optString("type", ""),
                 timestamp = json.optLong("timestamp", 0),
                 content = json.optJSONObject("content"),
-                stateKey = json.optString("state_key", null),
+                stateKey = json.optString("state_key")?.takeIf { it.isNotBlank() },
                 decrypted = json.optJSONObject("decrypted"),
-                decryptedType = json.optString("decrypted_type", null)
+                decryptedType = json.optString("decrypted_type")?.takeIf { it.isNotBlank() }
             )
         }
     }
