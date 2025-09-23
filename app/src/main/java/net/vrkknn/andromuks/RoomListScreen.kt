@@ -249,6 +249,7 @@ fun RoomListScreen(
 
 @Composable
 fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
+    android.util.Log.d("Andromuks", "SpaceListItem: Called for space: ${space.name}")
     val context = LocalContext.current
     val sharedPrefs = context.getSharedPreferences("andromuks_prefs", Context.MODE_PRIVATE)
     
@@ -630,6 +631,7 @@ fun SpacesListContent(
     authToken: String,
     navController: NavController
 ) {
+    android.util.Log.d("Andromuks", "SpacesListContent: Displaying ${spaces.size} spaces")
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Top,
