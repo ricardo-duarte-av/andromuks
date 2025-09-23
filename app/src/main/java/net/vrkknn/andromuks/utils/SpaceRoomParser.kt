@@ -201,10 +201,18 @@ object SpaceRoomParser {
                                     // Extract sender and try to get display name from member cache
                                     val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
                                     messageSender = if (sender != null) {
-                                        // Try to get display name from member cache
+                                        // Try to get display name from member cache using full Matrix ID
                                         val roomMembers = memberCache?.get(roomId)
                                         val memberProfile = roomMembers?.get(sender)
-                                        memberProfile?.displayName ?: sender.substringAfterLast(":")
+                                        Log.d("Andromuks", "SpaceRoomParser: Looking up sender '$sender' in room '$roomId', found profile: $memberProfile")
+                                        if (memberProfile?.displayName != null && memberProfile.displayName.isNotBlank()) {
+                                            Log.d("Andromuks", "SpaceRoomParser: Using display name: ${memberProfile.displayName}")
+                                            memberProfile.displayName
+                                        } else {
+                                            // Fallback to full Matrix ID if no display name
+                                            Log.d("Andromuks", "SpaceRoomParser: Using full Matrix ID: $sender")
+                                            sender
+                                        }
                                     } else {
                                         null
                                     }
@@ -222,10 +230,18 @@ object SpaceRoomParser {
                                         // Extract sender and try to get display name from member cache
                                         val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
                                         messageSender = if (sender != null) {
-                                            // Try to get display name from member cache
+                                            // Try to get display name from member cache using full Matrix ID
                                             val roomMembers = memberCache?.get(roomId)
                                             val memberProfile = roomMembers?.get(sender)
-                                            memberProfile?.displayName ?: sender.substringAfterLast(":")
+                                            Log.d("Andromuks", "SpaceRoomParser: Looking up encrypted sender '$sender' in room '$roomId', found profile: $memberProfile")
+                                            if (memberProfile?.displayName != null && memberProfile.displayName.isNotBlank()) {
+                                                Log.d("Andromuks", "SpaceRoomParser: Using display name: ${memberProfile.displayName}")
+                                                memberProfile.displayName
+                                            } else {
+                                                // Fallback to full Matrix ID if no display name
+                                                Log.d("Andromuks", "SpaceRoomParser: Using full Matrix ID: $sender")
+                                                sender
+                                            }
                                         } else {
                                             null
                                         }
