@@ -112,7 +112,7 @@ object SpaceRoomParser {
      * Parses incremental sync updates and returns what changed.
      * Handles room updates, new rooms, and removed rooms.
      */
-    fun parseSyncUpdate(syncJson: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null): SyncUpdateResult {
+    fun parseSyncUpdate(syncJson: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): SyncUpdateResult {
         val data = syncJson.optJSONObject("data") ?: return SyncUpdateResult(emptyList(), emptyList(), emptyList())
         
         // Debug: Log member cache contents
@@ -145,7 +145,7 @@ object SpaceRoomParser {
                 }
                 
                 // Parse the room
-                val room = parseRoomFromJson(roomId, roomObj, meta, memberCache)
+                val room = parseRoomFromJson(roomId, roomObj, meta, memberCache, appViewModel)
                 if (room != null) {
                     // For now, treat all rooms in sync updates as updates (could be new or existing)
                     updatedRooms.add(room)
@@ -181,7 +181,7 @@ object SpaceRoomParser {
         return SyncUpdateResult(updatedRooms, newRooms, removedRoomIds)
     }
     
-    private fun parseRoomFromJson(roomId: String, roomObj: JSONObject, meta: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null): RoomItem? {
+    private fun parseRoomFromJson(roomId: String, roomObj: JSONObject, meta: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): RoomItem? {
         try {
             // This is a regular room
             val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
@@ -218,8 +218,10 @@ object SpaceRoomParser {
                                             Log.d("Andromuks", "SpaceRoomParser: Using display name: ${memberProfile.displayName}")
                                             memberProfile.displayName
                                         } else {
-                                            // Fallback to Matrix ID if no display name is set
-                                            Log.d("Andromuks", "SpaceRoomParser: No display name, using Matrix ID: $sender")
+                                            // No display name found, request it from server
+                                            Log.d("Andromuks", "SpaceRoomParser: No display name for $sender, requesting profile")
+                                            appViewModel?.requestUserProfile(sender)
+                                            // For now, use Matrix ID until profile is fetched
                                             sender
                                         }
                                     } else {
@@ -248,8 +250,10 @@ object SpaceRoomParser {
                                                 Log.d("Andromuks", "SpaceRoomParser: Using display name: ${memberProfile.displayName}")
                                                 memberProfile.displayName
                                             } else {
-                                                // Fallback to Matrix ID if no display name is set
-                                                Log.d("Andromuks", "SpaceRoomParser: No display name, using Matrix ID: $sender")
+                                                // No display name found, request it from server
+                                                Log.d("Andromuks", "SpaceRoomParser: No display name for $sender, requesting profile")
+                                                appViewModel?.requestUserProfile(sender)
+                                                // For now, use Matrix ID until profile is fetched
                                                 sender
                                             }
                                         } else {

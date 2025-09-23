@@ -139,7 +139,7 @@ class AppViewModel : ViewModel() {
         // First, populate member cache from sync data
         populateMemberCacheFromSync(syncJson)
         
-        val syncResult = SpaceRoomParser.parseSyncUpdate(syncJson, roomMemberCache)
+        val syncResult = SpaceRoomParser.parseSyncUpdate(syncJson, roomMemberCache, this)
         syncMessageCount++
         
         // Update existing rooms
@@ -369,15 +369,56 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    fun handleError(requestId: Int, errorMessage: String) {
+        if (profileRequests.containsKey(requestId)) {
+            handleProfileError(requestId, errorMessage)
+        } else {
+            android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
+        }
+    }
+    
+    private fun handleProfileError(requestId: Int, errorMessage: String) {
+        val userId = profileRequests.remove(requestId) ?: return
+        android.util.Log.d("Andromuks", "AppViewModel: Profile not found for $userId: $errorMessage")
+        
+        // If profile not found, use username part of Matrix ID
+        val username = userId.removePrefix("@").substringBefore(":")
+        val memberProfile = MemberProfile(username, null)
+        
+        // Update member cache for all rooms that might contain this user
+        roomMemberCache.forEach { (roomId, memberMap) ->
+            if (memberMap.containsKey(userId)) {
+                memberMap[userId] = memberProfile
+                android.util.Log.d("Andromuks", "AppViewModel: Updated member cache with username '$username' for $userId in room $roomId")
+            }
+        }
+        
+        // Trigger UI update since member cache changed
+        updateCounter++
+    }
+    
     private fun handleProfileResponse(requestId: Int, data: Any) {
         val userId = profileRequests.remove(requestId) ?: return
         val obj = data as? JSONObject ?: return
         val avatar = obj.optString("avatar_url")?.takeIf { it.isNotBlank() }
         val display = obj.optString("displayname")?.takeIf { it.isNotBlank() }
+        
+        // Update member cache for all rooms that might contain this user
+        val memberProfile = MemberProfile(display, avatar)
+        roomMemberCache.forEach { (roomId, memberMap) ->
+            if (memberMap.containsKey(userId)) {
+                memberMap[userId] = memberProfile
+                android.util.Log.d("Andromuks", "AppViewModel: Updated member cache for $userId in room $roomId")
+            }
+        }
+        
         if (userId == currentUserId) {
             currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
         }
         android.util.Log.d("Andromuks", "AppViewModel: Profile updated for $userId display=$display avatar=${avatar != null}")
+        
+        // Trigger UI update since member cache changed
+        updateCounter++
     }
     
     fun handleTimelineResponse(requestId: Int, data: Any) {

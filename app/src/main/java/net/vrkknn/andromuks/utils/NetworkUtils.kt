@@ -198,6 +198,14 @@ fun connectToWebsocket(
                             appViewModel.handleResponse(requestId, data ?: Any())
                         }
                     }
+                    "error" -> {
+                        val requestId = jsonObject.optInt("request_id")
+                        val errorMessage = jsonObject.optString("data", "Unknown error")
+                        Log.d("Andromuks", "NetworkUtils: Received error for requestId=$requestId: $errorMessage")
+                        appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                            appViewModel.handleError(requestId, errorMessage)
+                        }
+                    }
                 }
             }
         }
