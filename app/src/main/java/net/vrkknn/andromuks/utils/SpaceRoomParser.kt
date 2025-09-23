@@ -138,8 +138,13 @@ object SpaceRoomParser {
                 // Parse the room
                 val room = parseRoomFromJson(roomId, roomObj, meta, memberCache, appViewModel)
                 if (room != null) {
-                    // For now, treat all rooms in sync updates as updates (could be new or existing)
-                    updatedRooms.add(room)
+                    // Only include rooms that have meaningful message content
+                    if (room.messagePreview != null && room.messagePreview.isNotBlank()) {
+                        updatedRooms.add(room)
+                        Log.d("Andromuks", "SpaceRoomParser: Including room with message: ${room.name}")
+                    } else {
+                        Log.d("Andromuks", "SpaceRoomParser: Discarding room without message content: ${room.name} (ID: ${room.id})")
+                    }
                 }
             }
         }
