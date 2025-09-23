@@ -115,6 +115,15 @@ object SpaceRoomParser {
     fun parseSyncUpdate(syncJson: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null): SyncUpdateResult {
         val data = syncJson.optJSONObject("data") ?: return SyncUpdateResult(emptyList(), emptyList(), emptyList())
         
+        // Debug: Log member cache contents
+        Log.d("Andromuks", "SpaceRoomParser: Member cache has ${memberCache?.size ?: 0} rooms")
+        memberCache?.forEach { (roomId, members) ->
+            Log.d("Andromuks", "SpaceRoomParser: Room '$roomId' has ${members.size} members")
+            members.forEach { (userId, profile) ->
+                Log.d("Andromuks", "SpaceRoomParser: Member '$userId' -> displayName: '${profile.displayName}', avatar: '${profile.avatarUrl}'")
+            }
+        }
+        
         val updatedRooms = mutableListOf<RoomItem>()
         val newRooms = mutableListOf<RoomItem>()
         val removedRoomIds = mutableListOf<String>()

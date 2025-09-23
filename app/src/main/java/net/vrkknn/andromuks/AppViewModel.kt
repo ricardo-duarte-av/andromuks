@@ -95,8 +95,43 @@ class AppViewModel : ViewModel() {
     fun getMemberMap(roomId: String): Map<String, MemberProfile> {
         return roomMemberCache[roomId] ?: emptyMap()
     }
+    
+    private fun populateMemberCacheFromSync(syncJson: JSONObject) {
+        val data = syncJson.optJSONObject("data") ?: return
+        val roomsJson = data.optJSONObject("rooms") ?: return
+        
+        val roomKeys = roomsJson.keys()
+        while (roomKeys.hasNext()) {
+            val roomId = roomKeys.next()
+            val roomObj = roomsJson.optJSONObject(roomId) ?: continue
+            val events = roomObj.optJSONArray("events") ?: continue
+            
+            val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+            
+            // Process all events to find member events
+            for (i in 0 until events.length()) {
+                val event = events.optJSONObject(i) ?: continue
+                val eventType = event.optString("type")
+                
+                if (eventType == "m.room.member") {
+                    val userId = event.optString("state_key") ?: event.optString("sender")
+                    val content = event.optJSONObject("content")
+                    val displayName = content?.optString("displayname", null)
+                    val avatarUrl = content?.optString("avatar_url", null)
+                    
+                    if (userId != null) {
+                        memberMap[userId] = MemberProfile(displayName, avatarUrl)
+                        android.util.Log.d("Andromuks", "AppViewModel: Cached member '$userId' in room '$roomId' -> displayName: '$displayName'")
+                    }
+                }
+            }
+        }
+    }
 
     fun updateRoomsFromSyncJson(syncJson: JSONObject) {
+        // First, populate member cache from sync data
+        populateMemberCacheFromSync(syncJson)
+        
         val syncResult = SpaceRoomParser.parseSyncUpdate(syncJson, roomMemberCache)
         syncMessageCount++
         
