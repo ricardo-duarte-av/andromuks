@@ -128,7 +128,7 @@ class AppViewModel : ViewModel() {
                     
                     if (userId != null) {
                         memberMap[userId] = MemberProfile(displayName, avatarUrl)
-                        android.util.Log.d("Andromuks", "AppViewModel: Cached member '$userId' in room '$roomId' -> displayName: '$displayName'")
+                        //android.util.Log.d("Andromuks", "AppViewModel: Cached member '$userId' in room '$roomId' -> displayName: '$displayName'")
                     }
                 }
             }

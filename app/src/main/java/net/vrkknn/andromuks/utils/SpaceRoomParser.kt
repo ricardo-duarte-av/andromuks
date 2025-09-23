@@ -102,9 +102,9 @@ object SpaceRoomParser {
         }
 
         Log.d("Andromuks", "SpaceRoomParser: Parsed ${rooms.size} rooms from sync JSON")
-        rooms.forEach { room ->
-            Log.d("Andromuks", "SpaceRoomParser: Room: ${room.name} (${room.id})")
-        }
+        //rooms.forEach { room ->
+        //    Log.d("Andromuks", "SpaceRoomParser: Room: ${room.name} (${room.id})")
+        //}
         return rooms
     }
     
@@ -119,9 +119,9 @@ object SpaceRoomParser {
         Log.d("Andromuks", "SpaceRoomParser: Member cache has ${memberCache?.size ?: 0} rooms")
         memberCache?.forEach { (roomId, members) ->
             Log.d("Andromuks", "SpaceRoomParser: Room '$roomId' has ${members.size} members")
-            members.forEach { (userId, profile) ->
-                Log.d("Andromuks", "SpaceRoomParser: Member '$userId' -> displayName: '${profile.displayName}', avatar: '${profile.avatarUrl}'")
-            }
+           // members.forEach { (userId, profile) ->
+           //     Log.d("Andromuks", "SpaceRoomParser: Member '$userId' -> displayName: '${profile.displayName}', avatar: '${profile.avatarUrl}'")
+           // }
         }
         
         val updatedRooms = mutableListOf<RoomItem>()
