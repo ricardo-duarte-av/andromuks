@@ -112,6 +112,10 @@ object SpaceRoomParser {
     fun parseSyncUpdate(syncJson: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): SyncUpdateResult {
         val data = syncJson.optJSONObject("data") ?: return SyncUpdateResult(emptyList(), emptyList(), emptyList())
         
+        // Parse spaces from sync data
+        val spaces = parseSpacesFromSync(data)
+        appViewModel?.setAllSpaces(spaces)
+        
         // Debug: Log member cache contents
         Log.d("Andromuks", "SpaceRoomParser: Member cache has ${memberCache?.size ?: 0} rooms")
         
@@ -333,5 +337,49 @@ object SpaceRoomParser {
             Log.e("Andromuks", "SpaceRoomParser: Error detecting DM status for room $roomId", e)
             return false
         }
+    }
+    
+    /**
+     * Parses spaces from sync data using top_level_spaces array
+     */
+    private fun parseSpacesFromSync(data: JSONObject): List<net.vrkknn.andromuks.SpaceItem> {
+        val spaces = mutableListOf<net.vrkknn.andromuks.SpaceItem>()
+        
+        try {
+            // Get top_level_spaces array from sync data
+            val topLevelSpaces = data.optJSONArray("top_level_spaces")
+            if (topLevelSpaces != null) {
+                Log.d("Andromuks", "SpaceRoomParser: Found top_level_spaces with ${topLevelSpaces.length()} spaces")
+                
+                for (i in 0 until topLevelSpaces.length()) {
+                    val spaceId = topLevelSpaces.optString(i)
+                    if (spaceId.isNotBlank()) {
+                        // Try to get space details from rooms data
+                        val roomsJson = data.optJSONObject("rooms")
+                        val spaceDetails = roomsJson?.optJSONObject(spaceId)
+                        val meta = spaceDetails?.optJSONObject("meta")
+                        
+                        val name = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: spaceId
+                        val avatar = meta?.optString("avatar")?.takeIf { it.isNotBlank() }
+                        
+                        val spaceItem = net.vrkknn.andromuks.SpaceItem(
+                            id = spaceId,
+                            name = name,
+                            avatarUrl = avatar,
+                            rooms = emptyList() // Spaces don't have rooms yet
+                        )
+                        spaces.add(spaceItem)
+                        Log.d("Andromuks", "SpaceRoomParser: Found space: $name (ID: $spaceId)")
+                    }
+                }
+            } else {
+                Log.d("Andromuks", "SpaceRoomParser: No top_level_spaces found in sync data")
+            }
+        } catch (e: Exception) {
+            Log.e("Andromuks", "SpaceRoomParser: Error parsing spaces", e)
+        }
+        
+        Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces")
+        return spaces
     }
 }

@@ -191,13 +191,25 @@ fun RoomListScreen(
                         )
                     }
                     RoomSectionType.SPACES -> {
-                        SpacesListContent(
-                            spaces = currentSection.spaces,
-                            searchQuery = searchQuery,
-                            appViewModel = appViewModel,
-                            authToken = authToken,
-                            navController = navController
-                        )
+                        if (appViewModel.currentSpaceId != null) {
+                            // Show rooms within the selected space
+                            RoomListContent(
+                                rooms = currentSection.rooms,
+                                searchQuery = searchQuery,
+                                appViewModel = appViewModel,
+                                authToken = authToken,
+                                navController = navController
+                            )
+                        } else {
+                            // Show list of spaces
+                            SpacesListContent(
+                                spaces = currentSection.spaces,
+                                searchQuery = searchQuery,
+                                appViewModel = appViewModel,
+                                authToken = authToken,
+                                navController = navController
+                            )
+                        }
                     }
                     RoomSectionType.DIRECT_CHATS -> {
                         RoomListContent(
@@ -483,6 +495,39 @@ fun RoomListContent(
             bottom = 8.dp
         )
     ) {
+        // Show back button if we're inside a space
+        if (appViewModel.currentSpaceId != null) {
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { appViewModel.exitSpace() }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.ArrowBack,
+                            contentDescription = "Back to Spaces",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Back to Spaces",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+        
         val filteredRooms = if (searchQuery.isBlank()) {
             rooms
         } else {
@@ -535,7 +580,7 @@ fun SpacesListContent(
                 space = space,
                 isSelected = false,
                 onClick = { 
-                    // TODO: Navigate to space or show space rooms
+                    appViewModel.enterSpace(space.id)
                 }
             )
         }

@@ -58,6 +58,10 @@ class AppViewModel : ViewModel() {
     var selectedSection by mutableStateOf(RoomSectionType.HOME)
         private set
     
+    // Space navigation state
+    var currentSpaceId by mutableStateOf<String?>(null)
+        private set
+    
     // Force recomposition counter
     var updateCounter by mutableStateOf(0)
         private set
@@ -72,8 +76,28 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: spaceList set to ${spaceList.size} spaces, updateCounter: $updateCounter")
     }
     
+    fun setAllSpaces(spaces: List<SpaceItem>) {
+        allSpaces = spaces
+        updateCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: allSpaces set to ${spaces.size} spaces")
+    }
+    
     fun changeSelectedSection(section: RoomSectionType) {
         selectedSection = section
+        // Reset space navigation when switching tabs
+        if (section != RoomSectionType.SPACES) {
+            currentSpaceId = null
+        }
+        updateCounter++
+    }
+    
+    fun enterSpace(spaceId: String) {
+        currentSpaceId = spaceId
+        updateCounter++
+    }
+    
+    fun exitSpace() {
+        currentSpaceId = null
         updateCounter++
     }
     
@@ -96,11 +120,24 @@ class AppViewModel : ViewModel() {
                 type = RoomSectionType.HOME,
                 rooms = roomsToUse
             )
-            RoomSectionType.SPACES -> RoomSection(
-                type = RoomSectionType.SPACES,
-                rooms = emptyList(),
-                spaces = allSpaces
-            )
+            RoomSectionType.SPACES -> {
+                if (currentSpaceId != null) {
+                    // Show rooms within the selected space
+                    val selectedSpace = allSpaces.find { it.id == currentSpaceId }
+                    RoomSection(
+                        type = RoomSectionType.SPACES,
+                        rooms = selectedSpace?.rooms ?: emptyList(),
+                        spaces = emptyList()
+                    )
+                } else {
+                    // Show list of spaces
+                    RoomSection(
+                        type = RoomSectionType.SPACES,
+                        rooms = emptyList(),
+                        spaces = allSpaces
+                    )
+                }
+            }
             RoomSectionType.DIRECT_CHATS -> {
                 val dmRooms = roomsToUse.filter { it.isDirectMessage }
                 val unreadDmCount = dmRooms.count { it.unreadCount != null && it.unreadCount > 0 }
