@@ -502,7 +502,7 @@ object SpaceRoomParser {
     /**
      * Updates existing spaces with child rooms from space_edges
      */
-    private fun updateExistingSpacesWithEdges(spaceEdges: JSONObject, data: JSONObject, appViewModel: net.vrkknn.andromuks.AppViewModel?) {
+    fun updateExistingSpacesWithEdges(spaceEdges: JSONObject, data: JSONObject, appViewModel: net.vrkknn.andromuks.AppViewModel?) {
         try {
             val roomsJson = data.optJSONObject("rooms")
             val updatedSpaces = mutableListOf<net.vrkknn.andromuks.SpaceItem>()
