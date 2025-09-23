@@ -38,7 +38,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -130,7 +130,7 @@ fun RoomTimelineScreen(
                             onClick = { navController.popBackStack() }
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.ArrowBack,
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                                 contentDescription = "Back"
                             )
                         }
@@ -214,6 +214,7 @@ fun RoomTimelineScreen(
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
                             ) {
+                                @Suppress("DEPRECATION")
                                 Icon(
                                     imageVector = Icons.Filled.Send,
                                     contentDescription = "Send",
