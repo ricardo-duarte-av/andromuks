@@ -297,9 +297,11 @@ fun RoomListItem(
                 
                 // Message preview
                 if (room.messagePreview != null) {
-                    val messageText = if (room.messageSender != null) {
+                    val messageText = if (room.messageSender != null && room.messageSender.isNotBlank()) {
                         "${room.messageSender}: ${room.messagePreview}"
                     } else {
+                        // This should never happen as we ensure messageSender is always set
+                        android.util.Log.w("Andromuks", "RoomListScreen: WARNING - No messageSender for room ${room.name}")
                         room.messagePreview
                     }
                     Text(
