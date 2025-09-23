@@ -251,7 +251,18 @@ fun RoomListScreen(
 fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
     val context = LocalContext.current
     val sharedPrefs = context.getSharedPreferences("andromuks_prefs", Context.MODE_PRIVATE)
-    val homeserverUrl = sharedPrefs.getString("homeserver_url", "https://matrix.org") ?: "https://matrix.org"
+    
+    // Debug: Log all shared preferences
+    val allPrefs = sharedPrefs.all
+    android.util.Log.d("Andromuks", "SpaceListItem: All shared preferences: $allPrefs")
+    
+    val homeserverUrl = sharedPrefs.getString("homeserver_url", null)
+    if (homeserverUrl == null) {
+        android.util.Log.e("Andromuks", "SpaceListItem: No homeserver URL found in shared preferences!")
+        // Show fallback UI
+        Text("No homeserver URL configured", modifier = Modifier.padding(16.dp))
+        return
+    }
     android.util.Log.d("Andromuks", "SpaceListItem: Using homeserver URL: $homeserverUrl")
     
     // Calculate unread counts outside the Row
