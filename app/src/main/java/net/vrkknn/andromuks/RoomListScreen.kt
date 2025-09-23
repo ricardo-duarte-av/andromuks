@@ -252,6 +252,7 @@ fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
     val context = LocalContext.current
     val sharedPrefs = context.getSharedPreferences("andromuks_prefs", Context.MODE_PRIVATE)
     val homeserverUrl = sharedPrefs.getString("homeserver_url", "https://matrix.org") ?: "https://matrix.org"
+    android.util.Log.d("Andromuks", "SpaceListItem: Using homeserver URL: $homeserverUrl")
     
     // Calculate unread counts outside the Row
     val totalRooms = space.rooms.size

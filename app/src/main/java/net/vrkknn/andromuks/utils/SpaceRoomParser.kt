@@ -120,6 +120,12 @@ object SpaceRoomParser {
             appViewModel?.updateAllSpaces(spaces)
         } else {
             android.util.Log.d("Andromuks", "SpaceRoomParser: No top_level_spaces in this sync, keeping existing spaces")
+            // Even if no top_level_spaces, try to update space edges for existing spaces
+            val spaceEdges = data.optJSONObject("space_edges")
+            if (spaceEdges != null) {
+                android.util.Log.d("Andromuks", "SpaceRoomParser: Found space_edges, updating existing spaces")
+                updateExistingSpacesWithEdges(spaceEdges, data, appViewModel)
+            }
         }
         
         // Debug: Log member cache contents
@@ -427,5 +433,66 @@ object SpaceRoomParser {
         
         Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces")
         return spaces
+    }
+    
+    /**
+     * Updates existing spaces with child rooms from space_edges
+     */
+    private fun updateExistingSpacesWithEdges(spaceEdges: JSONObject, data: JSONObject, appViewModel: net.vrkknn.andromuks.AppViewModel?) {
+        try {
+            val roomsJson = data.optJSONObject("rooms")
+            val updatedSpaces = mutableListOf<net.vrkknn.andromuks.SpaceItem>()
+            
+            // Get current spaces from AppViewModel
+            val currentSpaces = appViewModel?.allSpaces ?: emptyList()
+            android.util.Log.d("Andromuks", "SpaceRoomParser: Updating ${currentSpaces.size} existing spaces with edges")
+            
+            for (space in currentSpaces) {
+                val spaceEdgeArray = spaceEdges.optJSONArray(space.id)
+                val childRooms = mutableListOf<net.vrkknn.andromuks.RoomItem>()
+                
+                if (spaceEdgeArray != null) {
+                    android.util.Log.d("Andromuks", "SpaceRoomParser: Space ${space.name} has ${spaceEdgeArray.length()} child rooms")
+                    for (j in 0 until spaceEdgeArray.length()) {
+                        val edge = spaceEdgeArray.optJSONObject(j)
+                        val childId = edge?.optString("child_id")?.takeIf { it.isNotBlank() }
+                        if (childId != null) {
+                            // Try to find this room in the rooms data
+                            val childRoomData = roomsJson?.optJSONObject(childId)
+                            if (childRoomData != null) {
+                                val childMeta = childRoomData.optJSONObject("meta")
+                                val childName = childMeta?.optString("name")?.takeIf { it.isNotBlank() } ?: childId
+                                val childAvatar = childMeta?.optString("avatar")?.takeIf { it.isNotBlank() }
+                                val unreadCount = childMeta?.optInt("unread_messages", 0) ?: 0
+                                
+                                val childRoom = net.vrkknn.andromuks.RoomItem(
+                                    id = childId,
+                                    name = childName,
+                                    avatarUrl = childAvatar,
+                                    unreadCount = if (unreadCount > 0) unreadCount else null,
+                                    messagePreview = null,
+                                    messageSender = null,
+                                    isDirectMessage = false
+                                )
+                                childRooms.add(childRoom)
+                                android.util.Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
+                            }
+                        }
+                    }
+                }
+                
+                // Create updated space with new child rooms
+                val updatedSpace = space.copy(rooms = childRooms)
+                updatedSpaces.add(updatedSpace)
+                android.util.Log.d("Andromuks", "SpaceRoomParser: Updated space ${space.name} with ${childRooms.size} rooms")
+            }
+            
+            // Update the spaces in AppViewModel
+            appViewModel?.updateAllSpaces(updatedSpaces)
+            android.util.Log.d("Andromuks", "SpaceRoomParser: Updated ${updatedSpaces.size} spaces with edges")
+            
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "SpaceRoomParser: Error updating spaces with edges", e)
+        }
     }
 }
