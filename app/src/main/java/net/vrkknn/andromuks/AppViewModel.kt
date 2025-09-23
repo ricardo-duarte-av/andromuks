@@ -202,6 +202,9 @@ class AppViewModel : ViewModel() {
     var onNavigateToRoomList: (() -> Unit)? = null
     private var pendingNavigation = false
     
+    // Websocket restart callback
+    var onRestartWebSocket: (() -> Unit)? = null
+    
     fun setNavigationCallback(callback: () -> Unit) {
         android.util.Log.d("Andromuks", "AppViewModel: Navigation callback set")
         onNavigateToRoomList = callback
@@ -233,6 +236,8 @@ class AppViewModel : ViewModel() {
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
     private var lastReceivedRequestId: Int = 0
+    private var lastPingRequestId: Int = 0
+    private var pongTimeoutJob: Job? = null
 
     fun setWebSocket(webSocket: WebSocket) {
         this.webSocket = webSocket
@@ -243,11 +248,20 @@ class AppViewModel : ViewModel() {
         this.webSocket = null
         pingJob?.cancel()
         pingJob = null
+        pongTimeoutJob?.cancel()
+        pongTimeoutJob = null
     }
 
     fun noteIncomingRequestId(requestId: Int) {
         if (requestId != 0) {
             lastReceivedRequestId = requestId
+            
+            // If this is a pong response to our ping, cancel the timeout
+            if (requestId == lastPingRequestId) {
+                android.util.Log.d("Andromuks", "AppViewModel: Received pong for ping $requestId, canceling timeout")
+                pongTimeoutJob?.cancel()
+                pongTimeoutJob = null
+            }
         }
     }
 
@@ -263,10 +277,30 @@ class AppViewModel : ViewModel() {
                     break
                 }
                 val reqId = requestIdCounter++
+                lastPingRequestId = reqId
                 val data = mapOf("last_received_id" to lastReceivedRequestId)
                 sendWebSocketCommand("ping", reqId, data)
+                
+                // Start timeout job for this ping
+                startPongTimeout(reqId)
             }
         }
+    }
+    
+    private fun startPongTimeout(pingRequestId: Int) {
+        pongTimeoutJob?.cancel()
+        pongTimeoutJob = viewModelScope.launch {
+            delay(5_000) // 5 second timeout
+            android.util.Log.w("Andromuks", "AppViewModel: Pong timeout for ping $pingRequestId, restarting websocket")
+            restartWebSocket()
+        }
+    }
+    
+    private fun restartWebSocket() {
+        android.util.Log.d("Andromuks", "AppViewModel: Restarting websocket connection")
+        clearWebSocket()
+        // Trigger websocket restart via callback
+        onRestartWebSocket?.invoke()
     }
 
     fun requestUserProfile(userId: String) {

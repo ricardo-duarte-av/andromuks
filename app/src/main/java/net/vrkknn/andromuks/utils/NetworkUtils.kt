@@ -135,6 +135,12 @@ fun connectToWebsocket(
         .url(webSocketUrl)
         .addHeader("Cookie", "gomuks_auth=$token")
         .build()
+    
+    // Set up websocket restart callback
+    appViewModel.onRestartWebSocket = {
+        Log.d("NetworkUtils", "Websocket restart requested, reconnecting...")
+        connectToWebsocket(url, client, token, appViewModel)
+    }
 
     val websocketListener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
