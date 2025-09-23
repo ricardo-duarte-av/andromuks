@@ -302,6 +302,7 @@ fun RoomListItem(
                     } else {
                         // This should never happen as we ensure messageSender is always set
                         android.util.Log.w("Andromuks", "RoomListScreen: WARNING - No messageSender for room ${room.name}")
+                        android.util.Log.w("Andromuks", "RoomListScreen: Room details - ID: ${room.id}, Preview: '${room.messagePreview}', Sender: '${room.messageSender}'")
                         room.messagePreview
                     }
                     Text(

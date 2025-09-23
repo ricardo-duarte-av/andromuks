@@ -102,9 +102,6 @@ object SpaceRoomParser {
         }
 
         Log.d("Andromuks", "SpaceRoomParser: Parsed ${rooms.size} rooms from sync JSON")
-        //rooms.forEach { room ->
-        //    Log.d("Andromuks", "SpaceRoomParser: Room: ${room.name} (${room.id})")
-        //}
         return rooms
     }
     
@@ -117,12 +114,6 @@ object SpaceRoomParser {
         
         // Debug: Log member cache contents
         Log.d("Andromuks", "SpaceRoomParser: Member cache has ${memberCache?.size ?: 0} rooms")
-        //memberCache?.forEach { (roomId, members) ->
-        //    Log.d("Andromuks", "SpaceRoomParser: Room '$roomId' has ${members.size} members")
-           // members.forEach { (userId, profile) ->
-           //     Log.d("Andromuks", "SpaceRoomParser: Member '$userId' -> displayName: '${profile.displayName}', avatar: '${profile.avatarUrl}'")
-           // }
-        //}
         
         val updatedRooms = mutableListOf<RoomItem>()
         val newRooms = mutableListOf<RoomItem>()
@@ -209,6 +200,8 @@ object SpaceRoomParser {
                                     messagePreview = body
                                     // Extract sender - this should ALWAYS be available in Matrix events
                                     val sender = event.optString("sender")
+                                    Log.d("Andromuks", "SpaceRoomParser: Processing m.room.message event for room $roomId")
+                                    Log.d("Andromuks", "SpaceRoomParser: Event JSON: ${event.toString()}")
                                     if (sender.isNotBlank()) {
                                         // Try to get display name from member cache using full Matrix ID
                                         val roomMembers = memberCache?.get(roomId)
@@ -226,6 +219,7 @@ object SpaceRoomParser {
                                         }
                                     } else {
                                         Log.w("Andromuks", "SpaceRoomParser: WARNING - No sender found in message event!")
+                                        Log.w("Andromuks", "SpaceRoomParser: Event that caused the issue: ${event.toString()}")
                                         messageSender = "Unknown"
                                     }
                                     break // Found the last message, stop looking
@@ -241,6 +235,8 @@ object SpaceRoomParser {
                                         messagePreview = body
                                         // Extract sender - this should ALWAYS be available in Matrix events
                                         val sender = event.optString("sender")
+                                        Log.d("Andromuks", "SpaceRoomParser: Processing encrypted m.room.message event for room $roomId")
+                                        Log.d("Andromuks", "SpaceRoomParser: Encrypted event JSON: ${event.toString()}")
                                         if (sender.isNotBlank()) {
                                             // Try to get display name from member cache using full Matrix ID
                                             val roomMembers = memberCache?.get(roomId)
@@ -258,6 +254,7 @@ object SpaceRoomParser {
                                             }
                                         } else {
                                             Log.w("Andromuks", "SpaceRoomParser: WARNING - No sender found in encrypted message event!")
+                                            Log.w("Andromuks", "SpaceRoomParser: Encrypted event that caused the issue: ${event.toString()}")
                                             messageSender = "Unknown"
                                         }
                                         break // Found the last message, stop looking
