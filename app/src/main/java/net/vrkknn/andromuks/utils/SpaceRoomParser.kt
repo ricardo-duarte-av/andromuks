@@ -358,6 +358,10 @@ object SpaceRoomParser {
                 Log.d("Andromuks", "SpaceRoomParser: Found top_level_spaces with ${topLevelSpaces.length()} spaces")
                 Log.d("Andromuks", "SpaceRoomParser: top_level_spaces content: ${topLevelSpaces.toString()}")
                 
+                // Parse space_edges to get child rooms for each space
+                val spaceEdges = data.optJSONObject("space_edges")
+                Log.d("Andromuks", "SpaceRoomParser: space_edges found: ${spaceEdges != null}")
+                
                 for (i in 0 until topLevelSpaces.length()) {
                     val spaceId = topLevelSpaces.optString(i)
                     if (spaceId.isNotBlank()) {
@@ -369,14 +373,49 @@ object SpaceRoomParser {
                         val name = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: spaceId
                         val avatar = meta?.optString("avatar")?.takeIf { it.isNotBlank() }
                         
+                        // Get child rooms from space_edges
+                        val childRooms = mutableListOf<net.vrkknn.andromuks.RoomItem>()
+                        if (spaceEdges != null) {
+                            val spaceEdgeArray = spaceEdges.optJSONArray(spaceId)
+                            if (spaceEdgeArray != null) {
+                                Log.d("Andromuks", "SpaceRoomParser: Space $spaceId has ${spaceEdgeArray.length()} child rooms")
+                                for (j in 0 until spaceEdgeArray.length()) {
+                                    val edge = spaceEdgeArray.optJSONObject(j)
+                                    val childId = edge?.optString("child_id")?.takeIf { it.isNotBlank() }
+                                    if (childId != null) {
+                                        // Try to find this room in the rooms data
+                                        val childRoomData = roomsJson?.optJSONObject(childId)
+                                        if (childRoomData != null) {
+                                            val childMeta = childRoomData.optJSONObject("meta")
+                                            val childName = childMeta?.optString("name")?.takeIf { it.isNotBlank() } ?: childId
+                                            val childAvatar = childMeta?.optString("avatar")?.takeIf { it.isNotBlank() }
+                                            val unreadCount = childMeta?.optInt("unread_messages", 0) ?: 0
+                                            
+                                            val childRoom = net.vrkknn.andromuks.RoomItem(
+                                                id = childId,
+                                                name = childName,
+                                                avatarUrl = childAvatar,
+                                                unreadCount = if (unreadCount > 0) unreadCount else null,
+                                                messagePreview = null,
+                                                messageSender = null,
+                                                isDirectMessage = false
+                                            )
+                                            childRooms.add(childRoom)
+                                            Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
                         val spaceItem = net.vrkknn.andromuks.SpaceItem(
                             id = spaceId,
                             name = name,
                             avatarUrl = avatar,
-                            rooms = emptyList() // Spaces don't have rooms yet
+                            rooms = childRooms
                         )
                         spaces.add(spaceItem)
-                        Log.d("Andromuks", "SpaceRoomParser: Found space: $name (ID: $spaceId)")
+                        Log.d("Andromuks", "SpaceRoomParser: Found space: $name (ID: $spaceId) with ${childRooms.size} rooms")
                     }
                 }
             } else {

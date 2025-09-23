@@ -248,18 +248,72 @@ fun RoomListScreen(
 
 @Composable
 fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
-    Column(
+    val context = LocalContext.current
+    val homeserverUrl = "https://matrix.org" // TODO: Get from config
+    
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(vertical = 8.dp, horizontal = 8.dp)
+            .padding(vertical = 12.dp, horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(
-            text = space.name,
-            style = if (isSelected) MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.primary)
-            else MaterialTheme.typography.titleMedium
+        // Avatar
+        AvatarImage(
+            avatarUrl = space.avatarUrl,
+            displayName = space.name,
+            homeserverUrl = homeserverUrl,
+            authToken = "", // Spaces don't need auth token for avatars
+            size = 48.dp
         )
-        // TODO: Add avatar image if available
+        
+        Spacer(modifier = Modifier.width(12.dp))
+        
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = space.name,
+                style = if (isSelected) MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.primary)
+                else MaterialTheme.typography.titleMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            
+            // Show room count and unread count
+            val totalRooms = space.rooms.size
+            val unreadRooms = space.rooms.count { it.unreadCount != null && it.unreadCount > 0 }
+            val totalUnreadMessages = space.rooms.sumOf { it.unreadCount ?: 0 }
+            
+            if (totalRooms > 0) {
+                Text(
+                    text = if (unreadRooms > 0) {
+                        "$totalRooms rooms • $unreadRooms with unread ($totalUnreadMessages messages)"
+                    } else {
+                        "$totalRooms rooms"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (unreadRooms > 0) MaterialTheme.colorScheme.primary 
+                           else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+        
+        // Unread badge - shows number of rooms with unread messages
+        if (unreadRooms > 0) {
+            Badge(
+                modifier = Modifier.padding(start = 8.dp)
+            ) {
+                Text(
+                    text = if (unreadRooms > 99) "99+" else "$unreadRooms",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
     }
 }
 
