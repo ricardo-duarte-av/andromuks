@@ -266,10 +266,10 @@ fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
     ) {
         // Avatar
         AvatarImage(
-            avatarUrl = space.avatarUrl,
-            displayName = space.name,
+            mxcUrl = space.avatarUrl,
             homeserverUrl = homeserverUrl,
             authToken = "", // Spaces don't need auth token for avatars
+            fallbackText = space.name,
             size = 48.dp
         )
         
