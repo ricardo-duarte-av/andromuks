@@ -121,9 +121,11 @@ class AppViewModel : ViewModel() {
                 rooms = roomsToUse
             )
             RoomSectionType.SPACES -> {
+                android.util.Log.d("Andromuks", "AppViewModel: SPACES section - currentSpaceId = $currentSpaceId, allSpaces.size = ${allSpaces.size}")
                 if (currentSpaceId != null) {
                     // Show rooms within the selected space
                     val selectedSpace = allSpaces.find { it.id == currentSpaceId }
+                    android.util.Log.d("Andromuks", "AppViewModel: Selected space = $selectedSpace, rooms.size = ${selectedSpace?.rooms?.size ?: 0}")
                     RoomSection(
                         type = RoomSectionType.SPACES,
                         rooms = selectedSpace?.rooms ?: emptyList(),
@@ -131,6 +133,7 @@ class AppViewModel : ViewModel() {
                     )
                 } else {
                     // Show list of spaces
+                    android.util.Log.d("Andromuks", "AppViewModel: Showing space list with ${allSpaces.size} spaces")
                     RoomSection(
                         type = RoomSectionType.SPACES,
                         rooms = emptyList(),

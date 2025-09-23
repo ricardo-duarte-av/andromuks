@@ -85,6 +85,8 @@ fun RoomListScreen(
     val currentSection = appViewModel.getCurrentRoomSection()
     android.util.Log.d("Andromuks", "RoomListScreen: currentSection = ${currentSection.type}, updateCounter = $updateCounter")
     
+    android.util.Log.d("Andromuks", "RoomListScreen: currentSection.type = ${currentSection.type}, rooms.size = ${currentSection.rooms.size}, spaces.size = ${currentSection.spaces.size}")
+    
     if (currentSection.rooms.isEmpty() && currentSection.spaces.isEmpty()) {
         Text("Loading rooms...", modifier = Modifier.padding(16.dp))
     } else {

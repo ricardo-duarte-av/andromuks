@@ -114,6 +114,7 @@ object SpaceRoomParser {
         
         // Parse spaces from sync data
         val spaces = parseSpacesFromSync(data)
+        android.util.Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces from sync data")
         appViewModel?.updateAllSpaces(spaces)
         
         // Debug: Log member cache contents
