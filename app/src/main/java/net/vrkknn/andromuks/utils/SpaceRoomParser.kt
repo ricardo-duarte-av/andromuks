@@ -128,12 +128,7 @@ object SpaceRoomParser {
             }
         } else {
             android.util.Log.d("Andromuks", "SpaceRoomParser: No top_level_spaces in this sync, keeping existing spaces")
-            // Even if no top_level_spaces, try to update space edges for existing spaces
-            val spaceEdges = data.optJSONObject("space_edges")
-            if (spaceEdges != null) {
-                android.util.Log.d("Andromuks", "SpaceRoomParser: Found space_edges, updating existing spaces")
-                updateExistingSpacesWithEdges(spaceEdges, data, appViewModel)
-            }
+            // Don't update space edges here - they will be populated after init_complete
         }
         
         // Debug: Log member cache contents

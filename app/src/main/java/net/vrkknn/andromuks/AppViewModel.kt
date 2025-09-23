@@ -337,7 +337,24 @@ class AppViewModel : ViewModel() {
         
         // Create a mock sync data object with the stored space edges
         val mockSyncData = JSONObject()
-        mockSyncData.put("rooms", JSONObject()) // Empty rooms object since we have all rooms in allRooms
+        
+        // Create rooms object from allRooms data
+        val roomsObject = JSONObject()
+        for (room in allRooms) {
+            val roomData = JSONObject()
+            val meta = JSONObject()
+            meta.put("name", room.name)
+            if (room.avatarUrl != null) {
+                meta.put("avatar", room.avatarUrl)
+            }
+            if (room.unreadCount != null) {
+                meta.put("unread_messages", room.unreadCount)
+            }
+            roomData.put("meta", meta)
+            roomsObject.put(room.id, roomData)
+        }
+        
+        mockSyncData.put("rooms", roomsObject)
         mockSyncData.put("space_edges", storedSpaceEdges)
         
         // Use the existing updateExistingSpacesWithEdges function
