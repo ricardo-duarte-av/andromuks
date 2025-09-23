@@ -197,6 +197,9 @@ object SpaceRoomParser {
             // Extract unread count from meta
             val unreadMessages = meta.optInt("unread_messages", 0)
             
+            // Detect if this is a Direct Message room
+            val isDirectMessage = detectDirectMessage(roomId, roomObj, meta)
+            
             // Extract last message preview and sender from events if available
             val events = roomObj.optJSONArray("events")
             var messagePreview: String? = null
@@ -300,11 +303,35 @@ object SpaceRoomParser {
                 messageSender = messageSender,
                 unreadCount = if (unreadMessages > 0) unreadMessages else null,
                 avatarUrl = avatar,
-                sortingTimestamp = sortingTimestamp
+                sortingTimestamp = sortingTimestamp,
+                isDirectMessage = isDirectMessage
             )
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error parsing room $roomId", e)
             return null
+        }
+    }
+    
+    /**
+     * Detects if a room is a Direct Message (DM) based on the dm_user_id field in meta.
+     * This is the most reliable and simple method for gomuks JSON.
+     */
+    private fun detectDirectMessage(roomId: String, roomObj: JSONObject, meta: JSONObject): Boolean {
+        try {
+            // Check if dm_user_id is populated in meta - this indicates a DM
+            val dmUserId = meta.optString("dm_user_id")?.takeIf { it.isNotBlank() }
+            
+            if (dmUserId != null) {
+                Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (dm_user_id: $dmUserId)")
+                return true
+            } else {
+                Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as group room (no dm_user_id)")
+                return false
+            }
+            
+        } catch (e: Exception) {
+            Log.e("Andromuks", "SpaceRoomParser: Error detecting DM status for room $roomId", e)
+            return false
         }
     }
 }

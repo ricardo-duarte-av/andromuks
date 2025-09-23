@@ -20,7 +20,8 @@ data class RoomItem(
     val messageSender: String?,
     val unreadCount: Int?,
     val avatarUrl: String?,
-    val sortingTimestamp: Long? = null
+    val sortingTimestamp: Long? = null,
+    val isDirectMessage: Boolean = false
 )
 
 @Immutable
@@ -30,6 +31,21 @@ data class SpaceItem(
     val avatarUrl: String?,
     val rooms: List<RoomItem>
 )
+
+@Immutable
+data class RoomSection(
+    val type: RoomSectionType,
+    val rooms: List<RoomItem>,
+    val spaces: List<SpaceItem> = emptyList(),
+    val unreadCount: Int = 0
+)
+
+enum class RoomSectionType {
+    HOME,
+    SPACES,
+    DIRECT_CHATS,
+    UNREAD
+}
 
 @Immutable
 data class SyncUpdateResult(

@@ -46,6 +46,18 @@ class AppViewModel : ViewModel() {
     var spaceList by mutableStateOf(listOf<SpaceItem>())
         private set
     
+    // All rooms (for filtering into sections)
+    var allRooms by mutableStateOf(listOf<RoomItem>())
+        private set
+    
+    // All spaces (for Spaces section)
+    var allSpaces by mutableStateOf(listOf<SpaceItem>())
+        private set
+    
+    // Current selected section
+    var selectedSection by mutableStateOf(RoomSectionType.HOME)
+        private set
+    
     // Force recomposition counter
     var updateCounter by mutableStateOf(0)
         private set
@@ -58,6 +70,51 @@ class AppViewModel : ViewModel() {
         spaceList = spaces
         updateCounter++
         android.util.Log.d("Andromuks", "AppViewModel: spaceList set to ${spaceList.size} spaces, updateCounter: $updateCounter")
+    }
+    
+    fun setAllRooms(rooms: List<RoomItem>) {
+        allRooms = rooms
+        updateCounter++ // Force recomposition
+    }
+    
+    fun setAllSpaces(spaces: List<SpaceItem>) {
+        allSpaces = spaces
+        updateCounter++ // Force recomposition
+    }
+    
+    fun setSelectedSection(section: RoomSectionType) {
+        selectedSection = section
+        updateCounter++ // Force recomposition
+    }
+    
+    // Get current room section based on selected tab
+    fun getCurrentRoomSection(): RoomSection {
+        return when (selectedSection) {
+            RoomSectionType.HOME -> RoomSection(
+                type = RoomSectionType.HOME,
+                rooms = allRooms
+            )
+            RoomSectionType.SPACES -> RoomSection(
+                type = RoomSectionType.SPACES,
+                spaces = allSpaces
+            )
+            RoomSectionType.DIRECT_CHATS -> {
+                val dmRooms = allRooms.filter { it.isDirectMessage }
+                val unreadDmCount = dmRooms.count { it.unreadCount != null && it.unreadCount > 0 }
+                RoomSection(
+                    type = RoomSectionType.DIRECT_CHATS,
+                    rooms = dmRooms,
+                    unreadCount = unreadDmCount
+                )
+            }
+            RoomSectionType.UNREAD -> {
+                val unreadRooms = allRooms.filter { it.unreadCount != null && it.unreadCount > 0 }
+                RoomSection(
+                    type = RoomSectionType.UNREAD,
+                    rooms = unreadRooms
+                )
+            }
+        }
     }
 
     fun showLoading() {
@@ -180,6 +237,7 @@ class AppViewModel : ViewModel() {
         val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
         android.util.Log.d("Andromuks", "AppViewModel: Updating spaceList with ${sortedRooms.size} rooms")
         setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
+        setAllRooms(sortedRooms) // Update allRooms for filtering
         android.util.Log.d("Andromuks", "AppViewModel: spaceList updated, current size: ${spaceList.size}")
         
         // Temporary workaround: navigate after 3 sync messages if we have rooms

@@ -46,6 +46,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import android.content.Context
+import androidx.compose.foundation.layout.Badge
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Notifications
 
 val mockRoomList = listOf(
     RoomItem(id = "1", name = "There is a chat that never goes out", messagePreview = "This is a message", messageSender = "Cursor", unreadCount = 1, avatarUrl = null),
@@ -67,16 +80,14 @@ fun RoomListScreen(
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     
-    val spaces = appViewModel.spaceList
     // Force recomposition by observing the update counter
     val updateCounter = appViewModel.updateCounter
-    android.util.Log.d("Andromuks", "RoomListScreen: spaces.size = ${spaces.size}, updateCounter = $updateCounter")
-    if (spaces.isEmpty()) {
+    val currentSection = appViewModel.getCurrentRoomSection()
+    android.util.Log.d("Andromuks", "RoomListScreen: currentSection = ${currentSection.type}, updateCounter = $updateCounter")
+    
+    if (currentSection.rooms.isEmpty() && currentSection.spaces.isEmpty()) {
         Text("Loading rooms...", modifier = Modifier.padding(16.dp))
     } else {
-        // Get all rooms from the first space (which should be "All Rooms")
-        val allRooms = spaces.firstOrNull()?.rooms ?: emptyList()
-        android.util.Log.d("Andromuks", "RoomListScreen: allRooms.size = ${allRooms.size}")
         var searchQuery by remember { mutableStateOf("") }
         val me = appViewModel.currentUserProfile
         
@@ -169,34 +180,55 @@ fun RoomListScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
             ) {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.Top,
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                        top = 8.dp,
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp
-                    )
-                ) {
-                    val filteredRooms = if (searchQuery.isBlank()) {
-                        allRooms
-                    } else {
-                        allRooms.filter { room ->
-                            room.name.contains(searchQuery, ignoreCase = true)
-                        }
-                    }
-                    
-                    items(filteredRooms.size) { idx ->
-                        val room = filteredRooms[idx]
-                        RoomListItem(
-                            room = room,
-                            homeserverUrl = appViewModel.homeserverUrl,
+            // Main content area with tabs
+            Box(modifier = Modifier.weight(1f)) {
+                when (currentSection.type) {
+                    RoomSectionType.HOME -> {
+                        RoomListContent(
+                            rooms = currentSection.rooms,
+                            searchQuery = searchQuery,
+                            appViewModel = appViewModel,
                             authToken = authToken,
-                            onRoomClick = { 
-                                navController.navigate("room_timeline/${room.id}")
-                            }
+                            navController = navController
+                        )
+                    }
+                    RoomSectionType.SPACES -> {
+                        SpacesListContent(
+                            spaces = currentSection.spaces,
+                            searchQuery = searchQuery,
+                            appViewModel = appViewModel,
+                            authToken = authToken,
+                            navController = navController
+                        )
+                    }
+                    RoomSectionType.DIRECT_CHATS -> {
+                        RoomListContent(
+                            rooms = currentSection.rooms,
+                            searchQuery = searchQuery,
+                            appViewModel = appViewModel,
+                            authToken = authToken,
+                            navController = navController
+                        )
+                    }
+                    RoomSectionType.UNREAD -> {
+                        RoomListContent(
+                            rooms = currentSection.rooms,
+                            searchQuery = searchQuery,
+                            appViewModel = appViewModel,
+                            authToken = authToken,
+                            navController = navController
                         )
                     }
                 }
+            }
+            
+            // Tab bar at the bottom
+            TabBar(
+                currentSection = currentSection,
+                onSectionSelected = { section ->
+                    appViewModel.setSelectedSection(section)
+                }
+            )
             }
         }
     }
@@ -331,5 +363,183 @@ private fun formatTimeAgo(timestamp: Long?): String {
         diff < 86_400_000 -> "${diff / 3_600_000}h" // Less than 1 day: show hours
         diff < 604_800_000 -> "${diff / 86_400_000}d" // Less than 1 week: show days
         else -> "${diff / 604_800_000}w" // More than 1 week: show weeks
+    }
+}
+
+@Composable
+fun TabBar(
+    currentSection: RoomSection,
+    onSectionSelected: (RoomSectionType) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 8.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            TabButton(
+                icon = Icons.Filled.Home,
+                label = "Home",
+                isSelected = currentSection.type == RoomSectionType.HOME,
+                onClick = { onSectionSelected(RoomSectionType.HOME) }
+            )
+            
+            TabButton(
+                icon = Icons.Filled.Group,
+                label = "Spaces",
+                isSelected = currentSection.type == RoomSectionType.SPACES,
+                onClick = { onSectionSelected(RoomSectionType.SPACES) }
+            )
+            
+            TabButton(
+                icon = Icons.Filled.Person,
+                label = "Direct",
+                isSelected = currentSection.type == RoomSectionType.DIRECT_CHATS,
+                onClick = { onSectionSelected(RoomSectionType.DIRECT_CHATS) },
+                badgeCount = if (currentSection.type == RoomSectionType.DIRECT_CHATS) currentSection.unreadCount else 0
+            )
+            
+            TabButton(
+                icon = Icons.Filled.Notifications,
+                label = "Unread",
+                isSelected = currentSection.type == RoomSectionType.UNREAD,
+                onClick = { onSectionSelected(RoomSectionType.UNREAD) }
+            )
+        }
+    }
+}
+
+@Composable
+fun TabButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    badgeCount: Int = 0
+) {
+    val content = @Composable {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isSelected) MaterialTheme.colorScheme.primary 
+                       else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isSelected) MaterialTheme.colorScheme.primary 
+                       else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+    
+    if (badgeCount > 0) {
+        BadgedBox(
+            badge = { Badge { Text("$badgeCount") } }
+        ) {
+            Button(
+                onClick = onClick,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent
+                ),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+            ) {
+                content()
+            }
+        }
+    } else {
+        Button(
+            onClick = onClick,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = androidx.compose.ui.graphics.Color.Transparent
+            ),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+        ) {
+            content()
+        }
+    }
+}
+
+@Composable
+fun RoomListContent(
+    rooms: List<RoomItem>,
+    searchQuery: String,
+    appViewModel: AppViewModel,
+    authToken: String,
+    navController: NavController
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Top,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            top = 8.dp,
+            bottom = 8.dp
+        )
+    ) {
+        val filteredRooms = if (searchQuery.isBlank()) {
+            rooms
+        } else {
+            rooms.filter { room ->
+                room.name.contains(searchQuery, ignoreCase = true)
+            }
+        }
+        
+        items(filteredRooms.size) { idx ->
+            val room = filteredRooms[idx]
+            RoomListItem(
+                room = room,
+                homeserverUrl = appViewModel.homeserverUrl,
+                authToken = authToken,
+                onRoomClick = { 
+                    navController.navigate("room_timeline/${room.id}")
+                }
+            )
+        }
+    }
+}
+
+@Composable
+fun SpacesListContent(
+    spaces: List<SpaceItem>,
+    searchQuery: String,
+    appViewModel: AppViewModel,
+    authToken: String,
+    navController: NavController
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Top,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            top = 8.dp,
+            bottom = 8.dp
+        )
+    ) {
+        val filteredSpaces = if (searchQuery.isBlank()) {
+            spaces
+        } else {
+            spaces.filter { space ->
+                space.name.contains(searchQuery, ignoreCase = true)
+            }
+        }
+        
+        items(filteredSpaces.size) { idx ->
+            val space = filteredSpaces[idx]
+            SpaceListItem(
+                space = space,
+                isSelected = false,
+                onClick = { 
+                    // TODO: Navigate to space or show space rooms
+                }
+            )
+        }
     }
 }
