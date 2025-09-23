@@ -46,7 +46,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import android.content.Context
-import androidx.compose.foundation.layout.Badge
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -56,9 +55,9 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Folder
 
 val mockRoomList = listOf(
     RoomItem(id = "1", name = "There is a chat that never goes out", messagePreview = "This is a message", messageSender = "Cursor", unreadCount = 1, avatarUrl = null),
@@ -390,7 +389,7 @@ fun TabBar(
             )
             
             TabButton(
-                icon = Icons.Filled.Group,
+                icon = Icons.Filled.Folder,
                 label = "Spaces",
                 isSelected = currentSection.type == RoomSectionType.SPACES,
                 onClick = { onSectionSelected(RoomSectionType.SPACES) }

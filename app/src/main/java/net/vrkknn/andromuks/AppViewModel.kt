@@ -96,6 +96,7 @@ class AppViewModel : ViewModel() {
             )
             RoomSectionType.SPACES -> RoomSection(
                 type = RoomSectionType.SPACES,
+                rooms = emptyList(),
                 spaces = allSpaces
             )
             RoomSectionType.DIRECT_CHATS -> {
