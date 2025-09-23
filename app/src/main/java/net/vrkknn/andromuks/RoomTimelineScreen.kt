@@ -130,7 +130,7 @@ fun RoomTimelineScreen(
                             onClick = { navController.popBackStack() }
                         ) {
                             Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                imageVector = Icons.Filled.ArrowBack,
                                 contentDescription = "Back"
                             )
                         }
@@ -215,7 +215,7 @@ fun RoomTimelineScreen(
                                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
                             ) {
                                 Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.Send,
+                                    imageVector = Icons.Filled.Send,
                                     contentDescription = "Send",
                                     tint = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
