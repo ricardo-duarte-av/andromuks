@@ -84,10 +84,17 @@ class AppViewModel : ViewModel() {
     
     // Get current room section based on selected tab
     fun getCurrentRoomSection(): RoomSection {
+        // Get rooms from spaceList if allRooms is empty (fallback for existing data)
+        val roomsToUse = if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
+            spaceList.firstOrNull()?.rooms ?: emptyList()
+        } else {
+            allRooms
+        }
+        
         return when (selectedSection) {
             RoomSectionType.HOME -> RoomSection(
                 type = RoomSectionType.HOME,
-                rooms = allRooms
+                rooms = roomsToUse
             )
             RoomSectionType.SPACES -> RoomSection(
                 type = RoomSectionType.SPACES,
@@ -95,7 +102,7 @@ class AppViewModel : ViewModel() {
                 spaces = allSpaces
             )
             RoomSectionType.DIRECT_CHATS -> {
-                val dmRooms = allRooms.filter { it.isDirectMessage }
+                val dmRooms = roomsToUse.filter { it.isDirectMessage }
                 val unreadDmCount = dmRooms.count { it.unreadCount != null && it.unreadCount > 0 }
                 RoomSection(
                     type = RoomSectionType.DIRECT_CHATS,
@@ -104,7 +111,7 @@ class AppViewModel : ViewModel() {
                 )
             }
             RoomSectionType.UNREAD -> {
-                val unreadRooms = allRooms.filter { it.unreadCount != null && it.unreadCount > 0 }
+                val unreadRooms = roomsToUse.filter { it.unreadCount != null && it.unreadCount > 0 }
                 RoomSection(
                     type = RoomSectionType.UNREAD,
                     rooms = unreadRooms
