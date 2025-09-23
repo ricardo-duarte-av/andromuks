@@ -117,12 +117,12 @@ object SpaceRoomParser {
         
         // Debug: Log member cache contents
         Log.d("Andromuks", "SpaceRoomParser: Member cache has ${memberCache?.size ?: 0} rooms")
-        memberCache?.forEach { (roomId, members) ->
-            Log.d("Andromuks", "SpaceRoomParser: Room '$roomId' has ${members.size} members")
+        //memberCache?.forEach { (roomId, members) ->
+        //    Log.d("Andromuks", "SpaceRoomParser: Room '$roomId' has ${members.size} members")
            // members.forEach { (userId, profile) ->
            //     Log.d("Andromuks", "SpaceRoomParser: Member '$userId' -> displayName: '${profile.displayName}', avatar: '${profile.avatarUrl}'")
            // }
-        }
+        //}
         
         val updatedRooms = mutableListOf<RoomItem>()
         val newRooms = mutableListOf<RoomItem>()
