@@ -72,6 +72,15 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: spaceList set to ${spaceList.size} spaces, updateCounter: $updateCounter")
     }
     
+    fun setSelectedSection(section: RoomSectionType) {
+        selectedSection = section
+        updateCounter++
+    }
+    
+    fun incrementUpdateCounter() {
+        updateCounter++
+    }
+    
     
     // Get current room section based on selected tab
     fun getCurrentRoomSection(): RoomSection {
