@@ -225,7 +225,8 @@ fun RoomListScreen(
             TabBar(
                 currentSection = currentSection,
                 onSectionSelected = { section ->
-                    appViewModel.setSelectedSection(section)
+                    appViewModel.selectedSection = section
+                    appViewModel.updateCounter++
                 }
             )
             }

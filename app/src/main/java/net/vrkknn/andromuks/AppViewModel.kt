@@ -72,20 +72,6 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: spaceList set to ${spaceList.size} spaces, updateCounter: $updateCounter")
     }
     
-    fun setAllRooms(rooms: List<RoomItem>) {
-        allRooms = rooms
-        updateCounter++ // Force recomposition
-    }
-    
-    fun setAllSpaces(spaces: List<SpaceItem>) {
-        allSpaces = spaces
-        updateCounter++ // Force recomposition
-    }
-    
-    fun setSelectedSection(section: RoomSectionType) {
-        selectedSection = section
-        updateCounter++ // Force recomposition
-    }
     
     // Get current room section based on selected tab
     fun getCurrentRoomSection(): RoomSection {
@@ -238,7 +224,8 @@ class AppViewModel : ViewModel() {
         val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
         android.util.Log.d("Andromuks", "AppViewModel: Updating spaceList with ${sortedRooms.size} rooms")
         setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
-        setAllRooms(sortedRooms) // Update allRooms for filtering
+        allRooms = sortedRooms // Update allRooms for filtering
+        updateCounter++ // Force recomposition
         android.util.Log.d("Andromuks", "AppViewModel: spaceList updated, current size: ${spaceList.size}")
         
         // Temporary workaround: navigate after 3 sync messages if we have rooms
