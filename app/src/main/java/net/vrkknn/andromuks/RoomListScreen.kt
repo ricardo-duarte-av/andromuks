@@ -179,8 +179,7 @@ fun RoomListScreen(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
             ) {
-            // Main content area with tabs
-            Box(modifier = Modifier.weight(1f)) {
+                // Main content area with tabs
                 when (currentSection.type) {
                     RoomSectionType.HOME -> {
                         RoomListContent(
@@ -221,14 +220,13 @@ fun RoomListScreen(
                 }
             }
             
-            // Tab bar at the bottom
+            // Tab bar at the bottom (outside the Surface)
             TabBar(
                 currentSection = currentSection,
                 onSectionSelected = { section ->
                     appViewModel.changeSelectedSection(section)
                 }
             )
-            }
         }
     }
 }
