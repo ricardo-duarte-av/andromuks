@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.ArrowBack
+import net.vrkknn.andromuks.ui.components.AvatarImage
 
 val mockRoomList = listOf(
     RoomItem(id = "1", name = "There is a chat that never goes out", messagePreview = "This is a message", messageSender = "Cursor", unreadCount = 1, avatarUrl = null),
@@ -251,6 +252,11 @@ fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
     val context = LocalContext.current
     val homeserverUrl = "https://matrix.org" // TODO: Get from config
     
+    // Calculate unread counts outside the Row
+    val totalRooms = space.rooms.size
+    val unreadRooms = space.rooms.count { it.unreadCount != null && it.unreadCount > 0 }
+    val totalUnreadMessages = space.rooms.sumOf { it.unreadCount ?: 0 }
+    
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -279,11 +285,6 @@ fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            
-            // Show room count and unread count
-            val totalRooms = space.rooms.size
-            val unreadRooms = space.rooms.count { it.unreadCount != null && it.unreadCount > 0 }
-            val totalUnreadMessages = space.rooms.sumOf { it.unreadCount ?: 0 }
             
             if (totalRooms > 0) {
                 Text(
