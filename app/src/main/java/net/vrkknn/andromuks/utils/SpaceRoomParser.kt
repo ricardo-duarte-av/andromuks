@@ -367,6 +367,9 @@ object SpaceRoomParser {
                 // Parse space_edges to get child rooms for each space
                 val spaceEdges = data.optJSONObject("space_edges")
                 Log.d("Andromuks", "SpaceRoomParser: space_edges found: ${spaceEdges != null}")
+                if (spaceEdges != null) {
+                    Log.d("Andromuks", "SpaceRoomParser: space_edges keys: ${spaceEdges.keys()}")
+                }
                 
                 for (i in 0 until topLevelSpaces.length()) {
                     val spaceId = topLevelSpaces.optString(i)
@@ -385,12 +388,14 @@ object SpaceRoomParser {
                             val spaceEdgeArray = spaceEdges.optJSONArray(spaceId)
                             if (spaceEdgeArray != null) {
                                 Log.d("Andromuks", "SpaceRoomParser: Space $spaceId has ${spaceEdgeArray.length()} child rooms")
+                                Log.d("Andromuks", "SpaceRoomParser: Space $spaceId edges: ${spaceEdgeArray.toString()}")
                                 for (j in 0 until spaceEdgeArray.length()) {
                                     val edge = spaceEdgeArray.optJSONObject(j)
                                     val childId = edge?.optString("child_id")?.takeIf { it.isNotBlank() }
                                     if (childId != null) {
                                         // Try to find this room in the rooms data
                                         val childRoomData = roomsJson?.optJSONObject(childId)
+                                        Log.d("Andromuks", "SpaceRoomParser: Looking for child room $childId in rooms data: ${childRoomData != null}")
                                         if (childRoomData != null) {
                                             val childMeta = childRoomData.optJSONObject("meta")
                                             val childName = childMeta?.optString("name")?.takeIf { it.isNotBlank() } ?: childId
