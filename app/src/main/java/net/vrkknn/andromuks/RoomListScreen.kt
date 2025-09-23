@@ -250,7 +250,8 @@ fun RoomListScreen(
 @Composable
 fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
     val context = LocalContext.current
-    val homeserverUrl = "https://matrix.org" // TODO: Get from config
+    val sharedPrefs = context.getSharedPreferences("andromuks_prefs", Context.MODE_PRIVATE)
+    val homeserverUrl = sharedPrefs.getString("homeserver_url", "https://matrix.org") ?: "https://matrix.org"
     
     // Calculate unread counts outside the Row
     val totalRooms = space.rooms.size
@@ -265,10 +266,11 @@ fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Avatar
+        val authToken = sharedPrefs.getString("auth_token", "") ?: ""
         AvatarImage(
             mxcUrl = space.avatarUrl,
             homeserverUrl = homeserverUrl,
-            authToken = "", // Spaces don't need auth token for avatars
+            authToken = authToken,
             fallbackText = space.name,
             size = 48.dp
         )
