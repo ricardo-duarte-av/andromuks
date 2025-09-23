@@ -60,6 +60,7 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.ArrowBack
 import net.vrkknn.andromuks.ui.components.AvatarImage
+import androidx.activity.compose.BackHandler
 
 val mockRoomList = listOf(
     RoomItem(id = "1", name = "There is a chat that never goes out", messagePreview = "This is a message", messageSender = "Cursor", unreadCount = 1, avatarUrl = null),
@@ -551,6 +552,10 @@ fun RoomListContent(
     authToken: String,
     navController: NavController
 ) {
+    // Handle Android back key when inside a space
+    androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null) {
+        appViewModel.exitSpace()
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Top,
@@ -559,38 +564,6 @@ fun RoomListContent(
             bottom = 8.dp
         )
     ) {
-        // Show back button if we're inside a space
-        if (appViewModel.currentSpaceId != null) {
-            item {
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { appViewModel.exitSpace() }
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.ArrowBack,
-                            contentDescription = "Back to Spaces",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Back to Spaces",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
         
         val filteredRooms = if (searchQuery.isBlank()) {
             rooms

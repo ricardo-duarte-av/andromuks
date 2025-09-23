@@ -397,17 +397,23 @@ object SpaceRoomParser {
                                             val childAvatar = childMeta?.optString("avatar")?.takeIf { it.isNotBlank() }
                                             val unreadCount = childMeta?.optInt("unread_messages", 0) ?: 0
                                             
-                                            val childRoom = net.vrkknn.andromuks.RoomItem(
-                                                id = childId,
-                                                name = childName,
-                                                avatarUrl = childAvatar,
-                                                unreadCount = if (unreadCount > 0) unreadCount else null,
-                                                messagePreview = null,
-                                                messageSender = null,
-                                                isDirectMessage = false
-                                            )
-                                            childRooms.add(childRoom)
-                                            Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
+                                            // Check if this child is a space (has space_edges) - if so, skip it
+                                            val isChildSpace = spaceEdges.has(childId)
+                                            if (isChildSpace) {
+                                                Log.d("Andromuks", "SpaceRoomParser: Skipping child space: $childName")
+                                            } else {
+                                                val childRoom = net.vrkknn.andromuks.RoomItem(
+                                                    id = childId,
+                                                    name = childName,
+                                                    avatarUrl = childAvatar,
+                                                    unreadCount = if (unreadCount > 0) unreadCount else null,
+                                                    messagePreview = null,
+                                                    messageSender = null,
+                                                    isDirectMessage = false
+                                                )
+                                                childRooms.add(childRoom)
+                                                Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
+                                            }
                                         }
                                     }
                                 }
@@ -465,17 +471,23 @@ object SpaceRoomParser {
                                 val childAvatar = childMeta?.optString("avatar")?.takeIf { it.isNotBlank() }
                                 val unreadCount = childMeta?.optInt("unread_messages", 0) ?: 0
                                 
-                                val childRoom = net.vrkknn.andromuks.RoomItem(
-                                    id = childId,
-                                    name = childName,
-                                    avatarUrl = childAvatar,
-                                    unreadCount = if (unreadCount > 0) unreadCount else null,
-                                    messagePreview = null,
-                                    messageSender = null,
-                                    isDirectMessage = false
-                                )
-                                childRooms.add(childRoom)
-                                android.util.Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
+                                // Check if this child is a space (has space_edges) - if so, skip it
+                                val isChildSpace = spaceEdges.has(childId)
+                                if (isChildSpace) {
+                                    android.util.Log.d("Andromuks", "SpaceRoomParser: Skipping child space: $childName")
+                                } else {
+                                    val childRoom = net.vrkknn.andromuks.RoomItem(
+                                        id = childId,
+                                        name = childName,
+                                        avatarUrl = childAvatar,
+                                        unreadCount = if (unreadCount > 0) unreadCount else null,
+                                        messagePreview = null,
+                                        messageSender = null,
+                                        isDirectMessage = false
+                                    )
+                                    childRooms.add(childRoom)
+                                    android.util.Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
+                                }
                             }
                         }
                     }
