@@ -376,7 +376,8 @@ fun TabBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 8.dp),
+                .padding(vertical = 12.dp, horizontal = 8.dp)
+                .padding(bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 8.dp),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
             TabButton(
