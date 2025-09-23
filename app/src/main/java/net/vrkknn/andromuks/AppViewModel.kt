@@ -97,7 +97,7 @@ class AppViewModel : ViewModel() {
     }
 
     fun updateRoomsFromSyncJson(syncJson: JSONObject) {
-        val syncResult = SpaceRoomParser.parseSyncUpdate(syncJson)
+        val syncResult = SpaceRoomParser.parseSyncUpdate(syncJson, roomMemberCache)
         syncMessageCount++
         
         // Update existing rooms

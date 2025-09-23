@@ -38,9 +38,10 @@ object SpaceRoomParser {
             // Extract unread count from meta
             val unreadMessages = meta.optInt("unread_messages", 0)
             
-            // Extract last message preview from events if available
+            // Extract last message preview and sender from events if available
             val events = roomObj.optJSONArray("events")
             var messagePreview: String? = null
+            var messageSender: String? = null
             if (events != null && events.length() > 0) {
                 // Look through all events to find the last actual message
                 // Skip non-message events like typing, member changes, state events, etc.
@@ -54,6 +55,9 @@ object SpaceRoomParser {
                                 val body = content?.optString("body")?.takeIf { it.isNotBlank() }
                                 if (body != null) {
                                     messagePreview = body
+                                    // Extract sender user ID (we'll use the local part for now)
+                                    val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                    messageSender = sender?.substringAfterLast(":") ?: sender
                                     break // Found the last message, stop looking
                                 }
                             }
@@ -65,6 +69,9 @@ object SpaceRoomParser {
                                     val body = decrypted?.optString("body")?.takeIf { it.isNotBlank() }
                                     if (body != null) {
                                         messagePreview = body
+                                        // Extract sender user ID (we'll use the local part for now)
+                                        val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                        messageSender = sender?.substringAfterLast(":") ?: sender
                                         break // Found the last message, stop looking
                                     }
                                 }
@@ -87,6 +94,7 @@ object SpaceRoomParser {
                     id = roomId,
                     name = name,
                     messagePreview = messagePreview,
+                    messageSender = messageSender,
                     unreadCount = if (unreadMessages > 0) unreadMessages else null,
                     avatarUrl = avatar
                 )
@@ -104,7 +112,7 @@ object SpaceRoomParser {
      * Parses incremental sync updates and returns what changed.
      * Handles room updates, new rooms, and removed rooms.
      */
-    fun parseSyncUpdate(syncJson: JSONObject): SyncUpdateResult {
+    fun parseSyncUpdate(syncJson: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null): SyncUpdateResult {
         val data = syncJson.optJSONObject("data") ?: return SyncUpdateResult(emptyList(), emptyList(), emptyList())
         
         val updatedRooms = mutableListOf<RoomItem>()
@@ -128,7 +136,7 @@ object SpaceRoomParser {
                 }
                 
                 // Parse the room
-                val room = parseRoomFromJson(roomId, roomObj, meta)
+                val room = parseRoomFromJson(roomId, roomObj, meta, memberCache)
                 if (room != null) {
                     // For now, treat all rooms in sync updates as updates (could be new or existing)
                     updatedRooms.add(room)
@@ -164,7 +172,7 @@ object SpaceRoomParser {
         return SyncUpdateResult(updatedRooms, newRooms, removedRoomIds)
     }
     
-    private fun parseRoomFromJson(roomId: String, roomObj: JSONObject, meta: JSONObject): RoomItem? {
+    private fun parseRoomFromJson(roomId: String, roomObj: JSONObject, meta: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null): RoomItem? {
         try {
             // This is a regular room
             val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
@@ -173,9 +181,10 @@ object SpaceRoomParser {
             // Extract unread count from meta
             val unreadMessages = meta.optInt("unread_messages", 0)
             
-            // Extract last message preview from events if available
+            // Extract last message preview and sender from events if available
             val events = roomObj.optJSONArray("events")
             var messagePreview: String? = null
+            var messageSender: String? = null
             if (events != null && events.length() > 0) {
                 // Look through all events to find the last actual message
                 // Skip non-message events like typing, member changes, state events, etc.
@@ -189,6 +198,16 @@ object SpaceRoomParser {
                                 val body = content?.optString("body")?.takeIf { it.isNotBlank() }
                                 if (body != null) {
                                     messagePreview = body
+                                    // Extract sender and try to get display name from member cache
+                                    val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                    messageSender = if (sender != null) {
+                                        // Try to get display name from member cache
+                                        val roomMembers = memberCache?.get(roomId)
+                                        val memberProfile = roomMembers?.get(sender)
+                                        memberProfile?.displayName ?: sender.substringAfterLast(":")
+                                    } else {
+                                        null
+                                    }
                                     break // Found the last message, stop looking
                                 }
                             }
@@ -200,6 +219,16 @@ object SpaceRoomParser {
                                     val body = decrypted?.optString("body")?.takeIf { it.isNotBlank() }
                                     if (body != null) {
                                         messagePreview = body
+                                        // Extract sender and try to get display name from member cache
+                                        val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                        messageSender = if (sender != null) {
+                                            // Try to get display name from member cache
+                                            val roomMembers = memberCache?.get(roomId)
+                                            val memberProfile = roomMembers?.get(sender)
+                                            memberProfile?.displayName ?: sender.substringAfterLast(":")
+                                        } else {
+                                            null
+                                        }
                                         break // Found the last message, stop looking
                                     }
                                 }
@@ -224,6 +253,7 @@ object SpaceRoomParser {
                 id = roomId,
                 name = name,
                 messagePreview = messagePreview,
+                messageSender = messageSender,
                 unreadCount = if (unreadMessages > 0) unreadMessages else null,
                 avatarUrl = avatar,
                 sortingTimestamp = sortingTimestamp
