@@ -72,7 +72,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: spaceList set to ${spaceList.size} spaces, updateCounter: $updateCounter")
     }
     
-    fun setSelectedSection(section: RoomSectionType) {
+    fun changeSelectedSection(section: RoomSectionType) {
         selectedSection = section
         updateCounter++
     }
