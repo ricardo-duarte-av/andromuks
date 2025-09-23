@@ -76,7 +76,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: spaceList set to ${spaceList.size} spaces, updateCounter: $updateCounter")
     }
     
-    fun setAllSpaces(spaces: List<SpaceItem>) {
+    fun updateAllSpaces(spaces: List<SpaceItem>) {
         allSpaces = spaces
         updateCounter++
         android.util.Log.d("Andromuks", "AppViewModel: allSpaces set to ${spaces.size} spaces")
