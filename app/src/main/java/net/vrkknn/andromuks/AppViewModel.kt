@@ -123,8 +123,8 @@ class AppViewModel : ViewModel() {
                 if (eventType == "m.room.member") {
                     val userId = event.optString("state_key") ?: event.optString("sender")
                     val content = event.optJSONObject("content")
-                    val displayName = content?.optString("displayname", null)
-                    val avatarUrl = content?.optString("avatar_url", null)
+                    val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                    val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
                     
                     if (userId != null) {
                         memberMap[userId] = MemberProfile(displayName, avatarUrl)
@@ -372,8 +372,8 @@ class AppViewModel : ViewModel() {
     private fun handleProfileResponse(requestId: Int, data: Any) {
         val userId = profileRequests.remove(requestId) ?: return
         val obj = data as? JSONObject ?: return
-        val avatar = obj.optString("avatar_url", null)
-        val display = obj.optString("displayname", null)
+        val avatar = obj.optString("avatar_url")?.takeIf { it.isNotBlank() }
+        val display = obj.optString("displayname")?.takeIf { it.isNotBlank() }
         if (userId == currentUserId) {
             currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
         }
@@ -400,8 +400,8 @@ class AppViewModel : ViewModel() {
                     if (event.type == "m.room.member" && event.timelineRowid == -1L) {
                         // State member event; update cache only
                         val userId = event.stateKey ?: event.sender
-                        val displayName = event.content?.optString("displayname", null)
-                        val avatarUrl = event.content?.optString("avatar_url", null)
+                        val displayName = event.content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                        val avatarUrl = event.content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
                         memberMap[userId] = MemberProfile(displayName, avatarUrl)
                     } else {
                         // Only render paginate timeline entries (timeline_rowid >= 0)
