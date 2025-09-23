@@ -112,10 +112,15 @@ object SpaceRoomParser {
     fun parseSyncUpdate(syncJson: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): SyncUpdateResult {
         val data = syncJson.optJSONObject("data") ?: return SyncUpdateResult(emptyList(), emptyList(), emptyList())
         
-        // Parse spaces from sync data
-        val spaces = parseSpacesFromSync(data)
-        android.util.Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces from sync data")
-        appViewModel?.updateAllSpaces(spaces)
+        // Parse spaces from sync data (only if top_level_spaces is present)
+        val topLevelSpaces = data.optJSONArray("top_level_spaces")
+        if (topLevelSpaces != null) {
+            val spaces = parseSpacesFromSync(data)
+            android.util.Log.d("Andromuks", "SpaceRoomParser: Parsed ${spaces.size} spaces from sync data")
+            appViewModel?.updateAllSpaces(spaces)
+        } else {
+            android.util.Log.d("Andromuks", "SpaceRoomParser: No top_level_spaces in this sync, keeping existing spaces")
+        }
         
         // Debug: Log member cache contents
         Log.d("Andromuks", "SpaceRoomParser: Member cache has ${memberCache?.size ?: 0} rooms")
@@ -351,6 +356,7 @@ object SpaceRoomParser {
             val topLevelSpaces = data.optJSONArray("top_level_spaces")
             if (topLevelSpaces != null) {
                 Log.d("Andromuks", "SpaceRoomParser: Found top_level_spaces with ${topLevelSpaces.length()} spaces")
+                Log.d("Andromuks", "SpaceRoomParser: top_level_spaces content: ${topLevelSpaces.toString()}")
                 
                 for (i in 0 until topLevelSpaces.length()) {
                     val spaceId = topLevelSpaces.optString(i)
