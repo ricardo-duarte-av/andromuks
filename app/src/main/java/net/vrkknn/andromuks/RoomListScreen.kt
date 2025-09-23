@@ -307,14 +307,18 @@ fun SpaceListItem(
         
         // Unread badge - shows number of rooms with unread messages
         if (unreadRooms > 0) {
-            Badge(
-                modifier = Modifier.padding(start = 8.dp),
-                containerColor = MaterialTheme.colorScheme.error,
-                contentColor = MaterialTheme.colorScheme.onError
+            Box(
+                modifier = Modifier
+                    .background(
+                        MaterialTheme.colorScheme.primary,
+                        CircleShape
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
             ) {
                 Text(
                     text = if (unreadRooms > 99) "99+" else "$unreadRooms",
-                    style = MaterialTheme.typography.labelSmall
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary
                 )
             }
         }
@@ -479,7 +483,8 @@ fun TabBar(
                 icon = Icons.Filled.Notifications,
                 label = "Unread",
                 isSelected = currentSection.type == RoomSectionType.UNREAD,
-                onClick = { onSectionSelected(RoomSectionType.UNREAD) }
+                onClick = { onSectionSelected(RoomSectionType.UNREAD) },
+                badgeCount = if (currentSection.type == RoomSectionType.UNREAD) currentSection.unreadCount else 0
             )
         }
     }
@@ -515,7 +520,14 @@ fun TabButton(
     
     if (badgeCount > 0) {
         BadgedBox(
-            badge = { Badge { Text("$badgeCount") } }
+            badge = { 
+                Badge(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ) { 
+                    Text("$badgeCount") 
+                } 
+            }
         ) {
             Button(
                 onClick = onClick,
