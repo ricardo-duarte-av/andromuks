@@ -248,22 +248,14 @@ fun RoomListScreen(
 }
 
 @Composable
-fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
+fun SpaceListItem(
+    space: SpaceItem, 
+    isSelected: Boolean, 
+    onClick: () -> Unit,
+    homeserverUrl: String,
+    authToken: String
+) {
     android.util.Log.d("Andromuks", "SpaceListItem: Called for space: ${space.name}")
-    val context = LocalContext.current
-    val sharedPrefs = context.getSharedPreferences("andromuks_prefs", Context.MODE_PRIVATE)
-    
-    // Debug: Log all shared preferences
-    val allPrefs = sharedPrefs.all
-    android.util.Log.d("Andromuks", "SpaceListItem: All shared preferences: $allPrefs")
-    
-    val homeserverUrl = sharedPrefs.getString("homeserver_url", null)
-    if (homeserverUrl == null) {
-        android.util.Log.e("Andromuks", "SpaceListItem: No homeserver URL found in shared preferences!")
-        // Show fallback UI
-        Text("No homeserver URL configured", modifier = Modifier.padding(16.dp))
-        return
-    }
     android.util.Log.d("Andromuks", "SpaceListItem: Using homeserver URL: $homeserverUrl")
     
     // Calculate unread counts outside the Row
@@ -279,7 +271,6 @@ fun SpaceListItem(space: SpaceItem, isSelected: Boolean, onClick: () -> Unit) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Avatar
-        val authToken = sharedPrefs.getString("auth_token", "") ?: ""
         AvatarImage(
             mxcUrl = space.avatarUrl,
             homeserverUrl = homeserverUrl,
@@ -655,7 +646,9 @@ fun SpacesListContent(
                 isSelected = false,
                 onClick = { 
                     appViewModel.enterSpace(space.id)
-                }
+                },
+                homeserverUrl = appViewModel.homeserverUrl,
+                authToken = authToken
             )
         }
     }
