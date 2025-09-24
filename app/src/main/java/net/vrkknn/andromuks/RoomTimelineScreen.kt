@@ -41,6 +41,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import coil.request.CachePolicy
+import net.vrkknn.andromuks.utils.BlurHashUtils
+import net.vrkknn.andromuks.utils.AvatarUtils
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -395,34 +402,90 @@ private fun MediaMessage(
                     .fillMaxWidth()
                     .height(calculatedHeight)
             ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                // For now, show a placeholder with media info
-                // TODO: Implement actual image loading with BlurHash
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
+            val context = LocalContext.current
+            val imageUrl = remember(mediaMessage.url) {
+                AvatarUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+            }
+            
+            val blurHashBitmap = remember(mediaMessage.info.blurHash) {
+                mediaMessage.info.blurHash?.let { blurHash ->
+                    BlurHashUtils.blurHashToImageBitmap(blurHash, 32, 32)
+                }
+            }
+            
+            if (mediaMessage.msgType == "m.image") {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(imageUrl)
+                        .addHeader("Cookie", "gomuks_auth=$authToken")
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build(),
+                    contentDescription = mediaMessage.filename,
+                    modifier = Modifier.fillMaxSize(),
+                    placeholder = blurHashBitmap,
+                    error = {
+                        // Fallback to placeholder with media info
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "🖼️",
+                                    style = MaterialTheme.typography.headlineMedium
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = mediaMessage.filename,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                                    Text(
+                                        text = "${mediaMessage.info.width}×${mediaMessage.info.height}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                )
+            } else {
+                // Video placeholder
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = if (mediaMessage.msgType == "m.image") "🖼️" else "🎥",
-                        style = MaterialTheme.typography.headlineMedium
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = mediaMessage.filename,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
                         Text(
-                            text = "${mediaMessage.info.width}×${mediaMessage.info.height}",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = "🎥",
+                            style = MaterialTheme.typography.headlineMedium
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = mediaMessage.filename,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                            Text(
+                                text = "${mediaMessage.info.width}×${mediaMessage.info.height}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
                 }
             }

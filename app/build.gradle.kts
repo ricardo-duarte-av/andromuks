@@ -54,6 +54,11 @@ dependencies {
     implementation("com.google.accompanist:accompanist-navigation-animation:0.34.0")
     // Accompanist for system UI controller (status/navigation bars)
     implementation("com.google.accompanist:accompanist-systemuicontroller:0.34.0")
+    // Image loading
+    implementation("io.coil-kt:coil-compose:2.5.0")
+    implementation("io.coil-kt:coil-gif:2.5.0")
+    // BlurHash
+    implementation("com.github.woltapp:blurhash:1.2.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
