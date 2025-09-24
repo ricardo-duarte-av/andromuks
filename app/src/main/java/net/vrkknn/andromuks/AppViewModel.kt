@@ -715,8 +715,18 @@ class AppViewModel : ViewModel() {
                         android.util.Log.d("Andromuks", "AppViewModel: Found canonical alias: $canonicalAlias")
                     }
                     "m.room.topic" -> {
-                        val topicContent = content?.optJSONObject("m.topic")
-                        topic = topicContent?.optString("body")?.takeIf { it.isNotBlank() }
+                        // Try simple topic first
+                        topic = content?.optString("topic")?.takeIf { it.isNotBlank() }
+                        
+                        // If not found, try structured format
+                        if (topic.isNullOrBlank()) {
+                            val topicContent = content?.optJSONObject("m.topic")
+                            val textArray = topicContent?.optJSONArray("m.text")
+                            if (textArray != null && textArray.length() > 0) {
+                                val firstText = textArray.optJSONObject(0)
+                                topic = firstText?.optString("body")?.takeIf { it.isNotBlank() }
+                            }
+                        }
                         android.util.Log.d("Andromuks", "AppViewModel: Found topic: $topic")
                     }
                     "m.room.avatar" -> {
