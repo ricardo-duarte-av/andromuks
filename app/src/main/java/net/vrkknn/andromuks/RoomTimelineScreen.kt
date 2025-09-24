@@ -11,6 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.calculateBottomPadding
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -28,8 +34,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -122,6 +129,11 @@ fun RoomTimelineScreen(
         navController.popBackStack()
     }
     
+    // Dynamic bottom padding: IME if present, otherwise navigation bar
+    val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val bottomInset = if (imeBottom > 0.dp) imeBottom else navBarBottom
+    
     AndromuksTheme {
         Surface {
             Column(
@@ -176,7 +188,7 @@ fun RoomTimelineScreen(
                     tonalElevation = 0.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .imePadding() // ensures it's above the keyboard
+                        .padding(bottom = bottomInset) // dynamic padding instead of imePadding()
                 ) {
                         var draft by remember { mutableStateOf("") }
                         var lastTypingTime by remember { mutableStateOf(0L) }
