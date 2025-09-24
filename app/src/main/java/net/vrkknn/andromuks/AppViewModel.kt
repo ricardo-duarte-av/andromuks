@@ -691,25 +691,33 @@ class AppViewModel : ViewModel() {
         var topic: String? = null
         var avatarUrl: String? = null
         
+        android.util.Log.d("Andromuks", "AppViewModel: Parsing room state for room: $roomId, events count: ${events.length()}")
+        
         for (i in 0 until events.length()) {
             val event = events.optJSONObject(i)
             if (event != null) {
                 val eventType = event.optString("type")
                 val content = event.optJSONObject("content")
                 
+                android.util.Log.d("Andromuks", "AppViewModel: Processing event type: $eventType")
+                
                 when (eventType) {
                     "m.room.name" -> {
                         name = content?.optString("name")?.takeIf { it.isNotBlank() }
+                        android.util.Log.d("Andromuks", "AppViewModel: Found room name: $name")
                     }
                     "m.room.canonical_alias" -> {
                         canonicalAlias = content?.optString("alias")?.takeIf { it.isNotBlank() }
+                        android.util.Log.d("Andromuks", "AppViewModel: Found canonical alias: $canonicalAlias")
                     }
                     "m.room.topic" -> {
                         val topicContent = content?.optJSONObject("m.topic")
-                        topic = topicContent?.optString("m.text")?.takeIf { it.isNotBlank() }
+                        topic = topicContent?.optString("body")?.takeIf { it.isNotBlank() }
+                        android.util.Log.d("Andromuks", "AppViewModel: Found topic: $topic")
                     }
                     "m.room.avatar" -> {
                         avatarUrl = content?.optString("url")?.takeIf { it.isNotBlank() }
+                        android.util.Log.d("Andromuks", "AppViewModel: Found avatar URL: $avatarUrl")
                     }
                 }
             }

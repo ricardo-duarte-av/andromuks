@@ -442,6 +442,11 @@ private fun RoomHeader(
     homeserverUrl: String,
     authToken: String
 ) {
+    // Debug logging
+    android.util.Log.d("Andromuks", "RoomHeader: roomState = $roomState")
+    android.util.Log.d("Andromuks", "RoomHeader: fallbackName = $fallbackName")
+    android.util.Log.d("Andromuks", "RoomHeader: homeserverUrl = $homeserverUrl")
+    android.util.Log.d("Andromuks", "RoomHeader: authToken = ${authToken.take(10)}...")
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -469,16 +474,29 @@ private fun RoomHeader(
             Column(
                 modifier = Modifier.weight(1f)
             ) {
-                // Room name (prefer room state name, fallback to canonical alias, then fallback name)
-                val displayName = roomState?.name 
-                    ?: roomState?.canonicalAlias 
-                    ?: fallbackName
+                // Canonical alias or room ID (above room name)
+                val aliasOrId = roomState?.canonicalAlias 
+                    ?: roomState?.roomId?.let { "!$it" }
+                
+                aliasOrId?.let { alias ->
+                    Text(
+                        text = alias,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                
+                // Room name (prefer room state name, fallback to fallback name)
+                val displayName = roomState?.name ?: fallbackName
                 
                 Text(
                     text = displayName,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = if (aliasOrId != null) 2.dp else 0.dp)
                 )
                 
                 // Room topic (if available)
@@ -489,7 +507,7 @@ private fun RoomHeader(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp)
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
             }
