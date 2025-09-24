@@ -324,11 +324,21 @@ private fun TypingNotificationArea(
                             "$userName is typing..."
                         }
                         else -> {
-                            val user = typingUsers.first()
-                            val profile = userProfileCache[user]
-                            val displayName = profile?.displayName
-                            val userName = displayName ?: user.substringAfter("@").substringBefore(":")
-                            "$userName and ${typingUsers.size - 1} others are typing..."
+                            // Build comma-separated list of user names
+                            val userNames = typingUsers.map { user ->
+                                val profile = userProfileCache[user]
+                                profile?.displayName ?: user.substringAfter("@").substringBefore(":")
+                            }
+                            
+                            when (userNames.size) {
+                                2 -> "${userNames[0]} and ${userNames[1]} are typing..."
+                                else -> {
+                                    // For 3+ users: "User1, User2, User3 and FinalUser are typing"
+                                    val allButLast = userNames.dropLast(1).joinToString(", ")
+                                    val lastUser = userNames.last()
+                                    "$allButLast and $lastUser are typing..."
+                                }
+                            }
                         }
                     },
                     style = MaterialTheme.typography.bodySmall.copy(
