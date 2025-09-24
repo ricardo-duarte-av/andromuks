@@ -840,11 +840,14 @@ class AppViewModel : ViewModel() {
                 if (event.type == "m.room.member" && event.timelineRowid == -1L) {
                     // State member event; update cache only
                     val userId = event.stateKey ?: event.sender
-                    val displayName = event.content?.optString("displayname")?.takeIf { it.isNotBlank() }
-                    val avatarUrl = event.content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
-                    if (displayName != null || avatarUrl != null) {
-                        memberMap[userId] = MemberProfile(displayName, avatarUrl)
-                        android.util.Log.d("Andromuks", "AppViewModel: Updated member cache for $userId: $displayName")
+                    val content = event.content
+                    if (content != null) {
+                        val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() }
+                        val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                        if (displayName != null || avatarUrl != null) {
+                            memberMap[userId] = MemberProfile(displayName, avatarUrl)
+                            android.util.Log.d("Andromuks", "AppViewModel: Updated member cache for $userId: $displayName")
+                        }
                     }
                 } else if (event.timelineRowid >= 0) {
                     // Timeline event; add to timeline
