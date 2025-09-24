@@ -3,6 +3,7 @@ package net.vrkknn.andromuks
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -378,13 +379,22 @@ private fun MediaMessage(
             16f / 9f // Default aspect ratio
         }
         
-        Surface(
-            shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier
-                .fillMaxWidth(0.8f) // Max 80% width
-                .aspectRatio(aspectRatio)
+        BoxWithConstraints(
+            modifier = Modifier.fillMaxWidth(0.8f) // Max 80% width
         ) {
+            val calculatedHeight = if (aspectRatio > 0) {
+                (maxWidth / aspectRatio).coerceAtMost(300.dp) // Max height of 300dp
+            } else {
+                200.dp // Default height
+            }
+            
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(calculatedHeight)
+            ) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -416,6 +426,7 @@ private fun MediaMessage(
                     }
                 }
             }
+        }
         }
         
         // Caption if different from filename
