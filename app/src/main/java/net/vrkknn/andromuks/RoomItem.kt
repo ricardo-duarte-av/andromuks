@@ -53,3 +53,12 @@ data class SyncUpdateResult(
     val newRooms: List<RoomItem>,
     val removedRoomIds: List<String>
 )
+
+@Immutable
+data class RoomState(
+    val roomId: String,
+    val name: String?,
+    val canonicalAlias: String?,
+    val topic: String?,
+    val avatarUrl: String?
+)

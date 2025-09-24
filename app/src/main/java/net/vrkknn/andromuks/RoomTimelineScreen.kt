@@ -38,8 +38,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Send
+import androidx.activity.compose.BackHandler
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.platform.LocalContext
@@ -48,6 +48,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.surfaceColorAtElevation
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.paddingFrom
 import androidx.compose.material3.TextField
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -110,34 +115,25 @@ fun RoomTimelineScreen(
     
     LaunchedEffect(roomId) {
         Log.d("Andromuks", "RoomTimelineScreen: Loading timeline for room: $roomId")
-        // Request room state and timeline
+        // Request room state first, then timeline
+        appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId)
+    }
+    
+    // Handle Android back key
+    BackHandler {
+        navController.popBackStack()
     }
     
     AndromuksTheme {
         Surface {
             Column(modifier = modifier.fillMaxSize()) {
-                TopAppBar(
-                    title = { 
-                        Text(
-                            text = roomName,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(
-                            onClick = { navController.popBackStack() }
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back"
-                            )
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
-                    )
+                // Custom room header
+                RoomHeader(
+                    roomState = appViewModel.currentRoomState,
+                    fallbackName = roomName,
+                    homeserverUrl = appViewModel.homeserverUrl,
+                    authToken = appViewModel.authToken
                 )
                 
                 if (isLoading) {
@@ -438,4 +434,66 @@ private fun formatTimestamp(timestamp: Long): String {
     val date = Date(timestamp)
     val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
     return formatter.format(date)
+}
+
+@Composable
+private fun RoomHeader(
+    roomState: RoomState?,
+    fallbackName: String,
+    homeserverUrl: String,
+    authToken: String
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .paddingFrom(WindowInsets.statusBars.asPaddingValues()),
+        color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Room avatar
+            AvatarImage(
+                mxcUrl = roomState?.avatarUrl,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                fallbackText = roomState?.name ?: fallbackName,
+                size = 48.dp
+            )
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            // Room info
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                // Room name (prefer room state name, fallback to canonical alias, then fallback name)
+                val displayName = roomState?.name 
+                    ?: roomState?.canonicalAlias 
+                    ?: fallbackName
+                
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                
+                // Room topic (if available)
+                roomState?.topic?.let { topic ->
+                    Text(
+                        text = topic,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+            }
+        }
+    }
 }

@@ -65,6 +65,10 @@ class AppViewModel : ViewModel() {
     // Store space edges data for later processing
     private var storedSpaceEdges: JSONObject? = null
     
+    // Room state data
+    var currentRoomState by mutableStateOf<RoomState?>(null)
+        private set
+    
     // Force recomposition counter
     var updateCounter by mutableStateOf(0)
         private set
@@ -402,6 +406,7 @@ class AppViewModel : ViewModel() {
     private var requestIdCounter = 100
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> userId
+    private val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
@@ -519,12 +524,26 @@ class AppViewModel : ViewModel() {
             "reset" to false
         ))
     }
+    
+    fun requestRoomState(roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: Requesting room state for room: $roomId")
+        val stateRequestId = requestIdCounter++
+        roomStateRequests[stateRequestId] = roomId
+        sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
+            "room_id" to roomId,
+            "include_members" to false,
+            "fetch_members" to false,
+            "refetch" to false
+        ))
+    }
 
     fun handleResponse(requestId: Int, data: Any) {
         if (profileRequests.containsKey(requestId)) {
             handleProfileResponse(requestId, data)
         } else if (timelineRequests.containsKey(requestId)) {
             handleTimelineResponse(requestId, data)
+        } else if (roomStateRequests.containsKey(requestId)) {
+            handleRoomStateResponse(requestId, data)
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: Unknown response requestId=$requestId")
         }
@@ -639,6 +658,71 @@ class AppViewModel : ViewModel() {
         }
 
         timelineRequests.remove(requestId)
+    }
+    
+    private fun handleRoomStateResponse(requestId: Int, data: Any) {
+        val roomId = roomStateRequests.remove(requestId) ?: return
+        android.util.Log.d("Andromuks", "AppViewModel: Handling room state response for room: $roomId")
+        
+        when (data) {
+            is JSONObject -> {
+                val events = data.optJSONArray("events")
+                if (events != null) {
+                    parseRoomStateFromEvents(roomId, events)
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: No events array in room state response")
+                }
+            }
+            else -> {
+                android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleRoomStateResponse: ${data::class.java.simpleName}")
+            }
+        }
+    }
+    
+    private fun parseRoomStateFromEvents(roomId: String, events: JSONArray) {
+        var name: String? = null
+        var canonicalAlias: String? = null
+        var topic: String? = null
+        var avatarUrl: String? = null
+        
+        for (i in 0 until events.length()) {
+            val event = events.optJSONObject(i)
+            if (event != null) {
+                val eventType = event.optString("type")
+                val content = event.optJSONObject("content")
+                
+                when (eventType) {
+                    "m.room.name" -> {
+                        name = content?.optString("name")?.takeIf { it.isNotBlank() }
+                    }
+                    "m.room.canonical_alias" -> {
+                        canonicalAlias = content?.optString("alias")?.takeIf { it.isNotBlank() }
+                    }
+                    "m.room.topic" -> {
+                        val topicContent = content?.optJSONObject("m.topic")
+                        topic = topicContent?.optString("m.text")?.takeIf { it.isNotBlank() }
+                    }
+                    "m.room.avatar" -> {
+                        avatarUrl = content?.optString("url")?.takeIf { it.isNotBlank() }
+                    }
+                }
+            }
+        }
+        
+        // Create room state object
+        val roomState = RoomState(
+            roomId = roomId,
+            name = name,
+            canonicalAlias = canonicalAlias,
+            topic = topic,
+            avatarUrl = avatarUrl
+        )
+        
+        // Update current room state
+        currentRoomState = roomState
+        updateCounter++
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Parsed room state - Name: $name, Alias: $canonicalAlias, Topic: $topic, Avatar: $avatarUrl")
     }
     
     private fun markRoomAsRead(roomId: String, eventId: String) {
