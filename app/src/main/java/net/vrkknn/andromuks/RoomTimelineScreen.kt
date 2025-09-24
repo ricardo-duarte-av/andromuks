@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -174,7 +175,8 @@ fun RoomTimelineScreen(
                                 homeserverUrl = homeserverUrl,
                                 authToken = authToken,
                                 userProfileCache = appViewModel.getMemberMap(roomId),
-                                isMine = isMine
+                                isMine = isMine,
+                                appViewModel = appViewModel
                             )
                         }
                     }
@@ -359,12 +361,57 @@ private fun TypingNotificationArea(
 }
 
 @Composable
+private fun ReactionBadges(
+    eventId: String,
+    reactions: List<MessageReaction>,
+    modifier: Modifier = Modifier
+) {
+    if (reactions.isNotEmpty()) {
+        Row(
+            modifier = modifier,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            reactions.forEach { reaction ->
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.height(20.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = reaction.emoji,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.8f
+                            )
+                        )
+                        if (reaction.count > 1) {
+                            Text(
+                                text = reaction.count.toString(),
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.7f
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun TimelineEventItem(
     event: TimelineEvent,
     homeserverUrl: String,
     authToken: String,
     userProfileCache: Map<String, MemberProfile>,
-    isMine: Boolean
+    isMine: Boolean,
+    appViewModel: AppViewModel? = null
 ) {
     val context = LocalContext.current
     // Lookup display name and avatar from cache
@@ -449,6 +496,24 @@ fun TimelineEventItem(
                             )
                         }
                     }
+                    
+                    // Add reaction badges for this message
+                    if (appViewModel != null) {
+                        val reactions = appViewModel.messageReactions[event.eventId] ?: emptyList()
+                        if (reactions.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp),
+                                horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                            ) {
+                                ReactionBadges(
+                                    eventId = event.eventId,
+                                    reactions = reactions
+                                )
+                            }
+                        }
+                    }
                 }
                 "m.room.encrypted" -> {
                     val decryptedType = event.decryptedType
@@ -489,6 +554,24 @@ fun TimelineEventItem(
                                     color = textColor,
                                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                 )
+                            }
+                        }
+                        
+                        // Add reaction badges for encrypted message
+                        if (appViewModel != null) {
+                            val reactions = appViewModel.messageReactions[event.eventId] ?: emptyList()
+                            if (reactions.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp),
+                                    horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                ) {
+                                    ReactionBadges(
+                                        eventId = event.eventId,
+                                        reactions = reactions
+                                    )
+                                }
                             }
                         }
                     } else {

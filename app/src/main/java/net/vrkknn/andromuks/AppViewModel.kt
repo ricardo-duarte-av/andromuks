@@ -75,6 +75,10 @@ class AppViewModel : ViewModel() {
     var typingUsers by mutableStateOf(listOf<String>())
         private set
     
+    // Message reactions: eventId -> list of reactions
+    var messageReactions by mutableStateOf(mapOf<String, List<MessageReaction>>())
+        private set
+    
     // Force recomposition counter
     var updateCounter by mutableStateOf(0)
         private set
@@ -193,6 +197,53 @@ class AppViewModel : ViewModel() {
         // Only update if this is the current room
         if (currentRoomId == roomId) {
             typingUsers = userIds
+        }
+    }
+    
+    fun processReactionEvent(reactionEvent: ReactionEvent) {
+        // Only process reactions for the current room
+        if (currentRoomId != null) {
+            val currentReactions = messageReactions.toMutableMap()
+            val eventReactions = currentReactions[reactionEvent.relatesToEventId]?.toMutableList() ?: mutableListOf()
+            
+            // Find existing reaction with same emoji
+            val existingReactionIndex = eventReactions.indexOfFirst { it.emoji == reactionEvent.emoji }
+            
+            if (existingReactionIndex >= 0) {
+                // Update existing reaction
+                val existingReaction = eventReactions[existingReactionIndex]
+                val updatedUsers = existingReaction.users.toMutableList()
+                
+                if (reactionEvent.sender in updatedUsers) {
+                    // Remove user from reaction
+                    updatedUsers.remove(reactionEvent.sender)
+                    if (updatedUsers.isEmpty()) {
+                        eventReactions.removeAt(existingReactionIndex)
+                    } else {
+                        eventReactions[existingReactionIndex] = existingReaction.copy(
+                            count = updatedUsers.size,
+                            users = updatedUsers
+                        )
+                    }
+                } else {
+                    // Add user to reaction
+                    updatedUsers.add(reactionEvent.sender)
+                    eventReactions[existingReactionIndex] = existingReaction.copy(
+                        count = updatedUsers.size,
+                        users = updatedUsers
+                    )
+                }
+            } else {
+                // Add new reaction
+                eventReactions.add(MessageReaction(
+                    emoji = reactionEvent.emoji,
+                    count = 1,
+                    users = listOf(reactionEvent.sender)
+                ))
+            }
+            
+            currentReactions[reactionEvent.relatesToEventId] = eventReactions
+            messageReactions = currentReactions
         }
     }
 
@@ -893,6 +944,31 @@ class AppViewModel : ViewModel() {
                     // Timeline event; add to timeline
                     timelineList.add(event)
                     android.util.Log.d("Andromuks", "AppViewModel: Added timeline event: ${event.type} from ${event.sender}")
+                    
+                    // Process reaction events
+                    if (event.type == "m.reaction") {
+                        val content = event.content
+                        if (content != null) {
+                            val relatesTo = content.optJSONObject("m.relates_to")
+                            if (relatesTo != null) {
+                                val relatesToEventId = relatesTo.optString("event_id")
+                                val emoji = relatesTo.optString("key")
+                                val relType = relatesTo.optString("rel_type")
+                                
+                                if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
+                                    val reactionEvent = ReactionEvent(
+                                        eventId = event.eventId,
+                                        sender = event.sender,
+                                        emoji = emoji,
+                                        relatesToEventId = relatesToEventId,
+                                        timestamp = event.timestamp
+                                    )
+                                    processReactionEvent(reactionEvent)
+                                    android.util.Log.d("Andromuks", "AppViewModel: Processed reaction: $emoji from ${event.sender} to $relatesToEventId")
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -35,3 +35,19 @@ data class TimelineEvent(
         }
     }
 }
+
+@Immutable
+data class MessageReaction(
+    val emoji: String,
+    val count: Int,
+    val users: List<String>
+)
+
+@Immutable
+data class ReactionEvent(
+    val eventId: String,
+    val sender: String,
+    val emoji: String,
+    val relatesToEventId: String,
+    val timestamp: Long
+)
