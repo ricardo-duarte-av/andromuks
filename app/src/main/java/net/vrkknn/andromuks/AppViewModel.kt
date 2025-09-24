@@ -71,6 +71,10 @@ class AppViewModel : ViewModel() {
     var currentRoomState by mutableStateOf<RoomState?>(null)
         private set
     
+    // Typing indicators for current room
+    var typingUsers by mutableStateOf(listOf<String>())
+        private set
+    
     // Force recomposition counter
     var updateCounter by mutableStateOf(0)
         private set
@@ -183,6 +187,13 @@ class AppViewModel : ViewModel() {
     
     fun updateAuthToken(token: String) {
         authToken = token
+    }
+    
+    fun updateTypingUsers(roomId: String, userIds: List<String>) {
+        // Only update if this is the current room
+        if (currentRoomId == roomId) {
+            typingUsers = userIds
+        }
     }
 
     fun handleClientState(userId: String?, device: String?, homeserver: String?) {

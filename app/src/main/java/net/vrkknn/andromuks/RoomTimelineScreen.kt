@@ -179,6 +179,17 @@ fun RoomTimelineScreen(
                     }
                 }
                 
+                // Typing notification area (above text box)
+                if (appViewModel.typingUsers.isNotEmpty()) {
+                    TypingNotificationArea(
+                        typingUsers = appViewModel.typingUsers,
+                        roomId = roomId,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        userProfileCache = appViewModel.getMemberMap(roomId)
+                    )
+                }
+                
                 // 3. Text box (always at the bottom, above keyboard/nav bar)
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
@@ -266,6 +277,67 @@ fun RoomTimelineScreen(
         }
 }
 
+@Composable
+private fun TypingNotificationArea(
+    typingUsers: List<String>,
+    roomId: String,
+    homeserverUrl: String,
+    authToken: String,
+    userProfileCache: Map<String, MemberProfile>
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Show avatar of first typing user
+            if (typingUsers.isNotEmpty()) {
+                val firstUser = typingUsers.first()
+                val profile = userProfileCache[firstUser]
+                val avatarUrl = profile?.avatarUrl
+                val displayName = profile?.displayName
+                
+                AvatarImage(
+                    mxcUrl = avatarUrl,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    fallbackText = displayName ?: firstUser.substringAfter("@").substringBefore(":"),
+                    modifier = Modifier.size(24.dp)
+                )
+                
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+            
+            // Typing text
+            Text(
+                text = when {
+                    typingUsers.isEmpty() -> ""
+                    typingUsers.size == 1 -> {
+                        val user = typingUsers.first()
+                        val profile = userProfileCache[user]
+                        val displayName = profile?.displayName
+                        val userName = displayName ?: user.substringAfter("@").substringBefore(":")
+                        "$userName is typing..."
+                    }
+                    else -> {
+                        val user = typingUsers.first()
+                        val profile = userProfileCache[user]
+                        val displayName = profile?.displayName
+                        val userName = displayName ?: user.substringAfter("@").substringBefore(":")
+                        "$userName and ${typingUsers.size - 1} others are typing..."
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
 
 @Composable
 fun TimelineEventItem(

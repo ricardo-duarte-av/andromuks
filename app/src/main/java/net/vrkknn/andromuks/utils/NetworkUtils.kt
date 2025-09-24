@@ -206,6 +206,21 @@ fun connectToWebsocket(
                             appViewModel.handleError(requestId, errorMessage)
                         }
                     }
+                    "typing" -> {
+                        val data = jsonObject.optJSONObject("data")
+                        val roomId = data?.optString("room_id")
+                        val userIds = mutableListOf<String>()
+                        val userIdsArray = data?.optJSONArray("user_ids")
+                        if (userIdsArray != null) {
+                            for (i in 0 until userIdsArray.length()) {
+                                userIdsArray.optString(i)?.let { userIds.add(it) }
+                            }
+                        }
+                        Log.d("Andromuks", "NetworkUtils: Received typing event for room=$roomId, users=$userIds")
+                        appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                            appViewModel.updateTypingUsers(roomId ?: "", userIds)
+                        }
+                    }
                 }
             }
         }
