@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontStyle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -179,16 +180,14 @@ fun RoomTimelineScreen(
                     }
                 }
                 
-                // Typing notification area (above text box)
-                if (appViewModel.typingUsers.isNotEmpty()) {
-                    TypingNotificationArea(
-                        typingUsers = appViewModel.typingUsers,
-                        roomId = roomId,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        userProfileCache = appViewModel.getMemberMap(roomId)
-                    )
-                }
+                // Typing notification area (exclusive space above text box)
+                TypingNotificationArea(
+                    typingUsers = appViewModel.typingUsers,
+                    roomId = roomId,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    userProfileCache = appViewModel.getMemberMap(roomId)
+                )
                 
                 // 3. Text box (always at the bottom, above keyboard/nav bar)
                 Surface(
@@ -285,18 +284,20 @@ private fun TypingNotificationArea(
     authToken: String,
     userProfileCache: Map<String, MemberProfile>
 ) {
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.fillMaxWidth()
+    // Always reserve space for typing area
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(32.dp) // Fixed height for exclusive space
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Show avatar of first typing user
-            if (typingUsers.isNotEmpty()) {
+        if (typingUsers.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Show avatar of first typing user (half size)
                 val firstUser = typingUsers.first()
                 val profile = userProfileCache[firstUser]
                 val avatarUrl = profile?.avatarUrl
@@ -307,34 +308,36 @@ private fun TypingNotificationArea(
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
                     fallbackText = displayName ?: firstUser.substringAfter("@").substringBefore(":"),
-                    modifier = Modifier.size(24.dp)
+                    modifier = Modifier.size(12.dp) // Half the original size
                 )
                 
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                
+                // Typing text (smaller and italic)
+                Text(
+                    text = when {
+                        typingUsers.size == 1 -> {
+                            val user = typingUsers.first()
+                            val profile = userProfileCache[user]
+                            val displayName = profile?.displayName
+                            val userName = displayName ?: user.substringAfter("@").substringBefore(":")
+                            "$userName is typing..."
+                        }
+                        else -> {
+                            val user = typingUsers.first()
+                            val profile = userProfileCache[user]
+                            val displayName = profile?.displayName
+                            val userName = displayName ?: user.substringAfter("@").substringBefore(":")
+                            "$userName and ${typingUsers.size - 1} others are typing..."
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.5f // Half size
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontStyle = FontStyle.Italic
+                )
             }
-            
-            // Typing text
-            Text(
-                text = when {
-                    typingUsers.isEmpty() -> ""
-                    typingUsers.size == 1 -> {
-                        val user = typingUsers.first()
-                        val profile = userProfileCache[user]
-                        val displayName = profile?.displayName
-                        val userName = displayName ?: user.substringAfter("@").substringBefore(":")
-                        "$userName is typing..."
-                    }
-                    else -> {
-                        val user = typingUsers.first()
-                        val profile = userProfileCache[user]
-                        val displayName = profile?.displayName
-                        val userName = displayName ?: user.substringAfter("@").substringBefore(":")
-                        "$userName and ${typingUsers.size - 1} others are typing..."
-                    }
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
         }
     }
 }
