@@ -31,6 +31,8 @@ class AppViewModel : ViewModel() {
     var isLoading by mutableStateOf(false)
     var homeserverUrl by mutableStateOf("")
         private set
+    var authToken by mutableStateOf("")
+        private set
 
     // Auth/client state
     var currentUserId by mutableStateOf("")
@@ -177,6 +179,10 @@ class AppViewModel : ViewModel() {
 
     fun updateHomeserverUrl(url: String) {
         homeserverUrl = url
+    }
+    
+    fun updateAuthToken(token: String) {
+        authToken = token
     }
 
     fun handleClientState(userId: String?, device: String?, homeserver: String?) {

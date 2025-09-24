@@ -50,7 +50,6 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.paddingFrom
 import androidx.compose.material3.TextField
@@ -446,7 +445,7 @@ private fun RoomHeader(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .paddingFrom(WindowInsets.statusBars.asPaddingValues()),
+            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
         color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
     ) {
         Row(
