@@ -124,39 +124,39 @@ fun RoomTimelineScreen(
     
     AndromuksTheme {
         Surface {
-            Box(modifier = modifier.fillMaxSize()) {
-                // Static room header at top
-                Box(modifier = Modifier.align(Alignment.TopCenter)) {
-                    RoomHeader(
-                        roomState = appViewModel.currentRoomState,
-                        fallbackName = roomName,
-                        homeserverUrl = appViewModel.homeserverUrl,
-                        authToken = appViewModel.authToken
-                    )
-                }
+            Column(
+                modifier = modifier
+                    .fillMaxSize()
+                    .navigationBarsPadding()
+            ) {
+                // 1. Room Header (always visible at the top, below status bar)
+                RoomHeader(
+                    roomState = appViewModel.currentRoomState,
+                    fallbackName = roomName,
+                    homeserverUrl = appViewModel.homeserverUrl,
+                    authToken = appViewModel.authToken
+                )
                 
+                // 2. Timeline (compressible, scrollable content)
                 if (isLoading) {
                     Box(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
                         contentAlignment = Alignment.Center
                     ) {
                         Text("Loading timeline...")
                     }
                 } else {
-                    // Timeline content - this will compress when keyboard opens
                     LazyColumn(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .padding(top = 120.dp) // Space for header
-                            .padding(bottom = 80.dp) // Space for message input
-                            .imePadding(),
+                            .weight(1f)
+                            .fillMaxWidth(),
                         state = listState,
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            start = 16.dp,
-                            end = 16.dp,
-                            top = 16.dp,
-                            bottom = 16.dp
+                            horizontal = 16.dp,
+                            vertical = 8.dp
                         )
                     ) {
                         items(sortedEvents) { event ->
@@ -172,14 +172,13 @@ fun RoomTimelineScreen(
                     }
                 }
                 
-                // Static message input at bottom
+                // 3. Text box (always at the bottom, above keyboard/nav bar)
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 0.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
+                        .imePadding() // ensures it's above the keyboard
                 ) {
                         var draft by remember { mutableStateOf("") }
                         var lastTypingTime by remember { mutableStateOf(0L) }
