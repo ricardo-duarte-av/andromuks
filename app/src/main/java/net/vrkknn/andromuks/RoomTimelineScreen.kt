@@ -167,7 +167,7 @@ fun RoomTimelineScreen(
                             }
                         }
                     }
-                }
+                
                 
                 // Static message input at bottom
                 Surface(
@@ -253,6 +253,7 @@ fun RoomTimelineScreen(
                 }
             }
         }
+}
 
 
 @Composable
