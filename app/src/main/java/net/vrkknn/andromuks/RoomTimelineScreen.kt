@@ -124,9 +124,7 @@ fun RoomTimelineScreen(
     
     AndromuksTheme {
         Surface {
-            Column(modifier = modifier
-                .fillMaxSize()
-                .imePadding()) {
+            Column(modifier = modifier.fillMaxSize()) {
                 // Custom room header
                 RoomHeader(
                     roomState = appViewModel.currentRoomState,
@@ -143,19 +141,20 @@ fun RoomTimelineScreen(
                         Text("Loading timeline...")
                     }
                 } else {
-                    // Timeline list takes remaining height
-                    Box(modifier = Modifier.weight(1f)) {
+                    // Timeline list takes remaining height - this will compress when keyboard opens
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                            state = listState,
+                        modifier = Modifier
+                            .weight(1f)
+                            .imePadding(),
+                        state = listState,
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                start = 16.dp,
-                                end = 16.dp,
-                                top = 16.dp,
-                                bottom = 96.dp // leave space for bottom input area
-                            )
-                        ) {
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            start = 16.dp,
+                            end = 16.dp,
+                            top = 16.dp,
+                            bottom = 16.dp
+                        )
+                    ) {
                             items(sortedEvents) { event ->
                                 val isMine = myUserId != null && event.sender == myUserId
                                 TimelineEventItem(
@@ -168,15 +167,16 @@ fun RoomTimelineScreen(
                             }
                         }
                     }
-                    
-                    // Bottom area: pill-shaped message input with circular send button
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .imePadding()
-                    ) {
+                }
+                
+                // Static message input at bottom
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                ) {
                         var draft by remember { mutableStateOf("") }
                         var lastTypingTime by remember { mutableStateOf(0L) }
                         
