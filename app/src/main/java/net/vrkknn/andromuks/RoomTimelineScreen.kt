@@ -125,9 +125,7 @@ fun RoomTimelineScreen(
     AndromuksTheme {
         Surface {
             Column(
-                modifier = modifier
-                    .fillMaxSize()
-                    .navigationBarsPadding()
+                modifier = modifier.fillMaxSize()
             ) {
                 // 1. Room Header (always visible at the top, below status bar)
                 RoomHeader(
