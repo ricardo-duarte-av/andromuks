@@ -360,6 +360,77 @@ private fun TypingNotificationArea(
 }
 
 @Composable
+private fun MediaMessage(
+    mediaMessage: MediaMessage,
+    homeserverUrl: String,
+    authToken: String,
+    isMine: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = if (isMine) Alignment.End else Alignment.Start
+    ) {
+        // Media container with aspect ratio
+        val aspectRatio = if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+            mediaMessage.info.width.toFloat() / mediaMessage.info.height.toFloat()
+        } else {
+            16f / 9f // Default aspect ratio
+        }
+        
+        Surface(
+            shape = RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier
+                .fillMaxWidth(0.8f) // Max 80% width
+                .aspectRatio(aspectRatio)
+        ) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                // For now, show a placeholder with media info
+                // TODO: Implement actual image loading with BlurHash
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = if (mediaMessage.msgType == "m.image") "🖼️" else "🎥",
+                        style = MaterialTheme.typography.headlineMedium
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = mediaMessage.filename,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                        Text(
+                            text = "${mediaMessage.info.width}×${mediaMessage.info.height}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+        
+        // Caption if different from filename
+        if (!mediaMessage.caption.isNullOrBlank()) {
+            Text(
+                text = mediaMessage.caption,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+    }
+}
+
+@Composable
 private fun ReactionBadges(
     eventId: String,
     reactions: List<MessageReaction>,
@@ -459,57 +530,157 @@ fun TimelineEventItem(
                 "m.room.message" -> {
                     val content = event.content
                     val body = content?.optString("body", "") ?: ""
-                    val bubbleShape = if (isMine) {
-                        RoundedCornerShape(
-                            topStart = 16.dp,
-                            topEnd = 16.dp,
-                            bottomEnd = 8.dp,
-                            bottomStart = 16.dp
-                        )
-                    } else {
-                        RoundedCornerShape(
-                            topStart = 16.dp,
-                            topEnd = 16.dp,
-                            bottomEnd = 16.dp,
-                            bottomStart = 8.dp
-                        )
-                    }
-                    val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                    val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
-                    ) {
-                        Surface(
-                            color = bubbleColor,
-                            shape = bubbleShape,
-                            tonalElevation = 2.dp,
-                            modifier = Modifier.padding(top = 4.dp)
-                        ) {
-                            Text(
-                                text = body,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = textColor,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                            )
-                        }
-                    }
+                    val msgType = content?.optString("msgtype", "") ?: ""
                     
-                    // Add reaction badges for this message
-                    if (appViewModel != null) {
-                        val reactions = appViewModel.messageReactions[event.eventId] ?: emptyList()
-                        if (reactions.isNotEmpty()) {
+                    // Check if it's a media message
+                    if (msgType == "m.image" || msgType == "m.video") {
+                        val url = content?.optString("url", "") ?: ""
+                        val filename = content?.optString("filename", "") ?: ""
+                        val info = content?.optJSONObject("info")
+                        
+                        if (url.isNotBlank() && info != null) {
+                            val width = info.optInt("w", 0)
+                            val height = info.optInt("h", 0)
+                            val size = info.optLong("size", 0)
+                            val mimeType = info.optString("mimetype", "")
+                            val blurHash = info.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+                            
+                            val caption = if (body != filename && body.isNotBlank()) body else null
+                            
+                            val mediaInfo = MediaInfo(
+                                width = width,
+                                height = height,
+                                size = size,
+                                mimeType = mimeType,
+                                blurHash = blurHash
+                            )
+                            
+                            val mediaMessage = MediaMessage(
+                                url = url,
+                                filename = filename,
+                                caption = caption,
+                                info = mediaInfo,
+                                msgType = msgType
+                            )
+                            
+                            // Display media message
+                            MediaMessage(
+                                mediaMessage = mediaMessage,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                isMine = isMine
+                            )
+                            
+                            // Add reaction badges for media messages
+                            if (appViewModel != null) {
+                                val reactions = appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                if (reactions.isNotEmpty()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp),
+                                        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                    ) {
+                                        ReactionBadges(
+                                            eventId = event.eventId,
+                                            reactions = reactions
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            // Fallback to text message if media parsing fails
+                            val bubbleShape = if (isMine) {
+                                RoundedCornerShape(
+                                    topStart = 16.dp,
+                                    topEnd = 16.dp,
+                                    bottomEnd = 8.dp,
+                                    bottomStart = 16.dp
+                                )
+                            } else {
+                                RoundedCornerShape(
+                                    topStart = 16.dp,
+                                    topEnd = 16.dp,
+                                    bottomEnd = 16.dp,
+                                    bottomStart = 8.dp
+                                )
+                            }
+                            val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                            val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 4.dp),
+                                modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
                             ) {
-                                ReactionBadges(
-                                    eventId = event.eventId,
-                                    reactions = reactions
+                                Surface(
+                                    color = bubbleColor,
+                                    shape = bubbleShape,
+                                    tonalElevation = 2.dp,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                ) {
+                                    Text(
+                                        text = body,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = textColor,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        // Regular text message
+                        val bubbleShape = if (isMine) {
+                            RoundedCornerShape(
+                                topStart = 16.dp,
+                                topEnd = 16.dp,
+                                bottomEnd = 8.dp,
+                                bottomStart = 16.dp
+                            )
+                        } else {
+                            RoundedCornerShape(
+                                topStart = 16.dp,
+                                topEnd = 16.dp,
+                                bottomEnd = 16.dp,
+                                bottomStart = 8.dp
+                            )
+                        }
+                        val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                        val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                        ) {
+                            Surface(
+                                color = bubbleColor,
+                                shape = bubbleShape,
+                                tonalElevation = 2.dp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            ) {
+                                Text(
+                                    text = body,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = textColor,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                 )
+                            }
+                        }
+                        
+                        // Add reaction badges for this message
+                        if (appViewModel != null) {
+                            val reactions = appViewModel.messageReactions[event.eventId] ?: emptyList()
+                            if (reactions.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp),
+                                    horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                ) {
+                                    ReactionBadges(
+                                        eventId = event.eventId,
+                                        reactions = reactions
+                                    )
+                                }
                             }
                         }
                     }

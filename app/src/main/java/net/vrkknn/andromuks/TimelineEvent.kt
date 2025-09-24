@@ -51,3 +51,21 @@ data class ReactionEvent(
     val relatesToEventId: String,
     val timestamp: Long
 )
+
+@Immutable
+data class MediaInfo(
+    val width: Int,
+    val height: Int,
+    val size: Long,
+    val mimeType: String,
+    val blurHash: String?
+)
+
+@Immutable
+data class MediaMessage(
+    val url: String,
+    val filename: String,
+    val caption: String?,
+    val info: MediaInfo,
+    val msgType: String // "m.image" or "m.video"
+)
