@@ -941,11 +941,7 @@ class AppViewModel : ViewModel() {
                         }
                     }
                 } else if (event.timelineRowid >= 0) {
-                    // Timeline event; add to timeline
-                    timelineList.add(event)
-                    android.util.Log.d("Andromuks", "AppViewModel: Added timeline event: ${event.type} from ${event.sender}")
-                    
-                    // Process reaction events
+                    // Process reaction events first (don't add to timeline)
                     if (event.type == "m.reaction") {
                         val content = event.content
                         if (content != null) {
@@ -968,6 +964,10 @@ class AppViewModel : ViewModel() {
                                 }
                             }
                         }
+                    } else {
+                        // Add non-reaction timeline events to timeline
+                        timelineList.add(event)
+                        android.util.Log.d("Andromuks", "AppViewModel: Added timeline event: ${event.type} from ${event.sender}")
                     }
                 }
             }
