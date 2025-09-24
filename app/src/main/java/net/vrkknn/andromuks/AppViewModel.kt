@@ -726,8 +726,31 @@ class AppViewModel : ViewModel() {
                         val avatarUrl = event.content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
                         memberMap[userId] = MemberProfile(displayName, avatarUrl)
                     } else {
-                        // Only render paginate timeline entries (timeline_rowid >= 0)
-                        if (event.timelineRowid >= 0L) {
+                        // Process reaction events from paginate
+                        if (event.type == "m.reaction") {
+                            val content = event.content
+                            if (content != null) {
+                                val relatesTo = content.optJSONObject("m.relates_to")
+                                if (relatesTo != null) {
+                                    val relatesToEventId = relatesTo.optString("event_id")
+                                    val emoji = relatesTo.optString("key")
+                                    val relType = relatesTo.optString("rel_type")
+                                    
+                                    if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
+                                        val reactionEvent = ReactionEvent(
+                                            eventId = event.eventId,
+                                            sender = event.sender,
+                                            emoji = emoji,
+                                            relatesToEventId = relatesToEventId,
+                                            timestamp = event.timestamp
+                                        )
+                                        processReactionEvent(reactionEvent)
+                                        android.util.Log.d("Andromuks", "AppViewModel: Processed historical reaction: $emoji from ${event.sender} to $relatesToEventId")
+                                    }
+                                }
+                            }
+                        } else if (event.timelineRowid >= 0L) {
+                            // Only render non-reaction timeline entries
                             timelineList.add(event)
                         }
                     }
