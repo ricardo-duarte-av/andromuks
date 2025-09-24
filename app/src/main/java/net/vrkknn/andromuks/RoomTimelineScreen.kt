@@ -57,6 +57,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.paddingFrom
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeContent
@@ -75,10 +76,7 @@ fun RoomTimelineScreen(
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
-    val myUserId = remember(sharedPreferences) {
-        sharedPreferences.getString("matrix_user_id", null)
-            ?: sharedPreferences.getString("user_id", null)
-    }
+    val myUserId = appViewModel.currentUserId
     val homeserverUrl = appViewModel.homeserverUrl
     Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
     val timelineEvents = appViewModel.timelineEvents
@@ -126,7 +124,9 @@ fun RoomTimelineScreen(
     
     AndromuksTheme {
         Surface {
-            Column(modifier = modifier.fillMaxSize()) {
+            Column(modifier = modifier
+                .fillMaxSize()
+                .imePadding()) {
                 // Custom room header
                 RoomHeader(
                     roomState = appViewModel.currentRoomState,
@@ -175,7 +175,7 @@ fun RoomTimelineScreen(
                         tonalElevation = 0.dp,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .navigationBarsPadding()
+                            .imePadding()
                     ) {
                         var draft by remember { mutableStateOf("") }
                         var lastTypingTime by remember { mutableStateOf(0L) }
@@ -313,11 +313,11 @@ fun TimelineEventItem(
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
                 fallbackText = (displayName ?: event.sender).take(1),
-            size = 32.dp
+            size = 48.dp
         )
         Spacer(modifier = Modifier.width(8.dp))
         } else {
-            Spacer(modifier = Modifier.width(40.dp))
+            Spacer(modifier = Modifier.width(56.dp))
         }
         
         // Event content

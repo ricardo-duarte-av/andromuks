@@ -186,7 +186,10 @@ class AppViewModel : ViewModel() {
     }
 
     fun handleClientState(userId: String?, device: String?, homeserver: String?) {
-        if (!userId.isNullOrBlank()) currentUserId = userId
+        if (!userId.isNullOrBlank()) {
+            currentUserId = userId
+            android.util.Log.d("Andromuks", "AppViewModel: Set currentUserId: $userId")
+        }
         if (!device.isNullOrBlank()) deviceId = device
         // IMPORTANT: Do NOT override gomuks backend URL with Matrix homeserver URL from client_state
         // The backend URL is set via AuthCheck from SharedPreferences (e.g., https://webmuks.aguiarvieira.pt)
@@ -416,6 +419,7 @@ class AppViewModel : ViewModel() {
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> userId
     private val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    private val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
     
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
@@ -558,6 +562,7 @@ class AppViewModel : ViewModel() {
     fun sendMessage(roomId: String, text: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Sending message to room: $roomId")
         val messageRequestId = requestIdCounter++
+        messageRequests[messageRequestId] = roomId
         sendWebSocketCommand("send_message", messageRequestId, mapOf(
             "room_id" to roomId,
             "text" to text,
@@ -576,6 +581,8 @@ class AppViewModel : ViewModel() {
             handleTimelineResponse(requestId, data)
         } else if (roomStateRequests.containsKey(requestId)) {
             handleRoomStateResponse(requestId, data)
+        } else if (messageRequests.containsKey(requestId)) {
+            handleMessageResponse(requestId, data)
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: Unknown response requestId=$requestId")
         }
@@ -777,6 +784,28 @@ class AppViewModel : ViewModel() {
         updateCounter++
         
         android.util.Log.d("Andromuks", "AppViewModel: Parsed room state - Name: $name, Alias: $canonicalAlias, Topic: $topic, Avatar: $avatarUrl")
+    }
+    
+    private fun handleMessageResponse(requestId: Int, data: Any) {
+        val roomId = messageRequests.remove(requestId) ?: return
+        android.util.Log.d("Andromuks", "AppViewModel: Handling message response for room: $roomId")
+        
+        when (data) {
+            is JSONObject -> {
+                // Create TimelineEvent from the response
+                val event = TimelineEvent.fromJson(data)
+                if (event.type == "m.room.message") {
+                    // Add the sent message to timeline immediately
+                    val updatedTimeline = timelineEvents + event
+                    timelineEvents = updatedTimeline.sortedBy { it.timestamp }
+                    updateCounter++
+                    android.util.Log.d("Andromuks", "AppViewModel: Added sent message to timeline: ${event.content?.optString("body")}")
+                }
+            }
+            else -> {
+                android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleMessageResponse: ${data::class.java.simpleName}")
+            }
+        }
     }
     
     private fun checkAndUpdateCurrentRoomTimeline(syncJson: JSONObject) {
