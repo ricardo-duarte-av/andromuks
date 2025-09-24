@@ -169,7 +169,7 @@ fun RoomTimelineScreen(
                         }
                     }
                     
-                    // Bottom area: full-width section matching app surface, with rounded text box and action button inside
+                    // Bottom area: pill-shaped message input with circular send button
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp,
@@ -177,43 +177,75 @@ fun RoomTimelineScreen(
                             .fillMaxWidth()
                             .navigationBarsPadding()
                     ) {
-                        // Inner rounded text box (no prefilled text)
                         var draft by remember { mutableStateOf("") }
+                        var lastTypingTime by remember { mutableStateOf(0L) }
+                        
+                        // Typing detection with debouncing
+                        LaunchedEffect(draft) {
+                            if (draft.isNotBlank()) {
+                                val currentTime = System.currentTimeMillis()
+                                if (currentTime - lastTypingTime > 1000) { // Send typing every 1 second
+                                    appViewModel.sendTyping(roomId)
+                                    lastTypingTime = currentTime
+                                }
+                            }
+                        }
+                        
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // Pill-shaped text input
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                shape = RoundedCornerShape(24.dp),
+                                shape = RoundedCornerShape(50.dp), // Pill shape with semicircular ends
                                 tonalElevation = 1.dp,
                                 modifier = Modifier
                                     .weight(1f)
+                                    .height(48.dp) // Fixed height for pill
                             ) {
                                 TextField(
                                     value = draft,
                                     onValueChange = { draft = it },
-                                    placeholder = { Text("Message") },
+                                    placeholder = { Text("Type a message...") },
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 8.dp, vertical = 2.dp),
-                                    singleLine = true
+                                        .height(48.dp),
+                                    singleLine = true,
+                                    colors = androidx.compose.material3.TextFieldDefaults.colors(
+                                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                                        disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+                                    )
                                 )
                             }
                             Spacer(modifier = Modifier.width(8.dp))
+                            // Circular send button
                             Button(
-                                onClick = { /* TODO: send */ },
-                                shape = RoundedCornerShape(20.dp), // slightly smaller radius than the message bar
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp)
+                                onClick = { 
+                                    if (draft.isNotBlank()) {
+                                        appViewModel.sendMessage(roomId, draft)
+                                        draft = "" // Clear the input after sending
+                                    }
+                                },
+                                enabled = draft.isNotBlank(),
+                                shape = CircleShape, // Perfect circle
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (draft.isNotBlank()) MaterialTheme.colorScheme.primary 
+                                                   else MaterialTheme.colorScheme.surfaceVariant
+                                ),
+                                modifier = Modifier
+                                    .size(48.dp), // Same height as pill
+                                contentPadding = PaddingValues(0.dp) // No padding for perfect circle
                             ) {
                                 @Suppress("DEPRECATION")
                                 Icon(
                                     imageVector = Icons.Filled.Send,
                                     contentDescription = "Send",
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                    tint = if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary 
+                                          else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }

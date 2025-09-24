@@ -542,6 +542,29 @@ class AppViewModel : ViewModel() {
             "refetch" to false
         ))
     }
+    
+    fun sendTyping(roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: Sending typing indicator for room: $roomId")
+        val typingRequestId = requestIdCounter++
+        sendWebSocketCommand("set_typing", typingRequestId, mapOf(
+            "room_id" to roomId,
+            "timeout" to 10000
+        ))
+    }
+    
+    fun sendMessage(roomId: String, text: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: Sending message to room: $roomId")
+        val messageRequestId = requestIdCounter++
+        sendWebSocketCommand("send_message", messageRequestId, mapOf(
+            "room_id" to roomId,
+            "text" to text,
+            "mentions" to mapOf(
+                "user_ids" to emptyList<String>(),
+                "room" to false
+            ),
+            "url_previews" to emptyList<String>()
+        ))
+    }
 
     fun handleResponse(requestId: Int, data: Any) {
         if (profileRequests.containsKey(requestId)) {
