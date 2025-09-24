@@ -822,10 +822,44 @@ class AppViewModel : ViewModel() {
                     val events = roomData.optJSONArray("events")
                     if (events != null && events.length() > 0) {
                         android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.length()} new timeline events for room: $roomId")
-                        processEventsArray(events)
+                        processSyncEventsArray(events, roomId)
                     }
                 }
             }
+        }
+    }
+    
+    private fun processSyncEventsArray(eventsArray: JSONArray, roomId: String) {
+        val timelineList = mutableListOf<TimelineEvent>()
+        val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+        
+        for (i in 0 until eventsArray.length()) {
+            val eventJson = eventsArray.optJSONObject(i)
+            if (eventJson != null) {
+                val event = TimelineEvent.fromJson(eventJson)
+                if (event.type == "m.room.member" && event.timelineRowid == -1L) {
+                    // State member event; update cache only
+                    val userId = event.stateKey ?: event.sender
+                    val displayName = event.content.optString("displayname")?.takeIf { it.isNotBlank() }
+                    val avatarUrl = event.content.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                    if (displayName != null || avatarUrl != null) {
+                        memberMap[userId] = MemberProfile(displayName, avatarUrl)
+                        android.util.Log.d("Andromuks", "AppViewModel: Updated member cache for $userId: $displayName")
+                    }
+                } else if (event.timelineRowid >= 0) {
+                    // Timeline event; add to timeline
+                    timelineList.add(event)
+                    android.util.Log.d("Andromuks", "AppViewModel: Added timeline event: ${event.type} from ${event.sender}")
+                }
+            }
+        }
+        
+        if (timelineList.isNotEmpty()) {
+            // Add new events to existing timeline
+            val updatedTimeline = timelineEvents + timelineList
+            timelineEvents = updatedTimeline.sortedBy { it.timestamp }
+            updateCounter++
+            android.util.Log.d("Andromuks", "AppViewModel: Added ${timelineList.size} new events to timeline, total: ${timelineEvents.size}")
         }
     }
     
