@@ -126,13 +126,14 @@ fun RoomTimelineScreen(
         Surface {
             Box(modifier = modifier.fillMaxSize()) {
                 // Static room header at top
-                RoomHeader(
-                    roomState = appViewModel.currentRoomState,
-                    fallbackName = roomName,
-                    homeserverUrl = appViewModel.homeserverUrl,
-                    authToken = appViewModel.authToken,
-                    modifier = Modifier.align(Alignment.TopCenter)
-                )
+                Box(modifier = Modifier.align(Alignment.TopCenter)) {
+                    RoomHeader(
+                        roomState = appViewModel.currentRoomState,
+                        fallbackName = roomName,
+                        homeserverUrl = appViewModel.homeserverUrl,
+                        authToken = appViewModel.authToken
+                    )
+                }
                 
                 if (isLoading) {
                     Box(
