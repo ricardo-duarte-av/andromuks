@@ -840,8 +840,8 @@ class AppViewModel : ViewModel() {
                 if (event.type == "m.room.member" && event.timelineRowid == -1L) {
                     // State member event; update cache only
                     val userId = event.stateKey ?: event.sender
-                    val displayName = event.content.optString("displayname")?.takeIf { it.isNotBlank() }
-                    val avatarUrl = event.content.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                    val displayName = event.content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                    val avatarUrl = event.content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
                     if (displayName != null || avatarUrl != null) {
                         memberMap[userId] = MemberProfile(displayName, avatarUrl)
                         android.util.Log.d("Andromuks", "AppViewModel: Updated member cache for $userId: $displayName")
