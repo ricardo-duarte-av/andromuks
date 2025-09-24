@@ -256,37 +256,6 @@ fun RoomTimelineScreen(
     }
 }
 
-@Composable
-private fun BottomInputBar() {
-    var draft by remember { mutableStateOf("") }
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp),
-        tonalElevation = 3.dp,
-        modifier = Modifier
-            .fillMaxWidth()
-            .navigationBarsPadding()
-    ) {
-        // Inner rounded horizontal bar
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-            shape = RoundedCornerShape(24.dp),
-            tonalElevation = 1.dp,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-        ) {
-            TextField(
-                value = draft,
-                onValueChange = { draft = it },
-                placeholder = { Text("Message") },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                singleLine = true
-            )
-        }
-    }
-}
 
 @Composable
 fun TimelineEventItem(
