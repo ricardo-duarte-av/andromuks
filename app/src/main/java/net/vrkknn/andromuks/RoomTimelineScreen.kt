@@ -124,13 +124,14 @@ fun RoomTimelineScreen(
     
     AndromuksTheme {
         Surface {
-            Column(modifier = modifier.fillMaxSize()) {
-                // Custom room header
+            Box(modifier = modifier.fillMaxSize()) {
+                // Static room header at top
                 RoomHeader(
                     roomState = appViewModel.currentRoomState,
                     fallbackName = roomName,
                     homeserverUrl = appViewModel.homeserverUrl,
-                    authToken = appViewModel.authToken
+                    authToken = appViewModel.authToken,
+                    modifier = Modifier.align(Alignment.TopCenter)
                 )
                 
                 if (isLoading) {
@@ -141,10 +142,12 @@ fun RoomTimelineScreen(
                         Text("Loading timeline...")
                     }
                 } else {
-                    // Timeline list takes remaining height - this will compress when keyboard opens
+                    // Timeline content - this will compress when keyboard opens
                     LazyColumn(
                         modifier = Modifier
-                            .weight(1f)
+                            .fillMaxSize()
+                            .padding(top = 120.dp) // Space for header
+                            .padding(bottom = 80.dp) // Space for message input
                             .imePadding(),
                         state = listState,
                         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -155,19 +158,18 @@ fun RoomTimelineScreen(
                             bottom = 16.dp
                         )
                     ) {
-                            items(sortedEvents) { event ->
-                                val isMine = myUserId != null && event.sender == myUserId
-                                TimelineEventItem(
-                                    event = event,
-                                    homeserverUrl = homeserverUrl,
-                                    authToken = authToken,
-                                    userProfileCache = appViewModel.getMemberMap(roomId),
-                                    isMine = isMine
-                                )
-                            }
+                        items(sortedEvents) { event ->
+                            val isMine = myUserId != null && event.sender == myUserId
+                            TimelineEventItem(
+                                event = event,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                userProfileCache = appViewModel.getMemberMap(roomId),
+                                isMine = isMine
+                            )
                         }
                     }
-                
+                }
                 
                 // Static message input at bottom
                 Surface(
@@ -175,6 +177,7 @@ fun RoomTimelineScreen(
                     tonalElevation = 0.dp,
                     modifier = Modifier
                         .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
                         .navigationBarsPadding()
                 ) {
                         var draft by remember { mutableStateOf("") }
