@@ -288,13 +288,13 @@ private fun TypingNotificationArea(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(16.dp) // Fixed height for exclusive space
+            .height(24.dp) // Fixed height for exclusive space
     ) {
         if (typingUsers.isNotEmpty()) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Show mini avatars for all typing users
@@ -313,11 +313,11 @@ private fun TypingNotificationArea(
                     
                     // Add spacing between avatars (except after the last one)
                     if (index < typingUsers.size - 1) {
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(2.dp))
                     }
                 }
                 
-                Spacer(modifier = Modifier.width(6.dp))
+                Spacer(modifier = Modifier.width(4.dp))
                 
                 // Typing text (smaller and italic)
                 Text(
