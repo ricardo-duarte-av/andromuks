@@ -204,7 +204,7 @@ fun RoomTimelineScreen(
                                 tonalElevation = 1.dp,
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(48.dp) // Fixed height for pill
+                                    .height(56.dp) // Increased height for better text visibility
                             ) {
                                 TextField(
                                     value = draft,
@@ -212,7 +212,7 @@ fun RoomTimelineScreen(
                                     placeholder = { Text("Type a message...") },
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(48.dp),
+                                        .height(56.dp), // Increased height to match Surface
                                     singleLine = true,
                                     colors = androidx.compose.material3.TextFieldDefaults.colors(
                                         focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
@@ -237,7 +237,7 @@ fun RoomTimelineScreen(
                                                    else MaterialTheme.colorScheme.surfaceVariant
                                 ),
                                 modifier = Modifier
-                                    .size(48.dp), // Same height as pill
+                                    .size(56.dp), // Same height as pill
                                 contentPadding = PaddingValues(0.dp) // No padding for perfect circle
                             ) {
                                 @Suppress("DEPRECATION")

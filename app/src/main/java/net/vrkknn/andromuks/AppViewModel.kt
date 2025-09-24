@@ -297,6 +297,9 @@ class AppViewModel : ViewModel() {
         updateCounter++ // Force recomposition
         android.util.Log.d("Andromuks", "AppViewModel: spaceList updated, current size: ${spaceList.size}")
         
+        // Check if current room needs timeline update
+        checkAndUpdateCurrentRoomTimeline(syncJson)
+        
         // Temporary workaround: navigate after 3 sync messages if we have rooms
         if (syncMessageCount >= 3 && roomMap.isNotEmpty() && !spacesLoaded) {
             android.util.Log.d("Andromuks", "AppViewModel: Workaround - navigating after $syncMessageCount sync messages")
@@ -774,6 +777,56 @@ class AppViewModel : ViewModel() {
         updateCounter++
         
         android.util.Log.d("Andromuks", "AppViewModel: Parsed room state - Name: $name, Alias: $canonicalAlias, Topic: $topic, Avatar: $avatarUrl")
+    }
+    
+    private fun checkAndUpdateCurrentRoomTimeline(syncJson: JSONObject) {
+        val data = syncJson.optJSONObject("data")
+        if (data != null && currentRoomId != null) {
+            val rooms = data.optJSONObject("rooms")
+            if (rooms != null && rooms.has(currentRoomId)) {
+                android.util.Log.d("Andromuks", "AppViewModel: Received sync_complete for current room: $currentRoomId")
+                updateTimelineFromSync(syncJson, currentRoomId!!)
+            }
+        }
+    }
+    
+    private fun updateTimelineFromSync(syncJson: JSONObject, roomId: String) {
+        val data = syncJson.optJSONObject("data")
+        if (data != null) {
+            val rooms = data.optJSONObject("rooms")
+            if (rooms != null) {
+                val roomData = rooms.optJSONObject(roomId)
+                if (roomData != null) {
+                    // Update room state if present
+                    val meta = roomData.optJSONObject("meta")
+                    if (meta != null) {
+                        val name = meta.optString("name")?.takeIf { it.isNotBlank() }
+                        val canonicalAlias = meta.optString("canonical_alias")?.takeIf { it.isNotBlank() }
+                        val topic = meta.optString("topic")?.takeIf { it.isNotBlank() }
+                        val avatarUrl = meta.optString("avatar")?.takeIf { it.isNotBlank() }
+                        
+                        if (name != null || canonicalAlias != null || topic != null || avatarUrl != null) {
+                            val roomState = RoomState(
+                                roomId = roomId,
+                                name = name,
+                                canonicalAlias = canonicalAlias,
+                                topic = topic,
+                                avatarUrl = avatarUrl
+                            )
+                            currentRoomState = roomState
+                            android.util.Log.d("Andromuks", "AppViewModel: Updated room state from sync: $roomState")
+                        }
+                    }
+                    
+                    // Process new timeline events
+                    val events = roomData.optJSONArray("events")
+                    if (events != null && events.length() > 0) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.length()} new timeline events for room: $roomId")
+                        processEventsArray(events)
+                    }
+                }
+            }
+        }
     }
     
     private fun markRoomAsRead(roomId: String, eventId: String) {
