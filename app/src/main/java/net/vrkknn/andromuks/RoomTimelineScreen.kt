@@ -288,7 +288,7 @@ private fun TypingNotificationArea(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(32.dp) // Fixed height for exclusive space
+            .height(16.dp) // Fixed height for exclusive space
     ) {
         if (typingUsers.isNotEmpty()) {
             Row(
@@ -297,19 +297,25 @@ private fun TypingNotificationArea(
                     .padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Show avatar of first typing user (half size)
-                val firstUser = typingUsers.first()
-                val profile = userProfileCache[firstUser]
-                val avatarUrl = profile?.avatarUrl
-                val displayName = profile?.displayName
-                
-                AvatarImage(
-                    mxcUrl = avatarUrl,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    fallbackText = displayName ?: firstUser.substringAfter("@").substringBefore(":"),
-                    modifier = Modifier.size(12.dp) // Half the original size
-                )
+                // Show mini avatars for all typing users
+                typingUsers.forEachIndexed { index, user ->
+                    val profile = userProfileCache[user]
+                    val avatarUrl = profile?.avatarUrl
+                    val displayName = profile?.displayName
+                    
+                    AvatarImage(
+                        mxcUrl = avatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        fallbackText = displayName ?: user.substringAfter("@").substringBefore(":"),
+                        modifier = Modifier.size(12.dp) // Mini avatar size
+                    )
+                    
+                    // Add spacing between avatars (except after the last one)
+                    if (index < typingUsers.size - 1) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                    }
+                }
                 
                 Spacer(modifier = Modifier.width(6.dp))
                 
