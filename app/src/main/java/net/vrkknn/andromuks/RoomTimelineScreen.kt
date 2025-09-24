@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.calculateBottomPadding
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
@@ -126,9 +125,10 @@ fun RoomTimelineScreen(
         navController.popBackStack()
     }
     
-    // Dynamic bottom padding: IME if present, otherwise navigation bar
+    // Use imePadding for keyboard handling
     val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    // Choose IME if present, otherwise navigation bar padding
     val bottomInset = if (imeBottom > 0.dp) imeBottom else navBarBottom
     
     AndromuksTheme {
@@ -185,7 +185,8 @@ fun RoomTimelineScreen(
                     tonalElevation = 0.dp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = bottomInset) // dynamic padding instead of imePadding()
+                        //.imePadding() // ensures it's above the keyboard
+                        .padding(bottom = bottomInset)
                 ) {
                         var draft by remember { mutableStateOf("") }
                         var lastTypingTime by remember { mutableStateOf(0L) }
