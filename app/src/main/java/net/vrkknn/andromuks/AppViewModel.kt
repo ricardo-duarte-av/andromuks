@@ -671,6 +671,10 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Handling room state response for room: $roomId")
         
         when (data) {
+            is JSONArray -> {
+                // Server returns events array directly
+                parseRoomStateFromEvents(roomId, data)
+            }
             is JSONObject -> {
                 val events = data.optJSONArray("events")
                 if (events != null) {
