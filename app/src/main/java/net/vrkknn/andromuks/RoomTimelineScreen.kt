@@ -168,20 +168,20 @@ fun RoomTimelineScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
-                        state = listState,
+                            state = listState,
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
                             horizontal = 16.dp,
                             vertical = 8.dp
-                        )
-                    ) {
-                        items(sortedEvents) { event ->
-                            val isMine = myUserId != null && event.sender == myUserId
-                            TimelineEventItem(
-                                event = event,
-                                homeserverUrl = homeserverUrl,
-                                authToken = authToken,
-                                userProfileCache = appViewModel.getMemberMap(roomId),
+                            )
+                        ) {
+                            items(sortedEvents) { event ->
+                                val isMine = myUserId != null && event.sender == myUserId
+                                TimelineEventItem(
+                                    event = event,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    userProfileCache = appViewModel.getMemberMap(roomId),
                                 isMine = isMine,
                                 appViewModel = appViewModel
                             )
@@ -199,14 +199,14 @@ fun RoomTimelineScreen(
                 )
                 
                 // 3. Text box (always at the bottom, above keyboard/nav bar)
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 0.dp,
-                    modifier = Modifier
-                        .fillMaxWidth()
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
                         //.imePadding() // ensures it's above the keyboard
                         .padding(bottom = bottomInset)
-                ) {
+                    ) {
                         var draft by remember { mutableStateOf("") }
                         var lastTypingTime by remember { mutableStateOf(0L) }
                         
@@ -277,12 +277,12 @@ fun RoomTimelineScreen(
                                     tint = if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary 
                                           else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                            }
                         }
                     }
                 }
             }
         }
+    }
 }
 
 @Composable
@@ -301,8 +301,8 @@ private fun TypingNotificationArea(
     ) {
         if (typingUsers.isNotEmpty()) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
+            modifier = Modifier
+                .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -664,40 +664,40 @@ fun TimelineEventItem(
                             }
                         } else {
                             // Fallback to text message if media parsing fails
-                            val bubbleShape = if (isMine) {
-                                RoundedCornerShape(
-                                    topStart = 16.dp,
-                                    topEnd = 16.dp,
-                                    bottomEnd = 8.dp,
-                                    bottomStart = 16.dp
-                                )
-                            } else {
-                                RoundedCornerShape(
-                                    topStart = 16.dp,
-                                    topEnd = 16.dp,
-                                    bottomEnd = 16.dp,
-                                    bottomStart = 8.dp
-                                )
-                            }
-                            val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                            val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                    val bubbleShape = if (isMine) {
+                        RoundedCornerShape(
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
+                            bottomEnd = 8.dp,
+                            bottomStart = 16.dp
+                        )
+                    } else {
+                        RoundedCornerShape(
+                            topStart = 16.dp,
+                            topEnd = 16.dp,
+                            bottomEnd = 16.dp,
+                            bottomStart = 8.dp
+                        )
+                    }
+                    val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                    val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
-                            ) {
-                                Surface(
-                                    color = bubbleColor,
-                                    shape = bubbleShape,
-                                    tonalElevation = 2.dp,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                ) {
-                                    Text(
-                                        text = body,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = textColor,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                    ) {
+                        Surface(
+                            color = bubbleColor,
+                            shape = bubbleShape,
+                            tonalElevation = 2.dp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        ) {
+                            Text(
+                                text = body,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = textColor,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
                                 }
                             }
                         }

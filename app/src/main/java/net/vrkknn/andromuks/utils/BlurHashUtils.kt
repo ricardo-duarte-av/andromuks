@@ -7,7 +7,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
-import com.github.woltapp.blurhash.BlurHashDecoder
+import net.vrkknn.andromuks.utils.BlurHashDecoder
 
 object BlurHashUtils {
     /**
