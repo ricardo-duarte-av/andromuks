@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
