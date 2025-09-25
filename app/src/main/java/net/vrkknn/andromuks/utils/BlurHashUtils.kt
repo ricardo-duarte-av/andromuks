@@ -15,8 +15,12 @@ object BlurHashUtils {
      */
     fun decodeBlurHash(blurHash: String, width: Int = 32, height: Int = 32): Bitmap? {
         return try {
-            BlurHashDecoder.decode(blurHash, width, height)
+            android.util.Log.d("Andromuks", "BlurHashUtils: Decoding '$blurHash' to ${width}x${height}")
+            val result = BlurHashDecoder.decode(blurHash, width, height)
+            android.util.Log.d("Andromuks", "BlurHashUtils: Decode result: ${result != null}")
+            result
         } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "BlurHashUtils: Decode failed", e)
             null
         }
     }

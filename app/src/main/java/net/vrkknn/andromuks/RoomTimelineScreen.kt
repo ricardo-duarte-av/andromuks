@@ -410,14 +410,30 @@ private fun MediaMessage(
             }
             
             if (mediaMessage.msgType == "m.image") {
+                // Debug logging
+                Log.d("Andromuks", "MediaMessage: URL=$imageUrl, BlurHash=${mediaMessage.info.blurHash}, AuthToken=$authToken")
+                
                 val blurHashPainter = remember(mediaMessage.info.blurHash) {
                     mediaMessage.info.blurHash?.let { blurHash ->
+                        Log.d("Andromuks", "Decoding BlurHash: $blurHash")
                         val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
+                        Log.d("Andromuks", "BlurHash decoded: ${bitmap != null}")
                         bitmap?.let { 
                             BitmapPainter(it.asImageBitmap())
                         }
+                    } ?: run {
+                        // Fallback placeholder if no BlurHash
+                        Log.d("Andromuks", "No BlurHash available, using fallback placeholder")
+                        BitmapPainter(
+                            BlurHashUtils.createPlaceholderBitmap(
+                                32, 32, 
+                                MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        )
                     }
                 }
+                
+                Log.d("Andromuks", "BlurHash painter created: ${blurHashPainter != null}")
                 
                 AsyncImage(
                     model = ImageRequest.Builder(context)
@@ -434,7 +450,13 @@ private fun MediaMessage(
                             32, 32, 
                             MaterialTheme.colorScheme.surfaceVariant
                         )
-                    )
+                    ),
+                    onSuccess = { 
+                        Log.d("Andromuks", "Image loaded successfully: $imageUrl")
+                    },
+                    onError = { 
+                        Log.e("Andromuks", "Image load failed: $imageUrl", it)
+                    }
                 )
             } else {
                 // Video placeholder
@@ -587,9 +609,12 @@ fun TimelineEventItem(
                     
                     // Check if it's a media message
                     if (msgType == "m.image" || msgType == "m.video") {
+                        Log.d("Andromuks", "TimelineEventItem: Found media message - msgType=$msgType, body=$body")
                         val url = content?.optString("url", "") ?: ""
                         val filename = content?.optString("filename", "") ?: ""
                         val info = content?.optJSONObject("info")
+                        
+                        Log.d("Andromuks", "TimelineEventItem: Media data - url=$url, filename=$filename, info=${info != null}")
                         
                         if (url.isNotBlank() && info != null) {
                             val width = info.optInt("w", 0)
@@ -615,6 +640,8 @@ fun TimelineEventItem(
                                 info = mediaInfo,
                                 msgType = msgType
                             )
+                            
+                            Log.d("Andromuks", "TimelineEventItem: Created MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}")
                             
                             // Display media message
                             MediaMessage(
