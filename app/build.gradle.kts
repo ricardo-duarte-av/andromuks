@@ -18,13 +18,38 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            keyAlias = "habitica"         // Alias of the key in the keystore
+            keyPassword = "12345678"   // Password for the key
+            storeFile = file("./gomuks.keystore")  // Keystore file path
+            storePassword = "12345678"  // Keystore password
+        }
+    }
+
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("x86_64", "arm64-v8a")
+            isUniversalApk = false
+        }
+    }
+
     buildTypes {
-        release {
-            isMinifyEnabled = false
+            isDebuggable = false
+            isShrinkResources = true
+            isMinifyEnabled = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (signingConfigs.findByName("release") != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
+        debug {
+            isDebuggable = true
         }
     }
     compileOptions {
