@@ -58,7 +58,7 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.5.0")
     implementation("io.coil-kt:coil-gif:2.5.0")
     // BlurHash
-    implementation("com.github.woltapp:blurhash:1.2.0")
+    implementation("com.github.woltapp:blurhashkt:1.0.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
