@@ -422,12 +422,12 @@ private fun MediaMessage(
                             BitmapPainter(it.asImageBitmap())
                         }
                     } ?: run {
-                        // Fallback placeholder if no BlurHash
-                        Log.d("Andromuks", "No BlurHash available, using fallback placeholder")
+                        // Simple fallback placeholder without MaterialTheme
+                        Log.d("Andromuks", "No BlurHash available, using simple fallback")
                         BitmapPainter(
                             BlurHashUtils.createPlaceholderBitmap(
                                 32, 32, 
-                                MaterialTheme.colorScheme.surfaceVariant
+                                androidx.compose.ui.graphics.Color.Gray
                             )
                         )
                     }
@@ -448,14 +448,14 @@ private fun MediaMessage(
                     error = BitmapPainter(
                         BlurHashUtils.createPlaceholderBitmap(
                             32, 32, 
-                            MaterialTheme.colorScheme.surfaceVariant
+                            androidx.compose.ui.graphics.Color.Red
                         )
                     ),
                     onSuccess = { 
                         Log.d("Andromuks", "Image loaded successfully: $imageUrl")
                     },
-                    onError = { 
-                        Log.e("Andromuks", "Image load failed: $imageUrl", it)
+                    onError = { state ->
+                        Log.e("Andromuks", "Image load failed: $imageUrl, state: $state")
                     }
                 )
             } else {
