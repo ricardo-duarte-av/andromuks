@@ -567,6 +567,7 @@ class AppViewModel : ViewModel() {
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> userId
     private val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    private val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
     
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
@@ -730,6 +731,10 @@ class AppViewModel : ViewModel() {
             handleRoomStateResponse(requestId, data)
         } else if (messageRequests.containsKey(requestId)) {
             handleMessageResponse(requestId, data)
+        } else if (markReadRequests.containsKey(requestId)) {
+            // Handle mark_read response - data should be a boolean
+            val success = data as? Boolean ?: false
+            handleMarkReadResponse(requestId, success)
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: Unknown response requestId=$requestId")
         }
@@ -738,6 +743,10 @@ class AppViewModel : ViewModel() {
     fun handleError(requestId: Int, errorMessage: String) {
         if (profileRequests.containsKey(requestId)) {
             handleProfileError(requestId, errorMessage)
+        } else if (markReadRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Mark read error for requestId=$requestId: $errorMessage")
+            // Remove the failed request from pending
+            markReadRequests.remove(requestId)
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
@@ -846,6 +855,9 @@ class AppViewModel : ViewModel() {
                 timelineEvents = timelineList
                 isTimelineLoading = false
                 android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
+                
+                // Mark room as read when timeline is successfully loaded
+                markRoomAsRead(roomId, timelineList.last().eventId)
             }
         }
 
@@ -1090,11 +1102,11 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    private fun markRoomAsRead(roomId: String, eventId: String) {
+    fun markRoomAsRead(roomId: String, eventId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Marking room as read: $roomId, eventId: $eventId")
         
         val markReadRequestId = requestIdCounter++
-        timelineRequests[markReadRequestId] = roomId
+        markReadRequests[markReadRequestId] = roomId
         sendWebSocketCommand("mark_read", markReadRequestId, mapOf(
             "room_id" to roomId,
             "event_id" to eventId,
@@ -1103,11 +1115,11 @@ class AppViewModel : ViewModel() {
     }
     
     fun handleMarkReadResponse(requestId: Int, success: Boolean) {
-        val roomId = timelineRequests[requestId]
+        val roomId = markReadRequests[requestId]
         if (roomId != null) {
             android.util.Log.d("Andromuks", "AppViewModel: Mark read response for room $roomId: $success")
             // Remove the request from pending
-            timelineRequests.remove(requestId)
+            markReadRequests.remove(requestId)
         }
     }
     
