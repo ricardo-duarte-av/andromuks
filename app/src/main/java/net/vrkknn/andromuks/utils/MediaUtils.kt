@@ -33,16 +33,16 @@ object MediaUtils {
             // For media files, we want the full-size image, not a thumbnail
             val httpUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId"
             
-            // Sanitize URL: convert everything after /_gomuks/media/ to lowercase
+            // Sanitize URL: convert everything before /_gomuks/media/ to lowercase
             val sanitizedUrl = if (httpUrl.contains("/_gomuks/media/")) {
                 val parts = httpUrl.split("/_gomuks/media/", limit = 2)
                 if (parts.size == 2) {
-                    "${parts[0]}/_gomuks/media/${parts[1].lowercase()}"
+                    "${parts[0].lowercase()}/_gomuks/media/${parts[1]}"
                 } else {
                     httpUrl
                 }
             } else {
-                httpUrl
+                httpUrl.lowercase()
             }
             
             Log.d("Andromuks", "MediaUtils: Converted MXC URL: $mxcUrl -> $sanitizedUrl")
@@ -85,16 +85,16 @@ object MediaUtils {
             // Construct HTTP URL: https://gomuks-backend/_gomuks/media/server/mediaId?thumbnail=width,height
             val httpUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId?thumbnail=$width,$height"
             
-            // Sanitize URL: convert everything after /_gomuks/media/ to lowercase
+            // Sanitize URL: convert everything before /_gomuks/media/ to lowercase
             val sanitizedUrl = if (httpUrl.contains("/_gomuks/media/")) {
                 val parts = httpUrl.split("/_gomuks/media/", limit = 2)
                 if (parts.size == 2) {
-                    "${parts[0]}/_gomuks/media/${parts[1].lowercase()}"
+                    "${parts[0].lowercase()}/_gomuks/media/${parts[1]}"
                 } else {
                     httpUrl
                 }
             } else {
-                httpUrl
+                httpUrl.lowercase()
             }
             
             Log.d("Andromuks", "MediaUtils: Converted MXC URL to thumbnail: $mxcUrl -> $sanitizedUrl")
