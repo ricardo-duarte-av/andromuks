@@ -612,7 +612,8 @@ fun TimelineEventItem(
                             userProfileCache = userProfileCache,
                             homeserverUrl = homeserverUrl,
                             authToken = authToken,
-                            appViewModel = appViewModel
+                            appViewModel = appViewModel,
+                            messageSender = event.sender
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                     }
@@ -640,7 +641,8 @@ fun TimelineEventItem(
                             userProfileCache = userProfileCache,
                             homeserverUrl = homeserverUrl,
                             authToken = authToken,
-                            appViewModel = appViewModel
+                            appViewModel = appViewModel,
+                            messageSender = event.sender
                         )
                     }
                 }
@@ -915,11 +917,12 @@ private fun InlineReadReceiptAvatars(
     userProfileCache: Map<String, MemberProfile>,
     homeserverUrl: String,
     authToken: String,
-    appViewModel: AppViewModel
+    appViewModel: AppViewModel,
+    messageSender: String
 ) {
-    // Filter out receipts from the current user and limit to 3 avatars
+    // Filter out receipts from the current user, from the message sender, and limit to 3 avatars
     val otherUsersReceipts = receipts
-        .filter { it.userId != appViewModel.currentUserId }
+        .filter { it.userId != appViewModel.currentUserId && it.userId != messageSender }
         .distinctBy { it.userId }
         .take(3)
     
