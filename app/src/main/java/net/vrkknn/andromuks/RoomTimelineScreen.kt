@@ -407,10 +407,12 @@ private fun MediaMessage(
                 AvatarUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
             }
             
-            val blurHashBitmap = remember(mediaMessage.info.blurHash) {
-                mediaMessage.info.blurHash?.let { blurHash ->
-                    BlurHashUtils.blurHashToImageBitmap(blurHash, 32, 32)
-                }
+            val placeholderBitmap = remember(mediaMessage.info.blurHash) {
+                // Create a simple placeholder bitmap
+                BlurHashUtils.createPlaceholderBitmap(
+                    32, 32, 
+                    MaterialTheme.colorScheme.surfaceVariant
+                )
             }
             
             if (mediaMessage.msgType == "m.image") {
@@ -423,7 +425,7 @@ private fun MediaMessage(
                         .build(),
                     contentDescription = mediaMessage.filename,
                     modifier = Modifier.fillMaxSize(),
-                    placeholder = blurHashBitmap,
+                    placeholder = placeholderBitmap,
                     error = {
                         // Fallback to placeholder with media info
                         Box(

@@ -7,18 +7,15 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
-import com.github.woltapp.blurhashkt.BlurHashDecoder
 
 object BlurHashUtils {
     /**
      * Decode a BlurHash string into a Bitmap
+     * For now, returns null to use fallback placeholder
      */
     fun decodeBlurHash(blurHash: String, width: Int = 32, height: Int = 32): Bitmap? {
-        return try {
-            BlurHashDecoder.decode(blurHash, width, height)
-        } catch (e: Exception) {
-            null
-        }
+        // TODO: Implement BlurHash decoding when library is available
+        return null
     }
     
     /**
