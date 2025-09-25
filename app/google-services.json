@@ -1,0 +1,257 @@
+{
+  "project_info": {
+    "project_number": "532032404365",
+    "project_id": "matrix-400109",
+    "storage_bucket": "matrix-400109.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:fc88a29a76c75449ec9bc4",
+        "android_client_info": {
+          "package_name": "net.daedric.element"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:983d9e5e73e99d38ec9bc4",
+        "android_client_info": {
+          "package_name": "net.daedric.element.nightly"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:25fada42b589a75bec9bc4",
+        "android_client_info": {
+          "package_name": "net.daedric.ntfy"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:5ad1ed3c6aa58b94ec9bc4",
+        "android_client_info": {
+          "package_name": "net.daedric.schildichat"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:7fe07bbe9226e7f3ec9bc4",
+        "android_client_info": {
+          "package_name": "pt.aguiarvieira.andromuks"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:70b62c80025379ddec9bc4",
+        "android_client_info": {
+          "package_name": "pt.aguiarvieira.element"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:de52f016174a554eec9bc4",
+        "android_client_info": {
+          "package_name": "pt.aguiarvieira.element.nightly"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:35d08ad09d97110aec9bc4",
+        "android_client_info": {
+          "package_name": "pt.aguiarvieira.element.xxx"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:26b92a36b55a8a3cec9bc4",
+        "android_client_info": {
+          "package_name": "pt.aguiarvieira.element.xxx.nightly"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:d66272437225a9a6ec9bc4",
+        "android_client_info": {
+          "package_name": "pt.aguiarvieira.gomuks"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:d692714a56830d89ec9bc4",
+        "android_client_info": {
+          "package_name": "pt.aguiarvieira.gomuks.av"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:6232f6751fea0eeaec9bc4",
+        "android_client_info": {
+          "package_name": "pt.aguiarvieira.ntfy"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:97c9fb2b74109717ec9bc4",
+        "android_client_info": {
+          "package_name": "pt.aguiarvieira.push"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
