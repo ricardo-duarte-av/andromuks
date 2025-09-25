@@ -120,6 +120,7 @@ fun RoomListScreen(
                     Text(
                         text = me?.displayName ?: appViewModel.currentUserId.ifBlank { "Profile" },
                         style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -143,12 +144,17 @@ fun RoomListScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp) // pick your pill height
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 4.dp)
             ) {
                 TextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search rooms…") },
+                    placeholder = { 
+                        Text(
+                            "Search rooms…",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        ) 
+                    },
                     trailingIcon = {
                         Icon(
                             imageVector = Icons.Default.Search,
@@ -160,12 +166,16 @@ fun RoomListScreen(
                         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
                         focusedContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
                         unfocusedIndicatorColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                        focusedIndicatorColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
+                        focusedIndicatorColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
+                        unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                        unfocusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        focusedPlaceholderColor = MaterialTheme.colorScheme.onSurfaceVariant
                     ),
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                        .padding(horizontal = 8.dp)
                 )
             }
             
@@ -287,8 +297,11 @@ fun SpaceListItem(
         ) {
             Text(
                 text = space.name,
-                style = if (isSelected) MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.primary)
-                else MaterialTheme.typography.titleMedium,
+                style = when {
+                    isSelected -> MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.primary)
+                    unreadRooms > 0 -> MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    else -> MaterialTheme.typography.titleMedium
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -365,7 +378,11 @@ fun RoomListItem(
                 ) {
                     Text(
                         text = room.name,
-                        style = MaterialTheme.typography.titleMedium,
+                        style = if (room.unreadCount != null && room.unreadCount > 0) {
+                            MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        } else {
+                            MaterialTheme.typography.titleMedium
+                        },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
