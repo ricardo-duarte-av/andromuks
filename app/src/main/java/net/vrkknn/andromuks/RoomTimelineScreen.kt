@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
@@ -408,9 +409,12 @@ private fun MediaMessage(
             }
             
             if (mediaMessage.msgType == "m.image") {
-                val blurHashBitmap = remember(mediaMessage.info.blurHash) {
+                val blurHashPainter = remember(mediaMessage.info.blurHash) {
                     mediaMessage.info.blurHash?.let { blurHash ->
-                        BlurHashUtils.blurHashToImageBitmap(blurHash, 32, 32)
+                        val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
+                        bitmap?.let { 
+                            BitmapPainter(it.asImageBitmap())
+                        }
                     }
                 }
                 
@@ -423,39 +427,13 @@ private fun MediaMessage(
                         .build(),
                     contentDescription = mediaMessage.filename,
                     modifier = Modifier.fillMaxSize(),
-                    placeholder = blurHashBitmap,
-                    error = {
-                        // Fallback to placeholder with media info
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = "🖼️",
-                                    style = MaterialTheme.typography.headlineMedium
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = mediaMessage.filename,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
-                                    Text(
-                                        text = "${mediaMessage.info.width}×${mediaMessage.info.height}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    placeholder = blurHashPainter,
+                    error = BitmapPainter(
+                        BlurHashUtils.createPlaceholderBitmap(
+                            32, 32, 
+                            MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    )
                 )
             } else {
                 // Video placeholder
