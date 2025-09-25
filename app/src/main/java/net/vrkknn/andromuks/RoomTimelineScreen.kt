@@ -24,6 +24,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -872,7 +874,95 @@ fun TimelineEventItem(
         }
         
         if (isMine) {
+            // Show read receipts for my messages
+            if (appViewModel != null) {
+                val receipts = appViewModel.getReadReceipts(event.eventId)
+                if (receipts.isNotEmpty()) {
+                    ReadReceiptAvatars(
+                        receipts = receipts,
+                        userProfileCache = userProfileCache,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel
+                    )
+                }
+            }
             Spacer(modifier = Modifier.width(8.dp))
+        } else {
+            // Show read receipts for other people's messages on the left side
+            if (appViewModel != null) {
+                val receipts = appViewModel.getReadReceipts(event.eventId)
+                if (receipts.isNotEmpty()) {
+                    ReadReceiptAvatars(
+                        receipts = receipts,
+                        userProfileCache = userProfileCache,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReadReceiptAvatars(
+    receipts: List<ReadReceipt>,
+    userProfileCache: Map<String, MemberProfile>,
+    homeserverUrl: String,
+    authToken: String,
+    appViewModel: AppViewModel
+) {
+    // Filter out receipts from the current user and limit to 3 avatars
+    val otherUsersReceipts = receipts
+        .filter { it.userId != appViewModel.currentUserId }
+        .distinctBy { it.userId }
+        .take(3)
+    
+    if (otherUsersReceipts.isNotEmpty()) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 4.dp)
+        ) {
+            // Show mini avatars in a row
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(-4.dp), // Overlap avatars slightly
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                otherUsersReceipts.forEach { receipt ->
+                    val profile = userProfileCache[receipt.userId]
+                    val displayName = profile?.displayName
+                    val avatarUrl = profile?.avatarUrl
+                    
+                    AvatarImage(
+                        mxcUrl = avatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        fallbackText = (displayName ?: receipt.userId.substringAfter("@").substringBefore(":")).take(1),
+                        size = 16.dp,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.surface,
+                                shape = CircleShape
+                            )
+                    )
+                }
+            }
+            
+            // Show count if there are more than 3 receipts
+            if (receipts.size > 3) {
+                Text(
+                    text = "+${receipts.size - 3}",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.7f
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }

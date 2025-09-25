@@ -69,3 +69,11 @@ data class MediaMessage(
     val info: MediaInfo,
     val msgType: String // "m.image" or "m.video"
 )
+
+@Immutable
+data class ReadReceipt(
+    val userId: String,
+    val eventId: String,
+    val timestamp: Long,
+    val receiptType: String
+)

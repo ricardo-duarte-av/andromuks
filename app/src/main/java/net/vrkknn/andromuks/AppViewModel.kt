@@ -136,6 +136,10 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    fun getReadReceipts(eventId: String): List<ReadReceipt> {
+        return readReceipts[eventId]?.toList() ?: emptyList()
+    }
+    
     fun getCurrentRoomSection(): RoomSection {
         // Get rooms from spaceList if allRooms is empty (fallback for existing data)
         val roomsToUse = if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
@@ -568,6 +572,7 @@ class AppViewModel : ViewModel() {
     private val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    private val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
     
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
@@ -872,6 +877,13 @@ class AppViewModel : ViewModel() {
                 } else {
                     android.util.Log.d("Andromuks", "AppViewModel: JSONObject did not contain 'events' array")
                 }
+                
+                // Process read receipts from timeline response
+                val receipts = data.optJSONObject("receipts")
+                if (receipts != null) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts from timeline response for room: $roomId")
+                    processReadReceipts(receipts)
+                }
             }
             else -> {
                 android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleTimelineResponse: ${data::class.java.simpleName}")
@@ -1035,6 +1047,13 @@ class AppViewModel : ViewModel() {
                         android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.length()} new timeline events for room: $roomId")
                         processSyncEventsArray(events, roomId)
                     }
+                    
+                    // Process read receipts
+                    val receipts = roomData.optJSONObject("receipts")
+                    if (receipts != null) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts for room: $roomId")
+                        processReadReceipts(receipts)
+                    }
                 }
             }
         }
@@ -1107,6 +1126,35 @@ class AppViewModel : ViewModel() {
                 markRoomAsRead(roomId, newestEvent.eventId)
             }
         }
+    }
+    
+    private fun processReadReceipts(receiptsJson: JSONObject) {
+        val keys = receiptsJson.keys()
+        while (keys.hasNext()) {
+            val eventId = keys.next()
+            val receiptsArray = receiptsJson.optJSONArray(eventId)
+            if (receiptsArray != null) {
+                val receiptsList = mutableListOf<ReadReceipt>()
+                for (i in 0 until receiptsArray.length()) {
+                    val receiptJson = receiptsArray.optJSONObject(i)
+                    if (receiptJson != null) {
+                        val receipt = ReadReceipt(
+                            userId = receiptJson.optString("user_id", ""),
+                            eventId = receiptJson.optString("event_id", ""),
+                            timestamp = receiptJson.optLong("timestamp", 0),
+                            receiptType = receiptJson.optString("receipt_type", "")
+                        )
+                        receiptsList.add(receipt)
+                        android.util.Log.d("Andromuks", "AppViewModel: Processed read receipt: ${receipt.userId} read ${receipt.eventId}")
+                    }
+                }
+                if (receiptsList.isNotEmpty()) {
+                    readReceipts[eventId] = receiptsList
+                    android.util.Log.d("Andromuks", "AppViewModel: Added ${receiptsList.size} read receipts for event: $eventId")
+                }
+            }
+        }
+        updateCounter++
     }
     
     fun markRoomAsRead(roomId: String, eventId: String) {
