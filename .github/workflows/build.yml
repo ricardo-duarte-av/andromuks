@@ -34,6 +34,7 @@ jobs:
           distribution: 'zulu' # See 'Supported distributions' for available options
           java-version: '21'
           cache: 'gradle'
+          
       - name: Change wrapper permissions
         run: chmod +x ./gradlew
 
@@ -44,14 +45,27 @@ jobs:
         run: |
           echo "### Built APKs" >> $GITHUB_STEP_SUMMARY
           find app/ -name "*.apk" | tee -a $GITHUB_STEP_SUMMARY
+          
+      - name: Upload R8 Missing Rules
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-missing-rules
+          path: app/build/outputs/mapping/release/missing_rules.txt
 
       # Upload Artifact Build
       # Noted For Output [main_project_module]/build/outputs/apk/debug/
-      - name: Upload release APK 
+      - name: Upload debug APK 
         uses: actions/upload-artifact@v4
         with:
           name: pt.aguiarvieira.andromuks
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload release APK 
+        uses: actions/upload-artifact@v4
+        with:
+          name: pt.aguiarvieira.andromuks
+          path: app/build/outputs/apk/debug/app-release.apk
 
       - name: Deploy Nightly
         uses: WebFreak001/deploy-nightly@v3.1.0
@@ -60,5 +74,15 @@ jobs:
           release_id: 248878640 # same as above (id can just be taken out the upload_url, it's used to find old releases)
           asset_path: app/build/outputs/apk/debug/app-debug.apk # path to archive to upload
           asset_name: andromuks.aguiarvieira.pt-debug-$$.apk # name to upload the release as, use $$ to insert date (YYYYMMDD) and 6 letter commit hash
+          asset_content_type: application/vnd.android.package-archive # required by GitHub API
+          max_releases: 1 # optional, if there are more releases than this matching the asset_name, the oldest ones are going to be deleted
+
+      - name: Deploy Nightly Release
+        uses: WebFreak001/deploy-nightly@v3.1.0
+        with:
+          upload_url: https://uploads.github.com/repos/ricardo-duarte-av/andromuks/releases/248878640/assets{?name,label} # find out this value by opening https://api.github.com/repos/<owner>/<repo>/releases in your browser and copy the full "upload_url" value including the {?name,label} part
+          release_id: 248878640 # same as above (id can just be taken out the upload_url, it's used to find old releases)
+          asset_path: app/build/outputs/apk/debug/app-release.apk # path to archive to upload
+          asset_name: andromuks.aguiarvieira.pt-release-$$.apk # name to upload the release as, use $$ to insert date (YYYYMMDD) and 6 letter commit hash
           asset_content_type: application/vnd.android.package-archive # required by GitHub API
           max_releases: 1 # optional, if there are more releases than this matching the asset_name, the oldest ones are going to be deleted
