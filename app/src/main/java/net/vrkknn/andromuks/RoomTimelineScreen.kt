@@ -407,14 +407,6 @@ private fun MediaMessage(
                 AvatarUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
             }
             
-            val placeholderBitmap = remember(mediaMessage.info.blurHash) {
-                // Create a simple placeholder bitmap
-                BlurHashUtils.createPlaceholderBitmap(
-                    32, 32, 
-                    MaterialTheme.colorScheme.surfaceVariant
-                )
-            }
-            
             if (mediaMessage.msgType == "m.image") {
                 AsyncImage(
                     model = ImageRequest.Builder(context)
@@ -425,7 +417,18 @@ private fun MediaMessage(
                         .build(),
                     contentDescription = mediaMessage.filename,
                     modifier = Modifier.fillMaxSize(),
-                    placeholder = placeholderBitmap,
+                    placeholder = {
+                        // Simple placeholder while loading
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "🖼️",
+                                style = MaterialTheme.typography.headlineMedium
+                            )
+                        }
+                    },
                     error = {
                         // Fallback to placeholder with media info
                         Box(
