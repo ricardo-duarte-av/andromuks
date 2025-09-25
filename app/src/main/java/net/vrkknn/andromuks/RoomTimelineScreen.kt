@@ -422,6 +422,7 @@ private fun MediaMessage(
                         if (bitmap != null) {
                             val imageBitmap = bitmap.asImageBitmap()
                             Log.d("Andromuks", "BlurHash converted to ImageBitmap: ${imageBitmap.width}x${imageBitmap.height}")
+                            Log.d("Andromuks", "BlurHash bitmap info: config=${bitmap.config}, hasAlpha=${bitmap.hasAlpha()}")
                             BitmapPainter(imageBitmap)
                         } else {
                             Log.w("Andromuks", "BlurHash decode failed, using fallback")
@@ -458,17 +459,16 @@ private fun MediaMessage(
                     contentDescription = mediaMessage.filename,
                     modifier = Modifier.fillMaxSize(),
                     placeholder = blurHashPainter,
-                    error = BitmapPainter(
-                        BlurHashUtils.createPlaceholderBitmap(
-                            32, 32, 
-                            androidx.compose.ui.graphics.Color.Red
-                        )
-                    ),
+                    error = blurHashPainter, // Use BlurHash as error fallback too
                     onSuccess = { 
                         Log.d("Andromuks", "Image loaded successfully: $imageUrl")
                     },
                     onError = { state ->
-                        Log.e("Andromuks", "Image load failed: $imageUrl, state: $state")
+                        Log.e("Andromuks", "Image load failed: $imageUrl")
+                        Log.e("Andromuks", "Error state: $state")
+                        if (state is coil.request.ErrorResult) {
+                            Log.e("Andromuks", "Error result: ${state.throwable}")
+                        }
                     }
                 )
             } else {
