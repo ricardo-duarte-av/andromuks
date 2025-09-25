@@ -33,8 +33,20 @@ object MediaUtils {
             // For media files, we want the full-size image, not a thumbnail
             val httpUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId"
             
-            Log.d("Andromuks", "MediaUtils: Converted MXC URL: $mxcUrl -> $httpUrl")
-            return httpUrl
+            // Sanitize URL: convert everything after /_gomuks/media/ to lowercase
+            val sanitizedUrl = if (httpUrl.contains("/_gomuks/media/")) {
+                val parts = httpUrl.split("/_gomuks/media/", limit = 2)
+                if (parts.size == 2) {
+                    "${parts[0]}/_gomuks/media/${parts[1].lowercase()}"
+                } else {
+                    httpUrl
+                }
+            } else {
+                httpUrl
+            }
+            
+            Log.d("Andromuks", "MediaUtils: Converted MXC URL: $mxcUrl -> $sanitizedUrl")
+            return sanitizedUrl
             
         } catch (e: Exception) {
             Log.e("Andromuks", "MediaUtils: Error converting MXC URL: $mxcUrl", e)
@@ -73,8 +85,20 @@ object MediaUtils {
             // Construct HTTP URL: https://gomuks-backend/_gomuks/media/server/mediaId?thumbnail=width,height
             val httpUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId?thumbnail=$width,$height"
             
-            Log.d("Andromuks", "MediaUtils: Converted MXC URL to thumbnail: $mxcUrl -> $httpUrl")
-            return httpUrl
+            // Sanitize URL: convert everything after /_gomuks/media/ to lowercase
+            val sanitizedUrl = if (httpUrl.contains("/_gomuks/media/")) {
+                val parts = httpUrl.split("/_gomuks/media/", limit = 2)
+                if (parts.size == 2) {
+                    "${parts[0]}/_gomuks/media/${parts[1].lowercase()}"
+                } else {
+                    httpUrl
+                }
+            } else {
+                httpUrl
+            }
+            
+            Log.d("Andromuks", "MediaUtils: Converted MXC URL to thumbnail: $mxcUrl -> $sanitizedUrl")
+            return sanitizedUrl
             
         } catch (e: Exception) {
             Log.e("Andromuks", "MediaUtils: Error converting MXC URL to thumbnail: $mxcUrl", e)

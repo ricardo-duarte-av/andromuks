@@ -33,8 +33,20 @@ object AvatarUtils {
             // For avatars, we want the small thumbnail version
             val httpUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId?thumbnail=avatar"
             
-            Log.d("Andromuks", "AvatarUtils: Converted MXC URL: $mxcUrl -> $httpUrl")
-            return httpUrl
+            // Sanitize URL: convert everything after /_gomuks/media/ to lowercase
+            val sanitizedUrl = if (httpUrl.contains("/_gomuks/media/")) {
+                val parts = httpUrl.split("/_gomuks/media/", limit = 2)
+                if (parts.size == 2) {
+                    "${parts[0]}/_gomuks/media/${parts[1].lowercase()}"
+                } else {
+                    httpUrl
+                }
+            } else {
+                httpUrl
+            }
+            
+            Log.d("Andromuks", "AvatarUtils: Converted MXC URL: $mxcUrl -> $sanitizedUrl")
+            return sanitizedUrl
             
         } catch (e: Exception) {
             Log.e("Andromuks", "AvatarUtils: Error converting MXC URL: $mxcUrl", e)
