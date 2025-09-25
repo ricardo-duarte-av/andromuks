@@ -29,8 +29,9 @@ object AvatarUtils {
             val server = parts[0]
             val mediaId = parts[1]
             
-            // Construct HTTP URL: https://homeserver/_gomuks/media/server/mediaId?thumbnail=avatar
-            val httpUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId?thumbnail=avatar"
+            // Construct HTTP URL: https://gomuks-backend/_gomuks/media/server/mediaId
+            // Use the gomuks backend directly, not the Matrix homeserver
+            val httpUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId"
             
             Log.d("Andromuks", "AvatarUtils: Converted MXC URL: $mxcUrl -> $httpUrl")
             return httpUrl

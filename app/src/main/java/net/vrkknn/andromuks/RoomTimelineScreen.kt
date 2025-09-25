@@ -418,8 +418,18 @@ private fun MediaMessage(
                         Log.d("Andromuks", "Decoding BlurHash: $blurHash")
                         val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
                         Log.d("Andromuks", "BlurHash decoded: ${bitmap != null}")
-                        bitmap?.let { 
-                            BitmapPainter(it.asImageBitmap())
+                        if (bitmap != null) {
+                            val imageBitmap = bitmap.asImageBitmap()
+                            Log.d("Andromuks", "BlurHash converted to ImageBitmap: ${imageBitmap.width}x${imageBitmap.height}")
+                            BitmapPainter(imageBitmap)
+                        } else {
+                            Log.w("Andromuks", "BlurHash decode failed, using fallback")
+                            BitmapPainter(
+                                BlurHashUtils.createPlaceholderBitmap(
+                                    32, 32, 
+                                    androidx.compose.ui.graphics.Color.Gray
+                                )
+                            )
                         }
                     } ?: run {
                         // Simple fallback placeholder without MaterialTheme
@@ -434,6 +444,8 @@ private fun MediaMessage(
                 }
                 
                 Log.d("Andromuks", "BlurHash painter created: ${blurHashPainter != null}")
+                
+                Log.d("Andromuks", "AsyncImage: Starting image load for $imageUrl")
                 
                 AsyncImage(
                     model = ImageRequest.Builder(context)
