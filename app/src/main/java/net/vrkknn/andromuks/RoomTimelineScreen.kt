@@ -408,43 +408,55 @@ private fun MediaMessage(
             }
             
             if (mediaMessage.msgType == "m.image") {
-                // For now, show a placeholder with media info
-                // TODO: Implement proper async image loading when Coil is properly configured
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "🖼️",
-                            style = MaterialTheme.typography.headlineMedium
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = mediaMessage.filename,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
-                            Text(
-                                text = "${mediaMessage.info.width}×${mediaMessage.info.height}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Image loading coming soon...",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                val blurHashBitmap = remember(mediaMessage.info.blurHash) {
+                    mediaMessage.info.blurHash?.let { blurHash ->
+                        BlurHashUtils.blurHashToImageBitmap(blurHash, 32, 32)
                     }
                 }
+                
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(imageUrl)
+                        .addHeader("Cookie", "gomuks_auth=$authToken")
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build(),
+                    contentDescription = mediaMessage.filename,
+                    modifier = Modifier.fillMaxSize(),
+                    placeholder = blurHashBitmap,
+                    error = {
+                        // Fallback to placeholder with media info
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "🖼️",
+                                    style = MaterialTheme.typography.headlineMedium
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = mediaMessage.filename,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                                    Text(
+                                        text = "${mediaMessage.info.width}×${mediaMessage.info.height}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                )
             } else {
                 // Video placeholder
                 Box(

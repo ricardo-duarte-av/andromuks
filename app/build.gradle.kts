@@ -57,8 +57,8 @@ dependencies {
     // Image loading
     implementation("io.coil-kt:coil-compose:2.5.0")
     implementation("io.coil-kt:coil-gif:2.5.0")
-    // BlurHash - temporarily disabled due to dependency issues
-    // implementation("com.github.woltapp:blurhash:master-SNAPSHOT")
+    // BlurHash
+    implementation("com.github.woltapp:blurhash:master-SNAPSHOT")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
