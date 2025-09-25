@@ -19,23 +19,48 @@ import androidx.navigation.compose.rememberNavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 
 class MainActivity : ComponentActivity() {
+    private lateinit var appViewModel: AppViewModel
+    
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             AndromuksTheme {
                 AppNavigation(
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    onViewModelCreated = { viewModel ->
+                        appViewModel = viewModel
+                    }
                 )
             }
+        }
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        if (::appViewModel.isInitialized) {
+            appViewModel.onAppBecameVisible()
+        }
+    }
+    
+    override fun onPause() {
+        super.onPause()
+        if (::appViewModel.isInitialized) {
+            appViewModel.onAppBecameInvisible()
         }
     }
 }
 
 @Composable
-fun AppNavigation(modifier: Modifier) {
+fun AppNavigation(
+    modifier: Modifier,
+    onViewModelCreated: (AppViewModel) -> Unit = {}
+) {
     val navController = rememberNavController()
     val appViewModel: AppViewModel = viewModel()
+    
+    // Notify the parent about the ViewModel creation
+    onViewModelCreated(appViewModel)
     NavHost(
         navController = navController,
         startDestination = "auth_check",

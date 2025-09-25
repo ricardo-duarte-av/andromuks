@@ -463,6 +463,13 @@ class AppViewModel : ViewModel() {
     // Websocket restart callback
     var onRestartWebSocket: (() -> Unit)? = null
     
+    // App lifecycle state
+    var isAppVisible by mutableStateOf(true)
+        private set
+    
+    // Delayed shutdown job for when app becomes invisible
+    private var appInvisibleJob: Job? = null
+    
     fun setNavigationCallback(callback: () -> Unit) {
         android.util.Log.d("Andromuks", "AppViewModel: Navigation callback set")
         onNavigateToRoomList = callback
@@ -473,6 +480,65 @@ class AppViewModel : ViewModel() {
             pendingNavigation = false
             callback()
         }
+    }
+    
+    /**
+     * Called when app becomes visible (foreground)
+     */
+    fun onAppBecameVisible() {
+        android.util.Log.d("Andromuks", "AppViewModel: App became visible")
+        isAppVisible = true
+        
+        // Cancel any pending shutdown
+        appInvisibleJob?.cancel()
+        appInvisibleJob = null
+        
+        // If WebSocket is not connected, restart it
+        if (webSocket == null) {
+            android.util.Log.d("Andromuks", "AppViewModel: WebSocket not connected, restarting...")
+            onRestartWebSocket?.invoke()
+        }
+    }
+    
+    /**
+     * Called when app becomes invisible (background/standby)
+     */
+    fun onAppBecameInvisible() {
+        android.util.Log.d("Andromuks", "AppViewModel: App became invisible")
+        isAppVisible = false
+        
+        // Cancel any existing shutdown job
+        appInvisibleJob?.cancel()
+        
+        // Start delayed shutdown (30 seconds)
+        appInvisibleJob = viewModelScope.launch {
+            delay(30_000) // 30 seconds delay
+            
+            // Check if app is still invisible after delay
+            if (!isAppVisible) {
+                android.util.Log.d("Andromuks", "AppViewModel: App still invisible after 30s, shutting down WebSocket")
+                shutdownWebSocket()
+            }
+        }
+    }
+    
+    /**
+     * Shuts down the WebSocket connection
+     */
+    private fun shutdownWebSocket() {
+        android.util.Log.d("Andromuks", "AppViewModel: Shutting down WebSocket connection")
+        clearWebSocket()
+    }
+    
+    override fun onCleared() {
+        super.onCleared()
+        android.util.Log.d("Andromuks", "AppViewModel: onCleared - cleaning up resources")
+        
+        // Cancel any pending jobs
+        appInvisibleJob?.cancel()
+        
+        // Clear WebSocket connection
+        clearWebSocket()
     }
 
     fun getRoomById(roomId: String): RoomItem? {
