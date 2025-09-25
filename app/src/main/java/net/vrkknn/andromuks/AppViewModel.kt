@@ -1051,8 +1051,10 @@ class AppViewModel : ViewModel() {
                     // Process read receipts
                     val receipts = roomData.optJSONObject("receipts")
                     if (receipts != null) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts for room: $roomId")
+                        android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts for room: $roomId - found ${receipts.length()} event receipts")
                         processReadReceipts(receipts)
+                    } else {
+                        android.util.Log.d("Andromuks", "AppViewModel: No receipts found in sync for room: $roomId")
                     }
                 }
             }
@@ -1129,7 +1131,9 @@ class AppViewModel : ViewModel() {
     }
     
     private fun processReadReceipts(receiptsJson: JSONObject) {
+        android.util.Log.d("Andromuks", "AppViewModel: processReadReceipts called with ${receiptsJson.length()} event receipts")
         val keys = receiptsJson.keys()
+        var totalReceipts = 0
         while (keys.hasNext()) {
             val eventId = keys.next()
             val receiptsArray = receiptsJson.optJSONArray(eventId)
@@ -1146,6 +1150,7 @@ class AppViewModel : ViewModel() {
                         )
                         receiptsList.add(receipt)
                         android.util.Log.d("Andromuks", "AppViewModel: Processed read receipt: ${receipt.userId} read ${receipt.eventId}")
+                        totalReceipts++
                     }
                 }
                 if (receiptsList.isNotEmpty()) {
@@ -1154,6 +1159,7 @@ class AppViewModel : ViewModel() {
                 }
             }
         }
+        android.util.Log.d("Andromuks", "AppViewModel: processReadReceipts completed - processed $totalReceipts total receipts, triggering UI update")
         updateCounter++
     }
     

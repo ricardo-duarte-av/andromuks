@@ -603,6 +603,21 @@ fun TimelineEventItem(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
             ) {
+                // For my messages, show read receipts first, then name and time
+                if (isMine && appViewModel != null) {
+                    val receipts = appViewModel.getReadReceipts(event.eventId)
+                    if (receipts.isNotEmpty()) {
+                        InlineReadReceiptAvatars(
+                            receipts = receipts,
+                            userProfileCache = userProfileCache,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            appViewModel = appViewModel
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
+                }
+                
                 Text(
                     text = displayName ?: event.sender,
                     style = MaterialTheme.typography.labelMedium,
@@ -614,6 +629,21 @@ fun TimelineEventItem(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                
+                // For others' messages, show name and time first, then read receipts
+                if (!isMine && appViewModel != null) {
+                    val receipts = appViewModel.getReadReceipts(event.eventId)
+                    if (receipts.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        InlineReadReceiptAvatars(
+                            receipts = receipts,
+                            userProfileCache = userProfileCache,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            appViewModel = appViewModel
+                        )
+                    }
+                }
             }
             
             when (event.type) {
@@ -874,40 +904,13 @@ fun TimelineEventItem(
         }
         
         if (isMine) {
-            // Show read receipts for my messages
-            if (appViewModel != null) {
-                val receipts = appViewModel.getReadReceipts(event.eventId)
-                if (receipts.isNotEmpty()) {
-                    ReadReceiptAvatars(
-                        receipts = receipts,
-                        userProfileCache = userProfileCache,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        appViewModel = appViewModel
-                    )
-                }
-            }
             Spacer(modifier = Modifier.width(8.dp))
-        } else {
-            // Show read receipts for other people's messages on the left side
-            if (appViewModel != null) {
-                val receipts = appViewModel.getReadReceipts(event.eventId)
-                if (receipts.isNotEmpty()) {
-                    ReadReceiptAvatars(
-                        receipts = receipts,
-                        userProfileCache = userProfileCache,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        appViewModel = appViewModel
-                    )
-                }
-            }
         }
     }
 }
 
 @Composable
-private fun ReadReceiptAvatars(
+private fun InlineReadReceiptAvatars(
     receipts: List<ReadReceipt>,
     userProfileCache: Map<String, MemberProfile>,
     homeserverUrl: String,
@@ -921,36 +924,30 @@ private fun ReadReceiptAvatars(
         .take(3)
     
     if (otherUsersReceipts.isNotEmpty()) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 4.dp)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(-4.dp), // Overlap avatars slightly
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Show mini avatars in a row
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(-4.dp), // Overlap avatars slightly
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                otherUsersReceipts.forEach { receipt ->
-                    val profile = userProfileCache[receipt.userId]
-                    val displayName = profile?.displayName
-                    val avatarUrl = profile?.avatarUrl
-                    
-                    AvatarImage(
-                        mxcUrl = avatarUrl,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        fallbackText = (displayName ?: receipt.userId.substringAfter("@").substringBefore(":")).take(1),
-                        size = 16.dp,
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clip(CircleShape)
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.surface,
-                                shape = CircleShape
-                            )
-                    )
-                }
+            otherUsersReceipts.forEach { receipt ->
+                val profile = userProfileCache[receipt.userId]
+                val displayName = profile?.displayName
+                val avatarUrl = profile?.avatarUrl
+                
+                AvatarImage(
+                    mxcUrl = avatarUrl,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    fallbackText = (displayName ?: receipt.userId.substringAfter("@").substringBefore(":")).take(1),
+                    size = 16.dp,
+                    modifier = Modifier
+                        .size(16.dp)
+                        .clip(CircleShape)
+                        .border(
+                            width = 1.dp,
+                            color = MaterialTheme.colorScheme.surface,
+                            shape = CircleShape
+                        )
+                )
             }
             
             // Show count if there are more than 3 receipts
@@ -960,7 +957,8 @@ private fun ReadReceiptAvatars(
                     style = MaterialTheme.typography.labelSmall.copy(
                         fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.7f
                     ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 2.dp)
                 )
             }
         }
