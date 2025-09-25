@@ -144,7 +144,7 @@ fun RoomListScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp) // pick your pill height
-                    .padding(horizontal = 16.dp, vertical = 4.dp)
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
             ) {
                 TextField(
                     value = searchQuery,
@@ -269,10 +269,12 @@ fun SpaceListItem(
     android.util.Log.d("Andromuks", "SpaceListItem: Called for space: ${space.name}")
     android.util.Log.d("Andromuks", "SpaceListItem: Using homeserver URL: $homeserverUrl")
     
-    // Calculate unread counts outside the Row
+    // Calculate unread counts and highlights outside the Row
     val totalRooms = space.rooms.size
     val unreadRooms = space.rooms.count { it.unreadCount != null && it.unreadCount > 0 }
+    val highlightRooms = space.rooms.count { it.highlightCount != null && it.highlightCount > 0 }
     val totalUnreadMessages = space.rooms.sumOf { it.unreadCount ?: 0 }
+    val totalHighlights = space.rooms.sumOf { it.highlightCount ?: 0 }
     
     Row(
         modifier = Modifier
@@ -299,6 +301,7 @@ fun SpaceListItem(
                 text = space.name,
                 style = when {
                     isSelected -> MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.primary)
+                    highlightRooms > 0 -> MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     unreadRooms > 0 -> MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     else -> MaterialTheme.typography.titleMedium
                 },
@@ -318,8 +321,25 @@ fun SpaceListItem(
             }
         }
         
-        // Unread badge - shows number of rooms with unread messages
-        if (unreadRooms > 0) {
+        // Unread/highlight badge - shows number of rooms with highlights or unreads
+        if (highlightRooms > 0) {
+            // Highlight badge - more prominent color (error/attention)
+            Box(
+                modifier = Modifier
+                    .background(
+                        MaterialTheme.colorScheme.error,
+                        CircleShape
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = if (highlightRooms > 99) "99+" else "$highlightRooms",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onError
+                )
+            }
+        } else if (unreadRooms > 0) {
+            // Regular unread badge - primary color
             Box(
                 modifier = Modifier
                     .background(
@@ -378,18 +398,40 @@ fun RoomListItem(
                 ) {
                     Text(
                         text = room.name,
-                        style = if (room.unreadCount != null && room.unreadCount > 0) {
+                        style = if (room.highlightCount != null && room.highlightCount > 0) {
+                            // Highlights have highest priority - bold styling
+                            MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                        } else if (room.unreadCount != null && room.unreadCount > 0) {
+                            // Regular unreads - bold styling
                             MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                         } else {
+                            // No unreads - normal styling
                             MaterialTheme.typography.titleMedium
                         },
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
                     )
-                    // Right side: unread pill (top) and time (below)
+                    // Right side: unread/highlight pill (top) and time (below)
                     Column(horizontalAlignment = Alignment.End) {
-                        if (room.unreadCount != null && room.unreadCount > 0) {
+                        if (room.highlightCount != null && room.highlightCount > 0) {
+                            // Highlight badge - more prominent color (error/attention)
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        MaterialTheme.colorScheme.error,
+                                        CircleShape
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = room.highlightCount.toString(),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onError
+                                )
+                            }
+                        } else if (room.unreadCount != null && room.unreadCount > 0) {
+                            // Regular unread badge - primary color
                             Box(
                                 modifier = Modifier
                                     .background(

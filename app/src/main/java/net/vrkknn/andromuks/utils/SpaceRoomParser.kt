@@ -35,8 +35,9 @@ object SpaceRoomParser {
             val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
             val avatar = meta.optString("avatar")?.takeIf { it.isNotBlank() }
             
-            // Extract unread count from meta
+            // Extract unread count and highlight count from meta
             val unreadMessages = meta.optInt("unread_messages", 0)
+            val unreadHighlights = meta.optInt("unread_highlights", 0)
             
             // Extract last message preview and sender from events if available
             val events = roomObj.optJSONArray("events")
@@ -96,6 +97,7 @@ object SpaceRoomParser {
                     messagePreview = messagePreview,
                     messageSender = messageSender,
                     unreadCount = if (unreadMessages > 0) unreadMessages else null,
+                    highlightCount = if (unreadHighlights > 0) unreadHighlights else null,
                     avatarUrl = avatar
                 )
             )
@@ -213,8 +215,9 @@ object SpaceRoomParser {
             val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
             val avatar = meta.optString("avatar")?.takeIf { it.isNotBlank() }
             
-            // Extract unread count from meta
+            // Extract unread count and highlight count from meta
             val unreadMessages = meta.optInt("unread_messages", 0)
+            val unreadHighlights = meta.optInt("unread_highlights", 0)
             
             // Detect if this is a Direct Message room
             val isDirectMessage = detectDirectMessage(roomId, roomObj, meta)
@@ -321,6 +324,7 @@ object SpaceRoomParser {
                 messagePreview = messagePreview,
                 messageSender = messageSender,
                 unreadCount = if (unreadMessages > 0) unreadMessages else null,
+                highlightCount = if (unreadHighlights > 0) unreadHighlights else null,
                 avatarUrl = avatar,
                 sortingTimestamp = sortingTimestamp,
                 isDirectMessage = isDirectMessage
@@ -449,6 +453,7 @@ object SpaceRoomParser {
                                             val childName = childMeta?.optString("name")?.takeIf { it.isNotBlank() } ?: childId
                                             val childAvatar = childMeta?.optString("avatar")?.takeIf { it.isNotBlank() }
                                             val unreadCount = childMeta?.optInt("unread_messages", 0) ?: 0
+                                            val highlightCount = childMeta?.optInt("unread_highlights", 0) ?: 0
                                             
                                             // Check if this child is a space (has space_edges) - if so, skip it
                                             val isChildSpace = spaceEdges.has(childId)
@@ -460,6 +465,7 @@ object SpaceRoomParser {
                                                     name = childName,
                                                     avatarUrl = childAvatar,
                                                     unreadCount = if (unreadCount > 0) unreadCount else null,
+                                                    highlightCount = if (highlightCount > 0) highlightCount else null,
                                                     messagePreview = null,
                                                     messageSender = null,
                                                     isDirectMessage = false
@@ -523,6 +529,7 @@ object SpaceRoomParser {
                                 val childName = childMeta?.optString("name")?.takeIf { it.isNotBlank() } ?: childId
                                 val childAvatar = childMeta?.optString("avatar")?.takeIf { it.isNotBlank() }
                                 val unreadCount = childMeta?.optInt("unread_messages", 0) ?: 0
+                                val highlightCount = childMeta?.optInt("unread_highlights", 0) ?: 0
                                 
                                 // Check if this child is a space (has space_edges) - if so, skip it
                                 val isChildSpace = spaceEdges.has(childId)
@@ -534,6 +541,7 @@ object SpaceRoomParser {
                                         name = childName,
                                         avatarUrl = childAvatar,
                                         unreadCount = if (unreadCount > 0) unreadCount else null,
+                                        highlightCount = if (highlightCount > 0) highlightCount else null,
                                         messagePreview = null,
                                         messageSender = null,
                                         isDirectMessage = false

@@ -130,7 +130,10 @@ class AppViewModel : ViewModel() {
         } else {
             allRooms
         }
-        return roomsToUse.count { it.unreadCount != null && it.unreadCount > 0 }
+        return roomsToUse.count { 
+            (it.unreadCount != null && it.unreadCount > 0) || 
+            (it.highlightCount != null && it.highlightCount > 0) 
+        }
     }
     
     fun getCurrentRoomSection(): RoomSection {
@@ -169,7 +172,10 @@ class AppViewModel : ViewModel() {
             }
             RoomSectionType.DIRECT_CHATS -> {
                 val dmRooms = roomsToUse.filter { it.isDirectMessage }
-                val unreadDmCount = dmRooms.count { it.unreadCount != null && it.unreadCount > 0 }
+                val unreadDmCount = dmRooms.count { 
+                    (it.unreadCount != null && it.unreadCount > 0) || 
+                    (it.highlightCount != null && it.highlightCount > 0) 
+                }
                 RoomSection(
                     type = RoomSectionType.DIRECT_CHATS,
                     rooms = dmRooms,
@@ -177,7 +183,10 @@ class AppViewModel : ViewModel() {
                 )
             }
             RoomSectionType.UNREAD -> {
-                val unreadRooms = roomsToUse.filter { it.unreadCount != null && it.unreadCount > 0 }
+                val unreadRooms = roomsToUse.filter { 
+                    (it.unreadCount != null && it.unreadCount > 0) || 
+                    (it.highlightCount != null && it.highlightCount > 0) 
+                }
                 RoomSection(
                     type = RoomSectionType.UNREAD,
                     rooms = unreadRooms,

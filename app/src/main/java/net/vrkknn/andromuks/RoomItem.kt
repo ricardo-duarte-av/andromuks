@@ -19,6 +19,7 @@ data class RoomItem(
     val messagePreview: String?,
     val messageSender: String?,
     val unreadCount: Int?,
+    val highlightCount: Int?,
     val avatarUrl: String?,
     val sortingTimestamp: Long? = null,
     val isDirectMessage: Boolean = false
