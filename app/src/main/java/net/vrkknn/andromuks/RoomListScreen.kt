@@ -63,14 +63,6 @@ import androidx.compose.material.icons.filled.ArrowBack
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import androidx.activity.compose.BackHandler
 
-val mockRoomList = listOf(
-    RoomItem(id = "1", name = "There is a chat that never goes out", messagePreview = "This is a message", messageSender = "Cursor", unreadCount = 1, avatarUrl = null),
-    RoomItem(id = "2", name = "Chatting up the hill", messagePreview = "Hello everyone!", messageSender = "Alice", unreadCount = 0, avatarUrl = null),
-    RoomItem(id = "3", name = "Chat suey", messagePreview = "How's it going?", messageSender = "Bob", unreadCount = 0, avatarUrl = null),
-    RoomItem(id = "4", name = "Chatter's delight", messagePreview = "See you tomorrow", messageSender = "Charlie", unreadCount = 12, avatarUrl = null),
-    RoomItem(id = "5", name = "Chat of glass", messagePreview = "Thanks for the help!", messageSender = "Diana", unreadCount = 0, avatarUrl = null)
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RoomListScreen(
