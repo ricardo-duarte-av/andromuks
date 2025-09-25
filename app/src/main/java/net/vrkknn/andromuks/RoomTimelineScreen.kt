@@ -408,60 +408,43 @@ private fun MediaMessage(
             }
             
             if (mediaMessage.msgType == "m.image") {
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(imageUrl)
-                        .addHeader("Cookie", "gomuks_auth=$authToken")
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .build(),
-                    contentDescription = mediaMessage.filename,
+                // For now, show a placeholder with media info
+                // TODO: Implement proper async image loading when Coil is properly configured
+                Box(
                     modifier = Modifier.fillMaxSize(),
-                    placeholder = {
-                        // Simple placeholder while loading
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = "🖼️",
+                            style = MaterialTheme.typography.headlineMedium
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = mediaMessage.filename,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
                             Text(
-                                text = "🖼️",
-                                style = MaterialTheme.typography.headlineMedium
+                                text = "${mediaMessage.info.width}×${mediaMessage.info.height}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-                    },
-                    error = {
-                        // Fallback to placeholder with media info
-                        Box(
-                            modifier = Modifier.fillMaxSize(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = "🖼️",
-                                    style = MaterialTheme.typography.headlineMedium
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = mediaMessage.filename,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
-                                    Text(
-                                        text = "${mediaMessage.info.width}×${mediaMessage.info.height}",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Image loading coming soon...",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
-                )
+                }
             } else {
                 // Video placeholder
                 Box(
