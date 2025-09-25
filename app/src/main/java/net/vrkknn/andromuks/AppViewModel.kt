@@ -124,6 +124,15 @@ class AppViewModel : ViewModel() {
     
     
     // Get current room section based on selected tab
+    fun getUnreadCount(): Int {
+        val roomsToUse = if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
+            spaceList.firstOrNull()?.rooms ?: emptyList()
+        } else {
+            allRooms
+        }
+        return roomsToUse.count { it.unreadCount != null && it.unreadCount > 0 }
+    }
+    
     fun getCurrentRoomSection(): RoomSection {
         // Get rooms from spaceList if allRooms is empty (fallback for existing data)
         val roomsToUse = if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
@@ -171,7 +180,8 @@ class AppViewModel : ViewModel() {
                 val unreadRooms = roomsToUse.filter { it.unreadCount != null && it.unreadCount > 0 }
                 RoomSection(
                     type = RoomSectionType.UNREAD,
-                    rooms = unreadRooms
+                    rooms = unreadRooms,
+                    unreadCount = unreadRooms.size
                 )
             }
         }

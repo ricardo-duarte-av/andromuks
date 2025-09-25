@@ -90,13 +90,11 @@ fun RoomListScreen(
     
     android.util.Log.d("Andromuks", "RoomListScreen: currentSection.type = ${currentSection.type}, rooms.size = ${currentSection.rooms.size}, spaces.size = ${currentSection.spaces.size}")
     
-    if (currentSection.rooms.isEmpty() && currentSection.spaces.isEmpty()) {
-        Text("Loading rooms...", modifier = Modifier.padding(16.dp))
-    } else {
-        var searchQuery by remember { mutableStateOf("") }
-        val me = appViewModel.currentUserProfile
-        
-        Column(
+    // Always show the interface, even if rooms/spaces are empty
+    var searchQuery by remember { mutableStateOf("") }
+    val me = appViewModel.currentUserProfile
+    
+    Column(
             modifier = modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
@@ -244,10 +242,10 @@ fun RoomListScreen(
                 currentSection = currentSection,
                 onSectionSelected = { section ->
                     appViewModel.changeSelectedSection(section)
-                }
+                },
+                appViewModel = appViewModel
             )
         }
-    }
 }
 
 @Composable
@@ -445,7 +443,8 @@ private fun formatTimeAgo(timestamp: Long?): String {
 @Composable
 fun TabBar(
     currentSection: RoomSection,
-    onSectionSelected: (RoomSectionType) -> Unit
+    onSectionSelected: (RoomSectionType) -> Unit,
+    appViewModel: AppViewModel
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -486,7 +485,7 @@ fun TabBar(
                 label = "Unread",
                 isSelected = currentSection.type == RoomSectionType.UNREAD,
                 onClick = { onSectionSelected(RoomSectionType.UNREAD) },
-                badgeCount = if (currentSection.type == RoomSectionType.UNREAD) currentSection.unreadCount else 0
+                badgeCount = appViewModel.getUnreadCount()
             )
         }
     }
