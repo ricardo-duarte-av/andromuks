@@ -49,6 +49,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.CachePolicy
 import net.vrkknn.andromuks.utils.BlurHashUtils
+import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.AvatarUtils
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -406,7 +407,7 @@ private fun MediaMessage(
             ) {
             val context = LocalContext.current
             val imageUrl = remember(mediaMessage.url) {
-                AvatarUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+                MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
             }
             
             if (mediaMessage.msgType == "m.image") {
@@ -584,7 +585,7 @@ fun TimelineEventItem(
         if (!isMine) {
         AvatarImage(
                 mxcUrl = avatarUrl,
-                homeserverUrl = homeserverUrl,
+                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                 authToken = authToken,
                 fallbackText = (displayName ?: event.sender).take(1),
             size = 48.dp
@@ -658,7 +659,7 @@ fun TimelineEventItem(
                             // Display media message
                             MediaMessage(
                                 mediaMessage = mediaMessage,
-                                homeserverUrl = homeserverUrl,
+                                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                 authToken = authToken,
                                 isMine = isMine
                             )
