@@ -1099,6 +1099,13 @@ class AppViewModel : ViewModel() {
             timelineEvents = updatedTimeline.sortedBy { it.timestamp }
             updateCounter++
             android.util.Log.d("Andromuks", "AppViewModel: Added ${timelineList.size} new events to timeline, total: ${timelineEvents.size}")
+            
+            // Mark room as read for the newest event since user is actively viewing the room
+            val newestEvent = timelineList.maxByOrNull { it.timestamp }
+            if (newestEvent != null) {
+                android.util.Log.d("Andromuks", "AppViewModel: Auto-marking room as read for newest event: ${newestEvent.eventId}")
+                markRoomAsRead(roomId, newestEvent.eventId)
+            }
         }
     }
     
