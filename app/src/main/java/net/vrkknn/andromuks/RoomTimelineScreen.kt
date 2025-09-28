@@ -837,8 +837,7 @@ fun TimelineEventItem(
                                         isMine = isMine,
                                         modifier = Modifier.padding(bottom = 8.dp),
                                         onOriginalMessageClick = {
-                                            // TODO: Implement scroll to message
-                                            Log.d("Andromuks", "Clicked on original message: ${replyInfo.eventId}")
+                                                onScrollToMessage(replyInfo.eventId)
                                         }
                                     )
                                     MediaMessage(
@@ -962,19 +961,12 @@ fun TimelineEventItem(
                                             }
                                         )
                                         
-                                        // Reply message content
-                                        Surface(
-                                            color = MaterialTheme.colorScheme.surface,
-                                            shape = RoundedCornerShape(8.dp),
-                                            tonalElevation = 1.dp
-                                        ) {
-                                            Text(
-                                                text = body,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = textColor,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                            )
-                                        }
+                                        // Reply message content (directly in the outer bubble, no separate bubble)
+                                        Text(
+                                            text = body,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = textColor
+                                        )
                                     }
                                 }
                             } else {
@@ -1213,24 +1205,16 @@ fun TimelineEventItem(
                                                 isMine = isMine,
                                                 modifier = Modifier.padding(bottom = 8.dp),
                                                 onOriginalMessageClick = {
-                                                    // TODO: Implement scroll to message
-                                                    Log.d("Andromuks", "Clicked on original message: ${replyInfo.eventId}")
+                                                onScrollToMessage(replyInfo.eventId)
                                                 }
                                             )
                                             
-                                            // Reply message content
-                                            Surface(
-                                                color = MaterialTheme.colorScheme.surface,
-                                                shape = RoundedCornerShape(8.dp),
-                                                tonalElevation = 1.dp
-                                            ) {
-                                                Text(
-                                                    text = body,
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color = textColor,
-                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                                )
-                                            }
+                                            // Reply message content (directly in the outer bubble, no separate bubble)
+                                            Text(
+                                                text = body,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = textColor
+                                            )
                                         }
                                     }
                                 } else {
