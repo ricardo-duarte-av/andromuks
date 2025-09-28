@@ -213,6 +213,7 @@ fun RoomTimelineScreen(
                                         }
                                     }
                                 )
+                            }
                         }
                     }
                 }
