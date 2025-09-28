@@ -1434,17 +1434,5 @@ private fun RoomHeader(
                 }
             }
         }
-        
-        // For our own messages, show our avatar on the right side
-        if (isMine) {
-            Spacer(modifier = Modifier.width(8.dp))
-            AvatarImage(
-                mxcUrl = avatarUrl,
-                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                authToken = authToken,
-                fallbackText = (displayName ?: event.sender).take(1),
-                size = 48.dp
-            )
-        }
     }
 }
