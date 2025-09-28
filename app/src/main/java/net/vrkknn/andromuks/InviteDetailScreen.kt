@@ -35,6 +35,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import net.vrkknn.andromuks.ui.components.AvatarImage
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
