@@ -15,9 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material.pullrefresh.PullRefreshIndicator
-import androidx.compose.material.pullrefresh.pullRefresh
-import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.foundation.gestures.pullRefresh
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
@@ -103,13 +103,16 @@ fun RoomListScreen(
         onRefresh = {
             refreshing = true
             appViewModel.restartWebSocketConnection()
-            // Reset refreshing state after WebSocket restart
-            LaunchedEffect(Unit) {
-                delay(2000)
-                refreshing = false
-            }
         }
     )
+    
+    // Handle refreshing state reset
+    LaunchedEffect(refreshing) {
+        if (refreshing) {
+            delay(2000)
+            refreshing = false
+        }
+    }
     
     Box(
         modifier = modifier
@@ -277,8 +280,7 @@ fun RoomListScreen(
         }
         
         // Pull-to-refresh indicator
-        PullRefreshIndicator(
-            refreshing = refreshing,
+        PullToRefreshContainer(
             state = refreshState,
             modifier = Modifier.align(Alignment.TopCenter)
         )
@@ -513,7 +515,7 @@ fun RoomListItem(
     }
 }
 
-private fun formatTimeAgo(timestamp: Long?): String {
+fun formatTimeAgo(timestamp: Long?): String {
     if (timestamp == null) return ""
     
     val now = System.currentTimeMillis()
@@ -760,7 +762,7 @@ fun SpacesListContent(
 }
 
 @Composable
-private fun InviteListItem(
+fun InviteListItem(
     invite: RoomInvite,
     onClick: () -> Unit,
     homeserverUrl: String,
