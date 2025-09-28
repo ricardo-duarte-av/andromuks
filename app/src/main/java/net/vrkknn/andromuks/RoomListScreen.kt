@@ -15,8 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
-import eu.bambooapps.material3.pullrefresh.PullToRefreshBox
-import eu.bambooapps.material3.pullrefresh.rememberPullToRefreshState
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
@@ -97,7 +98,7 @@ fun RoomListScreen(
     // Pull-to-refresh state
     var refreshing by remember { mutableStateOf(false) }
     
-    val refreshState = rememberPullToRefreshState(
+    val refreshState = rememberPullRefreshState(
         refreshing = refreshing,
         onRefresh = {
             refreshing = true
@@ -113,11 +114,11 @@ fun RoomListScreen(
         }
     }
     
-    PullToRefreshBox(
-        state = refreshState,
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .pullRefresh(refreshState)
     ) {
         Column(
             modifier = Modifier
@@ -277,6 +278,13 @@ fun RoomListScreen(
                 appViewModel = appViewModel
             )
         }
+        
+        // Pull-to-refresh indicator
+        PullRefreshIndicator(
+            refreshing = refreshing,
+            state = refreshState,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
     }
 
 @Composable
