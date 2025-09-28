@@ -1022,7 +1022,8 @@ fun TimelineEventItem(
                         // Check if it's a media message
                         if (msgType == "m.image" || msgType == "m.video") {
                             Log.d("Andromuks", "TimelineEventItem: Found encrypted media message - msgType=$msgType, body=$body")
-                            val url = decrypted?.optString("url", "") ?: ""
+                            // For encrypted messages, URL might be in file.url
+                            val url = decrypted?.optString("url", "") ?: decrypted?.optJSONObject("file")?.optString("url", "") ?: ""
                             val filename = decrypted?.optString("filename", "") ?: ""
                             val info = decrypted?.optJSONObject("info")
                             
