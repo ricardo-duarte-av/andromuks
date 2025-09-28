@@ -27,6 +27,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -93,6 +95,7 @@ fun RoomTimelineScreen(
     appViewModel: AppViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
@@ -197,7 +200,9 @@ fun RoomTimelineScreen(
                                         // Find the index of the message to scroll to
                                         val index = sortedEvents.indexOfFirst { it.eventId == eventId }
                                         if (index >= 0) {
-                                            listState.animateScrollToItem(index)
+                                            coroutineScope.launch {
+                                                listState.animateScrollToItem(index)
+                                            }
                                         } else {
                                             // Show toast if message not found
                                             android.widget.Toast.makeText(
