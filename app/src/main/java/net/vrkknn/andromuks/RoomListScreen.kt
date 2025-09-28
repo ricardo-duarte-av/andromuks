@@ -15,8 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.foundation.gestures.pullRefresh
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
@@ -26,7 +27,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -107,10 +107,15 @@ fun RoomListScreen(
         }
     }
     
-    Column(
-            modifier = modifier
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        Column(
+            modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
+                .pullRefresh(pullToRefreshState)
                 .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
                 .imePadding()
         ) {
@@ -168,13 +173,6 @@ fun RoomListScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         ) 
                     },
-                    trailingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    },
                     colors = TextFieldDefaults.colors(
                         unfocusedContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
                         focusedContainerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp),
@@ -215,7 +213,8 @@ fun RoomListScreen(
                             searchQuery = searchQuery,
                             appViewModel = appViewModel,
                             authToken = authToken,
-                            navController = navController
+                            navController = navController,
+                            timestampUpdateTrigger = timestampUpdateTrigger
                         )
                     }
                     RoomSectionType.SPACES -> {
@@ -226,7 +225,8 @@ fun RoomListScreen(
                                 searchQuery = searchQuery,
                                 appViewModel = appViewModel,
                                 authToken = authToken,
-                                navController = navController
+                                navController = navController,
+                                timestampUpdateTrigger = timestampUpdateTrigger
                             )
                         } else {
                             // Show list of spaces
@@ -245,7 +245,8 @@ fun RoomListScreen(
                             searchQuery = searchQuery,
                             appViewModel = appViewModel,
                             authToken = authToken,
-                            navController = navController
+                            navController = navController,
+                            timestampUpdateTrigger = timestampUpdateTrigger
                         )
                     }
                     RoomSectionType.UNREAD -> {
@@ -254,7 +255,8 @@ fun RoomListScreen(
                             searchQuery = searchQuery,
                             appViewModel = appViewModel,
                             authToken = authToken,
-                            navController = navController
+                            navController = navController,
+                            timestampUpdateTrigger = timestampUpdateTrigger
                         )
                     }
                 }
@@ -269,7 +271,13 @@ fun RoomListScreen(
                 appViewModel = appViewModel
             )
         }
-}
+        
+        // Pull-to-refresh indicator
+        PullToRefreshContainer(
+            state = pullToRefreshState,
+            modifier = Modifier.align(Alignment.TopCenter)
+        )
+    }
 
 @Composable
 fun SpaceListItem(
@@ -635,25 +643,22 @@ fun RoomListContent(
     searchQuery: String,
     appViewModel: AppViewModel,
     authToken: String,
-    navController: NavController
+    navController: NavController,
+    timestampUpdateTrigger: Int
 ) {
     // Handle Android back key when inside a space
     androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null) {
         appViewModel.exitSpace()
     }
     
-    PullToRefreshBox(
-        state = pullToRefreshState,
-        modifier = Modifier.fillMaxSize()
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Top,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            top = 8.dp,
+            bottom = 8.dp
+        )
     ) {
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Top,
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                top = 8.dp,
-                bottom = 8.dp
-            )
-        ) {
         // Show pending invites at the top
         val pendingInvites = appViewModel.getPendingInvites()
         if (pendingInvites.isNotEmpty()) {
@@ -705,7 +710,6 @@ fun RoomListContent(
                 },
                 timestampUpdateTrigger = timestampUpdateTrigger
             )
-        }
         }
     }
 }
