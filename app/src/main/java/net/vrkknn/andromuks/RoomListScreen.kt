@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
@@ -70,6 +71,7 @@ import net.vrkknn.andromuks.ui.components.AvatarImage
 import androidx.activity.compose.BackHandler
 
 @OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterialApi::class)
 @Composable
 fun RoomListScreen(
     navController: NavController,
@@ -478,9 +480,7 @@ fun RoomListItem(
                             }
                         }
 
-                        val timeAgoInline = remember(timestampUpdateTrigger) { 
-                            formatTimeAgo(room.sortingTimestamp) 
-                        }
+                        val timeAgoInline = formatTimeAgo(room.sortingTimestamp)
                         if (timeAgoInline.isNotEmpty()) {
                             Text(
                                 text = timeAgoInline,
