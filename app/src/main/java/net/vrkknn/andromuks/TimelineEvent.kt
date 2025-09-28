@@ -34,6 +34,32 @@ data class TimelineEvent(
             )
         }
     }
+    
+    /**
+     * Extract reply information from this event
+     */
+    fun getReplyInfo(): ReplyInfo? {
+        val messageContent = when {
+            type == "m.room.message" -> content
+            type == "m.room.encrypted" && decryptedType == "m.room.message" -> decrypted
+            else -> null
+        } ?: return null
+        
+        val relatesTo = messageContent?.optJSONObject("m.relates_to")
+        val inReplyTo = relatesTo?.optJSONObject("m.in_reply_to")
+        val repliedToEventId = inReplyTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+        
+        return if (repliedToEventId != null) {
+            ReplyInfo(
+                eventId = repliedToEventId,
+                sender = sender,
+                body = messageContent.optString("body", ""),
+                msgType = messageContent.optString("msgtype", "m.text")
+            )
+        } else {
+            null
+        }
+    }
 }
 
 @Immutable
@@ -89,4 +115,12 @@ data class RoomInvite(
     val roomTopic: String?,
     val roomCanonicalAlias: String?,
     val inviteReason: String?
+)
+
+@Immutable
+data class ReplyInfo(
+    val eventId: String,
+    val sender: String,
+    val body: String,
+    val msgType: String = "m.text"
 )

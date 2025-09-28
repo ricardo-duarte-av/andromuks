@@ -235,7 +235,12 @@ fun InviteDetailScreen(
                     onClick = {
                         isProcessing = true
                         appViewModel.acceptRoomInvite(roomId)
-                        navController.popBackStack()
+                        navController.navigate("room_timeline/$roomId") {
+                            // Clear the back stack so user can't go back to invite screen
+                            popUpTo("room_list") {
+                                inclusive = false
+                            }
+                        }
                     },
                     modifier = Modifier.weight(1f),
                     enabled = !isProcessing

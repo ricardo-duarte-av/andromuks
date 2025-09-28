@@ -25,6 +25,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -521,6 +524,75 @@ private fun MediaMessage(
 }
 
 @Composable
+private fun ReplyPreview(
+    replyInfo: ReplyInfo,
+    originalEvent: TimelineEvent?,
+    userProfileCache: Map<String, Pair<String?, String?>>,
+    homeserverUrl: String,
+    authToken: String,
+    isMine: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val originalSender = originalEvent?.sender ?: replyInfo.sender
+    val originalBody = originalEvent?.let { event ->
+        when {
+            event.type == "m.room.message" -> event.content?.optString("body", "")
+            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optString("body", "")
+            else -> null
+        }
+    } ?: "Message not found"
+    
+    val (displayName, _) = userProfileCache[originalSender] ?: Pair(null, null)
+    val senderName = displayName ?: originalSender.substringAfterLast(":")
+    
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        border = BorderStroke(
+            width = 1.dp,
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+        )
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp)
+        ) {
+            // Reply indicator line
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 4.dp)
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(2.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .width(3.dp)
+                        .height(16.dp)
+                ) {}
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                Text(
+                    text = "Replying to $senderName",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+            
+            // Original message preview
+            Text(
+                text = originalBody,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
 private fun ReactionBadges(
     eventId: String,
     reactions: List<MessageReaction>,
@@ -654,6 +726,12 @@ fun TimelineEventItem(
                     val body = content?.optString("body", "") ?: ""
                     val msgType = content?.optString("msgtype", "") ?: ""
                     
+                    // Check if this is a reply message
+                    val replyInfo = event.getReplyInfo()
+                    val originalEvent = replyInfo?.let { reply ->
+                        sortedEvents.find { it.eventId == reply.eventId }
+                    }
+                    
                     // Check if it's a media message
                     if (msgType == "m.image" || msgType == "m.video") {
                         Log.d("Andromuks", "TimelineEventItem: Found media message - msgType=$msgType, body=$body")
@@ -689,6 +767,19 @@ fun TimelineEventItem(
                             )
                             
                             Log.d("Andromuks", "TimelineEventItem: Created MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}")
+                            
+                            // Display reply preview if this is a reply
+                            if (replyInfo != null && originalEvent != null) {
+                                ReplyPreview(
+                                    replyInfo = replyInfo,
+                                    originalEvent = originalEvent,
+                                    userProfileCache = userProfileCache,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    isMine = isMine,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                            }
                             
                             // Display media message
                             MediaMessage(
@@ -778,18 +869,34 @@ fun TimelineEventItem(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
                         ) {
-                            Surface(
-                                color = bubbleColor,
-                                shape = bubbleShape,
-                                tonalElevation = 2.dp,
+                            Column(
                                 modifier = Modifier.padding(top = 4.dp)
                             ) {
-                                Text(
-                                    text = body,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = textColor,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                )
+                                // Display reply preview if this is a reply
+                                if (replyInfo != null && originalEvent != null) {
+                                    ReplyPreview(
+                                        replyInfo = replyInfo,
+                                        originalEvent = originalEvent,
+                                        userProfileCache = userProfileCache,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        isMine = isMine,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                }
+                                
+                                Surface(
+                                    color = bubbleColor,
+                                    shape = bubbleShape,
+                                    tonalElevation = 2.dp
+                                ) {
+                                    Text(
+                                        text = body,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = textColor,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                    )
+                                }
                             }
                         }
                         
@@ -817,66 +924,224 @@ fun TimelineEventItem(
                     val decrypted = event.decrypted
                     if (decryptedType == "m.room.message") {
                         val body = decrypted?.optString("body", "") ?: ""
-                        val bubbleShape = if (isMine) {
-                            RoundedCornerShape(
-                                topStart = 16.dp,
-                                topEnd = 16.dp,
-                                bottomEnd = 8.dp,
-                                bottomStart = 16.dp
-                            )
-                        } else {
-                            RoundedCornerShape(
-                                topStart = 16.dp,
-                                topEnd = 16.dp,
-                                bottomEnd = 16.dp,
-                                bottomStart = 8.dp
-                            )
-                        }
-                        val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                        val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
-                        ) {
-                            Surface(
-                                color = bubbleColor,
-                                shape = bubbleShape,
-                                tonalElevation = 2.dp,
-                                modifier = Modifier.padding(top = 4.dp)
-                            ) {
-                                Text(
-                                    text = body,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = textColor,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                )
-                            }
+                        val msgType = decrypted?.optString("msgtype", "") ?: ""
+                        
+                        // Check if this is a reply message
+                        val replyInfo = event.getReplyInfo()
+                        val originalEvent = replyInfo?.let { reply ->
+                            sortedEvents.find { it.eventId == reply.eventId }
                         }
                         
-                        // Add reaction badges for encrypted message
-                        if (appViewModel != null) {
-                            val reactions = appViewModel.messageReactions[event.eventId] ?: emptyList()
-                            if (reactions.isNotEmpty()) {
+                        // Check if it's a media message
+                        if (msgType == "m.image" || msgType == "m.video") {
+                            Log.d("Andromuks", "TimelineEventItem: Found encrypted media message - msgType=$msgType, body=$body")
+                            val url = decrypted?.optString("url", "") ?: ""
+                            val filename = decrypted?.optString("filename", "") ?: ""
+                            val info = decrypted?.optJSONObject("info")
+                            
+                            Log.d("Andromuks", "TimelineEventItem: Encrypted media data - url=$url, filename=$filename, info=${info != null}")
+                            
+                            if (url.isNotBlank() && info != null) {
+                                val width = info.optInt("w", 0)
+                                val height = info.optInt("h", 0)
+                                val size = info.optLong("size", 0)
+                                val mimeType = info.optString("mimetype", "")
+                                val blurHash = info.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+                                
+                                val caption = if (body != filename && body.isNotBlank()) body else null
+                                
+                                val mediaInfo = MediaInfo(
+                                    width = width,
+                                    height = height,
+                                    size = size,
+                                    mimeType = mimeType,
+                                    blurHash = blurHash
+                                )
+                                
+                                val mediaMessage = MediaMessage(
+                                    url = url,
+                                    filename = filename,
+                                    caption = caption,
+                                    info = mediaInfo,
+                                    msgType = msgType
+                                )
+                                
+                                Log.d("Andromuks", "TimelineEventItem: Created encrypted MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}")
+                                
+                                // Display reply preview if this is a reply
+                                if (replyInfo != null && originalEvent != null) {
+                                    ReplyPreview(
+                                        replyInfo = replyInfo,
+                                        originalEvent = originalEvent,
+                                        userProfileCache = userProfileCache,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        isMine = isMine,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                }
+                                
+                                // Display media message
+                                MediaMessage(
+                                    mediaMessage = mediaMessage,
+                                    homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                                    authToken = authToken,
+                                    isMine = isMine
+                                )
+                                
+                                // Add reaction badges for encrypted media messages
+                                if (appViewModel != null) {
+                                    val reactions = appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                    if (reactions.isNotEmpty()) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 4.dp),
+                                            horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                        ) {
+                                            ReactionBadges(
+                                                eventId = event.eventId,
+                                                reactions = reactions
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Fallback to text message if encrypted media parsing fails
+                                val bubbleShape = if (isMine) {
+                                    RoundedCornerShape(
+                                        topStart = 16.dp,
+                                        topEnd = 16.dp,
+                                        bottomEnd = 8.dp,
+                                        bottomStart = 16.dp
+                                    )
+                                } else {
+                                    RoundedCornerShape(
+                                        topStart = 16.dp,
+                                        topEnd = 16.dp,
+                                        bottomEnd = 16.dp,
+                                        bottomStart = 8.dp
+                                    )
+                                }
+                                val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                                val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+
                                 Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 4.dp),
+                                    modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
                                 ) {
-                                    ReactionBadges(
-                                        eventId = event.eventId,
-                                        reactions = reactions
-                                    )
+                                    Surface(
+                                        color = bubbleColor,
+                                        shape = bubbleShape,
+                                        tonalElevation = 2.dp,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = body,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = textColor,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                        )
+                                    }
+                                }
+                                
+                                // Add reaction badges for encrypted text message
+                                if (appViewModel != null) {
+                                    val reactions = appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                    if (reactions.isNotEmpty()) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 4.dp),
+                                            horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                        ) {
+                                            ReactionBadges(
+                                                eventId = event.eventId,
+                                                reactions = reactions
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Regular text message
+                            val bubbleShape = if (isMine) {
+                                RoundedCornerShape(
+                                    topStart = 16.dp,
+                                    topEnd = 16.dp,
+                                    bottomEnd = 8.dp,
+                                    bottomStart = 16.dp
+                                )
+                            } else {
+                                RoundedCornerShape(
+                                    topStart = 16.dp,
+                                    topEnd = 16.dp,
+                                    bottomEnd = 16.dp,
+                                    bottomStart = 8.dp
+                                )
+                            }
+                            val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                            val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(top = 4.dp)
+                                ) {
+                                    // Display reply preview if this is a reply
+                                    if (replyInfo != null && originalEvent != null) {
+                                        ReplyPreview(
+                                            replyInfo = replyInfo,
+                                            originalEvent = originalEvent,
+                                            userProfileCache = userProfileCache,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                            isMine = isMine,
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+                                    }
+                                    
+                                    Surface(
+                                        color = bubbleColor,
+                                        shape = bubbleShape,
+                                        tonalElevation = 2.dp
+                                    ) {
+                                        Text(
+                                            text = body,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = textColor,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            // Add reaction badges for encrypted text message
+                            if (appViewModel != null) {
+                                val reactions = appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                if (reactions.isNotEmpty()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp),
+                                        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                    ) {
+                                        ReactionBadges(
+                                            eventId = event.eventId,
+                                            reactions = reactions
+                                        )
+                                    }
                                 }
                             }
                         }
                     } else {
-                    Text(
+                        Text(
                             text = "Encrypted message",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                        )
                     }
                 }
                 "m.room.member" -> {
