@@ -15,9 +15,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshContainer
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
-import androidx.compose.foundation.gestures.pullRefresh
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
@@ -96,26 +96,30 @@ fun RoomListScreen(
     val timestampUpdateTrigger = appViewModel.timestampUpdateCounter
     
     // Pull-to-refresh state
-    val pullToRefreshState = rememberPullToRefreshState()
+    var refreshing by remember { mutableStateOf(false) }
     
-    // Handle pull-to-refresh
-    LaunchedEffect(pullToRefreshState.isRefreshing) {
-        if (pullToRefreshState.isRefreshing) {
+    val refreshState = rememberPullRefreshState(
+        refreshing = refreshing,
+        onRefresh = {
+            refreshing = true
             appViewModel.restartWebSocketConnection()
-            delay(1000) // Give time for WebSocket restart
-            pullToRefreshState.endRefresh()
+            // Reset refreshing state after WebSocket restart
+            LaunchedEffect(Unit) {
+                delay(2000)
+                refreshing = false
+            }
         }
-    }
+    )
     
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .pullRefresh(refreshState)
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .pullRefresh(pullToRefreshState)
                 .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
                 .imePadding()
         ) {
@@ -273,8 +277,9 @@ fun RoomListScreen(
         }
         
         // Pull-to-refresh indicator
-        PullToRefreshContainer(
-            state = pullToRefreshState,
+        PullRefreshIndicator(
+            refreshing = refreshing,
+            state = refreshState,
             modifier = Modifier.align(Alignment.TopCenter)
         )
     }
