@@ -1014,12 +1014,10 @@ fun TimelineEventItem(
                             Log.d("Andromuks", "TimelineEventItem: Found encrypted media message - msgType=$msgType, body=$body")
                             
                             // Debug: Check what's in the decrypted object
-                            Log.d("Andromuks", "TimelineEventItem: Decrypted object keys: ${decrypted?.keys()?.joinToString()}")
                             Log.d("Andromuks", "TimelineEventItem: Direct url field: ${decrypted?.optString("url", "NOT_FOUND")}")
                             Log.d("Andromuks", "TimelineEventItem: File object exists: ${decrypted?.has("file")}")
                             if (decrypted?.has("file") == true) {
                                 val fileObj = decrypted.optJSONObject("file")
-                                Log.d("Andromuks", "TimelineEventItem: File object keys: ${fileObj?.keys()?.joinToString()}")
                                 Log.d("Andromuks", "TimelineEventItem: File url field: ${fileObj?.optString("url", "NOT_FOUND")}")
                             }
                             
