@@ -714,16 +714,6 @@ fun TimelineEventItem(
                 size = 48.dp
             )
             Spacer(modifier = Modifier.width(8.dp))
-        } else {
-            // For our own messages, show our avatar on the right side
-            Spacer(modifier = Modifier.width(8.dp))
-            AvatarImage(
-                mxcUrl = avatarUrl,
-                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                authToken = authToken,
-                fallbackText = (displayName ?: event.sender).take(1),
-                size = 48.dp
-            )
         }
         
         // Event content
@@ -1022,6 +1012,17 @@ fun TimelineEventItem(
                         // Check if it's a media message
                         if (msgType == "m.image" || msgType == "m.video") {
                             Log.d("Andromuks", "TimelineEventItem: Found encrypted media message - msgType=$msgType, body=$body")
+                            
+                            // Debug: Check what's in the decrypted object
+                            Log.d("Andromuks", "TimelineEventItem: Decrypted object keys: ${decrypted?.keys()?.joinToString()}")
+                            Log.d("Andromuks", "TimelineEventItem: Direct url field: ${decrypted?.optString("url", "NOT_FOUND")}")
+                            Log.d("Andromuks", "TimelineEventItem: File object exists: ${decrypted?.has("file")}")
+                            if (decrypted?.has("file") == true) {
+                                val fileObj = decrypted.optJSONObject("file")
+                                Log.d("Andromuks", "TimelineEventItem: File object keys: ${fileObj?.keys()?.joinToString()}")
+                                Log.d("Andromuks", "TimelineEventItem: File url field: ${fileObj?.optString("url", "NOT_FOUND")}")
+                            }
+                            
                             // For encrypted messages, URL might be in file.url
                             val url = decrypted?.optString("url", "") ?: decrypted?.optJSONObject("file")?.optString("url", "") ?: ""
                             val filename = decrypted?.optString("filename", "") ?: ""
@@ -1433,6 +1434,18 @@ private fun RoomHeader(
                     )
                 }
             }
+        }
+        
+        // For our own messages, show our avatar on the right side
+        if (isMine) {
+            Spacer(modifier = Modifier.width(8.dp))
+            AvatarImage(
+                mxcUrl = avatarUrl,
+                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                authToken = authToken,
+                fallbackText = (displayName ?: event.sender).take(1),
+                size = 48.dp
+            )
         }
     }
 }
