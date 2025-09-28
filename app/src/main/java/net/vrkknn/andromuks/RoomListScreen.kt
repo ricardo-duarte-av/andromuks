@@ -98,7 +98,7 @@ fun RoomListScreen(
     // Pull-to-refresh state
     var refreshing by remember { mutableStateOf(false) }
     
-    val refreshState = rememberPullRefreshState(
+    val refreshState = rememberPullToRefreshState(
         refreshing = refreshing,
         onRefresh = {
             refreshing = true
