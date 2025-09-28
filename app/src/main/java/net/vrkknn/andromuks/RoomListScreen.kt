@@ -624,6 +624,37 @@ fun RoomListContent(
             bottom = 8.dp
         )
     ) {
+        // Show pending invites at the top
+        val pendingInvites = appViewModel.getPendingInvites()
+        if (pendingInvites.isNotEmpty()) {
+            item {
+                Text(
+                    text = "Room Invitations",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+            
+            items(pendingInvites.size) { idx ->
+                val invite = pendingInvites[idx]
+                InviteListItem(
+                    invite = invite,
+                    onClick = {
+                        // Navigate to invite detail screen
+                        navController.navigate("invite_detail/${invite.roomId}")
+                    },
+                    homeserverUrl = appViewModel.homeserverUrl,
+                    authToken = authToken
+                )
+            }
+            
+            // Separator
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
         
         val filteredRooms = if (searchQuery.isBlank()) {
             rooms
@@ -683,6 +714,98 @@ fun SpacesListContent(
                 homeserverUrl = appViewModel.homeserverUrl,
                 authToken = authToken
             )
+        }
+    }
+}
+
+@Composable
+private fun InviteListItem(
+    invite: RoomInvite,
+    onClick: () -> Unit,
+    homeserverUrl: String,
+    authToken: String
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Room avatar
+            AvatarImage(
+                mxcUrl = invite.roomAvatar,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                fallbackText = (invite.roomName ?: invite.roomId).take(1),
+                size = 48.dp
+            )
+            
+            Spacer(modifier = Modifier.width(12.dp))
+            
+            // Room info
+            Column(modifier = Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = invite.roomName ?: "Unknown Room",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    
+                    Spacer(modifier = Modifier.width(8.dp))
+                    
+                    // INVITE badge
+                    Surface(
+                        color = MaterialTheme.colorScheme.primary,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    ) {
+                        Text(
+                            text = "INVITE",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.height(4.dp))
+                
+                // Inviter info
+                Text(
+                    text = "Invited by ${invite.inviterDisplayName ?: invite.inviterUserId}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                
+                // Room topic if available
+                invite.roomTopic?.let { topic ->
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = topic,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
     }
 }

@@ -140,6 +140,10 @@ class AppViewModel : ViewModel() {
         return readReceipts[eventId]?.toList() ?: emptyList()
     }
     
+    fun getPendingInvites(): List<RoomInvite> {
+        return pendingInvites.values.toList()
+    }
+    
     fun getCurrentRoomSection(): RoomSection {
         // Get rooms from spaceList if allRooms is empty (fallback for existing data)
         val roomsToUse = if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
@@ -388,6 +392,9 @@ class AppViewModel : ViewModel() {
         // Check if current room needs timeline update
         checkAndUpdateCurrentRoomTimeline(syncJson)
         
+        // Process room invitations
+        processRoomInvites(syncJson)
+        
         // Temporary workaround: navigate after 3 sync messages if we have rooms
         if (syncMessageCount >= 3 && roomMap.isNotEmpty() && !spacesLoaded) {
             android.util.Log.d("Andromuks", "AppViewModel: Workaround - navigating after $syncMessageCount sync messages")
@@ -573,6 +580,10 @@ class AppViewModel : ViewModel() {
     private val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
+    private val pendingInvites = mutableMapOf<String, RoomInvite>() // roomId -> RoomInvite
+    private val roomSummaryRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    private val joinRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    private val leaveRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
     
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
@@ -740,6 +751,12 @@ class AppViewModel : ViewModel() {
             // Handle mark_read response - data should be a boolean
             val success = data as? Boolean ?: false
             handleMarkReadResponse(requestId, success)
+        } else if (roomSummaryRequests.containsKey(requestId)) {
+            handleRoomSummaryResponse(requestId, data)
+        } else if (joinRoomRequests.containsKey(requestId)) {
+            handleJoinRoomResponse(requestId, data)
+        } else if (leaveRoomRequests.containsKey(requestId)) {
+            handleLeaveRoomResponse(requestId, data)
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: Unknown response requestId=$requestId")
         }
@@ -752,6 +769,15 @@ class AppViewModel : ViewModel() {
             android.util.Log.w("Andromuks", "AppViewModel: Mark read error for requestId=$requestId: $errorMessage")
             // Remove the failed request from pending
             markReadRequests.remove(requestId)
+        } else if (roomSummaryRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Room summary error for requestId=$requestId: $errorMessage")
+            roomSummaryRequests.remove(requestId)
+        } else if (joinRoomRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Join room error for requestId=$requestId: $errorMessage")
+            joinRoomRequests.remove(requestId)
+        } else if (leaveRoomRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Leave room error for requestId=$requestId: $errorMessage")
+            leaveRoomRequests.remove(requestId)
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
@@ -1163,6 +1189,89 @@ class AppViewModel : ViewModel() {
         updateCounter++
     }
     
+    private fun processRoomInvites(syncJson: JSONObject) {
+        val data = syncJson.optJSONObject("data")
+        if (data != null) {
+            val invitedRooms = data.optJSONArray("invited_rooms")
+            if (invitedRooms != null) {
+                android.util.Log.d("Andromuks", "AppViewModel: Processing ${invitedRooms.length()} room invitations")
+                
+                for (i in 0 until invitedRooms.length()) {
+                    val inviteJson = invitedRooms.optJSONObject(i)
+                    if (inviteJson != null) {
+                        val roomId = inviteJson.optString("room_id", "")
+                        val createdAt = inviteJson.optLong("created_at", 0)
+                        val inviteState = inviteJson.optJSONArray("invite_state")
+                        
+                        if (roomId.isNotBlank() && inviteState != null) {
+                            var inviterUserId = ""
+                            var inviterDisplayName: String? = null
+                            var roomName: String? = null
+                            var roomAvatar: String? = null
+                            var roomTopic: String? = null
+                            var roomCanonicalAlias: String? = null
+                            var inviteReason: String? = null
+                            
+                            // Parse invite state events
+                            for (j in 0 until inviteState.length()) {
+                                val stateEvent = inviteState.optJSONObject(j)
+                                if (stateEvent != null) {
+                                    val eventType = stateEvent.optString("type", "")
+                                    val sender = stateEvent.optString("sender", "")
+                                    val content = stateEvent.optJSONObject("content")
+                                    
+                                    when (eventType) {
+                                        "m.room.member" -> {
+                                            val stateKey = stateEvent.optString("state_key", "")
+                                            val membership = content?.optString("membership", "")
+                                            if (membership == "invite" && stateKey.isNotBlank()) {
+                                                inviterUserId = sender
+                                                inviterDisplayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                                                inviteReason = content?.optString("reason")?.takeIf { it.isNotBlank() }
+                                            }
+                                        }
+                                        "m.room.name" -> {
+                                            roomName = content?.optString("name")?.takeIf { it.isNotBlank() }
+                                        }
+                                        "m.room.avatar" -> {
+                                            roomAvatar = content?.optString("url")?.takeIf { it.isNotBlank() }
+                                        }
+                                        "m.room.topic" -> {
+                                            roomTopic = content?.optString("topic")?.takeIf { it.isNotBlank() }
+                                        }
+                                        "m.room.canonical_alias" -> {
+                                            roomCanonicalAlias = content?.optString("alias")?.takeIf { it.isNotBlank() }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (inviterUserId.isNotBlank()) {
+                                val invite = RoomInvite(
+                                    roomId = roomId,
+                                    createdAt = createdAt,
+                                    inviterUserId = inviterUserId,
+                                    inviterDisplayName = inviterDisplayName,
+                                    roomName = roomName,
+                                    roomAvatar = roomAvatar,
+                                    roomTopic = roomTopic,
+                                    roomCanonicalAlias = roomCanonicalAlias,
+                                    inviteReason = inviteReason
+                                )
+                                
+                                pendingInvites[roomId] = invite
+                                android.util.Log.d("Andromuks", "AppViewModel: Added room invite: $roomName from $inviterUserId")
+                            }
+                        }
+                    }
+                }
+                
+                android.util.Log.d("Andromuks", "AppViewModel: Total pending invites: ${pendingInvites.size}")
+                updateCounter++
+            }
+        }
+    }
+    
     fun markRoomAsRead(roomId: String, eventId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Marking room as read: $roomId, eventId: $eventId")
         
@@ -1175,12 +1284,81 @@ class AppViewModel : ViewModel() {
         ))
     }
     
+    fun getRoomSummary(roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: Getting room summary for invite: $roomId")
+        
+        val summaryRequestId = requestIdCounter++
+        roomSummaryRequests[summaryRequestId] = roomId
+        val via = roomId.substringAfter(":").substringBefore(".") // Extract server from room ID
+        sendWebSocketCommand("get_room_summary", summaryRequestId, mapOf(
+            "room_id_or_alias" to roomId,
+            "via" to listOf(via)
+        ))
+    }
+    
+    fun acceptRoomInvite(roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: Accepting room invite: $roomId")
+        
+        val acceptRequestId = requestIdCounter++
+        joinRoomRequests[acceptRequestId] = roomId
+        val via = roomId.substringAfter(":").substringBefore(".") // Extract server from room ID
+        sendWebSocketCommand("join_room", acceptRequestId, mapOf(
+            "room_id_or_alias" to roomId,
+            "via" to listOf(via)
+        ))
+        
+        // Remove from pending invites
+        pendingInvites.remove(roomId)
+        updateCounter++
+    }
+    
+    fun refuseRoomInvite(roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: Refusing room invite: $roomId")
+        
+        val refuseRequestId = requestIdCounter++
+        leaveRoomRequests[refuseRequestId] = roomId
+        sendWebSocketCommand("leave_room", refuseRequestId, mapOf(
+            "room_id" to roomId
+        ))
+        
+        // Remove from pending invites
+        pendingInvites.remove(roomId)
+        updateCounter++
+    }
+    
     fun handleMarkReadResponse(requestId: Int, success: Boolean) {
         val roomId = markReadRequests[requestId]
         if (roomId != null) {
             android.util.Log.d("Andromuks", "AppViewModel: Mark read response for room $roomId: $success")
             // Remove the request from pending
             markReadRequests.remove(requestId)
+        }
+    }
+    
+    fun handleRoomSummaryResponse(requestId: Int, data: Any) {
+        val roomId = roomSummaryRequests[requestId]
+        if (roomId != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Room summary response for room $roomId")
+            // Room summary received - could be used to update invite details if needed
+            roomSummaryRequests.remove(requestId)
+        }
+    }
+    
+    fun handleJoinRoomResponse(requestId: Int, data: Any) {
+        val roomId = joinRoomRequests[requestId]
+        if (roomId != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Join room response for room $roomId")
+            // Room join successful - invite will be removed from sync
+            joinRoomRequests.remove(requestId)
+        }
+    }
+    
+    fun handleLeaveRoomResponse(requestId: Int, data: Any) {
+        val roomId = leaveRoomRequests[requestId]
+        if (roomId != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Leave room response for room $roomId")
+            // Room leave successful - invite will be removed from sync
+            leaveRoomRequests.remove(requestId)
         }
     }
     

@@ -77,3 +77,16 @@ data class ReadReceipt(
     val timestamp: Long,
     val receiptType: String
 )
+
+@Immutable
+data class RoomInvite(
+    val roomId: String,
+    val createdAt: Long,
+    val inviterUserId: String,
+    val inviterDisplayName: String?,
+    val roomName: String?,
+    val roomAvatar: String?,
+    val roomTopic: String?,
+    val roomCanonicalAlias: String?,
+    val inviteReason: String?
+)

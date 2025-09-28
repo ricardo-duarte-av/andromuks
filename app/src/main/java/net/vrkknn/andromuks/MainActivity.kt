@@ -83,5 +83,17 @@ fun AppNavigation(
                 appViewModel = appViewModel
             )
         }
+        composable(
+            route = "invite_detail/{roomId}",
+            arguments = listOf(navArgument("roomId") { type = NavType.StringType })
+        ) { backStackEntry: NavBackStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+            InviteDetailScreen(
+                roomId = roomId,
+                navController = navController,
+                modifier = modifier,
+                appViewModel = appViewModel
+            )
+        }
     }
 }
