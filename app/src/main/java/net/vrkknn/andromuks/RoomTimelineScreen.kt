@@ -548,11 +548,12 @@ private fun ReplyPreview(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
         border = BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-        )
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+        ),
+        tonalElevation = 1.dp
     ) {
         Column(
             modifier = Modifier.padding(12.dp)
@@ -560,7 +561,7 @@ private fun ReplyPreview(
             // Reply indicator line
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 4.dp)
+                modifier = Modifier.padding(bottom = 6.dp)
             ) {
                 Surface(
                     shape = RoundedCornerShape(2.dp),
@@ -580,13 +581,14 @@ private fun ReplyPreview(
                 )
             }
             
-            // Original message preview
+            // Original message preview with better formatting
             Text(
                 text = originalBody,
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9
             )
         }
     }
@@ -658,16 +660,24 @@ fun TimelineEventItem(
         verticalAlignment = Alignment.Top
     ) {
         if (!isMine) {
-        AvatarImage(
+            AvatarImage(
                 mxcUrl = avatarUrl,
                 homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                 authToken = authToken,
                 fallbackText = (displayName ?: event.sender).take(1),
-            size = 48.dp
-        )
-        Spacer(modifier = Modifier.width(8.dp))
+                size = 48.dp
+            )
+            Spacer(modifier = Modifier.width(8.dp))
         } else {
-            Spacer(modifier = Modifier.width(56.dp))
+            // For our own messages, show our avatar on the right side
+            Spacer(modifier = Modifier.width(8.dp))
+            AvatarImage(
+                mxcUrl = avatarUrl,
+                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                authToken = authToken,
+                fallbackText = (displayName ?: event.sender).take(1),
+                size = 48.dp
+            )
         }
         
         // Event content
@@ -769,26 +779,33 @@ fun TimelineEventItem(
                             
                             Log.d("Andromuks", "TimelineEventItem: Created MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}")
                             
-                            // Display reply preview if this is a reply
+                            // Display media message with reply preview
                             if (replyInfo != null && originalEvent != null) {
-                                ReplyPreview(
-                                    replyInfo = replyInfo,
-                                    originalEvent = originalEvent,
-                                    userProfileCache = userProfileCache,
-                                    homeserverUrl = homeserverUrl,
+                                Column {
+                                    ReplyPreview(
+                                        replyInfo = replyInfo,
+                                        originalEvent = originalEvent,
+                                        userProfileCache = userProfileCache,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        isMine = isMine,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                    MediaMessage(
+                                        mediaMessage = mediaMessage,
+                                        homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                                        authToken = authToken,
+                                        isMine = isMine
+                                    )
+                                }
+                            } else {
+                                MediaMessage(
+                                    mediaMessage = mediaMessage,
+                                    homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                     authToken = authToken,
-                                    isMine = isMine,
-                                    modifier = Modifier.padding(bottom = 8.dp)
+                                    isMine = isMine
                                 )
                             }
-                            
-                            // Display media message
-                            MediaMessage(
-                                mediaMessage = mediaMessage,
-                                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                                authToken = authToken,
-                                isMine = isMine
-                            )
                             
                             // Add reaction badges for media messages
                             if (appViewModel != null) {
@@ -969,26 +986,33 @@ fun TimelineEventItem(
                                 
                                 Log.d("Andromuks", "TimelineEventItem: Created encrypted MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}")
                                 
-                                // Display reply preview if this is a reply
+                                // Display media message with reply preview
                                 if (replyInfo != null && originalEvent != null) {
-                                    ReplyPreview(
-                                        replyInfo = replyInfo,
-                                        originalEvent = originalEvent,
-                                        userProfileCache = userProfileCache,
-                                        homeserverUrl = homeserverUrl,
+                                    Column {
+                                        ReplyPreview(
+                                            replyInfo = replyInfo,
+                                            originalEvent = originalEvent,
+                                            userProfileCache = userProfileCache,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                            isMine = isMine,
+                                            modifier = Modifier.padding(bottom = 8.dp)
+                                        )
+                                        MediaMessage(
+                                            mediaMessage = mediaMessage,
+                                            homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                                            authToken = authToken,
+                                            isMine = isMine
+                                        )
+                                    }
+                                } else {
+                                    MediaMessage(
+                                        mediaMessage = mediaMessage,
+                                        homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                         authToken = authToken,
-                                        isMine = isMine,
-                                        modifier = Modifier.padding(bottom = 8.dp)
+                                        isMine = isMine
                                     )
                                 }
-                                
-                                // Display media message
-                                MediaMessage(
-                                    mediaMessage = mediaMessage,
-                                    homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                                    authToken = authToken,
-                                    isMine = isMine
-                                )
                                 
                                 // Add reaction badges for encrypted media messages
                                 if (appViewModel != null) {
