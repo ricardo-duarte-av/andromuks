@@ -70,8 +70,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import androidx.activity.compose.BackHandler
 
-@OptIn(ExperimentalMaterial3Api::class)
-@OptIn(ExperimentalMaterialApi::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
 fun RoomListScreen(
     navController: NavController,
@@ -288,6 +287,7 @@ fun RoomListScreen(
             modifier = Modifier.align(Alignment.TopCenter)
         )
     }
+}
 
 @Composable
 fun SpaceListItem(
