@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -191,7 +192,21 @@ fun RoomTimelineScreen(
                                     authToken = authToken,
                                     userProfileCache = appViewModel.getMemberMap(roomId),
                                     isMine = isMine,
-                                    appViewModel = appViewModel
+                                    appViewModel = appViewModel,
+                                    onScrollToMessage = { eventId ->
+                                        // Find the index of the message to scroll to
+                                        val index = sortedEvents.indexOfFirst { it.eventId == eventId }
+                                        if (index >= 0) {
+                                            listState.animateScrollToItem(index)
+                                        } else {
+                                            // Show toast if message not found
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Cannot find message",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    }
                                 )
                         }
                     }
@@ -531,7 +546,8 @@ private fun ReplyPreview(
     homeserverUrl: String,
     authToken: String,
     isMine: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOriginalMessageClick: () -> Unit = {}
 ) {
     val originalSender = originalEvent?.sender ?: replyInfo.sender
     val originalBody = originalEvent?.let { event ->
@@ -545,23 +561,20 @@ private fun ReplyPreview(
     val memberProfile = userProfileCache[originalSender]
     val senderName = memberProfile?.displayName ?: originalSender.substringAfterLast(":")
     
+    // Outer container for the reply
     Surface(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-        ),
-        tonalElevation = 1.dp
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 2.dp
     ) {
         Column(
             modifier = Modifier.padding(12.dp)
         ) {
-            // Reply indicator line
+            // Reply indicator
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 6.dp)
+                modifier = Modifier.padding(bottom = 8.dp)
             ) {
                 Surface(
                     shape = RoundedCornerShape(2.dp),
@@ -581,15 +594,42 @@ private fun ReplyPreview(
                 )
             }
             
-            // Original message preview with better formatting
-            Text(
-                text = originalBody,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-                lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9
-            )
+            // Nested bubble for original message (clickable)
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOriginalMessageClick() },
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                ),
+                tonalElevation = 1.dp
+            ) {
+                Column(
+                    modifier = Modifier.padding(12.dp)
+                ) {
+                    // Sender name
+                    Text(
+                        text = senderName,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    
+                    // Original message content
+                    Text(
+                        text = originalBody,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 3,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9
+                    )
+                }
+            }
         }
     }
 }
@@ -646,7 +686,8 @@ fun TimelineEventItem(
     authToken: String,
     userProfileCache: Map<String, MemberProfile>,
     isMine: Boolean,
-    appViewModel: AppViewModel? = null
+    appViewModel: AppViewModel? = null,
+    onScrollToMessage: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     // Lookup display name and avatar from cache
@@ -779,7 +820,7 @@ fun TimelineEventItem(
                             
                             Log.d("Andromuks", "TimelineEventItem: Created MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}")
                             
-                            // Display media message with reply preview
+                            // Display media message with nested reply structure
                             if (replyInfo != null && originalEvent != null) {
                                 Column {
                                     ReplyPreview(
@@ -789,7 +830,11 @@ fun TimelineEventItem(
                                         homeserverUrl = homeserverUrl,
                                         authToken = authToken,
                                         isMine = isMine,
-                                        modifier = Modifier.padding(bottom = 8.dp)
+                                        modifier = Modifier.padding(bottom = 8.dp),
+                                        onOriginalMessageClick = {
+                                            // TODO: Implement scroll to message
+                                            Log.d("Andromuks", "Clicked on original message: ${replyInfo.eventId}")
+                                        }
                                     )
                                     MediaMessage(
                                         mediaMessage = mediaMessage,
@@ -887,23 +932,50 @@ fun TimelineEventItem(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
                         ) {
-                            Column(
-                                modifier = Modifier.padding(top = 4.dp)
-                            ) {
-                                // Display reply preview if this is a reply
-                                if (replyInfo != null && originalEvent != null) {
-                                    ReplyPreview(
-                                        replyInfo = replyInfo,
-                                        originalEvent = originalEvent,
-                                        userProfileCache = userProfileCache,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        isMine = isMine,
-                                        modifier = Modifier.padding(bottom = 8.dp)
-                                    )
-                                }
-                                
+                            // Display reply with nested structure if this is a reply
+                            if (replyInfo != null && originalEvent != null) {
                                 Surface(
+                                    modifier = Modifier.padding(top = 4.dp),
+                                    color = bubbleColor,
+                                    shape = bubbleShape,
+                                    tonalElevation = 2.dp
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp)
+                                    ) {
+                                        // Reply preview (clickable original message)
+                                        ReplyPreview(
+                                            replyInfo = replyInfo,
+                                            originalEvent = originalEvent,
+                                            userProfileCache = userProfileCache,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                            isMine = isMine,
+                                            modifier = Modifier.padding(bottom = 8.dp),
+                                            onOriginalMessageClick = {
+                                                onScrollToMessage(replyInfo.eventId)
+                                            }
+                                        )
+                                        
+                                        // Reply message content
+                                        Surface(
+                                            color = MaterialTheme.colorScheme.surface,
+                                            shape = RoundedCornerShape(8.dp),
+                                            tonalElevation = 1.dp
+                                        ) {
+                                            Text(
+                                                text = body,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = textColor,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Regular message bubble
+                                Surface(
+                                    modifier = Modifier.padding(top = 4.dp),
                                     color = bubbleColor,
                                     shape = bubbleShape,
                                     tonalElevation = 2.dp
@@ -986,7 +1058,7 @@ fun TimelineEventItem(
                                 
                                 Log.d("Andromuks", "TimelineEventItem: Created encrypted MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}")
                                 
-                                // Display media message with reply preview
+                                // Display encrypted media message with nested reply structure
                                 if (replyInfo != null && originalEvent != null) {
                                     Column {
                                         ReplyPreview(
@@ -996,7 +1068,10 @@ fun TimelineEventItem(
                                             homeserverUrl = homeserverUrl,
                                             authToken = authToken,
                                             isMine = isMine,
-                                            modifier = Modifier.padding(bottom = 8.dp)
+                                            modifier = Modifier.padding(bottom = 8.dp),
+                                            onOriginalMessageClick = {
+                                                onScrollToMessage(replyInfo.eventId)
+                                            }
                                         )
                                         MediaMessage(
                                             mediaMessage = mediaMessage,
@@ -1112,23 +1187,51 @@ fun TimelineEventItem(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
                             ) {
-                                Column(
-                                    modifier = Modifier.padding(top = 4.dp)
-                                ) {
-                                    // Display reply preview if this is a reply
-                                    if (replyInfo != null && originalEvent != null) {
-                                        ReplyPreview(
-                                            replyInfo = replyInfo,
-                                            originalEvent = originalEvent,
-                                            userProfileCache = userProfileCache,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            isMine = isMine,
-                                            modifier = Modifier.padding(bottom = 8.dp)
-                                        )
-                                    }
-                                    
+                                // Display encrypted text message with nested reply structure
+                                if (replyInfo != null && originalEvent != null) {
                                     Surface(
+                                        modifier = Modifier.padding(top = 4.dp),
+                                        color = bubbleColor,
+                                        shape = bubbleShape,
+                                        tonalElevation = 2.dp
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(12.dp)
+                                        ) {
+                                            // Reply preview (clickable original message)
+                                            ReplyPreview(
+                                                replyInfo = replyInfo,
+                                                originalEvent = originalEvent,
+                                                userProfileCache = userProfileCache,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                isMine = isMine,
+                                                modifier = Modifier.padding(bottom = 8.dp),
+                                                onOriginalMessageClick = {
+                                                    // TODO: Implement scroll to message
+                                                    Log.d("Andromuks", "Clicked on original message: ${replyInfo.eventId}")
+                                                }
+                                            )
+                                            
+                                            // Reply message content
+                                            Surface(
+                                                color = MaterialTheme.colorScheme.surface,
+                                                shape = RoundedCornerShape(8.dp),
+                                                tonalElevation = 1.dp
+                                            ) {
+                                                Text(
+                                                    text = body,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = textColor,
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Regular encrypted message bubble
+                                    Surface(
+                                        modifier = Modifier.padding(top = 4.dp),
                                         color = bubbleColor,
                                         shape = bubbleShape,
                                         tonalElevation = 2.dp
