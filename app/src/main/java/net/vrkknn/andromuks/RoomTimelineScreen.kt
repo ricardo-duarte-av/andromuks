@@ -27,7 +27,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -527,7 +526,7 @@ private fun MediaMessage(
 private fun ReplyPreview(
     replyInfo: ReplyInfo,
     originalEvent: TimelineEvent?,
-    userProfileCache: Map<String, Pair<String?, String?>>,
+    userProfileCache: Map<String, MemberProfile>,
     homeserverUrl: String,
     authToken: String,
     isMine: Boolean,
@@ -542,8 +541,8 @@ private fun ReplyPreview(
         }
     } ?: "Message not found"
     
-    val (displayName, _) = userProfileCache[originalSender] ?: Pair(null, null)
-    val senderName = displayName ?: originalSender.substringAfterLast(":")
+    val memberProfile = userProfileCache[originalSender]
+    val senderName = memberProfile?.displayName ?: originalSender.substringAfterLast(":")
     
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -729,7 +728,7 @@ fun TimelineEventItem(
                     // Check if this is a reply message
                     val replyInfo = event.getReplyInfo()
                     val originalEvent = replyInfo?.let { reply ->
-                        sortedEvents.find { it.eventId == reply.eventId }
+                        timelineEvents.find { it.eventId == reply.eventId }
                     }
                     
                     // Check if it's a media message
@@ -929,7 +928,7 @@ fun TimelineEventItem(
                         // Check if this is a reply message
                         val replyInfo = event.getReplyInfo()
                         val originalEvent = replyInfo?.let { reply ->
-                            sortedEvents.find { it.eventId == reply.eventId }
+                            timelineEvents.find { it.eventId == reply.eventId }
                         }
                         
                         // Check if it's a media message
