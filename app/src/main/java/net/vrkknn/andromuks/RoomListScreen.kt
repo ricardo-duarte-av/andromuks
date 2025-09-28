@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
@@ -32,10 +35,12 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -86,6 +91,21 @@ fun RoomListScreen(
     // Always show the interface, even if rooms/spaces are empty
     var searchQuery by remember { mutableStateOf("") }
     val me = appViewModel.currentUserProfile
+    
+    // Get timestamp update counter from AppViewModel
+    val timestampUpdateTrigger = appViewModel.timestampUpdateCounter
+    
+    // Pull-to-refresh state
+    val pullToRefreshState = rememberPullToRefreshState()
+    
+    // Handle pull-to-refresh
+    LaunchedEffect(pullToRefreshState.isRefreshing) {
+        if (pullToRefreshState.isRefreshing) {
+            appViewModel.restartWebSocketConnection()
+            delay(1000) // Give time for WebSocket restart
+            pullToRefreshState.endRefresh()
+        }
+    }
     
     Column(
             modifier = modifier
@@ -357,6 +377,7 @@ fun RoomListItem(
     homeserverUrl: String,
     authToken: String,
     onRoomClick: (RoomItem) -> Unit,
+    timestampUpdateTrigger: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -441,7 +462,9 @@ fun RoomListItem(
                             }
                         }
 
-                        val timeAgoInline = formatTimeAgo(room.sortingTimestamp)
+                        val timeAgoInline = remember(timestampUpdateTrigger) { 
+                            formatTimeAgo(room.sortingTimestamp) 
+                        }
                         if (timeAgoInline.isNotEmpty()) {
                             Text(
                                 text = timeAgoInline,
@@ -605,6 +628,7 @@ fun TabButton(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RoomListContent(
     rooms: List<RoomItem>,
@@ -617,14 +641,19 @@ fun RoomListContent(
     androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null) {
         appViewModel.exitSpace()
     }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Top,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            top = 8.dp,
-            bottom = 8.dp
-        )
+    
+    PullToRefreshBox(
+        state = pullToRefreshState,
+        modifier = Modifier.fillMaxSize()
     ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Top,
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                top = 8.dp,
+                bottom = 8.dp
+            )
+        ) {
         // Show pending invites at the top
         val pendingInvites = appViewModel.getPendingInvites()
         if (pendingInvites.isNotEmpty()) {
@@ -673,8 +702,10 @@ fun RoomListContent(
                 authToken = authToken,
                 onRoomClick = { 
                     navController.navigate("room_timeline/${room.id}")
-                }
+                },
+                timestampUpdateTrigger = timestampUpdateTrigger
             )
+        }
         }
     }
 }

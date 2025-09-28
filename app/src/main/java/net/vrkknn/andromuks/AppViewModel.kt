@@ -82,6 +82,10 @@ class AppViewModel : ViewModel() {
     // Force recomposition counter
     var updateCounter by mutableStateOf(0)
         private set
+    
+    // Timestamp update counter for dynamic time displays
+    var timestampUpdateCounter by mutableStateOf(0)
+        private set
 
     var spacesLoaded by mutableStateOf(false)
         private set
@@ -120,6 +124,15 @@ class AppViewModel : ViewModel() {
     
     fun incrementUpdateCounter() {
         updateCounter++
+    }
+    
+    fun triggerTimestampUpdate() {
+        timestampUpdateCounter++
+    }
+    
+    fun restartWebSocketConnection() {
+        android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket connection via pull-to-refresh")
+        restartWebSocket()
     }
     
     
@@ -381,6 +394,12 @@ class AppViewModel : ViewModel() {
         
         android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${roomMap.size} (updated: ${syncResult.updatedRooms.size}, new: ${syncResult.newRooms.size}, removed: ${syncResult.removedRoomIds.size}) - sync message #$syncMessageCount")
         
+        // Process room invitations first
+        processRoomInvites(syncJson)
+        
+        // Trigger timestamp update on sync
+        triggerTimestampUpdate()
+        
         // Update the UI with the current room list
         val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
         android.util.Log.d("Andromuks", "AppViewModel: Updating spaceList with ${sortedRooms.size} rooms")
@@ -391,9 +410,6 @@ class AppViewModel : ViewModel() {
         
         // Check if current room needs timeline update
         checkAndUpdateCurrentRoomTimeline(syncJson)
-        
-        // Process room invitations
-        processRoomInvites(syncJson)
         
         // Temporary workaround: navigate after 3 sync messages if we have rooms
         if (syncMessageCount >= 3 && roomMap.isNotEmpty() && !spacesLoaded) {
@@ -613,6 +629,8 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Received pong for ping $requestId, canceling timeout")
                 pongTimeoutJob?.cancel()
                 pongTimeoutJob = null
+                // Trigger timestamp update on pong
+                triggerTimestampUpdate()
             }
         }
     }
@@ -1267,7 +1285,6 @@ class AppViewModel : ViewModel() {
                 }
                 
                 android.util.Log.d("Andromuks", "AppViewModel: Total pending invites: ${pendingInvites.size}")
-                updateCounter++
             }
         }
     }
