@@ -905,8 +905,11 @@ class AppViewModel : ViewModel() {
                 isTimelineLoading = false
                 android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
                 
-                // Mark room as read when timeline is successfully loaded
-                markRoomAsRead(roomId, timelineList.last().eventId)
+                // Mark room as read when timeline is successfully loaded - use most recent event by timestamp
+                val mostRecentEvent = timelineList.maxByOrNull { it.timestamp }
+                if (mostRecentEvent != null) {
+                    markRoomAsRead(roomId, mostRecentEvent.eventId)
+                }
             }
         }
 
