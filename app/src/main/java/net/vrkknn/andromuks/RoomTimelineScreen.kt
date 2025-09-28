@@ -186,12 +186,13 @@ fun RoomTimelineScreen(
                                 val isMine = myUserId != null && event.sender == myUserId
                                 TimelineEventItem(
                                     event = event,
+                                    timelineEvents = timelineEvents,
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
                                     userProfileCache = appViewModel.getMemberMap(roomId),
-                                isMine = isMine,
-                                appViewModel = appViewModel
-                            )
+                                    isMine = isMine,
+                                    appViewModel = appViewModel
+                                )
                         }
                     }
                 }
@@ -638,6 +639,7 @@ private fun ReactionBadges(
 @Composable
 fun TimelineEventItem(
     event: TimelineEvent,
+    timelineEvents: List<TimelineEvent>,
     homeserverUrl: String,
     authToken: String,
     userProfileCache: Map<String, MemberProfile>,
@@ -728,7 +730,7 @@ fun TimelineEventItem(
                     // Check if this is a reply message
                     val replyInfo = event.getReplyInfo()
                     val originalEvent = replyInfo?.let { reply ->
-                        timelineEvents.find { it.eventId == reply.eventId }
+                        timelineEvents.find<TimelineEvent> { it.eventId == reply.eventId }
                     }
                     
                     // Check if it's a media message
@@ -928,7 +930,7 @@ fun TimelineEventItem(
                         // Check if this is a reply message
                         val replyInfo = event.getReplyInfo()
                         val originalEvent = replyInfo?.let { reply ->
-                            timelineEvents.find { it.eventId == reply.eventId }
+                            timelineEvents.find<TimelineEvent> { it.eventId == reply.eventId }
                         }
                         
                         // Check if it's a media message
