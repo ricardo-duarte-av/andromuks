@@ -198,6 +198,17 @@ fun connectToWebsocket(
                             appViewModel.handleResponse(requestId, data ?: Any())
                         }
                     }
+                    "send_complete" -> {
+                        val requestId = jsonObject.optInt("request_id")
+                        val data = jsonObject.optJSONObject("data")
+                        val event = data?.optJSONObject("event")
+                        Log.d("Andromuks", "NetworkUtils: Routing send_complete, requestId=$requestId, hasEvent=${event != null}")
+                        appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                            if (event != null) {
+                                appViewModel.handleResponse(requestId, event)
+                            }
+                        }
+                    }
                     "error" -> {
                         val requestId = jsonObject.optInt("request_id")
                         val errorMessage = jsonObject.optString("data", "Unknown error")
