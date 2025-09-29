@@ -748,7 +748,9 @@ fun TimelineEventItem(
             displayName = displayName ?: event.sender,
             avatarUrl = avatarUrl,
             homeserverUrl = homeserverUrl,
-            authToken = authToken
+            authToken = authToken,
+            appViewModel = appViewModel,
+            roomId = event.roomId
         )
         return
     }
@@ -1492,7 +1494,9 @@ private fun SystemEventNarrator(
     displayName: String,
     avatarUrl: String?,
     homeserverUrl: String,
-    authToken: String
+    authToken: String,
+    appViewModel: AppViewModel? = null,
+    roomId: String
 ) {
     val content = event.content
     val eventType = event.type
@@ -1596,7 +1600,16 @@ private fun SystemEventNarrator(
                     "invite" -> {
                         // For invites, we need to show who invited whom
                         val invitedUserId = event.stateKey ?: ""
-                        val invitedDisplayName = targetDisplayName ?: invitedUserId.substringAfter("@").substringBefore(":")
+                        
+                        // Get profile info from AppViewModel's member cache
+                        val invitedProfile = appViewModel?.getMemberMap(roomId)?.get(invitedUserId)
+                        val invitedDisplayName = invitedProfile?.displayName ?: invitedUserId.substringAfter("@").substringBefore(":")
+                        val invitedAvatarUrl = invitedProfile?.avatarUrl
+                        
+                        // Request profile for invited user if we don't have their info
+                        if (invitedProfile == null && invitedUserId.isNotBlank() && appViewModel != null) {
+                            appViewModel.requestUserProfile(invitedUserId)
+                        }
                         
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -1613,7 +1626,7 @@ private fun SystemEventNarrator(
                             
                             // Small avatar for the invited user
                             AvatarImage(
-                                mxcUrl = content?.optString("avatar_url", ""),
+                                mxcUrl = invitedAvatarUrl,
                                 homeserverUrl = homeserverUrl,
                                 authToken = authToken,
                                 fallbackText = invitedDisplayName,
