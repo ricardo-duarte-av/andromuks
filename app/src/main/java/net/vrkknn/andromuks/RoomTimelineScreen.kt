@@ -59,7 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
 import androidx.compose.ui.text.ExperimentalTextApi
-import androidx.compose.ui.text.InlineTextContent
+import androidx.compose.ui.text.inline.InlineTextContent
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.unit.sp
@@ -2049,7 +2049,7 @@ private fun RichMessageText(
     val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
     
     // Parse HTML and convert to AnnotatedString with inline content
-    val (annotatedText, inlineContent) = remember(formattedBody, userProfileCache, primaryContainer, onPrimaryContainer, homeserverUrl, authToken, isEncrypted) {
+    val (annotatedText: AnnotatedString, inlineContent: Map<String, InlineTextContent>) = remember(formattedBody, userProfileCache, primaryContainer, onPrimaryContainer, homeserverUrl, authToken, isEncrypted) {
         val inlineContentMap = mutableMapOf<String, InlineTextContent>()
         var imageCounter = 0
         
@@ -2076,7 +2076,7 @@ private fun RichMessageText(
             // Sort by position in text
             allMatches.sortBy { it.second.range.first }
             
-            allMatches.forEach { (type, match) ->
+            allMatches.forEach { (type: Int, match: MatchResult) ->
                 val startIndex = match.range.first
                 val endIndex = match.range.last + 1
                 
