@@ -48,6 +48,9 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.remember
@@ -1304,20 +1307,44 @@ fun TimelineEventItem(
                     }
                 }
                 "m.room.member" -> {
-                    val content = event.content
-                    val membership = content?.optString("membership", "")
-                    val displayname = content?.optString("displayname", "")
-                    
-                    Text(
-                        text = when (membership) {
-                            "join" -> "$displayname joined"
-                            "leave" -> "$displayname left"
-                            "invite" -> "$displayname was invited"
-                            else -> "Membership change"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    SystemEventNarrator(
+                        event = event,
+                        displayName = displayName ?: event.sender,
+                        avatarUrl = avatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken
                     )
+                }
+                "m.room.name" -> {
+                    SystemEventNarrator(
+                        event = event,
+                        displayName = displayName ?: event.sender,
+                        avatarUrl = avatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken
+                    )
+                }
+                "m.room.topic" -> {
+                    SystemEventNarrator(
+                        event = event,
+                        displayName = displayName ?: event.sender,
+                        avatarUrl = avatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken
+                    )
+                }
+                "m.room.avatar" -> {
+                    SystemEventNarrator(
+                        event = event,
+                        displayName = displayName ?: event.sender,
+                        avatarUrl = avatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken
+                    )
+                }
+                "m.reaction" -> {
+                    // Reactions are handled as badges below messages, not as separate timeline items
+                    // This case should rarely be hit since reactions are usually processed differently
                 }
                 else -> {
                     Text(
@@ -1476,4 +1503,198 @@ private fun RoomHeader(
             }
         }
     }
+}
+
+@Composable
+private fun SystemEventNarrator(
+    event: TimelineEvent,
+    displayName: String,
+    avatarUrl: String?,
+    homeserverUrl: String,
+    authToken: String
+) {
+    val content = event.content
+    val eventType = event.type
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Small avatar for the actor
+        AvatarImage(
+            mxcUrl = avatarUrl,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            fallbackText = displayName,
+            size = 20.dp
+        )
+        
+        // Narrator text
+        when (eventType) {
+            "m.room.member" -> {
+                val membership = content?.optString("membership", "")
+                val targetDisplayName = content?.optString("displayname", "")
+                val reason = content?.optString("reason", "")
+                
+                when (membership) {
+                    "join" -> {
+                        NarratorText(
+                            text = buildAnnotatedString {
+                                withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                    append(displayName)
+                                }
+                                append(" joined the room")
+                                if (!reason.isNullOrBlank()) {
+                                    append(" (")
+                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                        append(reason)
+                                    }
+                                    append(")")
+                                }
+                            }
+                        )
+                    }
+                    "leave" -> {
+                        NarratorText(
+                            text = buildAnnotatedString {
+                                withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                    append(displayName)
+                                }
+                                append(" left the room")
+                                if (!reason.isNullOrBlank()) {
+                                    append(" (")
+                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                        append(reason)
+                                    }
+                                    append(")")
+                                }
+                            }
+                        )
+                    }
+                    "invite" -> {
+                        // For invites, we need to show who invited whom
+                        val invitedUserId = event.stateKey ?: ""
+                        val invitedDisplayName = targetDisplayName ?: invitedUserId.substringAfter("@").substringBefore(":")
+                        
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" invited ")
+                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                        append(invitedDisplayName)
+                                    }
+                                    if (!reason.isNullOrBlank()) {
+                                        append(" (")
+                                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                            append(reason)
+                                        }
+                                        append(")")
+                                    }
+                                }
+                            )
+                            
+                            // Small avatar for the invited user
+                            AvatarImage(
+                                mxcUrl = content?.optString("avatar_url", ""),
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                fallbackText = invitedDisplayName,
+                                size = 16.dp
+                            )
+                        }
+                    }
+                    else -> {
+                        NarratorText(
+                            text = buildAnnotatedString {
+                                withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                    append(displayName)
+                                }
+                                append(" changed membership")
+                            }
+                        )
+                    }
+                }
+            }
+            "m.room.name" -> {
+                val newName = content?.optString("name", "")
+                NarratorText(
+                    text = buildAnnotatedString {
+                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                            append(displayName)
+                        }
+                        append(" changed the room name to ")
+                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                            append("\"$newName\"")
+                        }
+                    }
+                )
+            }
+            "m.room.topic" -> {
+                val newTopic = content?.optString("topic", "")
+                NarratorText(
+                    text = buildAnnotatedString {
+                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                            append(displayName)
+                        }
+                        append(" changed the room topic to ")
+                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                            append("\"$newTopic\"")
+                        }
+                    }
+                )
+            }
+            "m.room.avatar" -> {
+                NarratorText(
+                    text = buildAnnotatedString {
+                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                            append(displayName)
+                        }
+                        append(" changed the room avatar")
+                    }
+                )
+            }
+            else -> {
+                NarratorText(
+                    text = buildAnnotatedString {
+                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                            append(displayName)
+                        }
+                        append(" performed an action")
+                    }
+                )
+            }
+        }
+        
+        // Time on the right
+        Spacer(modifier = Modifier.weight(1f))
+        Text(
+            text = formatTimestamp(event.timestamp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontStyle = FontStyle.Italic
+        )
+    }
+}
+
+@Composable
+private fun NarratorText(
+    text: AnnotatedString,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontStyle = FontStyle.Italic,
+        modifier = modifier
+    )
 }
