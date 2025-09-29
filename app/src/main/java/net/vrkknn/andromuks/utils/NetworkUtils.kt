@@ -199,13 +199,14 @@ fun connectToWebsocket(
                         }
                     }
                     "send_complete" -> {
-                        val requestId = jsonObject.optInt("request_id")
                         val data = jsonObject.optJSONObject("data")
                         val event = data?.optJSONObject("event")
-                        Log.d("Andromuks", "NetworkUtils: Routing send_complete, requestId=$requestId, hasEvent=${event != null}")
+                        Log.d("Andromuks", "NetworkUtils: Processing send_complete, hasEvent=${event != null}")
                         appViewModel.viewModelScope.launch(Dispatchers.Main) {
                             if (event != null) {
-                                appViewModel.handleResponse(requestId, event)
+                                // Process send_complete as a timeline event directly
+                                // since it contains the event data that should be added to timeline
+                                appViewModel.processSendCompleteEvent(event)
                             }
                         }
                     }

@@ -955,6 +955,26 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    fun processSendCompleteEvent(eventData: JSONObject) {
+        android.util.Log.d("Andromuks", "AppViewModel: processSendCompleteEvent called")
+        try {
+            val event = TimelineEvent.fromJson(eventData)
+            android.util.Log.d("Andromuks", "AppViewModel: Created timeline event from send_complete: ${event.eventId}, eventRoomId=${event.roomId}, currentRoomId=$currentRoomId")
+            
+            // Add the event to the timeline if it's for the current room
+            if (event.roomId == currentRoomId) {
+                val currentEvents = timelineEvents.toMutableList()
+                currentEvents.add(event)
+                timelineEvents = currentEvents.sortedBy { it.timestamp }
+                android.util.Log.d("Andromuks", "AppViewModel: Added send_complete event to timeline, total events: ${timelineEvents.size}")
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: send_complete event roomId (${event.roomId}) doesn't match currentRoomId ($currentRoomId), not adding to timeline")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Error parsing send_complete event", e)
+        }
+    }
+    
     fun handleTimelineResponse(requestId: Int, data: Any) {
         android.util.Log.d("Andromuks", "AppViewModel: handleTimelineResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
         val roomId = timelineRequests[requestId]

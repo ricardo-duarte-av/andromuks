@@ -58,6 +58,12 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import androidx.compose.ui.text.InlineTextContent
+import androidx.compose.ui.text.Placeholder
+import androidx.compose.ui.text.PlaceholderVerticalAlign
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
 import coil.request.ImageRequest
 import coil.request.CachePolicy
 import net.vrkknn.andromuks.utils.BlurHashUtils
@@ -2020,6 +2026,7 @@ private fun SmartMessageText(
     }
 }
 
+@OptIn(ExperimentalTextApi::class)
 @Composable
 private fun RichMessageText(
     formattedBody: String,
@@ -2034,49 +2041,112 @@ private fun RichMessageText(
     val primaryContainer = MaterialTheme.colorScheme.primaryContainer
     val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
     
-    // Parse HTML and convert to AnnotatedString
-    val annotatedText = remember(formattedBody, userProfileCache, primaryContainer, onPrimaryContainer) {
-        buildAnnotatedString {
+    // Parse HTML and convert to AnnotatedString with inline content
+    val (annotatedText, inlineContent) = remember(formattedBody, userProfileCache, primaryContainer, onPrimaryContainer) {
+        val inlineContentMap = mutableMapOf<String, InlineTextContent>()
+        var imageCounter = 0
+        
+        val annotatedString = buildAnnotatedString {
             var currentIndex = 0
             val text = formattedBody
             
             // Regex to find Matrix user links: <a href="https://matrix.to/#/@user:server.com">DisplayName</a>
             val matrixUserLinkRegex = Regex("""<a\s+href="https://matrix\.to/#/([^"]+)"[^>]*>([^<]+)</a>""")
-            val matches = matrixUserLinkRegex.findAll(text)
+            // Regex to find img tags: <img src="..." alt="..." ...>
+            val imgTagRegex = Regex("""<img[^>]*src="([^"]*)"[^>]*(?:alt="([^"]*)")?[^>]*>""")
             
-            matches.forEach { match ->
-                val fullMatch = match.value
-                val matrixId = match.groupValues[1] // The @user:server.com part
-                val displayName = match.groupValues[2] // The display name
+            // Combine all matches and sort by position
+            val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+            
+            matrixUserLinkRegex.findAll(text).forEach { match ->
+                allMatches.add(Pair(0, match)) // 0 = user link
+            }
+            
+            imgTagRegex.findAll(text).forEach { match ->
+                allMatches.add(Pair(1, match)) // 1 = img tag
+            }
+            
+            // Sort by position in text
+            allMatches.sortBy { it.second.range.first }
+            
+            allMatches.forEach { (type, match) ->
                 val startIndex = match.range.first
                 val endIndex = match.range.last + 1
                 
-                // Add text before the link
+                // Add text before the match
                 if (startIndex > currentIndex) {
                     append(text.substring(currentIndex, startIndex))
                 }
                 
-                // Decode URL-encoded Matrix ID
-                val decodedMatrixId = matrixId.replace("%40", "@").replace("%3A", ":")
-                
-                // Get profile for the mentioned user
-                val profile = userProfileCache[decodedMatrixId] ?: appViewModel?.getMemberMap(roomId)?.get(decodedMatrixId)
-                
-                // Request profile if not found
-                if (profile == null && appViewModel != null) {
-                    appViewModel.requestUserProfile(decodedMatrixId)
+                when (type) {
+                    0 -> {
+                        // Handle Matrix user links
+                        val matrixId = match.groupValues[1] // The @user:server.com part
+                        val displayName = match.groupValues[2] // The display name
+                        
+                        // Decode URL-encoded Matrix ID
+                        val decodedMatrixId = matrixId.replace("%40", "@").replace("%3A", ":")
+                        
+                        // Get profile for the mentioned user
+                        val profile = userProfileCache[decodedMatrixId] ?: appViewModel?.getMemberMap(roomId)?.get(decodedMatrixId)
+                        
+                        // Request profile if not found
+                        if (profile == null && appViewModel != null) {
+                            appViewModel.requestUserProfile(decodedMatrixId)
+                        }
+                        
+                        // Create mention pill with the display name from the HTML
+                        pushStyle(
+                            SpanStyle(
+                                background = primaryContainer,
+                                color = onPrimaryContainer,
+                                fontWeight = FontWeight.Medium
+                            )
+                        )
+                        append(displayName)
+                        pop()
+                    }
+                    1 -> {
+                        // Handle img tags
+                        val src = match.groupValues[1]
+                        val alt = match.groupValues.getOrNull(2) ?: "image"
+                        
+                        // Check if it's an mxc:// URL
+                        if (src.startsWith("mxc://")) {
+                            // Create inline content for the image
+                            val placeholderId = "image_${imageCounter++}"
+                            val httpUrl = MediaUtils.mxcToHttpUrl(src, homeserverUrl, authToken)
+                            
+                            inlineContentMap[placeholderId] = InlineTextContent(
+                                placeholder = Placeholder(
+                                    width = 32.sp,
+                                    height = 32.sp,
+                                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+                                )
+                            ) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(httpUrl)
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = alt,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                            }
+                            
+                            // Insert placeholder character
+                            append("\uFFFC") // Object replacement character
+                            pushStringAnnotation(
+                                tag = "image",
+                                annotation = placeholderId
+                            )
+                            pop()
+                        } else {
+                            // For other images, just show placeholder
+                            append("[$alt]")
+                        }
+                    }
                 }
-                
-                // Create mention pill with the display name from the HTML
-                pushStyle(
-                    SpanStyle(
-                        background = primaryContainer,
-                        color = onPrimaryContainer,
-                        fontWeight = FontWeight.Medium
-                    )
-                )
-                append(displayName)
-                pop()
                 
                 currentIndex = endIndex
             }
@@ -2086,10 +2156,13 @@ private fun RichMessageText(
                 append(text.substring(currentIndex))
             }
         }
+        
+        Pair(annotatedString, inlineContentMap)
     }
     
     Text(
         text = annotatedText,
+        inlineContent = inlineContent,
         style = MaterialTheme.typography.bodyMedium,
         modifier = modifier
     )
