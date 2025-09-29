@@ -28,6 +28,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -166,7 +168,7 @@ fun RoomListScreen(
                     onClick = { navController.navigate("settings") }
                 ) {
                     Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Filled.Settings,
+                        imageVector = Icons.Filled.Settings,
                         contentDescription = "Settings"
                     )
                 }
