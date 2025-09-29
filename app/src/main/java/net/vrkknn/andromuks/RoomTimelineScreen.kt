@@ -58,10 +58,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.InlineTextContent
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
-import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import coil.request.ImageRequest
@@ -1087,6 +1087,7 @@ fun TimelineEventItem(
                                             authToken = authToken,
                                             appViewModel = appViewModel,
                                             roomId = event.roomId,
+                                            isEncrypted = false,
                                             modifier = Modifier
                                         )
                                         
@@ -1118,6 +1119,7 @@ fun TimelineEventItem(
                                         authToken = authToken,
                                         appViewModel = appViewModel,
                                         roomId = event.roomId,
+                                        isEncrypted = false,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                     )
                                     
@@ -1432,6 +1434,7 @@ fun TimelineEventItem(
                                                 authToken = authToken,
                                                 appViewModel = appViewModel,
                                                 roomId = event.roomId,
+                                                isEncrypted = true,
                                                 modifier = Modifier
                                             )
                                             
@@ -1463,6 +1466,7 @@ fun TimelineEventItem(
                                             authToken = authToken,
                                             appViewModel = appViewModel,
                                             roomId = event.roomId,
+                                            isEncrypted = true,
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                         )
                                         
@@ -1999,6 +2003,7 @@ private fun SmartMessageText(
     authToken: String,
     appViewModel: AppViewModel?,
     roomId: String,
+    isEncrypted: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (format == "org.matrix.custom.html") {
@@ -2010,6 +2015,7 @@ private fun SmartMessageText(
             authToken = authToken,
             appViewModel = appViewModel,
             roomId = roomId,
+            isEncrypted = isEncrypted,
             modifier = modifier
         )
     } else {
@@ -2035,6 +2041,7 @@ private fun RichMessageText(
     authToken: String,
     appViewModel: AppViewModel?,
     roomId: String,
+    isEncrypted: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     // Get MaterialTheme colors outside of remember block
@@ -2042,7 +2049,7 @@ private fun RichMessageText(
     val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
     
     // Parse HTML and convert to AnnotatedString with inline content
-    val (annotatedText, inlineContent) = remember(formattedBody, userProfileCache, primaryContainer, onPrimaryContainer) {
+    val (annotatedText, inlineContent) = remember(formattedBody, userProfileCache, primaryContainer, onPrimaryContainer, homeserverUrl, authToken, isEncrypted) {
         val inlineContentMap = mutableMapOf<String, InlineTextContent>()
         var imageCounter = 0
         
@@ -2115,35 +2122,51 @@ private fun RichMessageText(
                         if (src.startsWith("mxc://")) {
                             // Create inline content for the image
                             val placeholderId = "image_${imageCounter++}"
-                            val httpUrl = MediaUtils.mxcToHttpUrl(src, homeserverUrl, authToken)
                             
-                            inlineContentMap[placeholderId] = InlineTextContent(
-                                placeholder = Placeholder(
-                                    width = 32.sp,
-                                    height = 32.sp,
-                                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                                )
-                            ) {
-                                AsyncImage(
-                                    model = ImageRequest.Builder(LocalContext.current)
-                                        .data(httpUrl)
-                                        .crossfade(true)
-                                        .build(),
-                                    contentDescription = alt,
-                                    modifier = Modifier.size(32.dp)
-                                )
+                            // Convert MXC URL to HTTP URL using the same pattern as MediaMessage
+                            val httpUrl = MediaUtils.mxcToHttpUrl(src, homeserverUrl)
+                            
+                            // For encrypted media, add ?encrypted=true parameter (same as MediaMessage)
+                            val finalUrl = if (isEncrypted && httpUrl != null) {
+                                val encryptedUrl = "$httpUrl?encrypted=true"
+                                android.util.Log.d("Andromuks", "RichMessageText: Added encrypted=true to URL: $encryptedUrl")
+                                encryptedUrl
+                            } else {
+                                httpUrl
                             }
                             
-                            // Insert placeholder character
-                            append("\uFFFC") // Object replacement character
-                            pushStringAnnotation(
-                                tag = "image",
-                                annotation = placeholderId
-                            )
-                            pop()
+                            if (finalUrl != null) {
+                                inlineContentMap[placeholderId] = InlineTextContent(
+                                    placeholder = Placeholder(
+                                        width = 32.sp,
+                                        height = 32.sp,
+                                        placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+                                    )
+                                ) {
+                                    AsyncImage(
+                                        model = ImageRequest.Builder(LocalContext.current)
+                                            .data(finalUrl)
+                                            .crossfade(true)
+                                            .build(),
+                                        contentDescription = alt,
+                                        modifier = Modifier.size(32.dp)
+                                    )
+                                }
+                                
+                                // Insert placeholder character
+                                append("\uFFFC") // Object replacement character
+                                pushStringAnnotation(
+                                    tag = "image",
+                                    annotation = placeholderId
+                                )
+                                pop()
+                            } else {
+                                // Fallback to text if URL conversion fails
+                                append("[$alt]")
+                            }
                         } else {
                             // For other images, just show placeholder
-                            append("[$alt]")
+                            append("[image]")
                         }
                     }
                 }
