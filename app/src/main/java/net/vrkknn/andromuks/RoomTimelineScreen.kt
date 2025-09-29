@@ -828,6 +828,14 @@ fun TimelineEventItem(
                 }
             }
             
+            // Check if this message is being edited by another event (moved to main function scope)
+            val editedBy = timelineEvents.find { 
+                (it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
+                 it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") ||
+                (it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
+                 it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace")
+            }
+            
             when (event.type) {
                 "m.room.redaction" -> {
                     // Handle redaction events - these should not be displayed as regular messages
@@ -835,11 +843,6 @@ fun TimelineEventItem(
                     return
                 }
                 "m.room.message" -> {
-                    // Check if this message is being edited by another event (moved to higher scope)
-                    val editedBy = timelineEvents.find { 
-                        it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
-                        it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                    }
                     val content = event.content
                     val format = content?.optString("format", "")
                     val body = if (format == "org.matrix.custom.html") {
@@ -1141,11 +1144,6 @@ fun TimelineEventItem(
                     }
                 }
                 "m.room.encrypted" -> {
-                    // Check if this message is being edited by another event (moved to higher scope)
-                    val editedBy = timelineEvents.find { 
-                        it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
-                        it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                    }
                     val decryptedType = event.decryptedType
                     val decrypted = event.decrypted
                     if (decryptedType == "m.room.message") {

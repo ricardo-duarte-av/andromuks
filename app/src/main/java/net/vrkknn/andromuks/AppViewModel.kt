@@ -604,6 +604,7 @@ class AppViewModel : ViewModel() {
     private val roomSummaryRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val joinRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val leaveRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    private val outgoingRequests = mutableMapOf<Int, String>() // requestId -> roomId (for all outgoing requests)
     
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
@@ -689,6 +690,70 @@ class AppViewModel : ViewModel() {
         json.put("data", data)
         val payload = json.toString()
         android.util.Log.d("Andromuks", "AppViewModel: Sending get_profile: $payload")
+        ws.send(payload)
+    }
+    
+    // Track outgoing requests for timeline processing
+    fun trackOutgoingRequest(requestId: Int, roomId: String) {
+        outgoingRequests[requestId] = roomId
+        android.util.Log.d("Andromuks", "AppViewModel: Tracking outgoing request $requestId for room $roomId")
+    }
+    
+    // Send a message and track the response
+    fun sendMessage(roomId: String, text: String, mentions: List<String> = emptyList()) {
+        val ws = webSocket ?: return
+        val reqId = requestIdCounter++
+        
+        // Track this outgoing request
+        trackOutgoingRequest(reqId, roomId)
+        
+        val json = org.json.JSONObject()
+        json.put("command", "send_message")
+        json.put("request_id", reqId)
+        val data = org.json.JSONObject()
+        data.put("room_id", roomId)
+        data.put("text", text)
+        val mentionsObj = org.json.JSONObject()
+        val userIdsArray = org.json.JSONArray()
+        mentions.forEach { userIdsArray.put(it) }
+        mentionsObj.put("user_ids", userIdsArray)
+        mentionsObj.put("room", false)
+        data.put("mentions", mentionsObj)
+        data.put("url_previews", org.json.JSONArray())
+        json.put("data", data)
+        
+        val payload = json.toString()
+        android.util.Log.d("Andromuks", "AppViewModel: Sending message: $payload")
+        ws.send(payload)
+    }
+    
+    // Send a reaction and track the response
+    fun sendReaction(roomId: String, eventId: String, key: String) {
+        val ws = webSocket ?: return
+        val reqId = requestIdCounter++
+        
+        // Track this outgoing request
+        trackOutgoingRequest(reqId, roomId)
+        
+        val json = org.json.JSONObject()
+        json.put("command", "send_event")
+        json.put("request_id", reqId)
+        val data = org.json.JSONObject()
+        data.put("room_id", roomId)
+        data.put("type", "m.reaction")
+        val content = org.json.JSONObject()
+        val relatesTo = org.json.JSONObject()
+        relatesTo.put("rel_type", "m.annotation")
+        relatesTo.put("event_id", eventId)
+        relatesTo.put("key", key)
+        content.put("m.relates_to", relatesTo)
+        data.put("content", content)
+        data.put("disable_encryption", false)
+        data.put("synchronous", false)
+        json.put("data", data)
+        
+        val payload = json.toString()
+        android.util.Log.d("Andromuks", "AppViewModel: Sending reaction: $payload")
         ws.send(payload)
     }
     
@@ -779,6 +844,8 @@ class AppViewModel : ViewModel() {
             handleJoinRoomResponse(requestId, data)
         } else if (leaveRoomRequests.containsKey(requestId)) {
             handleLeaveRoomResponse(requestId, data)
+        } else if (outgoingRequests.containsKey(requestId)) {
+            handleOutgoingRequestResponse(requestId, data)
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: Unknown response requestId=$requestId")
         }
@@ -800,6 +867,9 @@ class AppViewModel : ViewModel() {
         } else if (leaveRoomRequests.containsKey(requestId)) {
             android.util.Log.w("Andromuks", "AppViewModel: Leave room error for requestId=$requestId: $errorMessage")
             leaveRoomRequests.remove(requestId)
+        } else if (outgoingRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Outgoing request error for requestId=$requestId: $errorMessage")
+            outgoingRequests.remove(requestId)
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
@@ -847,6 +917,30 @@ class AppViewModel : ViewModel() {
         
         // Trigger UI update since member cache changed
         updateCounter++
+    }
+    
+    private fun handleOutgoingRequestResponse(requestId: Int, data: Any) {
+        val roomId = outgoingRequests.remove(requestId)
+        if (roomId != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Processing outgoing request response for room $roomId")
+            
+            // Parse the response as a timeline event
+            try {
+                val obj = data as? JSONObject ?: return
+                val event = TimelineEvent.fromJson(obj)
+                android.util.Log.d("Andromuks", "AppViewModel: Created timeline event: ${event.eventId}")
+                
+                // Add the event to the timeline if it's for the current room
+                if (event.roomId == currentRoomId) {
+                    val currentEvents = timelineEvents.toMutableList()
+                    currentEvents.add(event)
+                    timelineEvents = currentEvents.sortedBy { it.timestamp }
+                    android.util.Log.d("Andromuks", "AppViewModel: Added outgoing event to timeline, total events: ${timelineEvents.size}")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Error parsing outgoing request response", e)
+            }
+        }
     }
     
     fun handleTimelineResponse(requestId: Int, data: Any) {
