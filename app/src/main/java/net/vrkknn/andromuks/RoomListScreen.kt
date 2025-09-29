@@ -160,6 +160,16 @@ fun RoomListScreen(
                         )
                     }
                 }
+                
+                // Settings button
+                IconButton(
+                    onClick = { navController.navigate("settings") }
+                ) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Filled.Settings,
+                        contentDescription = "Settings"
+                    )
+                }
             }
             
             // Search box with rounded look and trailing search icon

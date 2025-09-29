@@ -120,9 +120,35 @@ fun RoomTimelineScreen(
         map
     }
 
-    // Sort events so newer messages are at the bottom
-    val sortedEvents = remember(timelineEvents) {
-        timelineEvents.sortedBy { it.timestamp }
+    // Define unprocessed event types
+    val unprocessedEventTypes = setOf(
+        "m.room.create",
+        "m.room.join_rules", 
+        "m.room.history_visibility",
+        "m.room.guest_access",
+        "m.room.encryption"
+    )
+    
+    // Sort events so newer messages are at the bottom, and filter unprocessed events if setting is disabled
+    val sortedEvents = remember(timelineEvents, appViewModel.showUnprocessedEvents) {
+        val filteredEvents = if (appViewModel.showUnprocessedEvents) {
+            timelineEvents
+        } else {
+            timelineEvents.filter { event ->
+                // Keep events that are processed or not in the unprocessed list
+                when (event.type) {
+                    "m.room.message" -> true
+                    "m.room.encrypted" -> true
+                    "m.room.member" -> true
+                    "m.room.name" -> true
+                    "m.room.topic" -> true
+                    "m.room.avatar" -> true
+                    "m.reaction" -> true
+                    else -> !unprocessedEventTypes.contains(event.type)
+                }
+            }
+        }
+        filteredEvents.sortedBy { it.timestamp }
     }
 
     // List state and auto-scroll to bottom when data loads/changes

@@ -44,6 +44,10 @@ class AppViewModel : ViewModel() {
     var currentUserProfile by mutableStateOf<UserProfile?>(null)
         private set
 
+    // Settings
+    var showUnprocessedEvents by mutableStateOf(true)
+        private set
+
     // List of spaces, each with their rooms
     var spaceList by mutableStateOf(listOf<SpaceItem>())
         private set
@@ -1395,5 +1399,10 @@ class AppViewModel : ViewModel() {
         val jsonString = json.toString()
         android.util.Log.d("Andromuks", "AppViewModel: Sending command: $jsonString")
         ws.send(jsonString)
+    }
+
+    // Settings functions
+    fun toggleShowUnprocessedEvents() {
+        showUnprocessedEvents = !showUnprocessedEvents
     }
 }
