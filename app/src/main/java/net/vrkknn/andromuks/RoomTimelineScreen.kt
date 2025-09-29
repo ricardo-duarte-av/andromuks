@@ -1023,7 +1023,13 @@ fun TimelineEventItem(
                             }
                             
                             // For encrypted messages, URL might be in file.url
-                            val url = decrypted?.optString("url", "") ?: decrypted?.optJSONObject("file")?.optString("url", "") ?: ""
+                            val directUrl = decrypted?.optString("url", "")
+                            val fileObj = decrypted?.optJSONObject("file")
+                            val fileUrl = fileObj?.optString("url", "")
+                            val url = directUrl.takeIf { it.isNotBlank() } ?: fileUrl
+                            
+                            Log.d("Andromuks", "TimelineEventItem: URL extraction - directUrl='$directUrl', fileObj=${fileObj != null}, fileUrl='$fileUrl', finalUrl='$url'")
+                            
                             val filename = decrypted?.optString("filename", "") ?: ""
                             val info = decrypted?.optJSONObject("info")
                             
