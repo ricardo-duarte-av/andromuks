@@ -1008,10 +1008,14 @@ fun TimelineEventItem(
                                         )
                                         
                                         // Reply message content (directly in the outer bubble, no separate bubble)
-                                        Text(
+                                        MessageTextWithMentions(
                                             text = body,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = textColor
+                                            userProfileCache = userProfileCache,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                            appViewModel = appViewModel,
+                                            roomId = event.roomId,
+                                            modifier = Modifier
                                         )
                                     }
                                 }
@@ -1023,10 +1027,13 @@ fun TimelineEventItem(
                                     shape = bubbleShape,
                                     tonalElevation = 2.dp
                                 ) {
-                                    Text(
+                                    MessageTextWithMentions(
                                         text = body,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = textColor,
+                                        userProfileCache = userProfileCache,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        appViewModel = appViewModel,
+                                        roomId = event.roomId,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                     )
                                 }
@@ -1274,10 +1281,14 @@ fun TimelineEventItem(
                                             )
                                             
                                             // Reply message content (directly in the outer bubble, no separate bubble)
-                                            Text(
+                                            MessageTextWithMentions(
                                                 text = body,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = textColor
+                                                userProfileCache = userProfileCache,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                appViewModel = appViewModel,
+                                                roomId = event.roomId,
+                                                modifier = Modifier
                                             )
                                         }
                                     }
@@ -1289,10 +1300,13 @@ fun TimelineEventItem(
                                         shape = bubbleShape,
                                         tonalElevation = 2.dp
                                     ) {
-                                        Text(
+                                        MessageTextWithMentions(
                                             text = body,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = textColor,
+                                            userProfileCache = userProfileCache,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                            appViewModel = appViewModel,
+                                            roomId = event.roomId,
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                         )
                                     }
@@ -1733,4 +1747,78 @@ private fun NarratorText(
         fontStyle = FontStyle.Italic,
         modifier = modifier
     )
+}
+
+@Composable
+private fun MessageTextWithMentions(
+    text: String,
+    userProfileCache: Map<String, MemberProfile>,
+    homeserverUrl: String,
+    authToken: String,
+    appViewModel: AppViewModel?,
+    roomId: String,
+    modifier: Modifier = Modifier
+) {
+    // Regex to find Matrix user IDs (@user:server.com)
+    val matrixIdRegex = Regex("@([^:]+):([^\\s]+)")
+    val matches = matrixIdRegex.findAll(text)
+    
+    if (matches.none()) {
+        // No Matrix IDs found, render as plain text
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = modifier
+        )
+    } else {
+        // Build annotated string with mentions
+        val annotatedText = buildAnnotatedString {
+            var lastIndex = 0
+            
+            matches.forEach { match ->
+                val fullMatch = match.value
+                val userId = fullMatch
+                val startIndex = match.range.first
+                val endIndex = match.range.last + 1
+                
+                // Add text before the mention
+                if (startIndex > lastIndex) {
+                    append(text.substring(lastIndex, startIndex))
+                }
+                
+                // Get profile for the mentioned user
+                val profile = userProfileCache[userId] ?: appViewModel?.getMemberMap(roomId)?.get(userId)
+                val displayName = profile?.displayName
+                
+                // Request profile if not found
+                if (profile == null && appViewModel != null) {
+                    appViewModel.requestUserProfile(userId)
+                }
+                
+                // Create mention pill
+                pushStyle(
+                    SpanStyle(
+                        background = MaterialTheme.colorScheme.primaryContainer,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
+                append(displayName ?: userId.substringAfter("@").substringBefore(":"))
+                pop()
+                
+                lastIndex = endIndex
+            }
+            
+            // Add remaining text
+            if (lastIndex < text.length) {
+                append(text.substring(lastIndex))
+            }
+        }
+        
+        Text(
+            text = annotatedText,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = modifier
+        )
+    }
 }
