@@ -825,6 +825,11 @@ fun TimelineEventItem(
             }
             
             when (event.type) {
+                "m.room.redaction" -> {
+                    // Handle redaction events - these should not be displayed as regular messages
+                    // The redaction logic will be handled by modifying the original message
+                    return
+                }
                 "m.room.message" -> {
                     val content = event.content
                     val format = content?.optString("format", "")
@@ -834,6 +839,46 @@ fun TimelineEventItem(
                         content?.optString("body", "") ?: ""
                     }
                     val msgType = content?.optString("msgtype", "") ?: ""
+                    
+                    // Check if this message has been redacted
+                    val isRedacted = event.redactedBy != null
+                    val redactionReason = if (isRedacted) {
+                        // Find the redaction event to get the reason
+                        timelineEvents.find { it.eventId == event.redactedBy }?.content?.optString("reason", "")
+                    } else null
+                    
+                    // Check if this is an edit (m.replace relationship)
+                    val isEdit = content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    val editContent = if (isEdit) {
+                        content?.optJSONObject("m.new_content")
+                    } else null
+                    
+                    // Check if this message is being edited by another event
+                    val editedBy = timelineEvents.find { 
+                        it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
+                        it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    }
+                    
+                    // Use edit content if this message is being edited
+                    val finalBody = if (editedBy != null && editedBy.decrypted != null) {
+                        val newContent = editedBy.decrypted?.optJSONObject("m.new_content")
+                        val editFormat = newContent?.optString("format", "")
+                        if (editFormat == "org.matrix.custom.html") {
+                            newContent?.optString("formatted_body", "") ?: ""
+                        } else {
+                            newContent?.optString("body", "") ?: ""
+                        }
+                    } else if (editedBy != null && editedBy.content != null) {
+                        val newContent = editedBy.content?.optJSONObject("m.new_content")
+                        val editFormat = newContent?.optString("format", "")
+                        if (editFormat == "org.matrix.custom.html") {
+                            newContent?.optString("formatted_body", "") ?: ""
+                        } else {
+                            newContent?.optString("body", "") ?: ""
+                        }
+                    } else {
+                        body
+                    }
                     
                     // Check if this is a reply message
                     val replyInfo = event.getReplyInfo()
@@ -1015,7 +1060,7 @@ fun TimelineEventItem(
                                         
                                         // Reply message content (directly in the outer bubble, no separate bubble)
                                         SmartMessageText(
-                                            body = body,
+                                            body = finalBody,
                                             format = format,
                                             userProfileCache = userProfileCache,
                                             homeserverUrl = homeserverUrl,
@@ -1024,6 +1069,25 @@ fun TimelineEventItem(
                                             roomId = event.roomId,
                                             modifier = Modifier
                                         )
+                                        
+                                        // Show redaction/edit indicators for reply
+                                        if (isRedacted) {
+                                            Text(
+                                                text = "Removed by ${displayName ?: event.sender}${redactionReason?.let { " for $it" } ?: ""}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontStyle = FontStyle.Italic,
+                                                modifier = Modifier.padding(top = 4.dp)
+                                            )
+                                        } else if (editedBy != null) {
+                                            Text(
+                                                text = "Edited by ${editedBy.sender}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontStyle = FontStyle.Italic,
+                                                modifier = Modifier.padding(top = 4.dp)
+                                            )
+                                        }
                                     }
                                 }
                             } else {
@@ -1035,7 +1099,7 @@ fun TimelineEventItem(
                                     tonalElevation = 2.dp
                                 ) {
                                     SmartMessageText(
-                                        body = body,
+                                        body = finalBody,
                                         format = format,
                                         userProfileCache = userProfileCache,
                                         homeserverUrl = homeserverUrl,
@@ -1044,6 +1108,25 @@ fun TimelineEventItem(
                                         roomId = event.roomId,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                     )
+                                    
+                                    // Show redaction/edit indicators
+                                    if (isRedacted) {
+                                        Text(
+                                            text = "Removed by ${displayName ?: event.sender}${redactionReason?.let { " for $it" } ?: ""}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontStyle = FontStyle.Italic,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                        )
+                                    } else if (editedBy != null) {
+                                        Text(
+                                            text = "Edited by ${editedBy.sender}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontStyle = FontStyle.Italic,
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -1078,6 +1161,46 @@ fun TimelineEventItem(
                             decrypted?.optString("body", "") ?: ""
                         }
                         val msgType = decrypted?.optString("msgtype", "") ?: ""
+                        
+                        // Check if this message has been redacted
+                        val isRedacted = event.redactedBy != null
+                        val redactionReason = if (isRedacted) {
+                            // Find the redaction event to get the reason
+                            timelineEvents.find { it.eventId == event.redactedBy }?.content?.optString("reason", "")
+                        } else null
+                        
+                        // Check if this is an edit (m.replace relationship)
+                        val isEdit = decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                        val editContent = if (isEdit) {
+                            decrypted?.optJSONObject("m.new_content")
+                        } else null
+                        
+                        // Check if this message is being edited by another event
+                        val editedBy = timelineEvents.find { 
+                            it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
+                            it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                        }
+                        
+                        // Use edit content if this message is being edited
+                        val finalBody = if (editedBy != null && editedBy.decrypted != null) {
+                            val newContent = editedBy.decrypted?.optJSONObject("m.new_content")
+                            val editFormat = newContent?.optString("format", "")
+                            if (editFormat == "org.matrix.custom.html") {
+                                newContent?.optString("formatted_body", "") ?: ""
+                            } else {
+                                newContent?.optString("body", "") ?: ""
+                            }
+                        } else if (editedBy != null && editedBy.content != null) {
+                            val newContent = editedBy.content?.optJSONObject("m.new_content")
+                            val editFormat = newContent?.optString("format", "")
+                            if (editFormat == "org.matrix.custom.html") {
+                                newContent?.optString("formatted_body", "") ?: ""
+                            } else {
+                                newContent?.optString("body", "") ?: ""
+                            }
+                        } else {
+                            body
+                        }
                         
                         // Check if this is a reply message
                         val replyInfo = event.getReplyInfo()
@@ -1295,7 +1418,7 @@ fun TimelineEventItem(
                                             
                                             // Reply message content (directly in the outer bubble, no separate bubble)
                                             SmartMessageText(
-                                                body = body,
+                                                body = finalBody,
                                                 format = format,
                                                 userProfileCache = userProfileCache,
                                                 homeserverUrl = homeserverUrl,
@@ -1304,6 +1427,25 @@ fun TimelineEventItem(
                                                 roomId = event.roomId,
                                                 modifier = Modifier
                                             )
+                                            
+                                            // Show redaction/edit indicators for encrypted reply
+                                            if (isRedacted) {
+                                                Text(
+                                                    text = "Removed by ${displayName ?: event.sender}${redactionReason?.let { " for $it" } ?: ""}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    fontStyle = FontStyle.Italic,
+                                                    modifier = Modifier.padding(top = 4.dp)
+                                                )
+                                            } else if (editedBy != null) {
+                                                Text(
+                                                    text = "Edited by ${editedBy.sender}",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    fontStyle = FontStyle.Italic,
+                                                    modifier = Modifier.padding(top = 4.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 } else {
@@ -1315,7 +1457,7 @@ fun TimelineEventItem(
                                         tonalElevation = 2.dp
                                     ) {
                                         SmartMessageText(
-                                            body = body,
+                                            body = finalBody,
                                             format = format,
                                             userProfileCache = userProfileCache,
                                             homeserverUrl = homeserverUrl,
@@ -1324,6 +1466,25 @@ fun TimelineEventItem(
                                             roomId = event.roomId,
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                         )
+                                        
+                                        // Show redaction/edit indicators for encrypted message
+                                        if (isRedacted) {
+                                            Text(
+                                                text = "Removed by ${displayName ?: event.sender}${redactionReason?.let { " for $it" } ?: ""}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontStyle = FontStyle.Italic,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                            )
+                                        } else if (editedBy != null) {
+                                            Text(
+                                                text = "Edited by ${editedBy.sender}",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontStyle = FontStyle.Italic,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
