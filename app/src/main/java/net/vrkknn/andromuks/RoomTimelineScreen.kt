@@ -1528,21 +1528,53 @@ private fun SystemEventNarrator(
                 
                 when (membership) {
                     "join" -> {
-                        NarratorText(
-                            text = buildAnnotatedString {
-                                withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                    append(displayName)
-                                }
-                                append(" joined the room")
-                                if (!reason.isNullOrBlank()) {
-                                    append(" (")
-                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                        append(reason)
-                                    }
-                                    append(")")
-                                }
+                        // Check if this is a profile change vs actual join
+                        val unsigned = event.unsigned
+                        val prevContent = unsigned?.optJSONObject("prev_content")
+                        val prevDisplayName = prevContent?.optString("displayname")
+                        val prevAvatarUrl = prevContent?.optString("avatar_url")
+                        val currentDisplayName = content?.optString("displayname")
+                        val currentAvatarUrl = content?.optString("avatar_url")
+                        
+                        val isProfileChange = prevContent != null && 
+                            (prevDisplayName != currentDisplayName || prevAvatarUrl != currentAvatarUrl)
+                        
+                        if (isProfileChange) {
+                            // Profile change
+                            val changes = mutableListOf<String>()
+                            if (prevDisplayName != currentDisplayName) {
+                                changes.add("name to \"$currentDisplayName\"")
                             }
-                        )
+                            if (prevAvatarUrl != currentAvatarUrl) {
+                                changes.add("avatar")
+                            }
+                            
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" changed their ${changes.joinToString(" and ")}")
+                                }
+                            )
+                        } else {
+                            // Actual join
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" joined the room")
+                                    if (!reason.isNullOrBlank()) {
+                                        append(" (")
+                                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                            append(reason)
+                                        }
+                                        append(")")
+                                    }
+                                }
+                            )
+                        }
                     }
                     "leave" -> {
                         NarratorText(
@@ -1576,15 +1608,6 @@ private fun SystemEventNarrator(
                                         append(displayName)
                                     }
                                     append(" invited ")
-                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                        append(invitedDisplayName)
-                                    }
-                                    if (!reason.isNullOrBlank()) {
-                                        append(" for ")
-                                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                            append(reason)
-                                        }
-                                    }
                                 }
                             )
                             
@@ -1595,6 +1618,20 @@ private fun SystemEventNarrator(
                                 authToken = authToken,
                                 fallbackText = invitedDisplayName,
                                 size = 16.dp
+                            )
+                            
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                        append(invitedDisplayName)
+                                    }
+                                    if (!reason.isNullOrBlank()) {
+                                        append(" for ")
+                                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
+                                            append(reason)
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
