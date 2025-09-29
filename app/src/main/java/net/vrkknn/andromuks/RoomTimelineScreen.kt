@@ -737,6 +737,22 @@ fun TimelineEventItem(
     val profile = userProfileCache[event.sender]
     val displayName = profile?.displayName
     val avatarUrl = profile?.avatarUrl
+    
+    // Check if this is a narrator event (system event)
+    val isNarratorEvent = event.type in setOf("m.room.member", "m.room.name", "m.room.topic", "m.room.avatar")
+    
+    if (isNarratorEvent) {
+        // For narrator events, show only the small narrator content
+        SystemEventNarrator(
+            event = event,
+            displayName = displayName ?: event.sender,
+            avatarUrl = avatarUrl,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken
+        )
+        return
+    }
+    
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -1307,42 +1323,6 @@ fun TimelineEventItem(
                         )
                     }
                 }
-                "m.room.member" -> {
-                    SystemEventNarrator(
-                        event = event,
-                        displayName = displayName ?: event.sender,
-                        avatarUrl = avatarUrl,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken
-                    )
-                }
-                "m.room.name" -> {
-                    SystemEventNarrator(
-                        event = event,
-                        displayName = displayName ?: event.sender,
-                        avatarUrl = avatarUrl,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken
-                    )
-                }
-                "m.room.topic" -> {
-                    SystemEventNarrator(
-                        event = event,
-                        displayName = displayName ?: event.sender,
-                        avatarUrl = avatarUrl,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken
-                    )
-                }
-                "m.room.avatar" -> {
-                    SystemEventNarrator(
-                        event = event,
-                        displayName = displayName ?: event.sender,
-                        avatarUrl = avatarUrl,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken
-                    )
-                }
                 "m.reaction" -> {
                     // Reactions are handled as badges below messages, not as separate timeline items
                     // This case should rarely be hit since reactions are usually processed differently
@@ -1522,16 +1502,22 @@ private fun SystemEventNarrator(
             .fillMaxWidth()
             .padding(vertical = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        // Small avatar for the actor
-        AvatarImage(
-            mxcUrl = avatarUrl,
-            homeserverUrl = homeserverUrl,
-            authToken = authToken,
-            fallbackText = displayName,
-            size = 20.dp
-        )
+        // Left side - centered content
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            // Small avatar for the actor
+            AvatarImage(
+                mxcUrl = avatarUrl,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                fallbackText = displayName,
+                size = 20.dp
+            )
         
         // Narrator text
         when (eventType) {
@@ -1594,11 +1580,10 @@ private fun SystemEventNarrator(
                                         append(invitedDisplayName)
                                     }
                                     if (!reason.isNullOrBlank()) {
-                                        append(" (")
+                                        append(" for ")
                                         withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
                                             append(reason)
                                         }
-                                        append(")")
                                     }
                                 }
                             )
@@ -1674,9 +1659,9 @@ private fun SystemEventNarrator(
                 )
             }
         }
+        }
         
         // Time on the right
-        Spacer(modifier = Modifier.weight(1f))
         Text(
             text = formatTimestamp(event.timestamp),
             style = MaterialTheme.typography.labelSmall,
