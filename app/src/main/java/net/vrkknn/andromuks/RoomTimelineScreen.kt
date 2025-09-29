@@ -835,6 +835,11 @@ fun TimelineEventItem(
                     return
                 }
                 "m.room.message" -> {
+                    // Check if this message is being edited by another event (moved to higher scope)
+                    val editedBy = timelineEvents.find { 
+                        it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
+                        it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    }
                     val content = event.content
                     val format = content?.optString("format", "")
                     val body = if (format == "org.matrix.custom.html") {
@@ -857,11 +862,6 @@ fun TimelineEventItem(
                         content?.optJSONObject("m.new_content")
                     } else null
                     
-                    // Check if this message is being edited by another event
-                    val editedBy = timelineEvents.find { 
-                        it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
-                        it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                    }
                     
                     // Use edit content if this message is being edited, or hide content if redacted
                     val finalBody = if (isRedacted) {
@@ -1141,6 +1141,11 @@ fun TimelineEventItem(
                     }
                 }
                 "m.room.encrypted" -> {
+                    // Check if this message is being edited by another event (moved to higher scope)
+                    val editedBy = timelineEvents.find { 
+                        it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
+                        it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    }
                     val decryptedType = event.decryptedType
                     val decrypted = event.decrypted
                     if (decryptedType == "m.room.message") {
@@ -1165,11 +1170,6 @@ fun TimelineEventItem(
                             decrypted?.optJSONObject("m.new_content")
                         } else null
                         
-                        // Check if this message is being edited by another event
-                        val editedBy = timelineEvents.find { 
-                            it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
-                            it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                        }
                         
                         // Use edit content if this message is being edited, or hide content if redacted
                         val finalBody = if (isRedacted) {
