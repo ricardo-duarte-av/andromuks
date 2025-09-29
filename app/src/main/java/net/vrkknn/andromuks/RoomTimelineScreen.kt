@@ -309,10 +309,10 @@ fun RoomTimelineScreen(
                             }   
                         }
                     }
-                }
-            }
         }
     }
+}
+    
 
 @Composable
 private fun TypingNotificationArea(
