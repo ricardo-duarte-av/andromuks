@@ -843,6 +843,11 @@ fun TimelineEventItem(
                     return
                 }
                 "m.room.message" -> {
+                    // Check if this is an edit event (m.replace relationship) - don't display edit events
+                    val isEditEvent = event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    if (isEditEvent) {
+                        return // Don't display edit events as separate timeline items
+                    }
                     val content = event.content
                     val format = content?.optString("format", "")
                     val body = if (format == "org.matrix.custom.html") {
@@ -1144,6 +1149,12 @@ fun TimelineEventItem(
                     }
                 }
                 "m.room.encrypted" -> {
+                    // Check if this is an edit event (m.replace relationship) - don't display edit events
+                    val isEditEvent = event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    if (isEditEvent) {
+                        return // Don't display edit events as separate timeline items
+                    }
+                    
                     val decryptedType = event.decryptedType
                     val decrypted = event.decrypted
                     if (decryptedType == "m.room.message") {

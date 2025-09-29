@@ -704,6 +704,8 @@ class AppViewModel : ViewModel() {
         val ws = webSocket ?: return
         val reqId = requestIdCounter++
         
+        android.util.Log.d("Andromuks", "AppViewModel: sendMessage called with roomId=$roomId, text='$text', reqId=$reqId")
+        
         // Track this outgoing request
         trackOutgoingRequest(reqId, roomId)
         
@@ -826,6 +828,9 @@ class AppViewModel : ViewModel() {
     }
 
     fun handleResponse(requestId: Int, data: Any) {
+        android.util.Log.d("Andromuks", "AppViewModel: handleResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
+        android.util.Log.d("Andromuks", "AppViewModel: outgoingRequests contains $requestId: ${outgoingRequests.containsKey(requestId)}")
+        
         if (profileRequests.containsKey(requestId)) {
             handleProfileResponse(requestId, data)
         } else if (timelineRequests.containsKey(requestId)) {
@@ -845,6 +850,7 @@ class AppViewModel : ViewModel() {
         } else if (leaveRoomRequests.containsKey(requestId)) {
             handleLeaveRoomResponse(requestId, data)
         } else if (outgoingRequests.containsKey(requestId)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Routing to handleOutgoingRequestResponse")
             handleOutgoingRequestResponse(requestId, data)
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: Unknown response requestId=$requestId")
@@ -920,15 +926,17 @@ class AppViewModel : ViewModel() {
     }
     
     private fun handleOutgoingRequestResponse(requestId: Int, data: Any) {
+        android.util.Log.d("Andromuks", "AppViewModel: handleOutgoingRequestResponse called with requestId=$requestId")
         val roomId = outgoingRequests.remove(requestId)
         if (roomId != null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Processing outgoing request response for room $roomId")
+            android.util.Log.d("Andromuks", "AppViewModel: Processing outgoing request response for room $roomId, currentRoomId=$currentRoomId")
             
             // Parse the response as a timeline event
             try {
                 val obj = data as? JSONObject ?: return
+                android.util.Log.d("Andromuks", "AppViewModel: Response data: ${obj.toString()}")
                 val event = TimelineEvent.fromJson(obj)
-                android.util.Log.d("Andromuks", "AppViewModel: Created timeline event: ${event.eventId}")
+                android.util.Log.d("Andromuks", "AppViewModel: Created timeline event: ${event.eventId}, eventRoomId=${event.roomId}")
                 
                 // Add the event to the timeline if it's for the current room
                 if (event.roomId == currentRoomId) {
@@ -936,10 +944,14 @@ class AppViewModel : ViewModel() {
                     currentEvents.add(event)
                     timelineEvents = currentEvents.sortedBy { it.timestamp }
                     android.util.Log.d("Andromuks", "AppViewModel: Added outgoing event to timeline, total events: ${timelineEvents.size}")
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: Event roomId (${event.roomId}) doesn't match currentRoomId ($currentRoomId), not adding to timeline")
                 }
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Error parsing outgoing request response", e)
             }
+        } else {
+            android.util.Log.w("Andromuks", "AppViewModel: No roomId found for outgoing request $requestId")
         }
     }
     
