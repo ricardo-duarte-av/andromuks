@@ -1884,8 +1884,12 @@ private fun RichMessageText(
     roomId: String,
     modifier: Modifier = Modifier
 ) {
+    // Get MaterialTheme colors outside of remember block
+    val primaryContainer = MaterialTheme.colorScheme.primaryContainer
+    val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
+    
     // Parse HTML and convert to AnnotatedString
-    val annotatedText = remember(formattedBody, userProfileCache) {
+    val annotatedText = remember(formattedBody, userProfileCache, primaryContainer, onPrimaryContainer) {
         buildAnnotatedString {
             var currentIndex = 0
             val text = formattedBody
@@ -1920,8 +1924,8 @@ private fun RichMessageText(
                 // Create mention pill with the display name from the HTML
                 pushStyle(
                     SpanStyle(
-                        background = MaterialTheme.colorScheme.primaryContainer,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        background = primaryContainer,
+                        color = onPrimaryContainer,
                         fontWeight = FontWeight.Medium
                     )
                 )
