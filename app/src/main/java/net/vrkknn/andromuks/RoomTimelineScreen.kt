@@ -120,32 +120,26 @@ fun RoomTimelineScreen(
         map
     }
 
-    // Define unprocessed event types
-    val unprocessedEventTypes = setOf(
-        "m.room.create",
-        "m.room.join_rules", 
-        "m.room.history_visibility",
-        "m.room.guest_access",
-        "m.room.encryption"
+    // Define allowed event types (whitelist approach)
+    val allowedEventTypes = setOf(
+        "m.room.message",
+        "m.room.encrypted", 
+        "m.room.member",
+        "m.room.name",
+        "m.room.topic",
+        "m.room.avatar",
+        "m.reaction"
     )
     
     // Sort events so newer messages are at the bottom, and filter unprocessed events if setting is disabled
     val sortedEvents = remember(timelineEvents, appViewModel.showUnprocessedEvents) {
         val filteredEvents = if (appViewModel.showUnprocessedEvents) {
+            // Show all events when unprocessed events are enabled
             timelineEvents
         } else {
+            // Only show allowed events when unprocessed events are disabled
             timelineEvents.filter { event ->
-                // Keep events that are processed or not in the unprocessed list
-                when (event.type) {
-                    "m.room.message" -> true
-                    "m.room.encrypted" -> true
-                    "m.room.member" -> true
-                    "m.room.name" -> true
-                    "m.room.topic" -> true
-                    "m.room.avatar" -> true
-                    "m.reaction" -> true
-                    else -> !unprocessedEventTypes.contains(event.type)
-                }
+                allowedEventTypes.contains(event.type)
             }
         }
         filteredEvents.sortedBy { it.timestamp }
