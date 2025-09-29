@@ -52,6 +52,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.remember
@@ -826,7 +827,12 @@ fun TimelineEventItem(
             when (event.type) {
                 "m.room.message" -> {
                     val content = event.content
-                    val body = content?.optString("body", "") ?: ""
+                    val format = content?.optString("format", "")
+                    val body = if (format == "org.matrix.custom.html") {
+                        content?.optString("formatted_body", "") ?: ""
+                    } else {
+                        content?.optString("body", "") ?: ""
+                    }
                     val msgType = content?.optString("msgtype", "") ?: ""
                     
                     // Check if this is a reply message
@@ -1008,8 +1014,9 @@ fun TimelineEventItem(
                                         )
                                         
                                         // Reply message content (directly in the outer bubble, no separate bubble)
-                                        MessageTextWithMentions(
-                                            text = body,
+                                        SmartMessageText(
+                                            body = body,
+                                            format = format,
                                             userProfileCache = userProfileCache,
                                             homeserverUrl = homeserverUrl,
                                             authToken = authToken,
@@ -1027,8 +1034,9 @@ fun TimelineEventItem(
                                     shape = bubbleShape,
                                     tonalElevation = 2.dp
                                 ) {
-                                    MessageTextWithMentions(
-                                        text = body,
+                                    SmartMessageText(
+                                        body = body,
+                                        format = format,
                                         userProfileCache = userProfileCache,
                                         homeserverUrl = homeserverUrl,
                                         authToken = authToken,
@@ -1063,7 +1071,12 @@ fun TimelineEventItem(
                     val decryptedType = event.decryptedType
                     val decrypted = event.decrypted
                     if (decryptedType == "m.room.message") {
-                        val body = decrypted?.optString("body", "") ?: ""
+                        val format = decrypted?.optString("format", "")
+                        val body = if (format == "org.matrix.custom.html") {
+                            decrypted?.optString("formatted_body", "") ?: ""
+                        } else {
+                            decrypted?.optString("body", "") ?: ""
+                        }
                         val msgType = decrypted?.optString("msgtype", "") ?: ""
                         
                         // Check if this is a reply message
@@ -1281,8 +1294,9 @@ fun TimelineEventItem(
                                             )
                                             
                                             // Reply message content (directly in the outer bubble, no separate bubble)
-                                            MessageTextWithMentions(
-                                                text = body,
+                                            SmartMessageText(
+                                                body = body,
+                                                format = format,
                                                 userProfileCache = userProfileCache,
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
@@ -1300,8 +1314,9 @@ fun TimelineEventItem(
                                         shape = bubbleShape,
                                         tonalElevation = 2.dp
                                     ) {
-                                        MessageTextWithMentions(
-                                            text = body,
+                                        SmartMessageText(
+                                            body = body,
+                                            format = format,
                                             userProfileCache = userProfileCache,
                                             homeserverUrl = homeserverUrl,
                                             authToken = authToken,
@@ -1820,5 +1835,126 @@ private fun MessageTextWithMentions(
             style = MaterialTheme.typography.bodyMedium,
             modifier = modifier
         )
+    }
+}
+
+@Composable
+private fun SmartMessageText(
+    body: String,
+    format: String,
+    userProfileCache: Map<String, MemberProfile>,
+    homeserverUrl: String,
+    authToken: String,
+    appViewModel: AppViewModel?,
+    roomId: String,
+    modifier: Modifier = Modifier
+) {
+    if (format == "org.matrix.custom.html") {
+        // Use rich text renderer for HTML messages
+        RichMessageText(
+            formattedBody = body,
+            userProfileCache = userProfileCache,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            appViewModel = appViewModel,
+            roomId = roomId,
+            modifier = modifier
+        )
+    } else {
+        // Use plain text renderer with mention detection for regular messages
+        MessageTextWithMentions(
+            text = body,
+            userProfileCache = userProfileCache,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            appViewModel = appViewModel,
+            roomId = roomId,
+            modifier = modifier
+        )
+    }
+}
+
+@Composable
+private fun RichMessageText(
+    formattedBody: String,
+    userProfileCache: Map<String, MemberProfile>,
+    homeserverUrl: String,
+    authToken: String,
+    appViewModel: AppViewModel?,
+    roomId: String,
+    modifier: Modifier = Modifier
+) {
+    // Parse HTML and convert to AnnotatedString
+    val annotatedText = remember(formattedBody, userProfileCache) {
+        parseHtmlToAnnotatedString(
+            html = formattedBody,
+            userProfileCache = userProfileCache,
+            appViewModel = appViewModel,
+            roomId = roomId
+        )
+    }
+    
+    Text(
+        text = annotatedText,
+        style = MaterialTheme.typography.bodyMedium,
+        modifier = modifier
+    )
+}
+
+private fun parseHtmlToAnnotatedString(
+    html: String,
+    userProfileCache: Map<String, MemberProfile>,
+    appViewModel: AppViewModel?,
+    roomId: String
+): AnnotatedString {
+    return buildAnnotatedString {
+        var currentIndex = 0
+        val text = html
+        
+        // Regex to find Matrix user links: <a href="https://matrix.to/#/@user:server.com">DisplayName</a>
+        val matrixUserLinkRegex = Regex("""<a\s+href="https://matrix\.to/#/([^"]+)"[^>]*>([^<]+)</a>""")
+        val matches = matrixUserLinkRegex.findAll(text)
+        
+        matches.forEach { match ->
+            val fullMatch = match.value
+            val matrixId = match.groupValues[1] // The @user:server.com part
+            val displayName = match.groupValues[2] // The display name
+            val startIndex = match.range.first
+            val endIndex = match.range.last + 1
+            
+            // Add text before the link
+            if (startIndex > currentIndex) {
+                append(text.substring(currentIndex, startIndex))
+            }
+            
+            // Decode URL-encoded Matrix ID
+            val decodedMatrixId = matrixId.replace("%40", "@").replace("%3A", ":")
+            
+            // Get profile for the mentioned user
+            val profile = userProfileCache[decodedMatrixId] ?: appViewModel?.getMemberMap(roomId)?.get(decodedMatrixId)
+            
+            // Request profile if not found
+            if (profile == null && appViewModel != null) {
+                appViewModel.requestUserProfile(decodedMatrixId)
+            }
+            
+            // Create mention pill with the display name from the HTML
+            pushStyle(
+                SpanStyle(
+                    background = MaterialTheme.colorScheme.primaryContainer,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    fontWeight = FontWeight.Medium
+                )
+            )
+            append(displayName)
+            pop()
+            
+            currentIndex = endIndex
+        }
+        
+        // Add remaining text
+        if (currentIndex < text.length) {
+            append(text.substring(currentIndex))
+        }
     }
 }
