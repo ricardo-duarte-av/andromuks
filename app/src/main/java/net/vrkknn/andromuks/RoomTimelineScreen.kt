@@ -1841,7 +1841,7 @@ private fun MessageTextWithMentions(
 @Composable
 private fun SmartMessageText(
     body: String,
-    format: String,
+    format: String?,
     userProfileCache: Map<String, MemberProfile>,
     homeserverUrl: String,
     authToken: String,
@@ -1886,12 +1886,56 @@ private fun RichMessageText(
 ) {
     // Parse HTML and convert to AnnotatedString
     val annotatedText = remember(formattedBody, userProfileCache) {
-        parseHtmlToAnnotatedString(
-            html = formattedBody,
-            userProfileCache = userProfileCache,
-            appViewModel = appViewModel,
-            roomId = roomId
-        )
+        buildAnnotatedString {
+            var currentIndex = 0
+            val text = formattedBody
+            
+            // Regex to find Matrix user links: <a href="https://matrix.to/#/@user:server.com">DisplayName</a>
+            val matrixUserLinkRegex = Regex("""<a\s+href="https://matrix\.to/#/([^"]+)"[^>]*>([^<]+)</a>""")
+            val matches = matrixUserLinkRegex.findAll(text)
+            
+            matches.forEach { match ->
+                val fullMatch = match.value
+                val matrixId = match.groupValues[1] // The @user:server.com part
+                val displayName = match.groupValues[2] // The display name
+                val startIndex = match.range.first
+                val endIndex = match.range.last + 1
+                
+                // Add text before the link
+                if (startIndex > currentIndex) {
+                    append(text.substring(currentIndex, startIndex))
+                }
+                
+                // Decode URL-encoded Matrix ID
+                val decodedMatrixId = matrixId.replace("%40", "@").replace("%3A", ":")
+                
+                // Get profile for the mentioned user
+                val profile = userProfileCache[decodedMatrixId] ?: appViewModel?.getMemberMap(roomId)?.get(decodedMatrixId)
+                
+                // Request profile if not found
+                if (profile == null && appViewModel != null) {
+                    appViewModel.requestUserProfile(decodedMatrixId)
+                }
+                
+                // Create mention pill with the display name from the HTML
+                pushStyle(
+                    SpanStyle(
+                        background = MaterialTheme.colorScheme.primaryContainer,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        fontWeight = FontWeight.Medium
+                    )
+                )
+                append(displayName)
+                pop()
+                
+                currentIndex = endIndex
+            }
+            
+            // Add remaining text
+            if (currentIndex < text.length) {
+                append(text.substring(currentIndex))
+            }
+        }
     }
     
     Text(
@@ -1901,60 +1945,3 @@ private fun RichMessageText(
     )
 }
 
-private fun parseHtmlToAnnotatedString(
-    html: String,
-    userProfileCache: Map<String, MemberProfile>,
-    appViewModel: AppViewModel?,
-    roomId: String
-): AnnotatedString {
-    return buildAnnotatedString {
-        var currentIndex = 0
-        val text = html
-        
-        // Regex to find Matrix user links: <a href="https://matrix.to/#/@user:server.com">DisplayName</a>
-        val matrixUserLinkRegex = Regex("""<a\s+href="https://matrix\.to/#/([^"]+)"[^>]*>([^<]+)</a>""")
-        val matches = matrixUserLinkRegex.findAll(text)
-        
-        matches.forEach { match ->
-            val fullMatch = match.value
-            val matrixId = match.groupValues[1] // The @user:server.com part
-            val displayName = match.groupValues[2] // The display name
-            val startIndex = match.range.first
-            val endIndex = match.range.last + 1
-            
-            // Add text before the link
-            if (startIndex > currentIndex) {
-                append(text.substring(currentIndex, startIndex))
-            }
-            
-            // Decode URL-encoded Matrix ID
-            val decodedMatrixId = matrixId.replace("%40", "@").replace("%3A", ":")
-            
-            // Get profile for the mentioned user
-            val profile = userProfileCache[decodedMatrixId] ?: appViewModel?.getMemberMap(roomId)?.get(decodedMatrixId)
-            
-            // Request profile if not found
-            if (profile == null && appViewModel != null) {
-                appViewModel.requestUserProfile(decodedMatrixId)
-            }
-            
-            // Create mention pill with the display name from the HTML
-            pushStyle(
-                SpanStyle(
-                    background = MaterialTheme.colorScheme.primaryContainer,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                    fontWeight = FontWeight.Medium
-                )
-            )
-            append(displayName)
-            pop()
-            
-            currentIndex = endIndex
-        }
-        
-        // Add remaining text
-        if (currentIndex < text.length) {
-            append(text.substring(currentIndex))
-        }
-    }
-}
