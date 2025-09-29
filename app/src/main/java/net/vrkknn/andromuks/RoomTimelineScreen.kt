@@ -742,6 +742,14 @@ fun TimelineEventItem(
     // Check if this is a narrator event (system event)
     val isNarratorEvent = event.type in setOf("m.room.member", "m.room.name", "m.room.topic", "m.room.avatar")
     
+    // Check if this message is being edited by another event (moved to function start)
+    val editedBy = timelineEvents.find { 
+        (it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
+         it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") ||
+        (it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
+         it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace")
+    }
+    
     if (isNarratorEvent) {
         // For narrator events, show only the small narrator content
         SystemEventNarrator(
@@ -826,14 +834,6 @@ fun TimelineEventItem(
                         )
                     }
                 }
-            }
-            
-            // Check if this message is being edited by another event (moved to main function scope)
-            val editedBy = timelineEvents.find { 
-                (it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
-                 it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") ||
-                (it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
-                 it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace")
             }
             
             when (event.type) {
