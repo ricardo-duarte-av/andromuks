@@ -215,8 +215,8 @@ fun RoomTimelineScreen(
                                 )
                             }
                         }
-                    }
                 }
+            }
                 
                 // Typing notification area (exclusive space above text box)
                 TypingNotificationArea(
@@ -306,13 +306,13 @@ fun RoomTimelineScreen(
                                     tint = if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary 
                                           else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                            }   
                         }
                     }
                 }
             }
         }
     }
-}
 
 @Composable
 private fun TypingNotificationArea(
