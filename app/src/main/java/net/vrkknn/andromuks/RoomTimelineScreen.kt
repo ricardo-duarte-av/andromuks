@@ -402,6 +402,7 @@ private fun MediaMessage(
     homeserverUrl: String,
     authToken: String,
     isMine: Boolean,
+    isEncrypted: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -432,8 +433,16 @@ private fun MediaMessage(
                     .height(calculatedHeight)
             ) {
             val context = LocalContext.current
-            val imageUrl = remember(mediaMessage.url) {
-                MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+            val imageUrl = remember(mediaMessage.url, isEncrypted) {
+                val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+                // For encrypted media, add ?encrypted=true parameter
+                if (isEncrypted) {
+                    val encryptedUrl = "$httpUrl?encrypted=true"
+                    Log.d("Andromuks", "MediaMessage: Added encrypted=true to URL: $encryptedUrl")
+                    encryptedUrl
+                } else {
+                    httpUrl
+                }
             }
             
             if (mediaMessage.msgType == "m.image") {
@@ -487,14 +496,18 @@ private fun MediaMessage(
                     placeholder = blurHashPainter,
                     error = blurHashPainter, // Use BlurHash as error fallback too
                     onSuccess = { 
-                        Log.d("Andromuks", "Image loaded successfully: $imageUrl")
+                        Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
                     },
                     onError = { state ->
-                        Log.e("Andromuks", "Image load failed: $imageUrl")
+                        Log.e("Andromuks", "❌ Image load failed: $imageUrl")
                         Log.e("Andromuks", "Error state: $state")
                         if (state is coil.request.ErrorResult) {
                             Log.e("Andromuks", "Error result: ${state.throwable}")
+                            Log.e("Andromuks", "Error message: ${state.throwable.message}")
                         }
+                    },
+                    onLoading = { state ->
+                        Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
                     }
                 )
             } else {
@@ -1081,7 +1094,8 @@ fun TimelineEventItem(
                                             mediaMessage = mediaMessage,
                                             homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                             authToken = authToken,
-                                            isMine = isMine
+                                            isMine = isMine,
+                                            isEncrypted = true
                                         )
                                     }
                                 } else {
@@ -1089,7 +1103,8 @@ fun TimelineEventItem(
                                         mediaMessage = mediaMessage,
                                         homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                         authToken = authToken,
-                                        isMine = isMine
+                                        isMine = isMine,
+                                        isEncrypted = true
                                     )
                                 }
                                 
