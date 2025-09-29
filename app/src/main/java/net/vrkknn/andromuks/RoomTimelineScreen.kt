@@ -802,7 +802,11 @@ fun TimelineEventItem(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = formatTimestamp(event.timestamp),
+                    text = if (editedBy != null) {
+                        "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
+                    } else {
+                        formatTimestamp(event.timestamp)
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -859,8 +863,10 @@ fun TimelineEventItem(
                         it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
                     }
                     
-                    // Use edit content if this message is being edited
-                    val finalBody = if (editedBy != null && editedBy.decrypted != null) {
+                    // Use edit content if this message is being edited, or hide content if redacted
+                    val finalBody = if (isRedacted) {
+                        "" // Hide original content for redacted messages
+                    } else if (editedBy != null && editedBy.decrypted != null) {
                         val newContent = editedBy.decrypted?.optJSONObject("m.new_content")
                         val editFormat = newContent?.optString("format", "")
                         if (editFormat == "org.matrix.custom.html") {
@@ -1070,18 +1076,10 @@ fun TimelineEventItem(
                                             modifier = Modifier
                                         )
                                         
-                                        // Show redaction/edit indicators for reply
+                                        // Show redaction indicators for reply
                                         if (isRedacted) {
                                             Text(
                                                 text = "Removed by ${displayName ?: event.sender}${redactionReason?.let { " for $it" } ?: ""}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontStyle = FontStyle.Italic,
-                                                modifier = Modifier.padding(top = 4.dp)
-                                            )
-                                        } else if (editedBy != null) {
-                                            Text(
-                                                text = "Edited by ${editedBy.sender}",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontStyle = FontStyle.Italic,
@@ -1109,18 +1107,10 @@ fun TimelineEventItem(
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                     )
                                     
-                                    // Show redaction/edit indicators
+                                    // Show redaction indicators
                                     if (isRedacted) {
                                         Text(
                                             text = "Removed by ${displayName ?: event.sender}${redactionReason?.let { " for $it" } ?: ""}",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontStyle = FontStyle.Italic,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                                        )
-                                    } else if (editedBy != null) {
-                                        Text(
-                                            text = "Edited by ${editedBy.sender}",
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontStyle = FontStyle.Italic,
@@ -1181,8 +1171,10 @@ fun TimelineEventItem(
                             it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
                         }
                         
-                        // Use edit content if this message is being edited
-                        val finalBody = if (editedBy != null && editedBy.decrypted != null) {
+                        // Use edit content if this message is being edited, or hide content if redacted
+                        val finalBody = if (isRedacted) {
+                            "" // Hide original content for redacted messages
+                        } else if (editedBy != null && editedBy.decrypted != null) {
                             val newContent = editedBy.decrypted?.optJSONObject("m.new_content")
                             val editFormat = newContent?.optString("format", "")
                             if (editFormat == "org.matrix.custom.html") {
@@ -1428,18 +1420,10 @@ fun TimelineEventItem(
                                                 modifier = Modifier
                                             )
                                             
-                                            // Show redaction/edit indicators for encrypted reply
+                                            // Show redaction indicators for encrypted reply
                                             if (isRedacted) {
                                                 Text(
                                                     text = "Removed by ${displayName ?: event.sender}${redactionReason?.let { " for $it" } ?: ""}",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    fontStyle = FontStyle.Italic,
-                                                    modifier = Modifier.padding(top = 4.dp)
-                                                )
-                                            } else if (editedBy != null) {
-                                                Text(
-                                                    text = "Edited by ${editedBy.sender}",
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     fontStyle = FontStyle.Italic,
@@ -1467,18 +1451,10 @@ fun TimelineEventItem(
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                         )
                                         
-                                        // Show redaction/edit indicators for encrypted message
+                                        // Show redaction indicators for encrypted message
                                         if (isRedacted) {
                                             Text(
                                                 text = "Removed by ${displayName ?: event.sender}${redactionReason?.let { " for $it" } ?: ""}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontStyle = FontStyle.Italic,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                                            )
-                                        } else if (editedBy != null) {
-                                            Text(
-                                                text = "Edited by ${editedBy.sender}",
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontStyle = FontStyle.Italic,
