@@ -78,7 +78,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.okhttp)
     implementation(libs.androidx.compose.foundation.layout)
-    implementation(libs.androidx.compose.foundation)
+
+    implementation("androidx.compose.foundation:foundation:1.7.4")
+
     // Accompanist for navigation animations
     implementation("com.google.accompanist:accompanist-navigation-animation:0.34.0")
     // Accompanist for system UI controller (status/navigation bars)
