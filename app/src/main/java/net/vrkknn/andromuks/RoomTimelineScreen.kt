@@ -213,10 +213,10 @@ fun RoomTimelineScreen(
                                         }
                                     }
                                 )
-                            }
                         }
+                    }
                 }
-            }
+            
                 
                 // Typing notification area (exclusive space above text box)
                 TypingNotificationArea(
@@ -309,10 +309,10 @@ fun RoomTimelineScreen(
                             }   
                         }
                     }
+            }
         }
     }
 }
-    
 
 @Composable
 private fun TypingNotificationArea(
