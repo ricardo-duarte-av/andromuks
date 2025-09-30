@@ -595,58 +595,6 @@ private fun MediaMessage(
 }
 
 @Composable
-private fun RoomHeader(
-    roomState: RoomState?,
-    fallbackName: String,
-    homeserverUrl: String,
-    authToken: String,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 2.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Room avatar
-            AvatarImage(
-                mxcUrl = roomState?.avatar,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                fallbackText = (roomState?.name ?: fallbackName).take(1),
-                size = 40.dp
-            )
-            
-            Spacer(modifier = Modifier.width(12.dp))
-            
-            // Room name and topic
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = roomState?.name ?: fallbackName,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                if (!roomState?.topic.isNullOrBlank()) {
-                    Text(
-                        text = roomState?.topic ?: "",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun TimelineEventItem(
     event: TimelineEvent,
     timelineEvents: List<TimelineEvent>,
@@ -664,90 +612,10 @@ private fun TimelineEventItem(
     )
 }
 
-@Composable
-private fun SystemEventNarrator(
-    event: TimelineEvent,
-    displayName: String,
-    avatarUrl: String?,
-    homeserverUrl: String,
-    authToken: String,
-    appViewModel: AppViewModel?,
-    roomId: String,
-    modifier: Modifier = Modifier
-) {
-    // Placeholder implementation
-    Text(
-        text = "System event: ${event.type}",
-        modifier = modifier.padding(8.dp)
-    )
-}
-
-@Composable
-private fun InlineReadReceiptAvatars(
-    eventId: String,
-    receipts: List<ReadReceipt>,
-    modifier: Modifier = Modifier
-) {
-    // Placeholder implementation
-    Text(
-        text = "Read receipts: ${receipts.size}",
-        modifier = modifier.padding(4.dp)
-    )
-}
-
 private fun formatTimestamp(timestamp: Long): String {
     val date = java.util.Date(timestamp)
     val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
     return formatter.format(date)
-}
-
-@Composable
-private fun SmartMessageText(
-    body: String,
-    format: String?,
-    userProfileCache: Map<String, MemberProfile>,
-    homeserverUrl: String,
-    authToken: String,
-    appViewModel: AppViewModel?,
-    roomId: String,
-    isEncrypted: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    Text(
-        text = body,
-        modifier = modifier
-    )
-}
-
-@Composable
-private fun NarratorText(
-    text: String,
-    modifier: Modifier = Modifier
-) {
-    Text(
-        text = text,
-        modifier = modifier,
-        style = MaterialTheme.typography.bodyMedium,
-        fontStyle = FontStyle.Italic,
-        fontWeight = FontWeight.Bold
-    )
-}
-
-@Composable
-private fun RichMessageText(
-    formattedBody: String,
-    userProfileCache: Map<String, MemberProfile>,
-    homeserverUrl: String,
-    authToken: String,
-    appViewModel: AppViewModel?,
-    roomId: String,
-    isEncrypted: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    Text(
-        text = formattedBody,
-        modifier = modifier
-    )
 }
 
 @Composable
