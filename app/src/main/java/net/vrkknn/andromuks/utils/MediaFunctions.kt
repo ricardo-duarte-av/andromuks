@@ -54,23 +54,84 @@ fun MediaMessage(
     isEncrypted: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    // Message bubble with pointed corner
-    Surface(
-        modifier = modifier
-            .fillMaxWidth(0.8f) // Max 80% width
-            .wrapContentHeight(),
-        shape = RoundedCornerShape(
-            topStart = if (isMine) 12.dp else 4.dp,
-            topEnd = if (isMine) 4.dp else 12.dp,
-            bottomStart = 12.dp,
-            bottomEnd = 12.dp
-        ),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 1.dp
-    ) {
+    // Check if there's a caption to determine layout
+    val hasCaption = !mediaMessage.caption.isNullOrBlank()
+    
+    if (hasCaption) {
+        // With caption: Image gets its own frame with square corners, caption below
         Column(
-            modifier = Modifier.fillMaxWidth()
+            modifier = modifier.fillMaxWidth(0.8f)
         ) {
+            // Image frame with square corners
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp), // Square corners
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 1.dp
+            ) {
+                MediaContent(
+                    mediaMessage = mediaMessage,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    isEncrypted = isEncrypted
+                )
+            }
+            
+            // Caption below the image frame
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(
+                    topStart = if (isMine) 12.dp else 4.dp,
+                    topEnd = if (isMine) 4.dp else 12.dp,
+                    bottomStart = 12.dp,
+                    bottomEnd = 12.dp
+                ),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 1.dp
+            ) {
+                Text(
+                    text = mediaMessage.caption,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+        }
+    } else {
+        // Without caption: Image directly in message bubble
+        Surface(
+            modifier = modifier
+                .fillMaxWidth(0.8f) // Max 80% width
+                .wrapContentHeight(),
+            shape = RoundedCornerShape(
+                topStart = if (isMine) 12.dp else 4.dp,
+                topEnd = if (isMine) 4.dp else 12.dp,
+                bottomStart = 12.dp,
+                bottomEnd = 12.dp
+            ),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 1.dp
+        ) {
+            MediaContent(
+                mediaMessage = mediaMessage,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                isEncrypted = isEncrypted
+            )
+        }
+    }
+}
+
+@Composable
+private fun MediaContent(
+    mediaMessage: MediaMessage,
+    homeserverUrl: String,
+    authToken: String,
+    isEncrypted: Boolean
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth()
+    ) {
             // Media container with aspect ratio
             val aspectRatio = if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
                 mediaMessage.info.width.toFloat() / mediaMessage.info.height.toFloat()
@@ -202,18 +263,8 @@ fun MediaMessage(
                             }
                         }
                     }
-                    
-                    // Caption if different from filename (inside the bubble)
-                    if (!mediaMessage.caption.isNullOrBlank()) {
-                        Text(
-                            text = mediaMessage.caption,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                        )
-                    }
                 }
-            }   
+            }
         }
     }
 }
