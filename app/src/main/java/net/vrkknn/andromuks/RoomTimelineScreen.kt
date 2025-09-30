@@ -74,6 +74,7 @@ import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.ReplyPreview
 import net.vrkknn.andromuks.utils.RichMessageText
 import net.vrkknn.andromuks.utils.MessageTextWithMentions
+import net.vrkknn.andromuks.utils.SmartMessageText
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.AvatarImage

@@ -223,7 +223,7 @@ fun MessageTextWithMentions(
 }
 
 @Composable
-private fun SmartMessageText(
+fun SmartMessageText(
     body: String,
     format: String?,
     userProfileCache: Map<String, MemberProfile>,

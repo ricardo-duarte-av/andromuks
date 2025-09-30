@@ -2,6 +2,7 @@ package net.vrkknn.andromuks.utils
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -119,7 +120,7 @@ fun SystemEventNarrator(
                                     append(displayName)
                                 }
                                 append(" left the room")
-                                if (reason.isNotEmpty()) {
+                                if (!reason.isNullOrEmpty()) {
                                     append(": $reason")
                                 }
                             }
@@ -168,7 +169,7 @@ fun SystemEventNarrator(
                                     withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                                         append(invitedDisplayName ?: invitedUserId?.substringAfterLast(":") ?: "Unknown")
                                     }
-                                    if (reason.isNotEmpty()) {
+                                    if (!reason.isNullOrEmpty()) {
                                         append(" for $reason")
                                     }
                                 }
@@ -185,7 +186,7 @@ fun SystemEventNarrator(
                                 withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                                     append(targetDisplayName)
                                 }
-                                if (reason.isNotEmpty()) {
+                                if (!reason.isNullOrEmpty()) {
                                     append(": $reason")
                                 }
                             }
@@ -201,7 +202,7 @@ fun SystemEventNarrator(
                                 withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                                     append(targetDisplayName)
                                 }
-                                if (reason.isNotEmpty()) {
+                                if (!reason.isNullOrEmpty()) {
                                     append(": $reason")
                                 }
                             }
@@ -269,237 +270,17 @@ fun SystemEventNarrator(
 
 
 @Composable
-fun NarratorText(
-    event: TimelineEvent,
-    displayName: String,
-    avatarUrl: String?,
-    homeserverUrl: String,
-    authToken: String,
-    appViewModel: AppViewModel? = null,
-    roomId: String
+private fun NarratorText(
+    text: AnnotatedString
 ) {
-    val content = event.content
-    val eventType = event.type
-    
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        // Left side - centered content
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.weight(1f)
-        ) {
-            // Small avatar for the actor
-            AvatarImage(
-                mxcUrl = avatarUrl,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                fallbackText = displayName,
-                size = 20.dp
-            )
-        
-        // Narrator text
-        when (eventType) {
-            "m.room.member" -> {
-                val membership = content?.optString("membership", "")
-                val targetDisplayName = content?.optString("displayname", "")
-                val reason = content?.optString("reason", "")
-                
-                when (membership) {
-                    "join" -> {
-                        // Check if this is a profile change vs actual join
-                        val unsigned = event.unsigned
-                        val prevContent = unsigned?.optJSONObject("prev_content")
-                        val prevDisplayName = prevContent?.optString("displayname")
-                        val prevAvatarUrl = prevContent?.optString("avatar_url")
-                        val currentDisplayName = content?.optString("displayname")
-                        val currentAvatarUrl = content?.optString("avatar_url")
-                        
-                        val isProfileChange = prevContent != null && 
-                            (prevDisplayName != currentDisplayName || prevAvatarUrl != currentAvatarUrl)
-                        
-                        if (isProfileChange) {
-                            // Profile change
-                            val changes = mutableListOf<String>()
-                            if (prevDisplayName != currentDisplayName) {
-                                changes.add("name to \"$currentDisplayName\"")
-                            }
-                            if (prevAvatarUrl != currentAvatarUrl) {
-                                changes.add("avatar")
-                            }
-                            
-                            NarratorText(
-                                text = buildAnnotatedString {
-                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                        append(displayName)
-                                    }
-                                    append(" changed their ${changes.joinToString(" and ")}")
-                                }
-                            )
-                        } else {
-                            // Actual join
-                            NarratorText(
-                                text = buildAnnotatedString {
-                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                        append(displayName)
-                                    }
-                                    append(" joined the room")
-                                    if (!reason.isNullOrBlank()) {
-                                        append(" (")
-                                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                            append(reason)
-                                        }
-                                        append(")")
-                                    }
-                                }
-                            )
-                        }
-                    }
-                    "leave" -> {
-                        NarratorText(
-                            text = buildAnnotatedString {
-                                withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                    append(displayName)
-                                }
-                                append(" left the room")
-                                if (!reason.isNullOrBlank()) {
-                                    append(" (")
-                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                        append(reason)
-                                    }
-                                    append(")")
-                                }
-                            }
-                        )
-                    }
-                    "invite" -> {
-                        // For invites, we need to show who invited whom
-                        val invitedUserId = event.stateKey ?: ""
-                        
-                        // Get profile info from AppViewModel's member cache
-                        val invitedProfile = appViewModel?.getMemberMap(roomId)?.get(invitedUserId)
-                        val invitedDisplayName = invitedProfile?.displayName ?: invitedUserId.substringAfter("@").substringBefore(":")
-                        val invitedAvatarUrl = invitedProfile?.avatarUrl
-                        
-                        // Request profile for invited user if we don't have their info
-                        if (invitedProfile == null && invitedUserId.isNotBlank() && appViewModel != null) {
-                            appViewModel.requestUserProfile(invitedUserId)
-                        }
-                        
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            NarratorText(
-                                text = buildAnnotatedString {
-                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                        append(displayName)
-                                    }
-                                    append(" invited ")
-                                }
-                            )
-                            
-                            // Small avatar for the invited user
-                            AvatarImage(
-                                mxcUrl = invitedAvatarUrl,
-                                homeserverUrl = homeserverUrl,
-                                authToken = authToken,
-                                fallbackText = invitedDisplayName,
-                                size = 16.dp
-                            )
-                            
-                            NarratorText(
-                                text = buildAnnotatedString {
-                                    withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                        append(invitedDisplayName)
-                                    }
-                                    if (!reason.isNullOrBlank()) {
-                                        append(" for ")
-                                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                            append(reason)
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                    }
-                    else -> {
-                        NarratorText(
-                            text = buildAnnotatedString {
-                                withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                                    append(displayName)
-                                }
-                                append(" changed membership")
-                            }
-                        )
-                    }
-                }
-            }
-            "m.room.name" -> {
-                val newName = content?.optString("name", "")
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
-                        append(" changed the room name to ")
-                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                            append("\"$newName\"")
-                        }
-                    }
-                )
-            }
-            "m.room.topic" -> {
-                val newTopic = content?.optString("topic", "")
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
-                        append(" changed the room topic to ")
-                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                            append("\"$newTopic\"")
-                        }
-                    }
-                )
-            }
-            "m.room.avatar" -> {
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
-                        append(" changed the room avatar")
-                    }
-                )
-            }
-            else -> {
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontStyle = FontStyle.Italic, fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
-                        append(" performed an action")
-                    }
-                )
-            }
-        }
-        }
-        
-        // Time on the right
-        Text(
-            text = formatTimestamp(event.timestamp),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontStyle = FontStyle.Italic
-        )
-    }
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontStyle = FontStyle.Italic
+    )
 }
+
 
 
 private fun formatTimestamp(timestamp: Long): String {

@@ -202,8 +202,9 @@ fun MediaMessage(
                     }
                 }
             }
+        }
             
-            // Caption if different from filename (inside the bubble)
+        // Caption if different from filename (inside the bubble)
             if (!mediaMessage.caption.isNullOrBlank()) {
                 Text(
                     text = mediaMessage.caption,
