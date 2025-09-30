@@ -18,6 +18,7 @@ import okio.ByteString
 import okio.IOException
 import org.json.JSONObject
 import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.TimelineEvent
 import androidx.lifecycle.viewModelScope
 
 fun buildAuthHttpUrl(rawUrl: String): String {
@@ -204,9 +205,10 @@ fun connectToWebsocket(
                         Log.d("Andromuks", "NetworkUtils: Processing send_complete, hasEvent=${event != null}")
                         appViewModel.viewModelScope.launch(Dispatchers.Main) {
                             if (event != null) {
-                                // Process send_complete as a timeline event directly
-                                // since it contains the event data that should be added to timeline
-                                appViewModel.processSendCompleteEvent(event)
+                                // Process send_complete like sync_complete - add event to timeline
+                                val timelineEvent = TimelineEvent.fromJson(event)
+                                android.util.Log.d("Andromuks", "NetworkUtils: Adding send_complete event to timeline: ${timelineEvent.eventId}")
+                                appViewModel.addTimelineEvent(timelineEvent)
                             }
                         }
                     }

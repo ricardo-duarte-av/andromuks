@@ -975,6 +975,20 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    fun addTimelineEvent(event: TimelineEvent) {
+        android.util.Log.d("Andromuks", "AppViewModel: addTimelineEvent called for event: ${event.eventId}, roomId=${event.roomId}, currentRoomId=$currentRoomId")
+        
+        // Only add to timeline if it's for the current room
+        if (event.roomId == currentRoomId) {
+            val currentEvents = timelineEvents.toMutableList()
+            currentEvents.add(event)
+            timelineEvents = currentEvents.sortedBy { it.timestamp }
+            android.util.Log.d("Andromuks", "AppViewModel: Added event to timeline, total events: ${timelineEvents.size}")
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: Event roomId (${event.roomId}) doesn't match currentRoomId ($currentRoomId), not adding to timeline")
+        }
+    }
+    
     fun handleTimelineResponse(requestId: Int, data: Any) {
         android.util.Log.d("Andromuks", "AppViewModel: handleTimelineResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
         val roomId = timelineRequests[requestId]

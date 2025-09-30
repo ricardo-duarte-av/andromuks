@@ -58,12 +58,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
-import androidx.compose.ui.text.ExperimentalTextApi
-import androidx.compose.ui.text.inline.InlineTextContent
-import androidx.compose.ui.text.Placeholder
-import androidx.compose.ui.text.PlaceholderVerticalAlign
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.unit.dp
 import coil.request.ImageRequest
 import coil.request.CachePolicy
 import net.vrkknn.andromuks.utils.BlurHashUtils
@@ -436,33 +430,44 @@ private fun MediaMessage(
     isEncrypted: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier.fillMaxWidth(),
-        horizontalAlignment = if (isMine) Alignment.End else Alignment.Start
+    // Message bubble with pointed corner
+    Surface(
+        modifier = modifier
+            .fillMaxWidth(0.8f) // Max 80% width
+            .wrapContentHeight(),
+        shape = RoundedCornerShape(
+            topStart = if (isMine) 12.dp else 4.dp,
+            topEnd = if (isMine) 4.dp else 12.dp,
+            bottomStart = 12.dp,
+            bottomEnd = 12.dp
+        ),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 1.dp
     ) {
-        // Media container with aspect ratio
-        val aspectRatio = if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
-            mediaMessage.info.width.toFloat() / mediaMessage.info.height.toFloat()
-        } else {
-            16f / 9f // Default aspect ratio
-        }
-        
-        BoxWithConstraints(
-            modifier = Modifier.fillMaxWidth(0.8f) // Max 80% width
+        Column(
+            modifier = Modifier.fillMaxWidth()
         ) {
-            val calculatedHeight = if (aspectRatio > 0) {
-                (maxWidth / aspectRatio).coerceAtMost(300.dp) // Max height of 300dp
+            // Media container with aspect ratio
+            val aspectRatio = if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                mediaMessage.info.width.toFloat() / mediaMessage.info.height.toFloat()
             } else {
-                200.dp // Default height
+                16f / 9f // Default aspect ratio
             }
             
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(calculatedHeight)
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxWidth()
             ) {
+                val calculatedHeight = if (aspectRatio > 0) {
+                    (maxWidth / aspectRatio).coerceAtMost(300.dp) // Max height of 300dp
+                } else {
+                    200.dp // Default height
+                }
+                
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(calculatedHeight)
+                ) {
             val context = LocalContext.current
             val imageUrl = remember(mediaMessage.url, isEncrypted) {
                 val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
@@ -573,17 +578,16 @@ private fun MediaMessage(
                     }
                 }
             }
-        }
-        }
-        
-        // Caption if different from filename
-        if (!mediaMessage.caption.isNullOrBlank()) {
-            Text(
-                text = mediaMessage.caption,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(top = 4.dp)
-            )
+            
+            // Caption if different from filename (inside the bubble)
+            if (!mediaMessage.caption.isNullOrBlank()) {
+                Text(
+                    text = mediaMessage.caption,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
         }
     }
 }
@@ -619,32 +623,9 @@ private fun ReplyPreview(
         tonalElevation = 2.dp
     ) {
         Column(
-            modifier = Modifier.padding(12.dp)
+            modifier = Modifier.padding(8.dp)
         ) {
-            // Reply indicator
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 8.dp)
-            ) {
-                Surface(
-                    shape = RoundedCornerShape(2.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .width(3.dp)
-                        .height(16.dp)
-                ) {}
-                
-                Spacer(modifier = Modifier.width(8.dp))
-                
-                Text(
-                    text = "Replying to $senderName",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-            
-            // Nested bubble for original message (clickable)
+            // Nested bubble for original message (clickable) - optimized spacing
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -658,7 +639,7 @@ private fun ReplyPreview(
                 tonalElevation = 1.dp
             ) {
                 Column(
-                    modifier = Modifier.padding(12.dp)
+                    modifier = Modifier.padding(8.dp)
                 ) {
                     // Sender name
                     Text(
@@ -666,7 +647,7 @@ private fun ReplyPreview(
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                         fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(bottom = 4.dp)
+                        modifier = Modifier.padding(bottom = 2.dp)
                     )
                     
                     // Original message content
@@ -674,7 +655,7 @@ private fun ReplyPreview(
                         text = originalBody,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 3,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9
                     )
@@ -767,6 +748,13 @@ fun TimelineEventItem(
             appViewModel = appViewModel,
             roomId = event.roomId
         )
+        return
+    }
+    
+    // Early return for edit events (m.replace relationships) - they should not be displayed as separate timeline items
+    val isEditEvent = (event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") ||
+                     (event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace")
+    if (isEditEvent) {
         return
     }
     
@@ -2048,12 +2036,9 @@ private fun RichMessageText(
     val primaryContainer = MaterialTheme.colorScheme.primaryContainer
     val onPrimaryContainer = MaterialTheme.colorScheme.onPrimaryContainer
     
-    // Parse HTML and convert to AnnotatedString with inline content
-    val (annotatedText: AnnotatedString, inlineContent: Map<String, InlineTextContent>) = remember(formattedBody, userProfileCache, primaryContainer, onPrimaryContainer, homeserverUrl, authToken, isEncrypted) {
-        val inlineContentMap = mutableMapOf<String, InlineTextContent>()
-        var imageCounter = 0
-        
-        val annotatedString = buildAnnotatedString {
+    // Parse HTML and convert to AnnotatedString (simplified without inline images)
+    val annotatedText = remember(formattedBody, userProfileCache, primaryContainer, onPrimaryContainer) {
+        buildAnnotatedString {
             var currentIndex = 0
             val text = formattedBody
             
@@ -2114,60 +2099,9 @@ private fun RichMessageText(
                         pop()
                     }
                     1 -> {
-                        // Handle img tags
-                        val src = match.groupValues[1]
+                        // Handle img tags - just show alt text for now
                         val alt = match.groupValues.getOrNull(2) ?: "image"
-                        
-                        // Check if it's an mxc:// URL
-                        if (src.startsWith("mxc://")) {
-                            // Create inline content for the image
-                            val placeholderId = "image_${imageCounter++}"
-                            
-                            // Convert MXC URL to HTTP URL using the same pattern as MediaMessage
-                            val httpUrl = MediaUtils.mxcToHttpUrl(src, homeserverUrl)
-                            
-                            // For encrypted media, add ?encrypted=true parameter (same as MediaMessage)
-                            val finalUrl = if (isEncrypted && httpUrl != null) {
-                                val encryptedUrl = "$httpUrl?encrypted=true"
-                                android.util.Log.d("Andromuks", "RichMessageText: Added encrypted=true to URL: $encryptedUrl")
-                                encryptedUrl
-                            } else {
-                                httpUrl
-                            }
-                            
-                            if (finalUrl != null) {
-                                inlineContentMap[placeholderId] = InlineTextContent(
-                                    placeholder = Placeholder(
-                                        width = 32.sp,
-                                        height = 32.sp,
-                                        placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                                    )
-                                ) {
-                                    AsyncImage(
-                                        model = ImageRequest.Builder(LocalContext.current)
-                                            .data(finalUrl)
-                                            .crossfade(true)
-                                            .build(),
-                                        contentDescription = alt,
-                                        modifier = Modifier.size(32.dp)
-                                    )
-                                }
-                                
-                                // Insert placeholder character
-                                append("\uFFFC") // Object replacement character
-                                pushStringAnnotation(
-                                    tag = "image",
-                                    annotation = placeholderId
-                                )
-                                pop()
-                            } else {
-                                // Fallback to text if URL conversion fails
-                                append("[$alt]")
-                            }
-                        } else {
-                            // For other images, just show placeholder
-                            append("[image]")
-                        }
+                        append("[$alt]")
                     }
                 }
                 
@@ -2179,13 +2113,10 @@ private fun RichMessageText(
                 append(text.substring(currentIndex))
             }
         }
-        
-        Pair(annotatedString, inlineContentMap)
     }
     
     Text(
         text = annotatedText,
-        inlineContent = inlineContent,
         style = MaterialTheme.typography.bodyMedium,
         modifier = modifier
     )
