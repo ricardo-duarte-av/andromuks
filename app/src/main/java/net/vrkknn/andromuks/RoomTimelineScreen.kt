@@ -674,13 +674,13 @@ fun TimelineEventItem(
                     val bubbleShape = if (isMine) {
                         RoundedCornerShape(
                             topStart = 16.dp,
-                            topEnd = 16.dp,
+                            topEnd = 2.dp,
                             bottomEnd = 8.dp,
                             bottomStart = 16.dp
                         )
                     } else {
                         RoundedCornerShape(
-                            topStart = 16.dp,
+                            topStart = 2.dp,
                             topEnd = 16.dp,
                             bottomEnd = 16.dp,
                             bottomStart = 8.dp
