@@ -595,7 +595,7 @@ private fun MediaMessage(
 }
 
 @Composable
-private fun TimelineEventItem(
+fun TimelineEventItem(
     event: TimelineEvent,
     timelineEvents: List<TimelineEvent>,
     userProfileCache: Map<String, MemberProfile>,
@@ -612,14 +612,14 @@ private fun TimelineEventItem(
     )
 }
 
-private fun formatTimestamp(timestamp: Long): String {
+fun formatTimestamp(timestamp: Long): String {
     val date = java.util.Date(timestamp)
     val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
     return formatter.format(date)
 }
 
 @Composable
-private fun ReplyPreview(
+fun ReplyPreview(
     replyInfo: ReplyInfo,
     originalEvent: TimelineEvent?,
     userProfileCache: Map<String, MemberProfile>,
@@ -1545,7 +1545,7 @@ fun TimelineEventItem(
 }
 
 @Composable
-private fun InlineReadReceiptAvatars(
+fun InlineReadReceiptAvatars(
     receipts: List<ReadReceipt>,
     userProfileCache: Map<String, MemberProfile>,
     homeserverUrl: String,
@@ -1602,7 +1602,7 @@ private fun InlineReadReceiptAvatars(
 }
 
 @Composable
-private fun RoomHeader(
+fun RoomHeader(
     roomState: RoomState?,
     fallbackName: String,
     homeserverUrl: String,
@@ -1682,7 +1682,7 @@ private fun RoomHeader(
 }
 
 @Composable
-private fun SystemEventNarrator(
+fun SystemEventNarrator(
     event: TimelineEvent,
     displayName: String,
     avatarUrl: String?,
@@ -1915,7 +1915,7 @@ private fun SystemEventNarrator(
 }
 
 @Composable
-private fun NarratorText(
+fun NarratorText(
     text: AnnotatedString,
     modifier: Modifier = Modifier
 ) {
@@ -1929,7 +1929,7 @@ private fun NarratorText(
 }
 
 @Composable
-private fun MessageTextWithMentions(
+fun MessageTextWithMentions(
     text: String,
     userProfileCache: Map<String, MemberProfile>,
     homeserverUrl: String,
@@ -2004,7 +2004,7 @@ private fun MessageTextWithMentions(
 
 @OptIn(ExperimentalTextApi::class)
 @Composable
-private fun RichMessageText(
+fun RichMessageText(
     formattedBody: String,
     userProfileCache: Map<String, MemberProfile>,
     homeserverUrl: String,
