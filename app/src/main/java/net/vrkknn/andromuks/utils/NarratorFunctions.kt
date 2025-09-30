@@ -130,11 +130,9 @@ fun SystemEventNarrator(
                         val invitedUserId = content?.optString("state_key", "")
                         val invitedDisplayName = invitedUserId?.let { userId ->
                             appViewModel?.getMemberMap(roomId)?.get(userId)?.displayName
-                                ?: appViewModel?.memberProfileCache?.get(userId)?.displayName
                         }
                         val invitedAvatarUrl = invitedUserId?.let { userId ->
                             appViewModel?.getMemberMap(roomId)?.get(userId)?.avatarUrl
-                                ?: appViewModel?.memberProfileCache?.get(userId)?.avatarUrl
                         }
                         
                         // Request profile if not found
@@ -270,7 +268,7 @@ fun SystemEventNarrator(
 
 
 @Composable
-private fun NarratorText(
+fun NarratorText(
     text: AnnotatedString
 ) {
     Text(

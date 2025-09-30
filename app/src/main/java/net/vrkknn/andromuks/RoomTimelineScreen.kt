@@ -745,7 +745,6 @@ fun TimelineEventItem(
                                             authToken = authToken,
                                             appViewModel = appViewModel,
                                             roomId = event.roomId,
-                                            isEncrypted = false,
                                             modifier = Modifier
                                         )
                                         
@@ -777,7 +776,6 @@ fun TimelineEventItem(
                                         authToken = authToken,
                                         appViewModel = appViewModel,
                                         roomId = event.roomId,
-                                        isEncrypted = false,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                     )
                                     
@@ -1092,7 +1090,6 @@ fun TimelineEventItem(
                                                 authToken = authToken,
                                                 appViewModel = appViewModel,
                                                 roomId = event.roomId,
-                                                isEncrypted = true,
                                                 modifier = Modifier
                                             )
                                             
@@ -1124,7 +1121,6 @@ fun TimelineEventItem(
                                             authToken = authToken,
                                             appViewModel = appViewModel,
                                             roomId = event.roomId,
-                                            isEncrypted = true,
                                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                         )
                                         
