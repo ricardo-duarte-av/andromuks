@@ -56,6 +56,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import android.content.Context
+import androidx.activity.compose.BackHandler
+import androidx.activity.ComponentActivity
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
@@ -94,6 +96,16 @@ fun RoomListScreen(
     // Always show the interface, even if rooms/spaces are empty
     var searchQuery by remember { mutableStateOf("") }
     val me = appViewModel.currentUserProfile
+    
+    // Handle back button - suspend app and move to background
+    // When user presses back from room list, app suspends and moves to background
+    // A 15-second timer starts to close the websocket for resource management
+    BackHandler {
+        android.util.Log.d("Andromuks", "RoomListScreen: Back button pressed, suspending app")
+        appViewModel.suspendApp() // Start 15-second timer to close websocket
+        // Move app to background instead of closing completely
+        (context as? ComponentActivity)?.moveTaskToBack(true)
+    }
     
     // Get timestamp update counter from AppViewModel
     val timestampUpdateTrigger = appViewModel.timestampUpdateCounter

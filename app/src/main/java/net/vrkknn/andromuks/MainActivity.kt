@@ -30,6 +30,9 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     onViewModelCreated = { viewModel ->
                         appViewModel = viewModel
+                        // Load cached user profiles on app startup
+                        // This restores previously saved user profile data from disk
+                        appViewModel.loadCachedProfiles(this)
                     }
                 )
             }

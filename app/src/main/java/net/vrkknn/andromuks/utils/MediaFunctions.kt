@@ -54,7 +54,8 @@ fun MediaMessage(
     isEncrypted: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    // Check if there's a caption to determine layout
+    // Check if there's a caption to determine layout strategy
+    // This determines whether to use separate image frame + caption or single bubble
     val hasCaption = !mediaMessage.caption.isNullOrBlank()
     
     if (hasCaption) {
@@ -62,10 +63,10 @@ fun MediaMessage(
         Column(
             modifier = modifier.fillMaxWidth(0.8f)
         ) {
-            // Image frame with square corners
+            // Image frame with square corners (8dp radius for modern look)
             Surface(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp), // Square corners
+                shape = RoundedCornerShape(8.dp), // Square corners for image frame
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 tonalElevation = 1.dp
             ) {
@@ -77,7 +78,7 @@ fun MediaMessage(
                 )
             }
             
-            // Caption below the image frame
+            // Caption below the image frame with pointed corners (original message bubble style)
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(
@@ -98,7 +99,7 @@ fun MediaMessage(
             }
         }
     } else {
-        // Without caption: Image directly in message bubble
+        // Without caption: Image directly in message bubble with pointed corners
         Surface(
             modifier = modifier
                 .fillMaxWidth(0.8f) // Max 80% width
@@ -122,6 +123,17 @@ fun MediaMessage(
     }
 }
 
+/**
+ * Extracted media content composable to avoid code duplication.
+ * 
+ * This function contains the actual media rendering logic (images/videos)
+ * and is shared between the caption and non-caption layouts.
+ * 
+ * @param mediaMessage MediaMessage object containing URL, filename, media info
+ * @param homeserverUrl Base URL of the Matrix homeserver for MXC URL conversion
+ * @param authToken Authentication token for accessing media
+ * @param isEncrypted Whether this is encrypted media (adds ?encrypted=true to URL)
+ */
 @Composable
 private fun MediaContent(
     mediaMessage: MediaMessage,

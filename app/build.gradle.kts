@@ -25,6 +25,12 @@ android {
             storeFile = file("./gomuks.keystore")  // Keystore file path
             storePassword = "12345678"  // Keystore password
         }
+        create("debug") {
+            keyAlias = "habitica"         // Alias of the key in the keystore
+            keyPassword = "12345678"   // Password for the key
+            storeFile = file("./gomuks.keystore")  // Keystore file path
+            storePassword = "12345678"  // Keystore password
+        }
     }
 
     splits {
@@ -51,6 +57,9 @@ android {
         }
         debug {
             isDebuggable = true
+            if (signingConfigs.findByName("debug null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
     compileOptions {

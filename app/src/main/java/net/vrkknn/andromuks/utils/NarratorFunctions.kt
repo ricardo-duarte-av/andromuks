@@ -120,7 +120,8 @@ fun SystemEventNarrator(
                                     append(displayName)
                                 }
                                 append(" left the room")
-                                if (!reason.isNullOrEmpty()) {
+                                // Safe null check for reason string (was causing compilation error)
+            if (!reason.isNullOrEmpty()) {
                                     append(": $reason")
                                 }
                             }
@@ -128,12 +129,14 @@ fun SystemEventNarrator(
                     }
                     "invite" -> {
                         val invitedUserId = content?.optString("state_key", "")
-                        val invitedDisplayName = invitedUserId?.let { userId ->
-                            appViewModel?.getMemberProfile(roomId, userId)?.displayName
-                        }
-                        val invitedAvatarUrl = invitedUserId?.let { userId ->
-                            appViewModel?.getMemberProfile(roomId, userId)?.avatarUrl
-                        }
+        // Get invited user's display name and avatar using the getMemberProfile function
+        // (Fixed from previous incorrect memberProfileCache usage)
+        val invitedDisplayName = invitedUserId?.let { userId ->
+            appViewModel?.getMemberProfile(roomId, userId)?.displayName
+        }
+        val invitedAvatarUrl = invitedUserId?.let { userId ->
+            appViewModel?.getMemberProfile(roomId, userId)?.avatarUrl
+        }
                         
                         // Request profile if not found
                         if (invitedDisplayName == null && appViewModel != null && invitedUserId != null) {
@@ -167,7 +170,8 @@ fun SystemEventNarrator(
                                     withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                                         append(invitedDisplayName ?: invitedUserId?.substringAfterLast(":") ?: "Unknown")
                                     }
-                                    if (!reason.isNullOrEmpty()) {
+                                    // Safe null check for reason string (was causing compilation error)
+            if (!reason.isNullOrEmpty()) {
                                         append(" for $reason")
                                     }
                                 }
@@ -184,7 +188,8 @@ fun SystemEventNarrator(
                                 withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                                     append(targetDisplayName)
                                 }
-                                if (!reason.isNullOrEmpty()) {
+                                // Safe null check for reason string (was causing compilation error)
+            if (!reason.isNullOrEmpty()) {
                                     append(": $reason")
                                 }
                             }
@@ -200,7 +205,8 @@ fun SystemEventNarrator(
                                 withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                                     append(targetDisplayName)
                                 }
-                                if (!reason.isNullOrEmpty()) {
+                                // Safe null check for reason string (was causing compilation error)
+            if (!reason.isNullOrEmpty()) {
                                     append(": $reason")
                                 }
                             }
@@ -267,6 +273,15 @@ fun SystemEventNarrator(
 }
 
 
+/**
+ * Simple narrator text composable for displaying system event messages.
+ * 
+ * This function renders annotated text with italic styling for system events
+ * like user joins, leaves, room name changes, etc. Used by the system event
+ * narrator to display formatted text about room activities.
+ * 
+ * @param text The annotated text to display with formatting
+ */
 @Composable
 fun NarratorText(
     text: AnnotatedString

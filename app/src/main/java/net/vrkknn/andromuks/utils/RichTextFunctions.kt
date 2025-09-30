@@ -222,6 +222,22 @@ fun MessageTextWithMentions(
     }
 }
 
+/**
+ * Smart message text renderer that automatically chooses between HTML and plain text rendering.
+ * 
+ * This function determines the appropriate rendering method based on the message format:
+ * - HTML format ("org.matrix.custom.html"): Uses RichMessageText for HTML parsing
+ * - Plain text format: Uses MessageTextWithMentions for Matrix user mention detection
+ * 
+ * @param body The message content (HTML or plain text)
+ * @param format The message format type (e.g., "org.matrix.custom.html")
+ * @param userProfileCache Map of user IDs to MemberProfile objects for display names
+ * @param homeserverUrl Base URL of the Matrix homeserver (unused but kept for consistency)
+ * @param authToken Authentication token (unused but kept for consistency)
+ * @param appViewModel AppViewModel instance for accessing member data and requesting profiles
+ * @param roomId The ID of the current room for member lookups
+ * @param modifier Modifier to apply to the text content
+ */
 @Composable
 fun SmartMessageText(
     body: String,

@@ -29,6 +29,7 @@ data class UserProfile(
 
 class AppViewModel : ViewModel() {
     companion object {
+        // File name for user profile disk cache (used in SharedPreferences)
         private const val PROFILE_CACHE_FILE = "user_profiles_cache.json"
     }
     var isLoading by mutableStateOf(false)
@@ -51,10 +52,6 @@ class AppViewModel : ViewModel() {
     var showUnprocessedEvents by mutableStateOf(true)
         private set
 
-    init {
-        // Load cached user profiles from disk on initialization
-        loadCachedProfiles()
-    }
 
     // List of spaces, each with their rooms
     var spaceList by mutableStateOf(listOf<SpaceItem>())
@@ -558,16 +555,28 @@ class AppViewModel : ViewModel() {
         // Cancel any existing shutdown job
         appInvisibleJob?.cancel()
         
-        // Start delayed shutdown (30 seconds)
+        // Start delayed shutdown (15 seconds) - reduced from 30 seconds for better UX
         appInvisibleJob = viewModelScope.launch {
-            delay(30_000) // 30 seconds delay
+            delay(15_000) // 15 seconds delay (changed from 30 seconds)
             
             // Check if app is still invisible after delay
             if (!isAppVisible) {
-                android.util.Log.d("Andromuks", "AppViewModel: App still invisible after 30s, shutting down WebSocket")
+                android.util.Log.d("Andromuks", "AppViewModel: App still invisible after 15s, shutting down WebSocket")
                 shutdownWebSocket()
             }
         }
+    }
+    
+    /**
+     * Manually triggers app suspension (for back button from room list).
+     * 
+     * This function is called when the user presses the back button from the room list screen.
+     * It starts the 15-second timer to close the websocket, allowing the app to suspend
+     * gracefully while preserving resources.
+     */
+    fun suspendApp() {
+        android.util.Log.d("Andromuks", "AppViewModel: App manually suspended, starting 15-second timer to close websocket")
+        onAppBecameInvisible() // This will start the 15-second timer
     }
     
     /**
@@ -703,7 +712,13 @@ class AppViewModel : ViewModel() {
     
     /**
      * Validates and requests missing user profiles for a room.
-     * Checks all timeline events and requests profiles for users with missing display names or avatars.
+     * 
+     * This function checks all timeline events and identifies users with missing
+     * display names or avatars. It then requests their profiles from the server
+     * to ensure complete user information is available for the UI.
+     * 
+     * @param roomId The ID of the room to validate profiles for
+     * @param timelineEvents List of timeline events to check for missing user data
      */
     fun validateAndRequestMissingProfiles(roomId: String, timelineEvents: List<TimelineEvent>) {
         val memberMap = roomMemberCache[roomId] ?: return
@@ -719,7 +734,7 @@ class AppViewModel : ViewModel() {
             val hasAvatar = !profile?.avatarUrl.isNullOrBlank()
             
             if (!hasDisplayName || !hasAvatar) {
-                // Only request if we haven't already requested this user's profile
+                // Only request if we haven't already requested this user's profile (avoid duplicates)
                 if (!profileRequests.values.contains(sender)) {
                     usersToRequest.add(sender)
                     android.util.Log.d("Andromuks", "AppViewModel: Missing profile data for $sender - displayName: $hasDisplayName, avatar: $hasAvatar")
@@ -964,17 +979,21 @@ class AppViewModel : ViewModel() {
         
         // Trigger UI update since member cache changed
         updateCounter++
-        
-        // Save updated profile to disk cache
-        saveProfileToDisk(userId, memberProfile)
     }
     
     /**
-     * Saves a user profile to disk cache for persistence between app sessions
+     * Saves a user profile to disk cache for persistence between app sessions.
+     * 
+     * This function stores user profile data (display name and avatar URL) to disk so that
+     * it persists between app sessions. The data is stored as JSON in SharedPreferences
+     * with a key format of "profile_[userId]".
+     * 
+     * @param context Android context for accessing SharedPreferences
+     * @param userId The Matrix user ID to save the profile for
+     * @param profile The MemberProfile object containing display name and avatar URL
      */
-    private fun saveProfileToDisk(userId: String, profile: MemberProfile) {
+    fun saveProfileToDisk(context: android.content.Context, userId: String, profile: MemberProfile) {
         try {
-            val context = android.app.Application().applicationContext
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
             val editor = sharedPrefs.edit()
             
@@ -983,7 +1002,7 @@ class AppViewModel : ViewModel() {
             profileJson.put("displayName", profile.displayName ?: "")
             profileJson.put("avatarUrl", profile.avatarUrl ?: "")
             
-            // Store in shared preferences
+            // Store in shared preferences with key format: "profile_[userId]"
             editor.putString("profile_$userId", profileJson.toString())
             editor.apply()
             
@@ -996,9 +1015,8 @@ class AppViewModel : ViewModel() {
     /**
      * Loads a user profile from disk cache
      */
-    private fun loadProfileFromDisk(userId: String): MemberProfile? {
+    private fun loadProfileFromDisk(context: android.content.Context, userId: String): MemberProfile? {
         return try {
-            val context = android.app.Application().applicationContext
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
             val profileJsonString = sharedPrefs.getString("profile_$userId", null) ?: return null
             
@@ -1016,15 +1034,14 @@ class AppViewModel : ViewModel() {
     /**
      * Loads all cached profiles from disk and populates the member cache
      */
-    fun loadCachedProfiles() {
+    fun loadCachedProfiles(context: android.content.Context) {
         try {
-            val context = android.app.Application().applicationContext
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
             val allKeys = sharedPrefs.all.keys.filter { it.startsWith("profile_") }
             
             for (key in allKeys) {
                 val userId = key.removePrefix("profile_")
-                val profile = loadProfileFromDisk(userId)
+                val profile = loadProfileFromDisk(context, userId)
                 if (profile != null) {
                     // Add to all room member caches where this user might be present
                     roomMemberCache.forEach { (roomId, memberMap) ->

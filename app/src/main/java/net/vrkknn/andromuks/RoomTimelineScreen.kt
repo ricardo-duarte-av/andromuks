@@ -178,10 +178,23 @@ fun RoomTimelineScreen(
     }
     
     // Validate and request missing user profiles when timeline events change
+    // This ensures all users in the timeline have complete profile data (display name, avatar)
+    // Missing profiles are automatically requested from the server
     LaunchedEffect(sortedEvents) {
         if (sortedEvents.isNotEmpty()) {
             Log.d("Andromuks", "RoomTimelineScreen: Validating user profiles for ${sortedEvents.size} events")
             appViewModel.validateAndRequestMissingProfiles(roomId, sortedEvents)
+        }
+    }
+    
+    // Save updated profiles to disk when member cache changes
+    // This persists user profile data (display names, avatars) to disk for future app sessions
+    // Profiles are saved whenever the updateCounter changes (indicating profile updates)
+    LaunchedEffect(appViewModel.updateCounter) {
+        // Save all updated profiles to disk for persistence
+        val memberMap = appViewModel.getMemberMap(roomId)
+        for ((userId, profile) in memberMap) {
+            appViewModel.saveProfileToDisk(context, userId, profile)
         }
     }
     
