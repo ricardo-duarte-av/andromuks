@@ -49,12 +49,12 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.remember
@@ -1733,12 +1733,6 @@ private fun InlineReadReceiptAvatars(
     }
 }
 
-private fun formatTimestamp(timestamp: Long): String {
-    val date = Date(timestamp)
-    val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
-    return formatter.format(date)
-}
-
 @Composable
 private fun RoomHeader(
     roomState: RoomState?,
@@ -2135,44 +2129,6 @@ private fun MessageTextWithMentions(
         Text(
             text = annotatedText,
             style = MaterialTheme.typography.bodyMedium,
-            modifier = modifier
-        )
-    }
-}
-
-@Composable
-private fun SmartMessageText(
-    body: String,
-    format: String?,
-    userProfileCache: Map<String, MemberProfile>,
-    homeserverUrl: String,
-    authToken: String,
-    appViewModel: AppViewModel?,
-    roomId: String,
-    isEncrypted: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    if (format == "org.matrix.custom.html") {
-        // Use rich text renderer for HTML messages
-        RichMessageText(
-            formattedBody = body,
-            userProfileCache = userProfileCache,
-            homeserverUrl = homeserverUrl,
-            authToken = authToken,
-            appViewModel = appViewModel,
-            roomId = roomId,
-            isEncrypted = isEncrypted,
-            modifier = modifier
-        )
-    } else {
-        // Use plain text renderer with mention detection for regular messages
-        MessageTextWithMentions(
-            text = body,
-            userProfileCache = userProfileCache,
-            homeserverUrl = homeserverUrl,
-            authToken = authToken,
-            appViewModel = appViewModel,
-            roomId = roomId,
             modifier = modifier
         )
     }
