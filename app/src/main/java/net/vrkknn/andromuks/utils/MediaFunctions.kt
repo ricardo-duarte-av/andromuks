@@ -92,126 +92,128 @@ fun MediaMessage(
                         .fillMaxWidth()
                         .height(calculatedHeight)
                 ) {
-            val context = LocalContext.current
-            val imageUrl = remember(mediaMessage.url, isEncrypted) {
-                val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-                // For encrypted media, add ?encrypted=true parameter
-                if (isEncrypted) {
-                    val encryptedUrl = "$httpUrl?encrypted=true"
-                    Log.d("Andromuks", "MediaMessage: Added encrypted=true to URL: $encryptedUrl")
-                    encryptedUrl
-                } else {
-                    httpUrl
-                }
-            }
-            
-            if (mediaMessage.msgType == "m.image") {
-                // Debug logging
-                Log.d("Andromuks", "MediaMessage: URL=$imageUrl, BlurHash=${mediaMessage.info.blurHash}, AuthToken=$authToken")
-                
-                val blurHashPainter = remember(mediaMessage.info.blurHash) {
-                    mediaMessage.info.blurHash?.let { blurHash ->
-                        Log.d("Andromuks", "Decoding BlurHash: $blurHash")
-                        val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
-                        Log.d("Andromuks", "BlurHash decoded: ${bitmap != null}")
-                        if (bitmap != null) {
-                            val imageBitmap = bitmap.asImageBitmap()
-                            Log.d("Andromuks", "BlurHash converted to ImageBitmap: ${imageBitmap.width}x${imageBitmap.height}")
-                            Log.d("Andromuks", "BlurHash bitmap info: config=${bitmap.config}, hasAlpha=${bitmap.hasAlpha()}")
-                            BitmapPainter(imageBitmap)
+                    val context = LocalContext.current
+                    val imageUrl = remember(mediaMessage.url, isEncrypted) {
+                        val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+                        // For encrypted media, add ?encrypted=true parameter
+                        if (isEncrypted) {
+                            val encryptedUrl = "$httpUrl?encrypted=true"
+                            Log.d("Andromuks", "MediaMessage: Added encrypted=true to URL: $encryptedUrl")
+                            encryptedUrl
                         } else {
-                            Log.w("Andromuks", "BlurHash decode failed, using fallback")
-                            BitmapPainter(
-                                BlurHashUtils.createPlaceholderBitmap(
-                                    32, 32, 
-                                    androidx.compose.ui.graphics.Color.Gray
-                                )
-                            )
-                        }
-                    } ?: run {
-                        // Simple fallback placeholder without MaterialTheme
-                        Log.d("Andromuks", "No BlurHash available, using simple fallback")
-                        BitmapPainter(
-                            BlurHashUtils.createPlaceholderBitmap(
-                                32, 32, 
-                                androidx.compose.ui.graphics.Color.Gray
-                            )
-                        )
-                    }
-                }
-                
-                Log.d("Andromuks", "BlurHash painter created: ${blurHashPainter != null}")
-                
-                Log.d("Andromuks", "AsyncImage: Starting image load for $imageUrl")
-                
-                AsyncImage(
-                    model = ImageRequest.Builder(context)
-                        .data(imageUrl)
-                        .addHeader("Cookie", "gomuks_auth=$authToken")
-                        .memoryCachePolicy(CachePolicy.ENABLED)
-                        .diskCachePolicy(CachePolicy.ENABLED)
-                        .build(),
-                    contentDescription = mediaMessage.filename,
-                    modifier = Modifier.fillMaxSize(),
-                    placeholder = blurHashPainter,
-                    error = blurHashPainter, // Use BlurHash as error fallback too
-                    onSuccess = { 
-                        Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
-                    },
-                    onError = { state ->
-                        Log.e("Andromuks", "❌ Image load failed: $imageUrl")
-                        Log.e("Andromuks", "Error state: $state")
-                        if (state is coil.request.ErrorResult) {
-                            Log.e("Andromuks", "Error result: ${state.throwable}")
-                            Log.e("Andromuks", "Error message: ${state.throwable.message}")
-                        }
-                    },
-                    onLoading = { state ->
-                        Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
-                    }
-                )
-            } else {
-                // Video placeholder
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "🎥",
-                            style = MaterialTheme.typography.headlineMedium
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = mediaMessage.filename,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
-                            Text(
-                                text = "${mediaMessage.info.width}×${mediaMessage.info.height}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            httpUrl
                         }
                     }
-                }
-            }
             
-        // Caption if different from filename (inside the bubble)
-        if (!mediaMessage.caption.isNullOrBlank()) {
-            Text(
-                text = mediaMessage.caption,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-            )
-        }
+                    if (mediaMessage.msgType == "m.image") {
+                        // Debug logging
+                        Log.d("Andromuks", "MediaMessage: URL=$imageUrl, BlurHash=${mediaMessage.info.blurHash}, AuthToken=$authToken")
+                        
+                        val blurHashPainter = remember(mediaMessage.info.blurHash) {
+                            mediaMessage.info.blurHash?.let { blurHash ->
+                                Log.d("Andromuks", "Decoding BlurHash: $blurHash")
+                                val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
+                                Log.d("Andromuks", "BlurHash decoded: ${bitmap != null}")
+                                if (bitmap != null) {
+                                    val imageBitmap = bitmap.asImageBitmap()
+                                    Log.d("Andromuks", "BlurHash converted to ImageBitmap: ${imageBitmap.width}x${imageBitmap.height}")
+                                    Log.d("Andromuks", "BlurHash bitmap info: config=${bitmap.config}, hasAlpha=${bitmap.hasAlpha()}")
+                                    BitmapPainter(imageBitmap)
+                                } else {
+                                    Log.w("Andromuks", "BlurHash decode failed, using fallback")
+                                    BitmapPainter(
+                                        BlurHashUtils.createPlaceholderBitmap(
+                                            32, 32, 
+                                            androidx.compose.ui.graphics.Color.Gray
+                                        )
+                                    )
+                                }
+                            } ?: run {
+                                // Simple fallback placeholder without MaterialTheme
+                                Log.d("Andromuks", "No BlurHash available, using simple fallback")
+                                BitmapPainter(
+                                    BlurHashUtils.createPlaceholderBitmap(
+                                        32, 32, 
+                                        androidx.compose.ui.graphics.Color.Gray
+                                    )
+                                )
+                            }
+                        }
+                        
+                        Log.d("Andromuks", "BlurHash painter created: ${blurHashPainter != null}")
+                        
+                        Log.d("Andromuks", "AsyncImage: Starting image load for $imageUrl")
+                        
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(imageUrl)
+                                .addHeader("Cookie", "gomuks_auth=$authToken")
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .build(),
+                            contentDescription = mediaMessage.filename,
+                            modifier = Modifier.fillMaxSize(),
+                            placeholder = blurHashPainter,
+                            error = blurHashPainter, // Use BlurHash as error fallback too
+                            onSuccess = { 
+                                Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
+                            },
+                            onError = { state ->
+                                Log.e("Andromuks", "❌ Image load failed: $imageUrl")
+                                Log.e("Andromuks", "Error state: $state")
+                                if (state is coil.request.ErrorResult) {
+                                    Log.e("Andromuks", "Error result: ${state.throwable}")
+                                    Log.e("Andromuks", "Error message: ${state.throwable.message}")
+                                }
+                            },
+                            onLoading = { state ->
+                                Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
+                            }
+                        )
+                    } else {
+                        // Video placeholder
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "🎥",
+                                    style = MaterialTheme.typography.headlineMedium
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = mediaMessage.filename,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                                    Text(
+                                        text = "${mediaMessage.info.width}×${mediaMessage.info.height}",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Caption if different from filename (inside the bubble)
+                    if (!mediaMessage.caption.isNullOrBlank()) {
+                        Text(
+                            text = mediaMessage.caption,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+            }   
         }
     }
 }
