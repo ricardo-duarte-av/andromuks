@@ -177,6 +177,14 @@ fun RoomTimelineScreen(
         appViewModel.requestRoomTimeline(roomId)
     }
     
+    // Validate and request missing user profiles when timeline events change
+    LaunchedEffect(sortedEvents) {
+        if (sortedEvents.isNotEmpty()) {
+            Log.d("Andromuks", "RoomTimelineScreen: Validating user profiles for ${sortedEvents.size} events")
+            appViewModel.validateAndRequestMissingProfiles(roomId, sortedEvents)
+        }
+    }
+    
     // Handle Android back key
     BackHandler {
         navController.popBackStack()

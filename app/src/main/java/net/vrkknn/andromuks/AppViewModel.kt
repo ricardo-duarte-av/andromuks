@@ -28,6 +28,9 @@ data class UserProfile(
 )
 
 class AppViewModel : ViewModel() {
+    companion object {
+        private const val PROFILE_CACHE_FILE = "user_profiles_cache.json"
+    }
     var isLoading by mutableStateOf(false)
     var homeserverUrl by mutableStateOf("")
         private set
@@ -47,6 +50,11 @@ class AppViewModel : ViewModel() {
     // Settings
     var showUnprocessedEvents by mutableStateOf(true)
         private set
+
+    init {
+        // Load cached user profiles from disk on initialization
+        loadCachedProfiles()
+    }
 
     // List of spaces, each with their rooms
     var spaceList by mutableStateOf(listOf<SpaceItem>())
@@ -693,6 +701,39 @@ class AppViewModel : ViewModel() {
         ws.send(payload)
     }
     
+    /**
+     * Validates and requests missing user profiles for a room.
+     * Checks all timeline events and requests profiles for users with missing display names or avatars.
+     */
+    fun validateAndRequestMissingProfiles(roomId: String, timelineEvents: List<TimelineEvent>) {
+        val memberMap = roomMemberCache[roomId] ?: return
+        val usersToRequest = mutableSetOf<String>()
+        
+        // Check each timeline event for missing user profile data
+        for (event in timelineEvents) {
+            val sender = event.sender
+            val profile = memberMap[sender]
+            
+            // Check if we have incomplete profile data
+            val hasDisplayName = !profile?.displayName.isNullOrBlank()
+            val hasAvatar = !profile?.avatarUrl.isNullOrBlank()
+            
+            if (!hasDisplayName || !hasAvatar) {
+                // Only request if we haven't already requested this user's profile
+                if (!profileRequests.values.contains(sender)) {
+                    usersToRequest.add(sender)
+                    android.util.Log.d("Andromuks", "AppViewModel: Missing profile data for $sender - displayName: $hasDisplayName, avatar: $hasAvatar")
+                }
+            }
+        }
+        
+        // Request profiles for users with missing data
+        for (userId in usersToRequest) {
+            android.util.Log.d("Andromuks", "AppViewModel: Requesting missing profile for $userId")
+            requestUserProfile(userId)
+        }
+    }
+    
     // Track outgoing requests for timeline processing
     fun trackOutgoingRequest(requestId: Int, roomId: String) {
         outgoingRequests[requestId] = roomId
@@ -923,6 +964,81 @@ class AppViewModel : ViewModel() {
         
         // Trigger UI update since member cache changed
         updateCounter++
+        
+        // Save updated profile to disk cache
+        saveProfileToDisk(userId, memberProfile)
+    }
+    
+    /**
+     * Saves a user profile to disk cache for persistence between app sessions
+     */
+    private fun saveProfileToDisk(userId: String, profile: MemberProfile) {
+        try {
+            val context = android.app.Application().applicationContext
+            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+            val editor = sharedPrefs.edit()
+            
+            // Create a JSON object for the profile
+            val profileJson = JSONObject()
+            profileJson.put("displayName", profile.displayName ?: "")
+            profileJson.put("avatarUrl", profile.avatarUrl ?: "")
+            
+            // Store in shared preferences
+            editor.putString("profile_$userId", profileJson.toString())
+            editor.apply()
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Saved profile to disk for $userId")
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to save profile to disk for $userId", e)
+        }
+    }
+    
+    /**
+     * Loads a user profile from disk cache
+     */
+    private fun loadProfileFromDisk(userId: String): MemberProfile? {
+        return try {
+            val context = android.app.Application().applicationContext
+            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+            val profileJsonString = sharedPrefs.getString("profile_$userId", null) ?: return null
+            
+            val profileJson = JSONObject(profileJsonString)
+            val displayName = profileJson.optString("displayName").takeIf { it.isNotBlank() }
+            val avatarUrl = profileJson.optString("avatarUrl").takeIf { it.isNotBlank() }
+            
+            MemberProfile(displayName, avatarUrl)
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to load profile from disk for $userId", e)
+            null
+        }
+    }
+    
+    /**
+     * Loads all cached profiles from disk and populates the member cache
+     */
+    fun loadCachedProfiles() {
+        try {
+            val context = android.app.Application().applicationContext
+            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+            val allKeys = sharedPrefs.all.keys.filter { it.startsWith("profile_") }
+            
+            for (key in allKeys) {
+                val userId = key.removePrefix("profile_")
+                val profile = loadProfileFromDisk(userId)
+                if (profile != null) {
+                    // Add to all room member caches where this user might be present
+                    roomMemberCache.forEach { (roomId, memberMap) ->
+                        if (memberMap.containsKey(userId)) {
+                            memberMap[userId] = profile
+                        }
+                    }
+                }
+            }
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Loaded ${allKeys.size} cached profiles from disk")
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to load cached profiles from disk", e)
+        }
     }
     
     private fun handleOutgoingRequestResponse(requestId: Int, data: Any) {
