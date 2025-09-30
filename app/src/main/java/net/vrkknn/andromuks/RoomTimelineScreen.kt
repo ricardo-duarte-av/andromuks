@@ -65,6 +65,8 @@ import coil.request.CachePolicy
 import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.SystemEventNarrator
+import net.vrkknn.andromuks.utils.NarratorText
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -1682,7 +1684,7 @@ fun RoomHeader(
 }
 
 @Composable
-fun SystemEventNarrator(
+fun NarratorText(
     event: TimelineEvent,
     displayName: String,
     avatarUrl: String?,
@@ -1912,20 +1914,6 @@ fun SystemEventNarrator(
             fontStyle = FontStyle.Italic
         )
     }
-}
-
-@Composable
-fun NarratorText(
-    text: AnnotatedString,
-    modifier: Modifier = Modifier
-) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontStyle = FontStyle.Italic,
-        modifier = modifier
-    )
 }
 
 @Composable
