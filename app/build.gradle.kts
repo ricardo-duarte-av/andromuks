@@ -57,8 +57,8 @@ android {
         }
         debug {
             isDebuggable = true
-            if (signingConfigs.findByName("debug null) {
-                signingConfig = signingConfigs.getByName("release")
+            if (signingConfigs.findByName("debug") != null) {
+                signingConfig = signingConfigs.getByName("debug")
             }
         }
     }
