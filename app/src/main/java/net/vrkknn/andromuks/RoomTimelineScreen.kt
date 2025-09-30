@@ -1270,12 +1270,6 @@ fun RoomHeader(
 
 
 
-// Data classes
-data class RoomState(
-    val name: String? = null,
-    val topic: String? = null,
-    val avatar: String? = null
-)
 
 
 

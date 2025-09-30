@@ -221,3 +221,39 @@ fun MessageTextWithMentions(
         )
     }
 }
+
+@Composable
+private fun SmartMessageText(
+    body: String,
+    format: String?,
+    userProfileCache: Map<String, MemberProfile>,
+    homeserverUrl: String,
+    authToken: String,
+    appViewModel: AppViewModel?,
+    roomId: String,
+    modifier: Modifier = Modifier
+) {
+    if (format == "org.matrix.custom.html") {
+        // Use rich text renderer for HTML messages
+        RichMessageText(
+            formattedBody = body,
+            userProfileCache = userProfileCache,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            appViewModel = appViewModel,
+            roomId = roomId,
+            modifier = modifier
+        )
+    } else {
+        // Use plain text renderer with mention detection for regular messages
+        MessageTextWithMentions(
+            text = body,
+            userProfileCache = userProfileCache,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            appViewModel = appViewModel,
+            roomId = roomId,
+            modifier = modifier
+        )
+    }
+}
