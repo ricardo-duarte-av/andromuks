@@ -138,6 +138,7 @@ fun RoomTimelineScreen(
     }
 
     // Define allowed event types (whitelist approach)
+    // Note: m.room.redaction events are explicitly excluded as they should not appear in timeline
     val allowedEventTypes = setOf(
         "m.room.message",
         "m.room.encrypted", 
@@ -146,13 +147,16 @@ fun RoomTimelineScreen(
         "m.room.topic",
         "m.room.avatar",
         "m.reaction"
+        // m.room.redaction is intentionally excluded - redaction events should not appear in timeline
     )
     
     // Sort events so newer messages are at the bottom, and filter unprocessed events if setting is disabled
     val sortedEvents = remember(timelineEvents, appViewModel.showUnprocessedEvents) {
         val filteredEvents = if (appViewModel.showUnprocessedEvents) {
-            // Show all events when unprocessed events are enabled
-            timelineEvents
+            // Show all events when unprocessed events are enabled, but always exclude redaction events
+            timelineEvents.filter { event ->
+                event.type != "m.room.redaction"
+            }
         } else {
             // Only show allowed events when unprocessed events are disabled
             timelineEvents.filter { event ->
@@ -1366,7 +1370,7 @@ private fun createDeletionMessage(
     // Format timestamp to readable format
     val timeString = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
     
-    return if (redactionReason != null) {
+    return if (!redactionReason.isNullOrBlank()) {
         "Removed by $senderDisplayName for $redactionReason at $timeString"
     } else {
         "Removed by $senderDisplayName at $timeString"

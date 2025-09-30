@@ -145,7 +145,7 @@ private fun createDeletionMessageForReply(
     val timestamp = redactionEvent?.timestamp ?: System.currentTimeMillis()
     val timeString = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
     
-    return if (redactionReason != null) {
+    return if (!redactionReason.isNullOrBlank()) {
         "Removed by $senderDisplayName for $redactionReason at $timeString"
     } else {
         "Removed by $senderDisplayName at $timeString"
