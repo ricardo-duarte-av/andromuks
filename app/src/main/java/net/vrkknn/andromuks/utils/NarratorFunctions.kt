@@ -129,10 +129,10 @@ fun SystemEventNarrator(
                     "invite" -> {
                         val invitedUserId = content?.optString("state_key", "")
                         val invitedDisplayName = invitedUserId?.let { userId ->
-                            appViewModel?.getMemberMap(roomId)?.get(userId)?.displayName
+                            appViewModel?.getMemberProfile(roomId, userId)?.displayName
                         }
                         val invitedAvatarUrl = invitedUserId?.let { userId ->
-                            appViewModel?.getMemberMap(roomId)?.get(userId)?.avatarUrl
+                            appViewModel?.getMemberProfile(roomId, userId)?.avatarUrl
                         }
                         
                         // Request profile if not found
