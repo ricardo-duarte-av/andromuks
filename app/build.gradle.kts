@@ -12,7 +12,9 @@ android {
         applicationId = "pt.aguiarvieira.andromuks"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
+        //versionCode = 1
+        //versionName = "1.0"
+        versionCode = (System.getenv("BUILD_NUMBER")?.toIntOrNull() ?: 1)
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -51,7 +53,7 @@ android {
         }
         debug {
             isDebuggable = true
-            versionCode = defaultConfig.versionCode + 1
+
         }
     }
     compileOptions {
