@@ -59,37 +59,28 @@ fun MediaMessage(
     val hasCaption = !mediaMessage.caption.isNullOrBlank()
     
     if (hasCaption) {
-        // With caption: Image gets its own frame with square corners, caption below
-        Column(
-            modifier = modifier.fillMaxWidth(0.8f)
+        // With caption: Image inside the caption bubble
+        Surface(
+            modifier = modifier.fillMaxWidth(0.8f),
+            shape = RoundedCornerShape(
+                topStart = if (isMine) 12.dp else 4.dp,
+                topEnd = if (isMine) 4.dp else 12.dp,
+                bottomStart = 12.dp,
+                bottomEnd = 12.dp
+            ),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 1.dp
         ) {
-            // Image frame with square corners (8dp radius for modern look)
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(8.dp), // Square corners for image frame
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 1.dp
-            ) {
+            Column {
+                // Image content inside the caption bubble
                 MediaContent(
                     mediaMessage = mediaMessage,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
                     isEncrypted = isEncrypted
                 )
-            }
-            
-            // Caption below the image frame with pointed corners (original message bubble style)
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(
-                    topStart = if (isMine) 12.dp else 4.dp,
-                    topEnd = if (isMine) 4.dp else 12.dp,
-                    bottomStart = 12.dp,
-                    bottomEnd = 12.dp
-                ),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 1.dp
-            ) {
+                
+                // Caption text below the image, inside the same bubble
                 Text(
                     text = mediaMessage.caption,
                     style = MaterialTheme.typography.bodyMedium,
