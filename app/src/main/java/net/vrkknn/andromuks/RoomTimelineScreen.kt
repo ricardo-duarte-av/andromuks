@@ -159,7 +159,24 @@ fun RoomTimelineScreen(
                 allowedEventTypes.contains(event.type)
             }
         }
-        filteredEvents.sortedBy { it.timestamp }
+        
+        // Filter out superseded events (original messages that have been edited)
+        // Edit events create new timeline entries, so we hide the original messages they replace
+        val eventsWithoutSuperseded = filteredEvents.filter { event ->
+            if (event.type == "m.room.message") {
+                // Check if this message has been superseded by an edit
+                val hasBeenEdited = filteredEvents.any { otherEvent ->
+                    otherEvent.type == "m.room.message" &&
+                    otherEvent.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace" &&
+                    otherEvent.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId
+                }
+                !hasBeenEdited // Keep the event if it hasn't been edited
+            } else {
+                true // Keep non-message events
+            }
+        }
+        
+        eventsWithoutSuperseded.sortedBy { it.timestamp }
     }
 
     // List state and auto-scroll to bottom when data loads/changes
@@ -525,15 +542,20 @@ fun TimelineEventItem(
                 "m.room.redaction" -> {
                     // Handle redaction events - these should not be displayed as regular messages
                     // The redaction logic will be handled by modifying the original message
+                    // When a message is redacted, it gets a redactedBy field pointing to the redaction event
+                    // We use this to display deletion messages instead of the original content
                     return
                 }
                 "m.room.message" -> {
-                    // Check if this is an edit event (m.replace relationship) - don't display edit events
+                    // Check if this is an edit event (m.replace relationship)
                     val isEditEvent = event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                    if (isEditEvent) {
-                        return // Don't display edit events as separate timeline items
+                    // For edit events, get content from m.new_content; for regular messages, use content directly
+                    // This ensures edit events display the new content instead of the edit metadata
+                    val content = if (isEditEvent) {
+                        event.content?.optJSONObject("m.new_content")
+                    } else {
+                        event.content
                     }
-                    val content = event.content
                     val format = content?.optString("format", "")
                     val body = if (format == "org.matrix.custom.html") {
                         content?.optString("formatted_body", "") ?: ""
@@ -544,39 +566,19 @@ fun TimelineEventItem(
                     
                     // Check if this message has been redacted
                     val isRedacted = event.redactedBy != null
-                    val redactionReason = if (isRedacted) {
-                        // Find the redaction event to get the reason
-                        timelineEvents.find { it.eventId == event.redactedBy }?.content?.optString("reason", "")
+                    val redactionEvent = if (isRedacted) {
+                        // Find the redaction event to get the reason and sender
+                        timelineEvents.find { it.eventId == event.redactedBy }
                     } else null
+                    val redactionReason = redactionEvent?.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
+                    val redactionSender = redactionEvent?.sender
                     
-                    // Check if this is an edit (m.replace relationship)
-                    val isEdit = content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                    val editContent = if (isEdit) {
-                        content?.optJSONObject("m.new_content")
-                    } else null
-                    
-                    
-                    // Use edit content if this message is being edited, or hide content if redacted
+                    // Show deletion message if redacted, otherwise show the message content
                     val finalBody = if (isRedacted) {
-                        "" // Hide original content for redacted messages
-                    } else if (editedBy != null && editedBy.decrypted != null) {
-                        val newContent = editedBy.decrypted?.optJSONObject("m.new_content")
-                        val editFormat = newContent?.optString("format", "")
-                        if (editFormat == "org.matrix.custom.html") {
-                            newContent?.optString("formatted_body", "") ?: ""
-                        } else {
-                            newContent?.optString("body", "") ?: ""
-                        }
-                    } else if (editedBy != null && editedBy.content != null) {
-                        val newContent = editedBy.content?.optJSONObject("m.new_content")
-                        val editFormat = newContent?.optString("format", "")
-                        if (editFormat == "org.matrix.custom.html") {
-                            newContent?.optString("formatted_body", "") ?: ""
-                        } else {
-                            newContent?.optString("body", "") ?: ""
-                        }
+                        // Create deletion message based on reason and sender
+                        createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache)
                     } else {
-                        body
+                        body // Show the message content (for edit events, this is already the new content)
                     }
                     
                     // Check if this is a reply message
@@ -588,6 +590,53 @@ fun TimelineEventItem(
                     // Check if it's a media message
                     if (msgType == "m.image" || msgType == "m.video") {
                         Log.d("Andromuks", "TimelineEventItem: Found media message - msgType=$msgType, body=$body")
+                        
+                        // If media message is redacted, show deletion message instead of media
+                        if (isRedacted) {
+                            // Display deletion message for media
+                            val deletionMessage = createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache)
+                            
+                            val bubbleShape = if (isMine) {
+                                RoundedCornerShape(
+                                    topStart = 16.dp,
+                                    topEnd = 2.dp,
+                                    bottomEnd = 16.dp,
+                                    bottomStart = 16.dp
+                                )
+                            } else {
+                                RoundedCornerShape(
+                                    topStart = 2.dp,
+                                    topEnd = 16.dp,
+                                    bottomEnd = 16.dp,
+                                    bottomStart = 16.dp
+                                )
+                            }
+                            
+                            val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                            val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                            ) {
+                                Surface(
+                                    color = bubbleColor,
+                                    shape = bubbleShape,
+                                    tonalElevation = 2.dp,
+                                    modifier = Modifier.padding(top = 4.dp)
+                                ) {
+                                    Text(
+                                        text = deletionMessage,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = textColor,
+                                        fontStyle = FontStyle.Italic, // Make deletion messages italic
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                    )
+                                }
+                            }
+                            return // Exit early for redacted media messages
+                        }
+                        
                         val url = content?.optString("url", "") ?: ""
                         val filename = content?.optString("filename", "") ?: ""
                         val info = content?.optJSONObject("info")
@@ -634,7 +683,8 @@ fun TimelineEventItem(
                                         modifier = Modifier.padding(bottom = 8.dp),
                                         onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
-                                        }
+                                        },
+                                        timelineEvents = timelineEvents
                                     )
                                     MediaMessage(
                                         mediaMessage = mediaMessage,
@@ -754,7 +804,8 @@ fun TimelineEventItem(
                                             modifier = Modifier.padding(bottom = 8.dp),
                                             onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
-                                            }
+                                            },
+                                            timelineEvents = timelineEvents
                                         )
                                         
                                         // Reply message content (directly in the outer bubble, no separate bubble)
@@ -769,10 +820,10 @@ fun TimelineEventItem(
                                             modifier = Modifier
                                         )
                                         
-                                        // Show redaction indicators for reply
+                                        // Show redaction indicators for reply (using our new deletion message function)
                                         if (isRedacted) {
                                             Text(
-                                                text = "Removed by ${displayName ?: event.sender}${redactionReason?.let { " for $it" } ?: ""}",
+                                                text = createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontStyle = FontStyle.Italic,
@@ -800,10 +851,10 @@ fun TimelineEventItem(
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                     )
                                     
-                                    // Show redaction indicators
+                                    // Show redaction indicators (using our new deletion message function)
                                     if (isRedacted) {
                                         Text(
-                                            text = "Removed by ${displayName ?: event.sender}${redactionReason?.let { " for $it" } ?: ""}",
+                                            text = createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontStyle = FontStyle.Italic,
@@ -959,7 +1010,8 @@ fun TimelineEventItem(
                                             modifier = Modifier.padding(bottom = 8.dp),
                                             onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
-                                            }
+                                            },
+                                            timelineEvents = timelineEvents
                                         )
                                         MediaMessage(
                                             mediaMessage = mediaMessage,
@@ -1099,7 +1151,8 @@ fun TimelineEventItem(
                                                 modifier = Modifier.padding(bottom = 8.dp),
                                                 onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
-                                                }
+                                                },
+                                                timelineEvents = timelineEvents
                                             )
                                             
                                             // Reply message content (directly in the outer bubble, no separate bubble)
@@ -1283,6 +1336,40 @@ fun RoomHeader(
                 }
             }
         }
+    }
+}
+
+/**
+ * Creates a deletion message text based on the redaction details.
+ * 
+ * Format:
+ * - If reason is null: "Removed by $user_sending_the_delete at $time_for_deletion"
+ * - If reason is not null: "Removed by $user_sending_the_delete for $reason_for_delete at $time_for_deletion"
+ * 
+ * @param redactionSender The user ID who sent the redaction event
+ * @param redactionReason The reason for deletion (can be null)
+ * @param redactionTimestamp The timestamp when the deletion occurred
+ * @param userProfileCache Map of user IDs to MemberProfile objects for display names
+ * @return Formatted deletion message string
+ */
+private fun createDeletionMessage(
+    redactionSender: String?, 
+    redactionReason: String?, 
+    redactionTimestamp: Long?,
+    userProfileCache: Map<String, MemberProfile>
+): String {
+    val senderDisplayName = redactionSender?.let { userId ->
+        userProfileCache[userId]?.displayName ?: userId
+    } ?: "Unknown user"
+    val timestamp = redactionTimestamp ?: System.currentTimeMillis()
+    
+    // Format timestamp to readable format
+    val timeString = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
+    
+    return if (redactionReason != null) {
+        "Removed by $senderDisplayName for $redactionReason at $timeString"
+    } else {
+        "Removed by $senderDisplayName at $timeString"
     }
 }
 

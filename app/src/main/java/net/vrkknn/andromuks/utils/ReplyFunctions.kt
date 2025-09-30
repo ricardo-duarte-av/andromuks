@@ -27,6 +27,10 @@ import net.vrkknn.andromuks.TimelineEvent
  * The preview shows the sender's name and a truncated version of the original
  * message content.
  * 
+ * If the original message has been redacted/deleted, it will show a deletion
+ * message instead of the original content, following the same format as the
+ * main timeline deletion messages.
+ * 
  * @param replyInfo ReplyInfo object containing sender and eventId of the original message
  * @param originalEvent TimelineEvent object of the original message being replied to
  * @param userProfileCache Map of user IDs to MemberProfile objects for display names
@@ -45,14 +49,22 @@ fun ReplyPreview(
     authToken: String,
     isMine: Boolean,
     modifier: Modifier = Modifier,
-    onOriginalMessageClick: () -> Unit = {}
+    onOriginalMessageClick: () -> Unit = {},
+    timelineEvents: List<TimelineEvent> = emptyList() // Added to find redaction events
 ) {
     val originalSender = originalEvent?.sender ?: replyInfo.sender
     val originalBody = originalEvent?.let { event ->
-        when {
-            event.type == "m.room.message" -> event.content?.optString("body", "")
-            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optString("body", "")
-            else -> null
+        // Check if the original message has been redacted
+        if (event.redactedBy != null) {
+            // Original message was deleted - create detailed deletion message
+            createDeletionMessageForReply(event, timelineEvents, userProfileCache)
+        } else {
+            // Original message is still available - show its content
+            when {
+                event.type == "m.room.message" -> event.content?.optString("body", "")
+                event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optString("body", "")
+                else -> null
+            }
         }
     } ?: "Message not found"
     
@@ -106,5 +118,36 @@ fun ReplyPreview(
                 }
             }
         }
+    }
+}
+
+/**
+ * Creates a deletion message for reply previews when the original message has been redacted.
+ * 
+ * @param redactedEvent The redacted timeline event
+ * @param timelineEvents List of all timeline events to find the redaction event
+ * @param userProfileCache Map of user IDs to MemberProfile objects for display names
+ * @return Formatted deletion message string
+ */
+private fun createDeletionMessageForReply(
+    redactedEvent: TimelineEvent,
+    timelineEvents: List<TimelineEvent>,
+    userProfileCache: Map<String, MemberProfile>
+): String {
+    val redactionEvent = timelineEvents.find { it.eventId == redactedEvent.redactedBy }
+    val redactionReason = redactionEvent?.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
+    val redactionSender = redactionEvent?.sender
+    
+    val senderDisplayName = redactionSender?.let { userId ->
+        userProfileCache[userId]?.displayName ?: userId
+    } ?: "Unknown user"
+    
+    val timestamp = redactionEvent?.timestamp ?: System.currentTimeMillis()
+    val timeString = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
+    
+    return if (redactionReason != null) {
+        "Removed by $senderDisplayName for $redactionReason at $timeString"
+    } else {
+        "Removed by $senderDisplayName at $timeString"
     }
 }
