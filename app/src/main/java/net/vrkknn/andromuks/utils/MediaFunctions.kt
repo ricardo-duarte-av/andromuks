@@ -204,14 +204,14 @@ fun MediaMessage(
             }
             
         // Caption if different from filename (inside the bubble)
-            if (!mediaMessage.caption.isNullOrBlank()) {
-                Text(
-                    text = mediaMessage.caption,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                )
-            }
+        if (!mediaMessage.caption.isNullOrBlank()) {
+            Text(
+                text = mediaMessage.caption,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            )
+        }
         }
     }
 }
