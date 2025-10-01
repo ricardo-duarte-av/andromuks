@@ -1430,9 +1430,18 @@ class AppViewModel : ViewModel() {
                             }
                         }
                     } else {
-                        // Add non-reaction timeline events to timeline
-                        timelineList.add(event)
-                        android.util.Log.d("Andromuks", "AppViewModel: Added timeline event: ${event.type} from ${event.sender}")
+                        // Check if this event is superseded by any other event in the same sync batch
+                        val isSuperseded = timelineList.any { otherEvent ->
+                            isEventSupersededBy(event, otherEvent)
+                        }
+                        
+                        if (!isSuperseded) {
+                            // Add non-reaction timeline events to timeline
+                            timelineList.add(event)
+                            android.util.Log.d("Andromuks", "AppViewModel: Added timeline event: ${event.type} from ${event.sender}")
+                        } else {
+                            android.util.Log.d("Andromuks", "AppViewModel: Skipped superseded event: ${event.eventId} (superseded by newer event)")
+                        }
                     }
                 }
             }
@@ -1513,6 +1522,27 @@ class AppViewModel : ViewModel() {
         }
         
         return supersededEventIds
+    }
+    
+    /**
+     * Checks if an event is superseded by another event.
+     * 
+     * @param event The event to check if it's superseded
+     * @param otherEvent The other event that might supersede it
+     * @return True if the event is superseded by the other event
+     */
+    private fun isEventSupersededBy(event: TimelineEvent, otherEvent: TimelineEvent): Boolean {
+        // Check if otherEvent is an edit that supersedes this event
+        val relatesTo = when {
+            otherEvent.type == "m.room.message" -> otherEvent.content?.optJSONObject("m.relates_to")
+            otherEvent.type == "m.room.encrypted" && otherEvent.decryptedType == "m.room.message" -> otherEvent.decrypted?.optJSONObject("m.relates_to")
+            else -> null
+        }
+        
+        val relatesToEventId = relatesTo?.optString("event_id")
+        val relType = relatesTo?.optString("rel_type")
+        
+        return relType == "m.replace" && relatesToEventId == event.eventId
     }
     
     private fun processReadReceipts(receiptsJson: JSONObject) {
