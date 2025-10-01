@@ -1586,31 +1586,15 @@ class AppViewModel : ViewModel() {
         // Get the new content from the edit event
         val newContent = editEvent.decrypted?.optJSONObject("m.new_content")
         if (newContent != null) {
-            // Update the decrypted content with the new content
+            // Start with the original decrypted content as base
             val mergedDecrypted = JSONObject(originalEvent.decrypted.toString())
             
-            // Update the body with the new content
-            val newBody = newContent.optString("body", "")
-            if (newBody.isNotEmpty()) {
-                mergedDecrypted.put("body", newBody)
-            }
-            
-            // Update other fields from new content
-            val newMsgType = newContent.optString("msgtype", "")
-            if (newMsgType.isNotEmpty()) {
-                mergedDecrypted.put("msgtype", newMsgType)
-            }
-            
-            // Update mentions if present
-            val newMentions = newContent.optJSONObject("m.mentions")
-            if (newMentions != null) {
-                mergedDecrypted.put("m.mentions", newMentions)
-            }
-            
-            // Update link previews if present
-            val newLinkPreviews = newContent.optJSONArray("com.beeper.linkpreviews")
-            if (newLinkPreviews != null) {
-                mergedDecrypted.put("com.beeper.linkpreviews", newLinkPreviews)
+            // Replace ALL fields from the new content, giving new content priority
+            val newContentKeys = newContent.keys()
+            while (newContentKeys.hasNext()) {
+                val key = newContentKeys.next()
+                val value = newContent.get(key)
+                mergedDecrypted.put(key, value)
             }
             
             // Create the merged event with updated content
