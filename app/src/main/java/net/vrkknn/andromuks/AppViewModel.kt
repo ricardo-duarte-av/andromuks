@@ -1386,6 +1386,7 @@ class AppViewModel : ViewModel() {
     }
     
     private fun processSyncEventsArray(eventsArray: JSONArray, roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: processSyncEventsArray called with ${eventsArray.length()} events")
         val timelineList = mutableListOf<TimelineEvent>()
         val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
         
@@ -1393,6 +1394,7 @@ class AppViewModel : ViewModel() {
             val eventJson = eventsArray.optJSONObject(i)
             if (eventJson != null) {
                 val event = TimelineEvent.fromJson(eventJson)
+                android.util.Log.d("Andromuks", "AppViewModel: Processing event ${event.eventId} of type ${event.type}")
                 if (event.type == "m.room.member" && event.timelineRowid == -1L) {
                     // State member event; update cache only
                     val userId = event.stateKey ?: event.sender
