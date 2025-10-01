@@ -463,12 +463,8 @@ fun TimelineEventItem(
         return
     }
     
-    // Early return for edit events (m.replace relationships) - they should not be displayed as separate timeline items
-    val isEditEvent = (event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") ||
-                     (event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace")
-    if (isEditEvent) {
-        return
-    }
+    // Note: Edit events are now allowed to be displayed since we have proper superseding logic
+    // that ensures only the latest version of each message is shown
     
     Row(
         modifier = Modifier
@@ -889,11 +885,7 @@ fun TimelineEventItem(
                     }
                 }
                 "m.room.encrypted" -> {
-                    // Check if this is an edit event (m.replace relationship) - don't display edit events
-                    val isEditEvent = event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                    if (isEditEvent) {
-                        return // Don't display edit events as separate timeline items
-                    }
+                    // Note: Edit events are now allowed to be displayed since we have proper superseding logic
                     
                     val decryptedType = event.decryptedType
                     val decrypted = event.decrypted
