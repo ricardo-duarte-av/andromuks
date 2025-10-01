@@ -1489,14 +1489,21 @@ class AppViewModel : ViewModel() {
             
             if (supersededEventIds.isNotEmpty()) {
                 // This is an edit event - merge the new content into the original event
+                android.util.Log.d("Andromuks", "AppViewModel: Processing edit event ${newEvent.eventId} that supersedes: $supersededEventIds")
                 for (supersededEventId in supersededEventIds) {
                     val originalEventIndex = result.indexOfFirst { it.eventId == supersededEventId }
                     if (originalEventIndex != -1) {
                         val originalEvent = result[originalEventIndex]
+                        android.util.Log.d("Andromuks", "AppViewModel: Found original event at index $originalEventIndex: ${originalEvent.eventId}")
+                        android.util.Log.d("Andromuks", "AppViewModel: Original event body before merge: ${originalEvent.decrypted?.optString("body", "null")}")
+                        
                         // Create a new event that merges the original event with the edit content
                         val mergedEvent = mergeEditContent(originalEvent, newEvent)
                         result[originalEventIndex] = mergedEvent
                         android.util.Log.d("Andromuks", "AppViewModel: Merged edit content into original event $supersededEventId")
+                        android.util.Log.d("Andromuks", "AppViewModel: Final merged event body: ${mergedEvent.decrypted?.optString("body", "null")}")
+                    } else {
+                        android.util.Log.d("Andromuks", "AppViewModel: WARNING - Could not find original event $supersededEventId in timeline")
                     }
                 }
             } else {
@@ -1517,6 +1524,7 @@ class AppViewModel : ViewModel() {
      * @return List of event IDs that are superseded by the new event
      */
     private fun findSupersededEvents(newEvent: TimelineEvent, existingEvents: List<TimelineEvent>): List<String> {
+        android.util.Log.d("Andromuks", "AppViewModel: findSupersededEvents called for event ${newEvent.eventId}")
         val supersededEventIds = mutableListOf<String>()
         
         // Check if this is an edit event (m.replace relationship)
@@ -1526,18 +1534,29 @@ class AppViewModel : ViewModel() {
             else -> null
         }
         
+        android.util.Log.d("Andromuks", "AppViewModel: relatesTo for event ${newEvent.eventId}: $relatesTo")
+        
         val relatesToEventId = relatesTo?.optString("event_id")
         val relType = relatesTo?.optString("rel_type")
         
+        android.util.Log.d("Andromuks", "AppViewModel: relatesToEventId: $relatesToEventId, relType: $relType")
+        
         if (relType == "m.replace" && relatesToEventId != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: This is an edit event targeting $relatesToEventId")
             // This is an edit event - find the original event it replaces
             val originalEvent = existingEvents.find { it.eventId == relatesToEventId }
             if (originalEvent != null) {
                 supersededEventIds.add(originalEvent.eventId)
                 android.util.Log.d("Andromuks", "AppViewModel: Edit event ${newEvent.eventId} supersedes original event ${originalEvent.eventId}")
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: WARNING - Could not find original event $relatesToEventId in existing events")
+                android.util.Log.d("Andromuks", "AppViewModel: Available event IDs: ${existingEvents.map { it.eventId }}")
             }
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: Not an edit event (relType: $relType, relatesToEventId: $relatesToEventId)")
         }
         
+        android.util.Log.d("Andromuks", "AppViewModel: Returning superseded event IDs: $supersededEventIds")
         return supersededEventIds
     }
     
@@ -1580,30 +1599,49 @@ class AppViewModel : ViewModel() {
      * @return A new TimelineEvent with merged content
      */
     private fun mergeEditContent(originalEvent: TimelineEvent, editEvent: TimelineEvent): TimelineEvent {
+        android.util.Log.d("Andromuks", "AppViewModel: mergeEditContent called")
+        android.util.Log.d("Andromuks", "AppViewModel: Original event ID: ${originalEvent.eventId}")
+        android.util.Log.d("Andromuks", "AppViewModel: Original event body: ${originalEvent.decrypted?.optString("body", "null")}")
+        android.util.Log.d("Andromuks", "AppViewModel: Edit event ID: ${editEvent.eventId}")
+        android.util.Log.d("Andromuks", "AppViewModel: Edit event body: ${editEvent.decrypted?.optString("body", "null")}")
+        
         // Create a new content JSON object based on the original event
         val mergedContent = JSONObject(originalEvent.content.toString())
         
         // Get the new content from the edit event
         val newContent = editEvent.decrypted?.optJSONObject("m.new_content")
+        android.util.Log.d("Andromuks", "AppViewModel: newContent from edit event: $newContent")
+        
         if (newContent != null) {
             // Start with the original decrypted content as base
             val mergedDecrypted = JSONObject(originalEvent.decrypted.toString())
+            android.util.Log.d("Andromuks", "AppViewModel: Original decrypted content before merge: ${mergedDecrypted.toString()}")
             
             // Replace ALL fields from the new content, giving new content priority
             val newContentKeys = newContent.keys()
+            android.util.Log.d("Andromuks", "AppViewModel: Keys in new content: ${newContentKeys.asSequence().toList()}")
+            
             while (newContentKeys.hasNext()) {
                 val key = newContentKeys.next()
                 val value = newContent.get(key)
+                android.util.Log.d("Andromuks", "AppViewModel: Replacing key '$key' with value: $value")
                 mergedDecrypted.put(key, value)
             }
             
+            android.util.Log.d("Andromuks", "AppViewModel: Merged decrypted content after merge: ${mergedDecrypted.toString()}")
+            android.util.Log.d("Andromuks", "AppViewModel: Final body after merge: ${mergedDecrypted.optString("body", "null")}")
+            
             // Create the merged event with updated content
-            return originalEvent.copy(
+            val mergedEvent = originalEvent.copy(
                 content = mergedContent,
                 decrypted = mergedDecrypted
             )
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Merged event body: ${mergedEvent.decrypted?.optString("body", "null")}")
+            return mergedEvent
         }
         
+        android.util.Log.d("Andromuks", "AppViewModel: No new content found, returning original event")
         // If no new content, return the original event
         return originalEvent
     }
