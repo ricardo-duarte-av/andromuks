@@ -1581,13 +1581,13 @@ class AppViewModel : ViewModel() {
      */
     private fun mergeEditContent(originalEvent: TimelineEvent, editEvent: TimelineEvent): TimelineEvent {
         // Create a new content JSON object based on the original event
-        val mergedContent = originalEvent.content.deepCopy()
+        val mergedContent = JSONObject(originalEvent.content.toString())
         
         // Get the new content from the edit event
-        val newContent = editEvent.decrypted.optJSONObject("m.new_content")
+        val newContent = editEvent.decrypted?.optJSONObject("m.new_content")
         if (newContent != null) {
             // Update the decrypted content with the new content
-            val mergedDecrypted = originalEvent.decrypted.deepCopy()
+            val mergedDecrypted = JSONObject(originalEvent.decrypted.toString())
             
             // Update the body with the new content
             val newBody = newContent.optString("body", "")
