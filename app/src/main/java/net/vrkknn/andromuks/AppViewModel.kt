@@ -1407,7 +1407,7 @@ class AppViewModel : ViewModel() {
                             android.util.Log.d("Andromuks", "AppViewModel: Updated member cache for $userId: $displayName")
                         }
                     }
-                } else if (event.timelineRowid >= 0) {
+                } else if (event.type == "m.room.message" || event.type == "m.room.encrypted") {
                     // Process reaction events first (don't add to timeline)
                     if (event.type == "m.reaction") {
                         val content = event.content
