@@ -1431,8 +1431,13 @@ class AppViewModel : ViewModel() {
                         }
                     } else {
                         // Check if this event is superseded by any other event in the same sync batch
+                        android.util.Log.d("Andromuks", "AppViewModel: Checking if event ${event.eventId} is superseded by any of ${timelineList.size} existing events")
                         val isSuperseded = timelineList.any { otherEvent ->
-                            isEventSupersededBy(event, otherEvent)
+                            val superseded = isEventSupersededBy(event, otherEvent)
+                            if (superseded) {
+                                android.util.Log.d("Andromuks", "AppViewModel: Event ${event.eventId} is superseded by ${otherEvent.eventId}")
+                            }
+                            superseded
                         }
                         
                         if (!isSuperseded) {
@@ -1542,7 +1547,14 @@ class AppViewModel : ViewModel() {
         val relatesToEventId = relatesTo?.optString("event_id")
         val relType = relatesTo?.optString("rel_type")
         
-        return relType == "m.replace" && relatesToEventId == event.eventId
+        android.util.Log.d("Andromuks", "AppViewModel: Checking if ${event.eventId} is superseded by ${otherEvent.eventId}")
+        android.util.Log.d("Andromuks", "AppViewModel: otherEvent type: ${otherEvent.type}, relatesTo: $relatesTo")
+        android.util.Log.d("Andromuks", "AppViewModel: relatesToEventId: $relatesToEventId, relType: $relType")
+        
+        val isSuperseded = relType == "m.replace" && relatesToEventId == event.eventId
+        android.util.Log.d("Andromuks", "AppViewModel: isSuperseded: $isSuperseded")
+        
+        return isSuperseded
     }
     
     private fun processReadReceipts(receiptsJson: JSONObject) {
