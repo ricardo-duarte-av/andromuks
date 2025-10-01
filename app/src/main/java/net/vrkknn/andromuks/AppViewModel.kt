@@ -1439,8 +1439,8 @@ class AppViewModel : ViewModel() {
         }
         
         if (timelineList.isNotEmpty()) {
-            // Add new events to existing timeline
-            val updatedTimeline = timelineEvents + timelineList
+            // Add new events to existing timeline and handle superseding
+            val updatedTimeline = handleEventSuperseding(timelineEvents, timelineList)
             timelineEvents = updatedTimeline.sortedBy { it.timestamp }
             updateCounter++
             android.util.Log.d("Andromuks", "AppViewModel: Added ${timelineList.size} new events to timeline, total: ${timelineEvents.size}")
@@ -1452,6 +1452,67 @@ class AppViewModel : ViewModel() {
                 markRoomAsRead(roomId, newestEvent.eventId)
             }
         }
+    }
+    
+    /**
+     * Handles event superseding when new events are added to the timeline.
+     * 
+     * This function ensures that when new events (like edits) are added, they properly
+     * supersede the original events they replace, preventing the display of outdated content.
+     * 
+     * @param existingEvents Current timeline events
+     * @param newEvents New events to add
+     * @return Updated timeline with proper superseding handled
+     */
+    private fun handleEventSuperseding(existingEvents: List<TimelineEvent>, newEvents: List<TimelineEvent>): List<TimelineEvent> {
+        val result = existingEvents.toMutableList()
+        
+        for (newEvent in newEvents) {
+            // Check if this new event supersedes any existing events
+            val supersededEventIds = findSupersededEvents(newEvent, existingEvents)
+            
+            // Remove superseded events
+            result.removeAll { event -> event.eventId in supersededEventIds }
+            
+            // Add the new event
+            result.add(newEvent)
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Event ${newEvent.eventId} superseded ${supersededEventIds.size} events: $supersededEventIds")
+        }
+        
+        return result
+    }
+    
+    /**
+     * Finds events that are superseded by a new event.
+     * 
+     * @param newEvent The new event that might supersede others
+     * @param existingEvents List of existing events to check
+     * @return List of event IDs that are superseded by the new event
+     */
+    private fun findSupersededEvents(newEvent: TimelineEvent, existingEvents: List<TimelineEvent>): List<String> {
+        val supersededEventIds = mutableListOf<String>()
+        
+        // Check if this is an edit event (m.replace relationship)
+        val relatesTo = when {
+            newEvent.type == "m.room.message" -> newEvent.content?.optJSONObject("m.relates_to")
+            newEvent.type == "m.room.encrypted" && newEvent.decryptedType == "m.room.message" -> newEvent.decrypted?.optJSONObject("m.relates_to")
+            else -> null
+        }
+        
+        val relatesToEventId = relatesTo?.optString("event_id")
+        val relType = relatesTo?.optString("rel_type")
+        
+        if (relType == "m.replace" && relatesToEventId != null) {
+            // This is an edit event - find the original event it replaces
+            val originalEvent = existingEvents.find { it.eventId == relatesToEventId }
+            if (originalEvent != null) {
+                supersededEventIds.add(originalEvent.eventId)
+                android.util.Log.d("Andromuks", "AppViewModel: Edit event ${newEvent.eventId} supersedes original event ${originalEvent.eventId}")
+            }
+        }
+        
+        return supersededEventIds
     }
     
     private fun processReadReceipts(receiptsJson: JSONObject) {
