@@ -2,7 +2,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("com.google.devtools.ksp") version "2.2.20-1.0.25"
 }
 
 android {
@@ -64,13 +63,6 @@ android {
     buildFeatures {
         compose = true
     }
-    
-    // KSP configuration
-    ksp {
-        arg("room.schemaLocation", "$projectDir/schemas")
-        arg("room.incremental", "true")
-        arg("room.expandProjection", "true")
-    }
 }
 
 dependencies {
@@ -101,11 +93,6 @@ dependencies {
     implementation("io.coil-kt:coil-gif:2.5.0")
     // BlurHash - using local implementation
     // implementation("com.github.woltapp:blurhashkt:1.0.0")
-    
-    // Room database
-    implementation(libs.androidx.room.runtime)
-    implementation(libs.androidx.room.ktx)
-    ksp(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
