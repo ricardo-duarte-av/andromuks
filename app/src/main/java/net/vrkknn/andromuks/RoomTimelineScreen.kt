@@ -571,16 +571,16 @@ fun TimelineEventItem(
                     // Check if this message has been redacted
                     val isRedacted = event.redactedBy != null
                     val redactionEvent = if (isRedacted) {
-                        // Find the redaction event to get the reason and sender
-                        timelineEvents.find { it.eventId == event.redactedBy }
+                        // Find the latest redaction event to get the reason and sender
+                        net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
                     } else null
                     val redactionReason = redactionEvent?.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
                     val redactionSender = redactionEvent?.sender
                     
                     // Show deletion message if redacted, otherwise show the message content
                     val finalBody = if (isRedacted) {
-                        // Create deletion message based on reason and sender
-                        createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache)
+                        // Create deletion message based on reason and sender using latest redaction
+                        net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache)
                     } else {
                         body // Show the message content (for edit events, this is already the new content)
                     }
@@ -598,7 +598,7 @@ fun TimelineEventItem(
                         // If media message is redacted, show deletion message instead of media
                         if (isRedacted) {
                             // Display deletion message for media
-                            val deletionMessage = createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache)
+                            val deletionMessage = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache)
                             
                             val bubbleShape = if (isMine) {
                                 RoundedCornerShape(
@@ -827,7 +827,7 @@ fun TimelineEventItem(
                                         // Show redaction indicators for reply (using our new deletion message function)
                                         if (isRedacted) {
                                             Text(
-                                                text = createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
+                                                text = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontStyle = FontStyle.Italic,
@@ -858,7 +858,7 @@ fun TimelineEventItem(
                                     // Show redaction indicators (using our new deletion message function)
                                     if (isRedacted) {
                                         Text(
-                                            text = createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
+                                            text = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
                                             style = MaterialTheme.typography.labelSmall,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                             fontStyle = FontStyle.Italic,
@@ -908,10 +908,12 @@ fun TimelineEventItem(
                         
                         // Check if this message has been redacted
                         val isRedacted = event.redactedBy != null
-                        val redactionReason = if (isRedacted) {
-                            // Find the redaction event to get the reason
-                            timelineEvents.find { it.eventId == event.redactedBy }?.content?.optString("reason", "")
+                        val redactionEvent = if (isRedacted) {
+                            // Find the latest redaction event to get the reason and sender
+                            net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
                         } else null
+                        val redactionReason = redactionEvent?.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
+                        val redactionSender = redactionEvent?.sender
                         
                         // Check if this is an edit (m.replace relationship)
                         val isEdit = decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
@@ -1174,7 +1176,7 @@ fun TimelineEventItem(
                                             // Show redaction indicators for encrypted reply
                                             if (isRedacted) {
                                                 Text(
-                                                    text = "Removed by ${displayName ?: event.sender}${redactionReason?.let { " for $it" } ?: ""}",
+                                                    text = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
                                                     style = MaterialTheme.typography.labelSmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     fontStyle = FontStyle.Italic,
@@ -1205,7 +1207,7 @@ fun TimelineEventItem(
                                         // Show redaction indicators for encrypted message
                                         if (isRedacted) {
                                             Text(
-                                                text = "Removed by ${displayName ?: event.sender}${redactionReason?.let { " for $it" } ?: ""}",
+                                                text = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
                                                 style = MaterialTheme.typography.labelSmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontStyle = FontStyle.Italic,
@@ -1343,39 +1345,6 @@ fun RoomHeader(
     }
 }
 
-/**
- * Creates a deletion message text based on the redaction details.
- * 
- * Format:
- * - If reason is null: "Removed by $user_sending_the_delete at $time_for_deletion"
- * - If reason is not null: "Removed by $user_sending_the_delete for $reason_for_delete at $time_for_deletion"
- * 
- * @param redactionSender The user ID who sent the redaction event
- * @param redactionReason The reason for deletion (can be null)
- * @param redactionTimestamp The timestamp when the deletion occurred
- * @param userProfileCache Map of user IDs to MemberProfile objects for display names
- * @return Formatted deletion message string
- */
-private fun createDeletionMessage(
-    redactionSender: String?, 
-    redactionReason: String?, 
-    redactionTimestamp: Long?,
-    userProfileCache: Map<String, MemberProfile>
-): String {
-    val senderDisplayName = redactionSender?.let { userId ->
-        userProfileCache[userId]?.displayName ?: userId
-    } ?: "Unknown user"
-    val timestamp = redactionTimestamp ?: System.currentTimeMillis()
-    
-    // Format timestamp to readable format
-    val timeString = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
-    
-    return if (!redactionReason.isNullOrBlank()) {
-        "Removed by $senderDisplayName for $redactionReason at $timeString"
-    } else {
-        "Removed by $senderDisplayName at $timeString"
-    }
-}
 
 
 

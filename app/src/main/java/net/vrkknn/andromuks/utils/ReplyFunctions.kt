@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReplyInfo
 import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.utils.RedactionUtils
 
 /**
  * Displays a reply preview showing the original message being replied to.
@@ -56,8 +57,8 @@ fun ReplyPreview(
     val originalBody = originalEvent?.let { event ->
         // Check if the original message has been redacted
         if (event.redactedBy != null) {
-            // Original message was deleted - create detailed deletion message
-            createDeletionMessageForReply(event, timelineEvents, userProfileCache)
+            // Original message was deleted - create detailed deletion message using latest redaction
+            RedactionUtils.createDeletionMessageForEvent(event, timelineEvents, userProfileCache)
         } else {
             // Original message is still available - show its content
             when {
@@ -121,33 +122,3 @@ fun ReplyPreview(
     }
 }
 
-/**
- * Creates a deletion message for reply previews when the original message has been redacted.
- * 
- * @param redactedEvent The redacted timeline event
- * @param timelineEvents List of all timeline events to find the redaction event
- * @param userProfileCache Map of user IDs to MemberProfile objects for display names
- * @return Formatted deletion message string
- */
-private fun createDeletionMessageForReply(
-    redactedEvent: TimelineEvent,
-    timelineEvents: List<TimelineEvent>,
-    userProfileCache: Map<String, MemberProfile>
-): String {
-    val redactionEvent = timelineEvents.find { it.eventId == redactedEvent.redactedBy }
-    val redactionReason = redactionEvent?.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
-    val redactionSender = redactionEvent?.sender
-    
-    val senderDisplayName = redactionSender?.let { userId ->
-        userProfileCache[userId]?.displayName ?: userId
-    } ?: "Unknown user"
-    
-    val timestamp = redactionEvent?.timestamp ?: System.currentTimeMillis()
-    val timeString = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(timestamp))
-    
-    return if (!redactionReason.isNullOrBlank()) {
-        "Removed by $senderDisplayName for $redactionReason at $timeString"
-    } else {
-        "Removed by $senderDisplayName at $timeString"
-    }
-}
