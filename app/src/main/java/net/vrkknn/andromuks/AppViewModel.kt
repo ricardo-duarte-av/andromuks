@@ -1487,13 +1487,21 @@ class AppViewModel : ViewModel() {
             // Check if this new event supersedes any existing events
             val supersededEventIds = findSupersededEvents(newEvent, existingEvents)
             
-            // Remove superseded events
-            result.removeAll { event -> event.eventId in supersededEventIds }
-            
-            // Add the new event
-            result.add(newEvent)
-            
-            android.util.Log.d("Andromuks", "AppViewModel: Event ${newEvent.eventId} superseded ${supersededEventIds.size} events: $supersededEventIds")
+            if (supersededEventIds.isNotEmpty()) {
+                // This is an edit event - modify the original event in place instead of adding a new one
+                for (supersededEventId in supersededEventIds) {
+                    val originalEventIndex = result.indexOfFirst { it.eventId == supersededEventId }
+                    if (originalEventIndex != -1) {
+                        // Replace the original event with the edit event (which contains the new content)
+                        result[originalEventIndex] = newEvent
+                        android.util.Log.d("Andromuks", "AppViewModel: Replaced original event $supersededEventId with edit event ${newEvent.eventId}")
+                    }
+                }
+            } else {
+                // This is a regular new event - add it to the timeline
+                result.add(newEvent)
+                android.util.Log.d("Andromuks", "AppViewModel: Added new event ${newEvent.eventId}")
+            }
         }
         
         return result
