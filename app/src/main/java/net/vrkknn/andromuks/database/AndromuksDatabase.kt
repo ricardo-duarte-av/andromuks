@@ -27,7 +27,7 @@ import net.vrkknn.andromuks.database.dao.*
         UserProfileEntity::class
     ],
     version = 1,
-    exportSchema = false
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AndromuksDatabase : RoomDatabase() {
