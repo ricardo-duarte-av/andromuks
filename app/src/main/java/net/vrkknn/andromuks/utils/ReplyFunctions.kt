@@ -53,17 +53,32 @@ fun ReplyPreview(
     onOriginalMessageClick: () -> Unit = {},
     timelineEvents: List<TimelineEvent> = emptyList() // Added to find redaction events
 ) {
-    val originalSender = originalEvent?.sender ?: replyInfo.sender
-    val originalBody = originalEvent?.let { event ->
-        // Check if the original message has been redacted
+    // Resolve the event chain to get the latest version of the original message
+    val latestOriginalEvent = originalEvent?.let { event ->
+        RedactionUtils.resolveEventChain(event.eventId, timelineEvents)
+    }
+    
+    val originalSender = latestOriginalEvent?.sender ?: replyInfo.sender
+    val originalBody = latestOriginalEvent?.let { event ->
+        // Check if the latest version has been redacted
         if (event.redactedBy != null) {
-            // Original message was deleted - create detailed deletion message using latest redaction
+            // Latest version was deleted - create detailed deletion message using latest redaction
             RedactionUtils.createDeletionMessageForEvent(event, timelineEvents, userProfileCache)
         } else {
-            // Original message is still available - show its content
+            // Latest version is still available - show its content
             when {
                 event.type == "m.room.message" -> event.content?.optString("body", "")
-                event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optString("body", "")
+                event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> {
+                    // For encrypted messages, check if it's an edit
+                    val isEdit = event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    if (isEdit) {
+                        // This is an edit, show the new content
+                        event.decrypted?.optJSONObject("m.new_content")?.optString("body", "")
+                    } else {
+                        // Regular encrypted message
+                        event.decrypted?.optString("body", "")
+                    }
+                }
                 else -> null
             }
         }

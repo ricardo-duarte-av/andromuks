@@ -9,6 +9,60 @@ import net.vrkknn.andromuks.TimelineEvent
 object RedactionUtils {
     
     /**
+     * Resolves an event chain to find the latest version of a message.
+     * 
+     * This function follows the chain of redactions and edits to find the most recent
+     * version of a message. It handles both redactions (which replace content with deletion messages)
+     * and edits (which replace content with new content).
+     * 
+     * @param originalEventId The event ID to start resolving from
+     * @param timelineEvents List of all timeline events to search through
+     * @return The latest version of the event, or null if not found
+     */
+    fun resolveEventChain(
+        originalEventId: String,
+        timelineEvents: List<TimelineEvent>
+    ): TimelineEvent? {
+        var currentEventId = originalEventId
+        val visitedEvents = mutableSetOf<String>() // Prevent infinite loops
+        
+        while (currentEventId !in visitedEvents) {
+            visitedEvents.add(currentEventId)
+            
+            // Find the current event
+            val currentEvent = timelineEvents.find { it.eventId == currentEventId }
+                ?: return null
+            
+            // Look for events that relate to this one (redactions or edits)
+            val relatedEvent = timelineEvents.find { event ->
+                val relatesTo = when {
+                    event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")
+                    event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")
+                    else -> null
+                }
+                
+                val relatesToEventId = relatesTo?.optString("event_id")
+                val relType = relatesTo?.optString("rel_type")
+                
+                // Check for redactions (m.room.redaction) or edits (m.replace)
+                (event.type == "m.room.redaction" || relType == "m.replace") && 
+                relatesToEventId == currentEventId
+            }
+            
+            if (relatedEvent != null) {
+                // Found a related event, continue the chain
+                currentEventId = relatedEvent.eventId
+            } else {
+                // No more related events, this is the latest version
+                return currentEvent
+            }
+        }
+        
+        // If we hit a loop, return the original event
+        return timelineEvents.find { it.eventId == originalEventId }
+    }
+    
+    /**
      * Finds the latest redaction event for a given event ID.
      * 
      * This function searches through all timeline events to find redaction events
