@@ -1488,13 +1488,15 @@ class AppViewModel : ViewModel() {
             val supersededEventIds = findSupersededEvents(newEvent, existingEvents)
             
             if (supersededEventIds.isNotEmpty()) {
-                // This is an edit event - modify the original event in place instead of adding a new one
+                // This is an edit event - merge the new content into the original event
                 for (supersededEventId in supersededEventIds) {
                     val originalEventIndex = result.indexOfFirst { it.eventId == supersededEventId }
                     if (originalEventIndex != -1) {
-                        // Replace the original event with the edit event (which contains the new content)
-                        result[originalEventIndex] = newEvent
-                        android.util.Log.d("Andromuks", "AppViewModel: Replaced original event $supersededEventId with edit event ${newEvent.eventId}")
+                        val originalEvent = result[originalEventIndex]
+                        // Create a new event that merges the original event with the edit content
+                        val mergedEvent = mergeEditContent(originalEvent, newEvent)
+                        result[originalEventIndex] = mergedEvent
+                        android.util.Log.d("Andromuks", "AppViewModel: Merged edit content into original event $supersededEventId")
                     }
                 }
             } else {
@@ -1565,6 +1567,61 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: isSuperseded: $isSuperseded")
         
         return isSuperseded
+    }
+    
+    /**
+     * Merges edit content into the original event.
+     * 
+     * This function takes the original event and merges the new content from an edit event,
+     * preserving the original event's structure while updating the content.
+     * 
+     * @param originalEvent The original event to be updated
+     * @param editEvent The edit event containing the new content
+     * @return A new TimelineEvent with merged content
+     */
+    private fun mergeEditContent(originalEvent: TimelineEvent, editEvent: TimelineEvent): TimelineEvent {
+        // Create a new content JSON object based on the original event
+        val mergedContent = originalEvent.content.deepCopy()
+        
+        // Get the new content from the edit event
+        val newContent = editEvent.decrypted.optJSONObject("m.new_content")
+        if (newContent != null) {
+            // Update the decrypted content with the new content
+            val mergedDecrypted = originalEvent.decrypted.deepCopy()
+            
+            // Update the body with the new content
+            val newBody = newContent.optString("body", "")
+            if (newBody.isNotEmpty()) {
+                mergedDecrypted.put("body", newBody)
+            }
+            
+            // Update other fields from new content
+            val newMsgType = newContent.optString("msgtype", "")
+            if (newMsgType.isNotEmpty()) {
+                mergedDecrypted.put("msgtype", newMsgType)
+            }
+            
+            // Update mentions if present
+            val newMentions = newContent.optJSONObject("m.mentions")
+            if (newMentions != null) {
+                mergedDecrypted.put("m.mentions", newMentions)
+            }
+            
+            // Update link previews if present
+            val newLinkPreviews = newContent.optJSONArray("com.beeper.linkpreviews")
+            if (newLinkPreviews != null) {
+                mergedDecrypted.put("com.beeper.linkpreviews", newLinkPreviews)
+            }
+            
+            // Create the merged event with updated content
+            return originalEvent.copy(
+                content = mergedContent,
+                decrypted = mergedDecrypted
+            )
+        }
+        
+        // If no new content, return the original event
+        return originalEvent
     }
     
     private fun processReadReceipts(receiptsJson: JSONObject) {
