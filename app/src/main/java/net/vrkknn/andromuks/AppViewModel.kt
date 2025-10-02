@@ -610,8 +610,16 @@ class AppViewModel : ViewModel() {
     var isTimelineLoading by mutableStateOf(false)
         private set
     
-    // Event-to-bubble mapping for clean edit handling
-    private val eventToBubbleMap = mutableMapOf<String, TimelineEvent>()
+    // Edit chain tracking system
+    data class EventChainEntry(
+        val eventId: String,
+        var ourBubble: TimelineEvent?,
+        var replacedBy: String?,
+        val originalTimestamp: Long
+    )
+    
+    private val eventChainMap = mutableMapOf<String, EventChainEntry>()
+    private val editEventsMap = mutableMapOf<String, TimelineEvent>() // Store edit events separately
     
     private var requestIdCounter = 100
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
@@ -824,8 +832,9 @@ class AppViewModel : ViewModel() {
         timelineEvents = emptyList()
         isTimelineLoading = true
         
-        // Clear event-to-bubble mapping when opening a new room
-        eventToBubbleMap.clear()
+        // Clear edit chain mapping when opening a new room
+        eventChainMap.clear()
+        editEventsMap.clear()
         
         // Ensure member cache exists for this room
         if (roomMemberCache[roomId] == null) {
@@ -1184,14 +1193,39 @@ class AppViewModel : ViewModel() {
             }
             android.util.Log.d("Andromuks", "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}")
             if (timelineList.isNotEmpty()) {
-                // Populate event-to-bubble mapping for clean edit handling
-                eventToBubbleMap.clear()
+                // Populate edit chain mapping for clean edit handling
+                eventChainMap.clear()
+                editEventsMap.clear()
                 for (event in timelineList) {
-                    eventToBubbleMap[event.eventId] = event
+                    // Check if this is an edit event
+                    val isEditEvent = when {
+                        event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                        else -> false
+                    }
+                    
+                    if (isEditEvent) {
+                        // Store edit event separately
+                        editEventsMap[event.eventId] = event
+                        android.util.Log.d("Andromuks", "AppViewModel: Added edit event ${event.eventId} to edit events map")
+                    } else {
+                        // Regular events have their own bubble
+                        eventChainMap[event.eventId] = EventChainEntry(
+                            eventId = event.eventId,
+                            ourBubble = event,
+                            replacedBy = null,
+                            originalTimestamp = event.timestamp
+                        )
+                        android.util.Log.d("Andromuks", "AppViewModel: Added regular event ${event.eventId} to chain mapping")
+                    }
                 }
-                android.util.Log.d("Andromuks", "AppViewModel: Populated event-to-bubble mapping with ${eventToBubbleMap.size} events")
                 
-                timelineEvents = timelineList
+                // Process edit relationships
+                processEditRelationships()
+                
+                // Build timeline from chain mapping
+                buildTimelineFromChain()
+                
                 isTimelineLoading = false
                 android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
                 
@@ -1440,8 +1474,8 @@ class AppViewModel : ViewModel() {
                 }
                 
                 if (isEditEvent) {
-                    // Handle edit event using event-to-bubble mapping
-                    handleEditEvent(event)
+                    // Handle edit event using edit chain system
+                    handleEditEventInChain(event)
                 } else {
                     // Process reaction events first (don't add to timeline)
                     if (event.type == "m.reaction") {
@@ -1467,15 +1501,16 @@ class AppViewModel : ViewModel() {
                             }
                         }
                     } else {
-                        // Add new timeline event and update mapping
-                        addNewTimelineEvent(event)
+                        // Add new timeline event to chain
+                        addNewEventToChain(event)
                     }
                 }
             }
         }
         
-        // Update timeline events from the mapping
-        updateTimelineFromMapping()
+        // Process edit relationships and build timeline
+        processEditRelationships()
+        buildTimelineFromChain()
         
         // Mark room as read for the newest event since user is actively viewing the room
         val newestEvent = events.maxByOrNull { it.timestamp }
@@ -1486,11 +1521,14 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Handles edit events using the event-to-bubble mapping system.
-     * This ensures clean edit handling without timeline corruption.
+     * Handles edit events using the edit chain tracking system.
+     * This ensures clean edit handling by tracking the edit chain properly.
      */
-    private fun handleEditEvent(editEvent: TimelineEvent) {
-        android.util.Log.d("Andromuks", "AppViewModel: handleEditEvent called for ${editEvent.eventId}")
+    private fun handleEditEventInChain(editEvent: TimelineEvent) {
+        android.util.Log.d("Andromuks", "AppViewModel: handleEditEventInChain called for ${editEvent.eventId}")
+        
+        // Store the edit event
+        editEventsMap[editEvent.eventId] = editEvent
         
         // Get the target event ID from the edit event
         val relatesTo = when {
@@ -1503,21 +1541,19 @@ class AppViewModel : ViewModel() {
         if (targetEventId != null) {
             android.util.Log.d("Andromuks", "AppViewModel: Edit event ${editEvent.eventId} targets ${targetEventId}")
             
-            // Find the target event in our mapping
-            val targetEvent = eventToBubbleMap[targetEventId]
-            if (targetEvent != null) {
-                android.util.Log.d("Andromuks", "AppViewModel: Found target event ${targetEventId} in mapping")
-                android.util.Log.d("Andromuks", "AppViewModel: Target event body before edit: ${targetEvent.decrypted?.optString("body", "null")}")
+            // Find the target event in our chain mapping
+            val targetEntry = eventChainMap[targetEventId]
+            if (targetEntry != null) {
+                android.util.Log.d("Andromuks", "AppViewModel: Found target event ${targetEventId} in chain mapping")
+                android.util.Log.d("Andromuks", "AppViewModel: Target event body before edit: ${targetEntry.ourBubble?.decrypted?.optString("body", "null")}")
                 
-                // Merge the edit content into the target event
-                val mergedEvent = mergeEditContent(targetEvent, editEvent)
-                eventToBubbleMap[targetEventId] = mergedEvent
+                // Update the target event's replacedBy field with the new edit
+                targetEntry.replacedBy = editEvent.eventId
                 
-                android.util.Log.d("Andromuks", "AppViewModel: Updated target event ${targetEventId} with edit content")
-                android.util.Log.d("Andromuks", "AppViewModel: Merged event body: ${mergedEvent.decrypted?.optString("body", "null")}")
+                android.util.Log.d("Andromuks", "AppViewModel: Updated target event ${targetEventId} to be replaced by ${editEvent.eventId}")
             } else {
-                android.util.Log.w("Andromuks", "AppViewModel: Target event ${targetEventId} not found in mapping")
-                android.util.Log.d("Andromuks", "AppViewModel: Available events in mapping: ${eventToBubbleMap.keys}")
+                android.util.Log.w("Andromuks", "AppViewModel: Target event ${targetEventId} not found in chain mapping")
+                android.util.Log.d("Andromuks", "AppViewModel: Available events in chain: ${eventChainMap.keys}")
             }
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Could not find target event ID in edit event ${editEvent.eventId}")
@@ -1525,28 +1561,109 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Adds a new timeline event to the mapping and timeline.
+     * Adds a new timeline event to the edit chain.
      */
-    private fun addNewTimelineEvent(event: TimelineEvent) {
-        android.util.Log.d("Andromuks", "AppViewModel: addNewTimelineEvent called for ${event.eventId}")
+    private fun addNewEventToChain(event: TimelineEvent) {
+        android.util.Log.d("Andromuks", "AppViewModel: addNewEventToChain called for ${event.eventId}")
         
-        // Add to mapping
-        eventToBubbleMap[event.eventId] = event
-        android.util.Log.d("Andromuks", "AppViewModel: Added event ${event.eventId} to mapping")
+        // Add regular event to chain mapping
+        eventChainMap[event.eventId] = EventChainEntry(
+            eventId = event.eventId,
+            ourBubble = event,
+            replacedBy = null,
+            originalTimestamp = event.timestamp
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Added event ${event.eventId} to chain mapping")
     }
     
     /**
-     * Updates the timeline events from the event-to-bubble mapping.
+     * Processes edit relationships to build the complete edit chain.
      */
-    private fun updateTimelineFromMapping() {
-        android.util.Log.d("Andromuks", "AppViewModel: updateTimelineFromMapping called with ${eventToBubbleMap.size} events")
+    private fun processEditRelationships() {
+        android.util.Log.d("Andromuks", "AppViewModel: processEditRelationships called with ${eventChainMap.size} events")
         
-        // Convert mapping to timeline events, sorted by timestamp
-        val newTimelineEvents = eventToBubbleMap.values.sortedBy { it.timestamp }
-        timelineEvents = newTimelineEvents
+        // Process all edit events to build the chain
+        for ((eventId, entry) in eventChainMap) {
+            if (entry.ourBubble == null) {
+                // This is an edit event, find what it replaces
+                val editEvent = entry.ourBubble ?: continue
+                
+                // Get the target event ID from the edit event
+                val relatesTo = when {
+                    editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.relates_to")
+                    editEvent.type == "m.room.encrypted" && editEvent.decryptedType == "m.room.message" -> editEvent.decrypted?.optJSONObject("m.relates_to")
+                    else -> null
+                }
+                
+                val targetEventId = relatesTo?.optString("event_id")
+                if (targetEventId != null) {
+                    val targetEntry = eventChainMap[targetEventId]
+                    if (targetEntry != null) {
+                        targetEntry.replacedBy = eventId
+                        android.util.Log.d("Andromuks", "AppViewModel: Updated ${targetEventId} to be replaced by ${eventId}")
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Builds the timeline from the edit chain mapping.
+     */
+    private fun buildTimelineFromChain() {
+        android.util.Log.d("Andromuks", "AppViewModel: buildTimelineFromChain called with ${eventChainMap.size} events")
         
+        val timelineEvents = mutableListOf<TimelineEvent>()
+        
+        // Process all events in the chain
+        for ((eventId, entry) in eventChainMap) {
+            if (entry.ourBubble != null) {
+                // This is a regular event with a bubble
+                val finalEvent = getFinalEventForBubble(entry)
+                timelineEvents.add(finalEvent)
+                android.util.Log.d("Andromuks", "AppViewModel: Added bubble for ${eventId} with final content from ${entry.replacedBy ?: eventId}")
+            }
+        }
+        
+        // Sort by timestamp and update timeline
+        this.timelineEvents = timelineEvents.sortedBy { it.timestamp }
         updateCounter++
-        android.util.Log.d("Andromuks", "AppViewModel: Updated timeline with ${newTimelineEvents.size} events from mapping")
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Built timeline with ${timelineEvents.size} events from chain")
+    }
+    
+    /**
+     * Gets the final event for a bubble, following the edit chain to the latest edit.
+     */
+    private fun getFinalEventForBubble(entry: EventChainEntry): TimelineEvent {
+        var currentEvent = entry.ourBubble!!
+        var currentEntry = entry
+        
+        android.util.Log.d("Andromuks", "AppViewModel: getFinalEventForBubble for ${entry.eventId}")
+        
+        // Follow the edit chain to find the latest edit
+        while (currentEntry.replacedBy != null) {
+            val editEventId = currentEntry.replacedBy!!
+            val editEvent = editEventsMap[editEventId]
+            
+            if (editEvent != null) {
+                android.util.Log.d("Andromuks", "AppViewModel: Following edit chain from ${currentEntry.eventId} to ${editEventId}")
+                android.util.Log.d("Andromuks", "AppViewModel: Merging edit content from ${editEventId}")
+                
+                // Merge the edit content into the current event
+                currentEvent = mergeEditContent(currentEvent, editEvent)
+                
+                // Update current entry to continue following the chain
+                currentEntry = eventChainMap[editEventId] ?: break
+            } else {
+                android.util.Log.w("Andromuks", "AppViewModel: Edit event ${editEventId} not found in edit events map")
+                break
+            }
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Final event body: ${currentEvent.decrypted?.optString("body", "null")}")
+        return currentEvent
     }
     
     /**
