@@ -1,6 +1,23 @@
 package net.vrkknn.andromuks.utils
 
 import android.util.Log
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
+import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReadReceipt
 import org.json.JSONObject
 
@@ -66,5 +83,88 @@ object ReceiptFunctions {
         readReceiptsMap: Map<String, MutableList<ReadReceipt>>
     ): List<ReadReceipt> {
         return readReceiptsMap[eventId]?.toList() ?: emptyList()
+    }
+}
+
+/**
+ * Composable function to display read receipt avatars inline with messages.
+ * 
+ * @param receipts List of read receipts to display
+ * @param userProfileCache Cache of user profiles for avatar display
+ * @param homeserverUrl URL of the Matrix homeserver
+ * @param authToken Authentication token for API requests
+ * @param appViewModel ViewModel for additional functionality
+ * @param messageSender The sender of the message (to exclude from read receipts)
+ */
+@Composable
+fun InlineReadReceiptAvatars(
+    receipts: List<ReadReceipt>,
+    userProfileCache: Map<String, MemberProfile>,
+    homeserverUrl: String,
+    authToken: String,
+    appViewModel: AppViewModel?,
+    messageSender: String
+) {
+    val context = LocalContext.current
+    
+    // Filter out the message sender from read receipts
+    val filteredReceipts = receipts.filter { it.userId != messageSender }
+    
+    if (filteredReceipts.isNotEmpty()) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Show up to 3 avatars, with a "+X" indicator if there are more
+            val maxAvatars = 3
+            val avatarsToShow = filteredReceipts.take(maxAvatars)
+            val remainingCount = filteredReceipts.size - maxAvatars
+            
+            avatarsToShow.forEach { receipt ->
+                val userProfile = userProfileCache[receipt.userId]
+                val avatarUrl = userProfile?.avatarUrl
+                
+                IconButton(
+                    onClick = { 
+                        // TODO: Handle avatar click - maybe show user profile or read receipt details
+                        Log.d("Andromuks", "Read receipt avatar clicked for user: ${receipt.userId}")
+                    },
+                    modifier = Modifier.size(20.dp)
+                ) {
+                    if (avatarUrl != null && avatarUrl.isNotEmpty()) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(avatarUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = "Avatar for ${userProfile.displayName ?: receipt.userId}",
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clip(CircleShape)
+                        )
+                    } else {
+                        // Fallback to a default avatar icon
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Default.Person,
+                            contentDescription = "Default avatar",
+                            modifier = Modifier
+                                .size(20.dp)
+                                .clip(CircleShape),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+            
+            // Show "+X" indicator if there are more than maxAvatars
+            if (remainingCount > 0) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Default.MoreHoriz,
+                    contentDescription = "+$remainingCount more",
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
     }
 }
