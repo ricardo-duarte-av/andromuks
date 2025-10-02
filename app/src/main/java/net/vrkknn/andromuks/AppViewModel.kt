@@ -1684,6 +1684,7 @@ class AppViewModel : ViewModel() {
     private fun getFinalEventForBubble(entry: EventChainEntry): TimelineEvent {
         var currentEvent = entry.ourBubble!!
         var currentEntry = entry
+        val visitedEvents = mutableSetOf<String>() // Prevent infinite loops
         
         android.util.Log.d("Andromuks", "AppViewModel: getFinalEventForBubble for ${entry.eventId}")
         android.util.Log.d("Andromuks", "AppViewModel: Initial event body: ${currentEvent.decrypted?.optString("body", "null")}")
@@ -1692,6 +1693,14 @@ class AppViewModel : ViewModel() {
         // Follow the edit chain to find the latest edit
         while (currentEntry.replacedBy != null) {
             val editEventId = currentEntry.replacedBy!!
+            
+            // Check for infinite loop
+            if (visitedEvents.contains(editEventId)) {
+                android.util.Log.w("Andromuks", "AppViewModel: Infinite loop detected! Edit event ${editEventId} already visited")
+                break
+            }
+            visitedEvents.add(editEventId)
+            
             val editEvent = editEventsMap[editEventId]
             
             if (editEvent != null) {
@@ -1705,7 +1714,12 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: After merge body: ${currentEvent.decrypted?.optString("body", "null")}")
                 
                 // Update current entry to continue following the chain
-                currentEntry = eventChainMap[editEventId] ?: break
+                // Edit events have their own chain entries, so we can follow them
+                currentEntry = eventChainMap[editEventId]
+                if (currentEntry == null) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Reached end of edit chain at ${editEventId}")
+                    break
+                }
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: Edit event ${editEventId} not found in edit events map")
                 break
