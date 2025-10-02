@@ -252,7 +252,7 @@ class AppViewModel : ViewModel() {
     }
     
     fun processReactionEvent(reactionEvent: ReactionEvent) {
-        net.vrkknn.andromuks.utils.processReactionEvent(reactionEvent, currentRoomId, messageReactions)
+        messageReactions = net.vrkknn.andromuks.utils.processReactionEvent(reactionEvent, currentRoomId, messageReactions)
     }
 
     fun handleClientState(userId: String?, device: String?, homeserver: String?) {

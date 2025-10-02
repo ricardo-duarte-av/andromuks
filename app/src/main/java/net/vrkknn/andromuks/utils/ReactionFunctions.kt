@@ -71,7 +71,7 @@ fun ReactionBadges(
 }
 
 /**
- * Processes a reaction event and updates the message reactions map.
+ * Processes a reaction event and returns the updated message reactions map.
  * 
  * This function handles adding, removing, or updating reactions for a specific message.
  * It manages the reaction state by either adding new reactions or updating existing ones
@@ -79,13 +79,14 @@ fun ReactionBadges(
  * 
  * @param reactionEvent The reaction event to process
  * @param currentRoomId The ID of the current room (only processes reactions for current room)
- * @param messageReactions The current map of message reactions (will be updated)
+ * @param messageReactions The current map of message reactions
+ * @return Updated map of message reactions
  */
 fun processReactionEvent(
     reactionEvent: ReactionEvent,
     currentRoomId: String?,
-    messageReactions: MutableMap<String, MutableList<MessageReaction>>
-) {
+    messageReactions: Map<String, List<MessageReaction>>
+): Map<String, List<MessageReaction>> {
     // Only process reactions for the current room
     if (currentRoomId != null) {
         val currentReactions = messageReactions.toMutableMap()
@@ -128,7 +129,8 @@ fun processReactionEvent(
         }
         
         currentReactions[reactionEvent.relatesToEventId] = eventReactions
-        messageReactions.clear()
-        messageReactions.putAll(currentReactions)
+        return currentReactions
     }
+    
+    return messageReactions
 }
