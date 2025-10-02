@@ -1602,8 +1602,10 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: mergeEditContent called")
         android.util.Log.d("Andromuks", "AppViewModel: Original event ID: ${originalEvent.eventId}")
         android.util.Log.d("Andromuks", "AppViewModel: Original event body: ${originalEvent.decrypted?.optString("body", "null")}")
+        android.util.Log.d("Andromuks", "AppViewModel: Original event decrypted: ${originalEvent.decrypted}")
         android.util.Log.d("Andromuks", "AppViewModel: Edit event ID: ${editEvent.eventId}")
         android.util.Log.d("Andromuks", "AppViewModel: Edit event body: ${editEvent.decrypted?.optString("body", "null")}")
+        android.util.Log.d("Andromuks", "AppViewModel: Edit event decrypted: ${editEvent.decrypted}")
         
         // Create a new content JSON object based on the original event
         val mergedContent = JSONObject(originalEvent.content.toString())
@@ -1613,7 +1615,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: newContent from edit event: $newContent")
         
         if (newContent != null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Original decrypted content before merge: ${originalEvent.decrypted.toString()}")
+            android.util.Log.d("Andromuks", "AppViewModel: Original decrypted content before merge: ${originalEvent.decrypted}")
             
             // Create a completely new decrypted content object with the new content
             val mergedDecrypted = JSONObject()
