@@ -1583,9 +1583,25 @@ class AppViewModel : ViewModel() {
     private fun processEditRelationships() {
         android.util.Log.d("Andromuks", "AppViewModel: processEditRelationships called with ${eventChainMap.size} events and ${editEventsMap.size} edit events")
         
-        // Process all edit events to build the chain
+        // First, create chain entries for all edit events
         for ((editEventId, editEvent) in editEventsMap) {
-            android.util.Log.d("Andromuks", "AppViewModel: Processing edit event ${editEventId}")
+            eventChainMap[editEventId] = EventChainEntry(
+                eventId = editEventId,
+                ourBubble = null, // Edit events don't have their own bubble
+                replacedBy = null,
+                originalTimestamp = editEvent.timestamp
+            )
+            android.util.Log.d("Andromuks", "AppViewModel: Created chain entry for edit event ${editEventId}")
+        }
+        
+        // Sort edit events by timestamp to process in chronological order
+        val sortedEditEvents = editEventsMap.values.sortedBy { it.timestamp }
+        android.util.Log.d("Andromuks", "AppViewModel: Processing ${sortedEditEvents.size} edit events in chronological order")
+        
+        // Process all edit events to build the chain
+        for (editEvent in sortedEditEvents) {
+            val editEventId = editEvent.eventId
+            android.util.Log.d("Andromuks", "AppViewModel: Processing edit event ${editEventId} at timestamp ${editEvent.timestamp}")
             
             // Get the target event ID from the edit event
             val relatesTo = when {
@@ -1598,8 +1614,19 @@ class AppViewModel : ViewModel() {
             if (targetEventId != null) {
                 val targetEntry = eventChainMap[targetEventId]
                 if (targetEntry != null) {
-                    targetEntry.replacedBy = editEventId
-                    android.util.Log.d("Andromuks", "AppViewModel: Updated ${targetEventId} to be replaced by ${editEventId}")
+                    // Check if the target already has a replacement
+                    if (targetEntry.replacedBy != null) {
+                        // Find the end of the current chain and add this edit to the end
+                        val chainEnd = findChainEnd(targetEntry.replacedBy!!)
+                        if (chainEnd != null) {
+                            chainEnd.replacedBy = editEventId
+                            android.util.Log.d("Andromuks", "AppViewModel: Added ${editEventId} to end of chain for ${targetEventId}")
+                        }
+                    } else {
+                        // First edit for this target
+                        targetEntry.replacedBy = editEventId
+                        android.util.Log.d("Andromuks", "AppViewModel: Set ${targetEventId} to be replaced by ${editEventId}")
+                    }
                 } else {
                     android.util.Log.w("Andromuks", "AppViewModel: Target event ${targetEventId} not found in chain mapping for edit ${editEventId}")
                 }
@@ -1607,6 +1634,21 @@ class AppViewModel : ViewModel() {
                 android.util.Log.w("Andromuks", "AppViewModel: Could not find target event ID in edit event ${editEventId}")
             }
         }
+    }
+    
+    /**
+     * Finds the end of an edit chain by following replacedBy links.
+     */
+    private fun findChainEnd(startEventId: String): EventChainEntry? {
+        var currentId = startEventId
+        var currentEntry = eventChainMap[currentId]
+        
+        while (currentEntry?.replacedBy != null) {
+            currentId = currentEntry.replacedBy!!
+            currentEntry = eventChainMap[currentId]
+        }
+        
+        return currentEntry
     }
     
     /**
