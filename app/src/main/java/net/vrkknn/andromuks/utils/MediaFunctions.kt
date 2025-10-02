@@ -38,6 +38,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -340,29 +342,32 @@ private fun ImageViewerDialog(
         offsetY = (offsetY + offsetChange.y).coerceIn(-1000f, 1000f)
     }
     
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = true,
-            usePlatformDefaultWidth = false
-        )
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
-                .pointerInput(Unit) {
-                    detectTapGestures(
-                        onTap = {
-                            // Reset zoom and offset on tap
-                            scale = 1f
-                            offsetX = 0f
-                            offsetY = 0f
+            Dialog(
+                onDismissRequest = onDismiss,
+                properties = DialogProperties(
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = true,
+                    usePlatformDefaultWidth = false
+                )
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f))
+                        .graphicsLayer {
+                            renderEffect = BlurEffect(radiusX = 10f, radiusY = 10f)
                         }
-                    )
-                }
-        ) {
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = {
+                                    // Reset zoom and offset on tap
+                                    scale = 1f
+                                    offsetX = 0f
+                                    offsetY = 0f
+                                }
+                            )
+                        }
+                ) {
             // Close button
             IconButton(
                 onClick = onDismiss,
