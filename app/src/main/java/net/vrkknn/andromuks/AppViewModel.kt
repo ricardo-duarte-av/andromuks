@@ -1500,8 +1500,17 @@ class AppViewModel : ViewModel() {
     private fun handleEditEventInChain(editEvent: TimelineEvent) {
         android.util.Log.d("Andromuks", "AppViewModel: handleEditEventInChain called for ${editEvent.eventId}")
         
+        // Check if the edit event needs decryption
+        val processedEditEvent = if (editEvent.type == "m.room.encrypted" && editEvent.decrypted == null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Edit event ${editEvent.eventId} needs decryption")
+            // For now, store as-is - decryption should happen elsewhere
+            editEvent
+        } else {
+            editEvent
+        }
+        
         // Store the edit event
-        editEventsMap[editEvent.eventId] = editEvent
+        editEventsMap[editEvent.eventId] = processedEditEvent
         
         // Get the target event ID from the edit event
         val relatesTo = when {
@@ -1919,7 +1928,12 @@ class AppViewModel : ViewModel() {
         val mergedContent = JSONObject(originalEvent.content.toString())
         
         // Get the new content from the edit event
-        val newContent = editEvent.decrypted?.optJSONObject("m.new_content")
+        // For encrypted rooms, look in decrypted field; for non-encrypted rooms, look in content field
+        val newContent = when {
+            editEvent.type == "m.room.encrypted" -> editEvent.decrypted?.optJSONObject("m.new_content")
+            editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.new_content")
+            else -> null
+        }
         android.util.Log.d("Andromuks", "AppViewModel: newContent from edit event: $newContent")
         
         if (newContent != null) {
