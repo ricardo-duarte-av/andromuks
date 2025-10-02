@@ -904,6 +904,7 @@ fun TimelineEventItem(
                         } else {
                             decrypted?.optString("body", "") ?: ""
                         }
+                        android.util.Log.d("Andromuks", "RoomTimelineScreen: Displaying event ${event.eventId} with body: '$body'")
                         val msgType = decrypted?.optString("msgtype", "") ?: ""
                         
                         // Check if this message has been redacted
