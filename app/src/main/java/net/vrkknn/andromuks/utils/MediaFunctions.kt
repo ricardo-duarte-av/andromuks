@@ -42,11 +42,125 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import java.io.File
+import java.security.MessageDigest
+import java.net.URL
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.MediaUtils
+
+/**
+ * Media cache utility functions for MXC URLs
+ */
+object MediaCache {
+    private const val CACHE_DIR_NAME = "media_cache"
+    private const val MAX_CACHE_SIZE = 4L * 1024 * 1024 * 1024L // 4GB
+    
+    /**
+     * Get cache directory for media files
+     */
+    fun getCacheDir(context: android.content.Context): File {
+        val cacheDir = File(context.cacheDir, CACHE_DIR_NAME)
+        if (!cacheDir.exists()) {
+            cacheDir.mkdirs()
+        }
+        return cacheDir
+    }
+    
+    /**
+     * Generate cache key from MXC URL
+     */
+    fun getCacheKey(mxcUrl: String): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        val hash = digest.digest(mxcUrl.toByteArray())
+        return hash.joinToString("") { "%02x".format(it) }
+    }
+    
+    /**
+     * Get cached file for MXC URL
+     */
+    fun getCachedFile(context: android.content.Context, mxcUrl: String): File? {
+        val cacheDir = getCacheDir(context)
+        val cacheKey = getCacheKey(mxcUrl)
+        val cachedFile = File(cacheDir, cacheKey)
+        return if (cachedFile.exists()) cachedFile else null
+    }
+    
+    /**
+     * Check if MXC URL is cached
+     */
+    fun isCached(context: android.content.Context, mxcUrl: String): Boolean {
+        return getCachedFile(context, mxcUrl) != null
+    }
+    
+    /**
+     * Download and cache MXC URL
+     */
+    suspend fun downloadAndCache(
+        context: android.content.Context,
+        mxcUrl: String,
+        httpUrl: String,
+        authToken: String
+    ): File? = withContext(Dispatchers.IO) {
+        try {
+            val cacheDir = getCacheDir(context)
+            val cacheKey = getCacheKey(mxcUrl)
+            val cachedFile = File(cacheDir, cacheKey)
+            
+            // Download the file
+            val connection = URL(httpUrl).openConnection()
+            connection.setRequestProperty("Cookie", "gomuks_auth=$authToken")
+            connection.connect()
+            
+            cachedFile.outputStream().use { output ->
+                connection.getInputStream().use { input ->
+                    input.copyTo(output)
+                }
+            }
+            
+            cachedFile
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "Failed to cache media: $mxcUrl", e)
+            null
+        }
+    }
+    
+    /**
+     * Clean up old cache files if cache size exceeds limit
+     */
+    fun cleanupCache(context: android.content.Context) {
+        try {
+            val cacheDir = getCacheDir(context)
+            val files = cacheDir.listFiles() ?: return
+            
+            // Calculate total cache size
+            val totalSize = files.sumOf { it.length() }
+            
+            if (totalSize > MAX_CACHE_SIZE) {
+                // Sort by modification time (oldest first)
+                val sortedFiles = files.sortedBy { it.lastModified() }
+                
+                // Remove oldest files until under limit
+                var currentSize = totalSize
+                for (file in sortedFiles) {
+                    if (currentSize <= MAX_CACHE_SIZE) break
+                    file.delete()
+                    currentSize -= file.length()
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "Failed to cleanup cache", e)
+        }
+    }
+}
 
 /**
  * Displays a media message (image or video) in a Material3 bubble with proper aspect ratio and styling.
@@ -189,15 +303,41 @@ private fun MediaContent(
                     .height(calculatedHeight)
             ) {
                 val context = LocalContext.current
-                val imageUrl = remember(mediaMessage.url, isEncrypted) {
-                    val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-                    // For encrypted media, add ?encrypted=true parameter
-                    if (isEncrypted) {
-                        val encryptedUrl = "$httpUrl?encrypted=true"
-                        Log.d("Andromuks", "MediaMessage: Added encrypted=true to URL: $encryptedUrl")
-                        encryptedUrl
+                val coroutineScope = rememberCoroutineScope()
+                
+                // Check if we have a cached version first
+                val cachedFile = remember(mediaMessage.url) {
+                    MediaCache.getCachedFile(context, mediaMessage.url)
+                }
+                
+                val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile) {
+                    if (cachedFile != null) {
+                        // Use cached file
+                        Log.d("Andromuks", "MediaMessage: Using cached file: ${cachedFile.absolutePath}")
+                        cachedFile.absolutePath
                     } else {
-                        httpUrl
+                        // Use HTTP URL
+                        val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+                        if (isEncrypted) {
+                            val encryptedUrl = "$httpUrl?encrypted=true"
+                            Log.d("Andromuks", "MediaMessage: Added encrypted=true to URL: $encryptedUrl")
+                            encryptedUrl
+                        } else {
+                            httpUrl
+                        }
+                    }
+                }
+                
+                // Download and cache if not already cached
+                LaunchedEffect(mediaMessage.url) {
+                    if (cachedFile == null) {
+                        coroutineScope.launch {
+                            val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+                            val finalUrl = if (isEncrypted) "$httpUrl?encrypted=true" else httpUrl
+                            MediaCache.downloadAndCache(context, mediaMessage.url, finalUrl, authToken)
+                            // Clean up cache if needed
+                            MediaCache.cleanupCache(context)
+                        }
                     }
                 }
         
@@ -243,7 +383,11 @@ private fun MediaContent(
                     AsyncImage(
                         model = ImageRequest.Builder(context)
                             .data(imageUrl)
-                            .addHeader("Cookie", "gomuks_auth=$authToken")
+                            .apply {
+                                if (cachedFile == null) {
+                                    addHeader("Cookie", "gomuks_auth=$authToken")
+                                }
+                            }
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .diskCachePolicy(CachePolicy.ENABLED)
                             .build(),
@@ -376,7 +520,11 @@ private fun ImageViewerDialog(
             AsyncImage(
                 model = ImageRequest.Builder(context)
                     .data(imageUrl)
-                    .addHeader("Cookie", "gomuks_auth=$authToken")
+                    .apply {
+                        if (cachedFile == null) {
+                            addHeader("Cookie", "gomuks_auth=$authToken")
+                        }
+                    }
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
