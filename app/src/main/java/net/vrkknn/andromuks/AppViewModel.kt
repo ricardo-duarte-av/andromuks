@@ -1947,13 +1947,26 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: Merged decrypted content after merge: ${mergedDecrypted.toString()}")
             android.util.Log.d("Andromuks", "AppViewModel: Final body after merge: ${mergedDecrypted.optString("body", "null")}")
             
+            // For non-encrypted rooms, also update the content field
+            val finalContent = if (originalEvent.type == "m.room.message") {
+                // For non-encrypted rooms, update the content field with new content
+                val updatedContent = JSONObject(originalEvent.content.toString())
+                updatedContent.put("body", newContent.optString("body", ""))
+                updatedContent.put("msgtype", newContent.optString("msgtype", "m.text"))
+                updatedContent
+            } else {
+                // For encrypted rooms, keep the original content
+                mergedContent
+            }
+            
             // Create the merged event with updated content
             val mergedEvent = originalEvent.copy(
-                content = mergedContent,
+                content = finalContent,
                 decrypted = mergedDecrypted
             )
             
             android.util.Log.d("Andromuks", "AppViewModel: Merged event body: ${mergedEvent.decrypted?.optString("body", "null")}")
+            android.util.Log.d("Andromuks", "AppViewModel: Merged event content body: ${mergedEvent.content?.optString("body", "null")}")
             return mergedEvent
         }
         
