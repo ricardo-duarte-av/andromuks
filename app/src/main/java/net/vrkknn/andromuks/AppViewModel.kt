@@ -610,6 +610,9 @@ class AppViewModel : ViewModel() {
     var isTimelineLoading by mutableStateOf(false)
         private set
     
+    // Event-to-bubble mapping for clean edit handling
+    private val eventToBubbleMap = mutableMapOf<String, TimelineEvent>()
+    
     private var requestIdCounter = 100
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> userId
@@ -820,6 +823,9 @@ class AppViewModel : ViewModel() {
         currentRoomId = roomId
         timelineEvents = emptyList()
         isTimelineLoading = true
+        
+        // Clear event-to-bubble mapping when opening a new room
+        eventToBubbleMap.clear()
         
         // Ensure member cache exists for this room
         if (roomMemberCache[roomId] == null) {
@@ -1178,6 +1184,13 @@ class AppViewModel : ViewModel() {
             }
             android.util.Log.d("Andromuks", "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}")
             if (timelineList.isNotEmpty()) {
+                // Populate event-to-bubble mapping for clean edit handling
+                eventToBubbleMap.clear()
+                for (event in timelineList) {
+                    eventToBubbleMap[event.eventId] = event
+                }
+                android.util.Log.d("Andromuks", "AppViewModel: Populated event-to-bubble mapping with ${eventToBubbleMap.size} events")
+                
                 timelineEvents = timelineList
                 isTimelineLoading = false
                 android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
@@ -1387,39 +1400,49 @@ class AppViewModel : ViewModel() {
     
     private fun processSyncEventsArray(eventsArray: JSONArray, roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: processSyncEventsArray called with ${eventsArray.length()} events")
-        val timelineList = mutableListOf<TimelineEvent>()
         val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
         
+        // Process events in timestamp order for clean edit handling
+        val events = mutableListOf<TimelineEvent>()
         for (i in 0 until eventsArray.length()) {
             val eventJson = eventsArray.optJSONObject(i)
             if (eventJson != null) {
                 val event = TimelineEvent.fromJson(eventJson)
-                android.util.Log.d("Andromuks", "AppViewModel: Processing event ${event.eventId} of type ${event.type}")
-                if (event.type == "m.room.member" && event.timelineRowid == -1L) {
-                    // State member event; update cache only
-                    val userId = event.stateKey ?: event.sender
-                    val content = event.content
-                    if (content != null) {
-                        val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() }
-                        val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() }
-                        if (displayName != null || avatarUrl != null) {
-                            memberMap[userId] = MemberProfile(displayName, avatarUrl)
-                            android.util.Log.d("Andromuks", "AppViewModel: Updated member cache for $userId: $displayName")
-                        }
+                events.add(event)
+            }
+        }
+        
+        // Sort events by timestamp to process in order
+        events.sortBy { it.timestamp }
+        android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.size} events in timestamp order")
+        
+        for (event in events) {
+            android.util.Log.d("Andromuks", "AppViewModel: Processing event ${event.eventId} of type ${event.type} at timestamp ${event.timestamp}")
+            
+            if (event.type == "m.room.member" && event.timelineRowid == -1L) {
+                // State member event; update cache only
+                val userId = event.stateKey ?: event.sender
+                val content = event.content
+                if (content != null) {
+                    val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() }
+                    val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                    if (displayName != null || avatarUrl != null) {
+                        memberMap[userId] = MemberProfile(displayName, avatarUrl)
+                        android.util.Log.d("Andromuks", "AppViewModel: Updated member cache for $userId: $displayName")
                     }
-                } else if (event.type == "m.room.message" || event.type == "m.room.encrypted") {
-                    // Check if this is an edit event (m.replace relationship) - don't add edit events to timeline
-                    val isEditEvent = when {
-                        event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                        else -> false
-                    }
-                    
-                    if (isEditEvent) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Filtering out edit event ${event.eventId} from sync_complete")
-                        continue // Skip this edit event
-                    }
-                    
+                }
+            } else if (event.type == "m.room.message" || event.type == "m.room.encrypted") {
+                // Check if this is an edit event (m.replace relationship)
+                val isEditEvent = when {
+                    event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    else -> false
+                }
+                
+                if (isEditEvent) {
+                    // Handle edit event using event-to-bubble mapping
+                    handleEditEvent(event)
+                } else {
                     // Process reaction events first (don't add to timeline)
                     if (event.type == "m.reaction") {
                         val content = event.content
@@ -1444,42 +1467,86 @@ class AppViewModel : ViewModel() {
                             }
                         }
                     } else {
-                        // Check if this event is superseded by any other event in the same sync batch
-                        android.util.Log.d("Andromuks", "AppViewModel: Checking if event ${event.eventId} is superseded by any of ${timelineList.size} existing events")
-                        val isSuperseded = timelineList.any { otherEvent ->
-                            val superseded = isEventSupersededBy(event, otherEvent)
-                            if (superseded) {
-                                android.util.Log.d("Andromuks", "AppViewModel: Event ${event.eventId} is superseded by ${otherEvent.eventId}")
-                            }
-                            superseded
-                        }
-                        
-                        if (!isSuperseded) {
-                            // Add non-reaction timeline events to timeline
-                            timelineList.add(event)
-                            android.util.Log.d("Andromuks", "AppViewModel: Added timeline event: ${event.type} from ${event.sender}")
-                        } else {
-                            android.util.Log.d("Andromuks", "AppViewModel: Skipped superseded event: ${event.eventId} (superseded by newer event)")
-                        }
+                        // Add new timeline event and update mapping
+                        addNewTimelineEvent(event)
                     }
                 }
             }
         }
         
-        if (timelineList.isNotEmpty()) {
-            // Add new events to existing timeline and handle superseding
-            val updatedTimeline = handleEventSuperseding(timelineEvents, timelineList)
-            timelineEvents = updatedTimeline.sortedBy { it.timestamp }
-            updateCounter++
-            android.util.Log.d("Andromuks", "AppViewModel: Added ${timelineList.size} new events to timeline, total: ${timelineEvents.size}")
-            
-            // Mark room as read for the newest event since user is actively viewing the room
-            val newestEvent = timelineList.maxByOrNull { it.timestamp }
-            if (newestEvent != null) {
-                android.util.Log.d("Andromuks", "AppViewModel: Auto-marking room as read for newest event: ${newestEvent.eventId}")
-                markRoomAsRead(roomId, newestEvent.eventId)
-            }
+        // Update timeline events from the mapping
+        updateTimelineFromMapping()
+        
+        // Mark room as read for the newest event since user is actively viewing the room
+        val newestEvent = events.maxByOrNull { it.timestamp }
+        if (newestEvent != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Auto-marking room as read for newest event: ${newestEvent.eventId}")
+            markRoomAsRead(roomId, newestEvent.eventId)
         }
+    }
+    
+    /**
+     * Handles edit events using the event-to-bubble mapping system.
+     * This ensures clean edit handling without timeline corruption.
+     */
+    private fun handleEditEvent(editEvent: TimelineEvent) {
+        android.util.Log.d("Andromuks", "AppViewModel: handleEditEvent called for ${editEvent.eventId}")
+        
+        // Get the target event ID from the edit event
+        val relatesTo = when {
+            editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.relates_to")
+            editEvent.type == "m.room.encrypted" && editEvent.decryptedType == "m.room.message" -> editEvent.decrypted?.optJSONObject("m.relates_to")
+            else -> null
+        }
+        
+        val targetEventId = relatesTo?.optString("event_id")
+        if (targetEventId != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Edit event ${editEvent.eventId} targets ${targetEventId}")
+            
+            // Find the target event in our mapping
+            val targetEvent = eventToBubbleMap[targetEventId]
+            if (targetEvent != null) {
+                android.util.Log.d("Andromuks", "AppViewModel: Found target event ${targetEventId} in mapping")
+                android.util.Log.d("Andromuks", "AppViewModel: Target event body before edit: ${targetEvent.decrypted?.optString("body", "null")}")
+                
+                // Merge the edit content into the target event
+                val mergedEvent = mergeEditContent(targetEvent, editEvent)
+                eventToBubbleMap[targetEventId] = mergedEvent
+                
+                android.util.Log.d("Andromuks", "AppViewModel: Updated target event ${targetEventId} with edit content")
+                android.util.Log.d("Andromuks", "AppViewModel: Merged event body: ${mergedEvent.decrypted?.optString("body", "null")}")
+            } else {
+                android.util.Log.w("Andromuks", "AppViewModel: Target event ${targetEventId} not found in mapping")
+                android.util.Log.d("Andromuks", "AppViewModel: Available events in mapping: ${eventToBubbleMap.keys}")
+            }
+        } else {
+            android.util.Log.w("Andromuks", "AppViewModel: Could not find target event ID in edit event ${editEvent.eventId}")
+        }
+    }
+    
+    /**
+     * Adds a new timeline event to the mapping and timeline.
+     */
+    private fun addNewTimelineEvent(event: TimelineEvent) {
+        android.util.Log.d("Andromuks", "AppViewModel: addNewTimelineEvent called for ${event.eventId}")
+        
+        // Add to mapping
+        eventToBubbleMap[event.eventId] = event
+        android.util.Log.d("Andromuks", "AppViewModel: Added event ${event.eventId} to mapping")
+    }
+    
+    /**
+     * Updates the timeline events from the event-to-bubble mapping.
+     */
+    private fun updateTimelineFromMapping() {
+        android.util.Log.d("Andromuks", "AppViewModel: updateTimelineFromMapping called with ${eventToBubbleMap.size} events")
+        
+        // Convert mapping to timeline events, sorted by timestamp
+        val newTimelineEvents = eventToBubbleMap.values.sortedBy { it.timestamp }
+        timelineEvents = newTimelineEvents
+        
+        updateCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: Updated timeline with ${newTimelineEvents.size} events from mapping")
     }
     
     /**
