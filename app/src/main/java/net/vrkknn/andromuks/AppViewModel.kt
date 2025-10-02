@@ -1618,18 +1618,9 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: Original decrypted content before merge: ${originalEvent.decrypted}")
             
             // Create a completely new decrypted content object with the new content
-            val mergedDecrypted = JSONObject()
-            
-            // Copy all fields from the new content (this gives new content complete priority)
-            val newContentKeys = newContent.keys()
-            android.util.Log.d("Andromuks", "AppViewModel: Keys in new content: ${newContentKeys.asSequence().toList()}")
-            
-            while (newContentKeys.hasNext()) {
-                val key = newContentKeys.next()
-                val value = newContent.get(key)
-                android.util.Log.d("Andromuks", "AppViewModel: Setting key '$key' to value: $value")
-                mergedDecrypted.put(key, value)
-            }
+            // Use the new content directly as the merged decrypted content
+            val mergedDecrypted = JSONObject(newContent.toString())
+            android.util.Log.d("Andromuks", "AppViewModel: Created mergedDecrypted from newContent: ${mergedDecrypted.toString()}")
             
             android.util.Log.d("Andromuks", "AppViewModel: Merged decrypted content after merge: ${mergedDecrypted.toString()}")
             android.util.Log.d("Andromuks", "AppViewModel: Final body after merge: ${mergedDecrypted.optString("body", "null")}")
