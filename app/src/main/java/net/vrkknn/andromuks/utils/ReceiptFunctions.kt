@@ -10,7 +10,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -162,7 +162,7 @@ fun InlineReadReceiptAvatars(
             // Show "+X" indicator if there are more than maxAvatars
             if (remainingCount > 0) {
                 Icon(
-                    imageVector = Icons.Default.MoreHoriz,
+                    imageVector = Icons.Default.MoreVert,
                     contentDescription = "+$remainingCount more",
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
