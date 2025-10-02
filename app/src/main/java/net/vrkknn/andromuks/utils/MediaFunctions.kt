@@ -333,7 +333,7 @@ private fun MediaContent(
                     if (cachedFile == null) {
                         coroutineScope.launch {
                             val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-                            val finalUrl = if (isEncrypted) "$httpUrl?encrypted=true" else httpUrl
+                            val finalUrl = if (isEncrypted) "$httpUrl?encrypted=true" else httpUrl ?: ""
                             MediaCache.downloadAndCache(context, mediaMessage.url, finalUrl, authToken)
                             // Clean up cache if needed
                             MediaCache.cleanupCache(context)
@@ -508,12 +508,24 @@ private fun ImageViewerDialog(
             
             // Image with zoom and pan
             val context = LocalContext.current
-            val imageUrl = remember(mediaMessage.url, isEncrypted) {
-                val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-                if (isEncrypted) {
-                    "$httpUrl?encrypted=true"
+            
+            // Check if we have a cached version first
+            val cachedFile = remember(mediaMessage.url) {
+                MediaCache.getCachedFile(context, mediaMessage.url)
+            }
+            
+            val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile) {
+                if (cachedFile != null) {
+                    // Use cached file
+                    cachedFile.absolutePath
                 } else {
-                    httpUrl
+                    // Use HTTP URL
+                    val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+                    if (isEncrypted) {
+                        "$httpUrl?encrypted=true"
+                    } else {
+                        httpUrl ?: ""
+                    }
                 }
             }
             
