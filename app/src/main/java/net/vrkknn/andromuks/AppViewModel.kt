@@ -1694,9 +1694,9 @@ class AppViewModel : ViewModel() {
         while (currentEntry.replacedBy != null) {
             val editEventId = currentEntry.replacedBy!!
             
-            // Check for infinite loop
+            // Check for infinite loop - only check if we're trying to visit an event we've already processed in this chain
             if (visitedEvents.contains(editEventId)) {
-                android.util.Log.w("Andromuks", "AppViewModel: Infinite loop detected! Edit event ${editEventId} already visited")
+                android.util.Log.w("Andromuks", "AppViewModel: Infinite loop detected! Edit event ${editEventId} already visited in this chain")
                 break
             }
             visitedEvents.add(editEventId)
@@ -1720,6 +1720,13 @@ class AppViewModel : ViewModel() {
                     android.util.Log.d("Andromuks", "AppViewModel: Reached end of edit chain at ${editEventId}")
                     break
                 }
+                
+                // Check if the next entry is the same as the current entry (infinite loop)
+                if (nextEntry.eventId == currentEntry.eventId) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Edit event ${editEventId} points to itself, breaking chain")
+                    break
+                }
+                
                 currentEntry = nextEntry
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: Edit event ${editEventId} not found in edit events map")
