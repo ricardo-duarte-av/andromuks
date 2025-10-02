@@ -9,6 +9,7 @@ import net.vrkknn.andromuks.SpaceItem
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.SpaceRoomParser
 import net.vrkknn.andromuks.utils.ReceiptFunctions
+import net.vrkknn.andromuks.utils.processReactionEvent
 import org.json.JSONObject
 import okhttp3.WebSocket
 import org.json.JSONArray
@@ -251,50 +252,7 @@ class AppViewModel : ViewModel() {
     }
     
     fun processReactionEvent(reactionEvent: ReactionEvent) {
-        // Only process reactions for the current room
-        if (currentRoomId != null) {
-            val currentReactions = messageReactions.toMutableMap()
-            val eventReactions = currentReactions[reactionEvent.relatesToEventId]?.toMutableList() ?: mutableListOf()
-            
-            // Find existing reaction with same emoji
-            val existingReactionIndex = eventReactions.indexOfFirst { it.emoji == reactionEvent.emoji }
-            
-            if (existingReactionIndex >= 0) {
-                // Update existing reaction
-                val existingReaction = eventReactions[existingReactionIndex]
-                val updatedUsers = existingReaction.users.toMutableList()
-                
-                if (reactionEvent.sender in updatedUsers) {
-                    // Remove user from reaction
-                    updatedUsers.remove(reactionEvent.sender)
-                    if (updatedUsers.isEmpty()) {
-                        eventReactions.removeAt(existingReactionIndex)
-                    } else {
-                        eventReactions[existingReactionIndex] = existingReaction.copy(
-                            count = updatedUsers.size,
-                            users = updatedUsers
-                        )
-                    }
-                } else {
-                    // Add user to reaction
-                    updatedUsers.add(reactionEvent.sender)
-                    eventReactions[existingReactionIndex] = existingReaction.copy(
-                        count = updatedUsers.size,
-                        users = updatedUsers
-                    )
-                }
-            } else {
-                // Add new reaction
-                eventReactions.add(MessageReaction(
-                    emoji = reactionEvent.emoji,
-                    count = 1,
-                    users = listOf(reactionEvent.sender)
-                ))
-            }
-            
-            currentReactions[reactionEvent.relatesToEventId] = eventReactions
-            messageReactions = currentReactions
-        }
+        net.vrkknn.andromuks.utils.processReactionEvent(reactionEvent, currentRoomId, messageReactions)
     }
 
     fun handleClientState(userId: String?, device: String?, homeserver: String?) {

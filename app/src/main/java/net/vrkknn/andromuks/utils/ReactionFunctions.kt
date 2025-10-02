@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import net.vrkknn.andromuks.MessageReaction
+import net.vrkknn.andromuks.ReactionEvent
 
 /**
  * Displays reaction badges for a message showing emoji reactions and their counts.
@@ -66,5 +67,68 @@ fun ReactionBadges(
                 }
             }
         }
+    }
+}
+
+/**
+ * Processes a reaction event and updates the message reactions map.
+ * 
+ * This function handles adding, removing, or updating reactions for a specific message.
+ * It manages the reaction state by either adding new reactions or updating existing ones
+ * based on whether the user is already in the reaction list.
+ * 
+ * @param reactionEvent The reaction event to process
+ * @param currentRoomId The ID of the current room (only processes reactions for current room)
+ * @param messageReactions The current map of message reactions (will be updated)
+ */
+fun processReactionEvent(
+    reactionEvent: ReactionEvent,
+    currentRoomId: String?,
+    messageReactions: MutableMap<String, MutableList<MessageReaction>>
+) {
+    // Only process reactions for the current room
+    if (currentRoomId != null) {
+        val currentReactions = messageReactions.toMutableMap()
+        val eventReactions = currentReactions[reactionEvent.relatesToEventId]?.toMutableList() ?: mutableListOf()
+        
+        // Find existing reaction with same emoji
+        val existingReactionIndex = eventReactions.indexOfFirst { it.emoji == reactionEvent.emoji }
+        
+        if (existingReactionIndex >= 0) {
+            // Update existing reaction
+            val existingReaction = eventReactions[existingReactionIndex]
+            val updatedUsers = existingReaction.users.toMutableList()
+            
+            if (reactionEvent.sender in updatedUsers) {
+                // Remove user from reaction
+                updatedUsers.remove(reactionEvent.sender)
+                if (updatedUsers.isEmpty()) {
+                    eventReactions.removeAt(existingReactionIndex)
+                } else {
+                    eventReactions[existingReactionIndex] = existingReaction.copy(
+                        count = updatedUsers.size,
+                        users = updatedUsers
+                    )
+                }
+            } else {
+                // Add user to reaction
+                updatedUsers.add(reactionEvent.sender)
+                eventReactions[existingReactionIndex] = existingReaction.copy(
+                    count = updatedUsers.size,
+                    users = updatedUsers
+                )
+            }
+        } else {
+            // Add new reaction
+            eventReactions.add(MessageReaction(
+                emoji = reactionEvent.emoji,
+                count = 1,
+                users = listOf(reactionEvent.sender)
+            ))
+        }
+        
+        currentReactions[reactionEvent.relatesToEventId] = eventReactions
+        messageReactions.clear()
+        messageReactions.putAll(currentReactions)
     }
 }
