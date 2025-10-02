@@ -1408,6 +1408,18 @@ class AppViewModel : ViewModel() {
                         }
                     }
                 } else if (event.type == "m.room.message" || event.type == "m.room.encrypted") {
+                    // Check if this is an edit event (m.replace relationship) - don't add edit events to timeline
+                    val isEditEvent = when {
+                        event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                        else -> false
+                    }
+                    
+                    if (isEditEvent) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Filtering out edit event ${event.eventId} from sync_complete")
+                        return@forEach // Skip this edit event
+                    }
+                    
                     // Process reaction events first (don't add to timeline)
                     if (event.type == "m.reaction") {
                         val content = event.content

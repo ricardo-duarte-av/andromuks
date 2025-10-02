@@ -891,7 +891,13 @@ fun TimelineEventItem(
                 "m.room.encrypted" -> {
                     // Check if this is an edit event (m.replace relationship) - don't display edit events
                     val isEditEvent = event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    if (event.eventId == "$DKIQqJs0PX9lDgQxLkEvJocIqrPwIDfeEUnefhgDkpI") {
+                        android.util.Log.d("Andromuks", "RoomTimelineScreen: Checking problematic event for edit filter")
+                        android.util.Log.d("Andromuks", "RoomTimelineScreen: isEditEvent: $isEditEvent")
+                        android.util.Log.d("Andromuks", "RoomTimelineScreen: relates_to: ${event.decrypted?.optJSONObject("m.relates_to")}")
+                    }
                     if (isEditEvent) {
+                        android.util.Log.d("Andromuks", "RoomTimelineScreen: Filtering out edit event ${event.eventId}")
                         return // Don't display edit events as separate timeline items
                     }
                     
@@ -905,6 +911,13 @@ fun TimelineEventItem(
                             decrypted?.optString("body", "") ?: ""
                         }
                         android.util.Log.d("Andromuks", "RoomTimelineScreen: Displaying event ${event.eventId} with body: '$body'")
+                        if (event.eventId == "$DKIQqJs0PX9lDgQxLkEvJocIqrPwIDfeEUnefhgDkpI") {
+                            android.util.Log.d("Andromuks", "RoomTimelineScreen: FOUND THE PROBLEMATIC EVENT!")
+                            android.util.Log.d("Andromuks", "RoomTimelineScreen: Event type: ${event.type}")
+                            android.util.Log.d("RoomTimelineScreen", "RoomTimelineScreen: Decrypted type: ${event.decryptedType}")
+                            android.util.Log.d("Andromuks", "RoomTimelineScreen: Decrypted content: ${event.decrypted}")
+                            android.util.Log.d("Andromuks", "RoomTimelineScreen: Is edit event: ${event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"}")
+                        }
                         val msgType = decrypted?.optString("msgtype", "") ?: ""
                         
                         // Check if this message has been redacted
