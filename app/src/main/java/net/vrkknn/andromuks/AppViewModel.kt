@@ -1508,8 +1508,22 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Process edit relationships and build timeline
-        processEditRelationships()
+        // Only process edit relationships for new edit events
+        val newEditEvents = events.filter { event ->
+            val isEditEvent = when {
+                event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                else -> false
+            }
+            isEditEvent
+        }
+        
+        if (newEditEvents.isNotEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: Processing relationships for ${newEditEvents.size} new edit events")
+            processNewEditRelationships(newEditEvents)
+        }
+        
+        // Build timeline from chain
         buildTimelineFromChain()
         
         // Mark room as read for the newest event since user is actively viewing the room
@@ -1575,6 +1589,50 @@ class AppViewModel : ViewModel() {
         )
         
         android.util.Log.d("Andromuks", "AppViewModel: Added event ${event.eventId} to chain mapping")
+    }
+    
+    /**
+     * Processes edit relationships for new edit events only.
+     */
+    private fun processNewEditRelationships(newEditEvents: List<TimelineEvent>) {
+        android.util.Log.d("Andromuks", "AppViewModel: processNewEditRelationships called with ${newEditEvents.size} new edit events")
+        
+        // Process only the new edit events
+        for (editEvent in newEditEvents) {
+            val editEventId = editEvent.eventId
+            android.util.Log.d("Andromuks", "AppViewModel: Processing new edit event ${editEventId}")
+            
+            // Get the target event ID from the edit event
+            val relatesTo = when {
+                editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.relates_to")
+                editEvent.type == "m.room.encrypted" && editEvent.decryptedType == "m.room.message" -> editEvent.decrypted?.optJSONObject("m.relates_to")
+                else -> null
+            }
+            
+            val targetEventId = relatesTo?.optString("event_id")
+            if (targetEventId != null) {
+                val targetEntry = eventChainMap[targetEventId]
+                if (targetEntry != null) {
+                    // Check if the target already has a replacement
+                    if (targetEntry.replacedBy != null) {
+                        // Find the end of the current chain and add this edit to the end
+                        val chainEnd = findChainEnd(targetEntry.replacedBy!!)
+                        if (chainEnd != null) {
+                            chainEnd.replacedBy = editEventId
+                            android.util.Log.d("Andromuks", "AppViewModel: Added ${editEventId} to end of chain for ${targetEventId}")
+                        }
+                    } else {
+                        // First edit for this target
+                        targetEntry.replacedBy = editEventId
+                        android.util.Log.d("Andromuks", "AppViewModel: Set ${targetEventId} to be replaced by ${editEventId}")
+                    }
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: Target event ${targetEventId} not found in chain mapping for edit ${editEventId}")
+                }
+            } else {
+                android.util.Log.w("Andromuks", "AppViewModel: Could not find target event ID in edit event ${editEventId}")
+            }
+        }
     }
     
     /**
