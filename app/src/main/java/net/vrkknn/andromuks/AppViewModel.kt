@@ -1715,11 +1715,12 @@ class AppViewModel : ViewModel() {
                 
                 // Update current entry to continue following the chain
                 // Edit events have their own chain entries, so we can follow them
-                currentEntry = eventChainMap[editEventId]
-                if (currentEntry == null) {
+                val nextEntry = eventChainMap[editEventId]
+                if (nextEntry == null) {
                     android.util.Log.d("Andromuks", "AppViewModel: Reached end of edit chain at ${editEventId}")
                     break
                 }
+                currentEntry = nextEntry
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: Edit event ${editEventId} not found in edit events map")
                 break
