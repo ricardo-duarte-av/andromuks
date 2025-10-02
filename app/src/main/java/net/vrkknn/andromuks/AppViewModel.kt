@@ -1417,7 +1417,7 @@ class AppViewModel : ViewModel() {
                     
                     if (isEditEvent) {
                         android.util.Log.d("Andromuks", "AppViewModel: Filtering out edit event ${event.eventId} from sync_complete")
-                        return@forEach // Skip this edit event
+                        continue // Skip this edit event
                     }
                     
                     // Process reaction events first (don't add to timeline)
