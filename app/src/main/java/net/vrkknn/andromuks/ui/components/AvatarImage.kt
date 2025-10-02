@@ -1,6 +1,5 @@
 package net.vrkknn.andromuks.ui.components
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
@@ -9,42 +8,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import android.graphics.BitmapFactory
 import android.util.Log
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import java.io.File
-import java.io.IOException
-import okhttp3.Cache
+import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import kotlinx.coroutines.launch
+import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.MediaCache
 
-private var sharedClient: OkHttpClient? = null
-
-private fun getCachedOkHttpClient(context: android.content.Context): OkHttpClient {
-    if (sharedClient == null) {
-        val cacheSize = 10L * 1024 * 1024 // 10 MB
-        val cacheDir = File(context.cacheDir, "okhttp_avatar_cache")
-        val cache = Cache(cacheDir, cacheSize)
-        sharedClient = OkHttpClient.Builder()
-            .cache(cache)
-            .build()
-    }
-    return sharedClient!!
-}
 
 @Composable
 fun AvatarImage(
@@ -55,44 +35,40 @@ fun AvatarImage(
     modifier: Modifier = Modifier,
     size: Dp = 48.dp
 ) {
-    var imageBitmap by remember(mxcUrl) { mutableStateOf<ImageBitmap?>(null) }
-    var isLoading by remember(mxcUrl) { mutableStateOf(false) }
-    var hasError by remember(mxcUrl) { mutableStateOf(false) }
-    
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     
-    LaunchedEffect(mxcUrl, homeserverUrl, authToken) {
+    // Check if we have a cached version first
+    val cachedFile = remember(mxcUrl) {
+        if (mxcUrl != null) MediaCache.getCachedFile(context, mxcUrl) else null
+    }
+    
+    val imageUrl = remember(mxcUrl, cachedFile) {
         if (mxcUrl.isNullOrBlank()) {
-            hasError = true
-            return@LaunchedEffect
+            null
+        } else if (cachedFile != null) {
+            // Use cached file
+            Log.d("Andromuks", "AvatarImage: Using cached file: ${cachedFile.absolutePath}")
+            cachedFile.absolutePath
+        } else {
+            // Use HTTP URL
+            val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
+            Log.d("Andromuks", "AvatarImage: Using HTTP URL: $httpUrl")
+            httpUrl
         }
-        
-        isLoading = true
-        hasError = false
-        
-        try {
-            val httpUrl = net.vrkknn.andromuks.utils.AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
-            if (httpUrl == null) {
-                hasError = true
-                isLoading = false
-                return@LaunchedEffect
+    }
+    
+    // Download and cache if not already cached
+    LaunchedEffect(mxcUrl) {
+        if (mxcUrl != null && cachedFile == null) {
+            coroutineScope.launch {
+                val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
+                if (httpUrl != null) {
+                    MediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
+                    // Clean up cache if needed
+                    MediaCache.cleanupCache(context)
+                }
             }
-            
-            val bitmap = withContext(Dispatchers.IO) {
-                loadAvatarBitmapWithCache(context, httpUrl, authToken)
-            }
-            
-            if (bitmap != null) {
-                imageBitmap = bitmap.asImageBitmap()
-                hasError = false
-            } else {
-                hasError = true
-            }
-        } catch (e: Exception) {
-            Log.e("Andromuks", "AvatarImage: Error loading avatar: $mxcUrl", e)
-            hasError = true
-        } finally {
-            isLoading = false
         }
     }
     
@@ -103,61 +79,38 @@ fun AvatarImage(
             .background(MaterialTheme.colorScheme.primaryContainer),
         contentAlignment = Alignment.Center
     ) {
-        when {
-            imageBitmap != null -> {
-                Image(
-                    bitmap = imageBitmap!!,
-                    contentDescription = "Room avatar",
-                    modifier = Modifier
-                        .size(size)
-                        .clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-            }
-            isLoading -> {
-                Text(
-                    text = "…",
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
-            else -> {
-                Text(
-                    text = fallbackText.take(1).uppercase(),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            }
+        if (imageUrl != null) {
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(imageUrl)
+                    .apply {
+                        if (cachedFile == null) {
+                            addHeader("Cookie", "gomuks_auth=$authToken")
+                        }
+                    }
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .build(),
+                contentDescription = "Avatar",
+                modifier = Modifier
+                    .size(size)
+                    .clip(CircleShape),
+                contentScale = ContentScale.Crop,
+                onSuccess = {
+                    Log.d("Andromuks", "✅ AvatarImage: Avatar loaded successfully: $imageUrl")
+                },
+                onError = { state ->
+                    Log.e("Andromuks", "❌ AvatarImage: Avatar load failed: $imageUrl")
+                    Log.e("Andromuks", "Error state: $state")
+                }
+            )
+        } else {
+            Text(
+                text = fallbackText.take(1).uppercase(),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer
+            )
         }
     }
 }
 
-private suspend fun loadAvatarBitmapWithCache(context: android.content.Context, url: String, authToken: String): android.graphics.Bitmap? {
-    return withContext(Dispatchers.IO) {
-        try {
-            val client = getCachedOkHttpClient(context)
-            val request = Request.Builder()
-                .url(url)
-                .addHeader("Cookie", "gomuks_auth=$authToken")
-                .build()
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                val inputStream = response.body?.byteStream()
-                if (inputStream != null) {
-                    BitmapFactory.decodeStream(inputStream)
-                } else {
-                    null
-                }
-            } else {
-                Log.w("Andromuks", "AvatarImage: Failed to load avatar: ${response.code}")
-                null
-            }
-        } catch (e: IOException) {
-            Log.e("Andromuks", "AvatarImage: IOException loading avatar", e)
-            null
-        } catch (e: Exception) {
-            Log.e("Andromuks", "AvatarImage: Error loading avatar", e)
-            null
-        }
-    }
-}
