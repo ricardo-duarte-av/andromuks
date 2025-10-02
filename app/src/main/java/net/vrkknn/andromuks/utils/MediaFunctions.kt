@@ -36,9 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.awaitPointerEventScope
-import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -354,18 +352,14 @@ private fun ImageViewerDialog(
                 .fillMaxSize()
                 .background(Color.Black)
                 .pointerInput(Unit) {
-                    // Handle back gesture
-                    awaitPointerEventScope {
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            if (event.type == PointerEventType.Press) {
-                                // Reset zoom and offset on tap
-                                scale = 1f
-                                offsetX = 0f
-                                offsetY = 0f
-                            }
+                    detectTapGestures(
+                        onTap = {
+                            // Reset zoom and offset on tap
+                            scale = 1f
+                            offsetX = 0f
+                            offsetY = 0f
                         }
-                    }
+                    )
                 }
         ) {
             // Close button
