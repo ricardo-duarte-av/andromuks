@@ -8,6 +8,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -145,7 +148,7 @@ fun InlineReadReceiptAvatars(
                     } else {
                         // Fallback to a default avatar icon
                         Icon(
-                            imageVector = androidx.compose.material.icons.Icons.Default.Person,
+                            imageVector = Icons.Default.Person,
                             contentDescription = "Default avatar",
                             modifier = Modifier
                                 .size(20.dp)
@@ -159,7 +162,7 @@ fun InlineReadReceiptAvatars(
             // Show "+X" indicator if there are more than maxAvatars
             if (remainingCount > 0) {
                 Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Default.MoreHoriz,
+                    imageVector = Icons.Default.MoreHoriz,
                     contentDescription = "+$remainingCount more",
                     modifier = Modifier.size(16.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant
