@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import net.vrkknn.andromuks.SpaceItem
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.SpaceRoomParser
+import net.vrkknn.andromuks.utils.ReceiptFunctions
 import org.json.JSONObject
 import okhttp3.WebSocket
 import org.json.JSONArray
@@ -159,7 +160,7 @@ class AppViewModel : ViewModel() {
     }
     
     fun getReadReceipts(eventId: String): List<ReadReceipt> {
-        return readReceipts[eventId]?.toList() ?: emptyList()
+        return ReceiptFunctions.getReadReceipts(eventId, readReceipts)
     }
     
     fun getPendingInvites(): List<RoomInvite> {
@@ -1253,7 +1254,7 @@ class AppViewModel : ViewModel() {
                 val receipts = data.optJSONObject("receipts")
                 if (receipts != null) {
                     android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts from timeline response for room: $roomId")
-                    processReadReceipts(receipts)
+                    ReceiptFunctions.processReadReceipts(receipts, readReceipts) { updateCounter++ }
                 }
             }
             else -> {
@@ -1423,7 +1424,7 @@ class AppViewModel : ViewModel() {
                     val receipts = roomData.optJSONObject("receipts")
                     if (receipts != null) {
                         android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts for room: $roomId - found ${receipts.length()} event receipts")
-                        processReadReceipts(receipts)
+                        ReceiptFunctions.processReadReceipts(receipts, readReceipts) { updateCounter++ }
                     } else {
                         android.util.Log.d("Andromuks", "AppViewModel: No receipts found in sync for room: $roomId")
                     }
@@ -1966,38 +1967,6 @@ class AppViewModel : ViewModel() {
         return originalEvent
     }
     
-    private fun processReadReceipts(receiptsJson: JSONObject) {
-        android.util.Log.d("Andromuks", "AppViewModel: processReadReceipts called with ${receiptsJson.length()} event receipts")
-        val keys = receiptsJson.keys()
-        var totalReceipts = 0
-        while (keys.hasNext()) {
-            val eventId = keys.next()
-            val receiptsArray = receiptsJson.optJSONArray(eventId)
-            if (receiptsArray != null) {
-                val receiptsList = mutableListOf<ReadReceipt>()
-                for (i in 0 until receiptsArray.length()) {
-                    val receiptJson = receiptsArray.optJSONObject(i)
-                    if (receiptJson != null) {
-                        val receipt = ReadReceipt(
-                            userId = receiptJson.optString("user_id", ""),
-                            eventId = receiptJson.optString("event_id", ""),
-                            timestamp = receiptJson.optLong("timestamp", 0),
-                            receiptType = receiptJson.optString("receipt_type", "")
-                        )
-                        receiptsList.add(receipt)
-                        android.util.Log.d("Andromuks", "AppViewModel: Processed read receipt: ${receipt.userId} read ${receipt.eventId}")
-                        totalReceipts++
-                    }
-                }
-                if (receiptsList.isNotEmpty()) {
-                    readReceipts[eventId] = receiptsList
-                    android.util.Log.d("Andromuks", "AppViewModel: Added ${receiptsList.size} read receipts for event: $eventId")
-                }
-            }
-        }
-        android.util.Log.d("Andromuks", "AppViewModel: processReadReceipts completed - processed $totalReceipts total receipts, triggering UI update")
-        updateCounter++
-    }
     
     private fun processRoomInvites(syncJson: JSONObject) {
         val data = syncJson.optJSONObject("data")

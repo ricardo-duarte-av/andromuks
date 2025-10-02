@@ -1,90 +1,70 @@
 package net.vrkknn.andromuks.utils
 
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.padding // Added to fix unresolved reference error
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.dp
-import net.vrkknn.andromuks.AppViewModel
-import net.vrkknn.andromuks.MemberProfile
+import android.util.Log
 import net.vrkknn.andromuks.ReadReceipt
-import net.vrkknn.andromuks.ui.components.AvatarImage
+import org.json.JSONObject
 
 /**
- * Displays read receipt avatars for a message in an inline format.
- * 
- * This function renders small overlapping avatars of users who have read the message,
- * excluding the current user and the message sender. It shows up to 3 avatars with
- * a count indicator if there are more than 3 receipts.
- * 
- * @param receipts List of ReadReceipt objects containing user IDs, event IDs, and timestamps
- * @param userProfileCache Map of user IDs to MemberProfile objects for avatar and display name data
- * @param homeserverUrl Base URL of the Matrix homeserver for MXC URL conversion
- * @param authToken Authentication token for accessing media
- * @param appViewModel AppViewModel instance for accessing current user ID and other app state
- * @param messageSender User ID of the message sender (excluded from receipt display)
+ * Utility functions for handling read receipts in Matrix rooms.
  */
-@Composable
-fun InlineReadReceiptAvatars(
-    receipts: List<ReadReceipt>,
-    userProfileCache: Map<String, MemberProfile>,
-    homeserverUrl: String,
-    authToken: String,
-    appViewModel: AppViewModel,
-    messageSender: String
-) {
-    // Filter out receipts from the current user, from the message sender, and limit to 3 avatars
-    val otherUsersReceipts = receipts
-        .filter { it.userId != appViewModel.currentUserId && it.userId != messageSender }
-        .distinctBy { it.userId }
-        .take(3)
+object ReceiptFunctions {
     
-    if (otherUsersReceipts.isNotEmpty()) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(-4.dp), // Overlap avatars slightly
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            otherUsersReceipts.forEach { receipt ->
-                val profile = userProfileCache[receipt.userId]
-                val displayName = profile?.displayName
-                val avatarUrl = profile?.avatarUrl
-                
-                AvatarImage(
-                    mxcUrl = avatarUrl,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    fallbackText = (displayName ?: receipt.userId.substringAfter("@").substringBefore(":")).take(1),
-                    size = 16.dp,
-                    modifier = Modifier
-                        .size(16.dp)
-                        .clip(CircleShape)
-                        .border(
-                            width = 1.dp,
-                            color = MaterialTheme.colorScheme.surface,
-                            shape = CircleShape
+    /**
+     * Processes read receipts from a JSON response.
+     * 
+     * @param receiptsJson JSON object containing read receipts
+     * @param readReceiptsMap Mutable map to store the processed receipts (eventId -> list of receipts)
+     * @param updateCounter Counter to trigger UI updates (will be incremented)
+     */
+    fun processReadReceipts(
+        receiptsJson: JSONObject,
+        readReceiptsMap: MutableMap<String, MutableList<ReadReceipt>>,
+        updateCounter: () -> Unit
+    ) {
+        Log.d("Andromuks", "ReceiptFunctions: processReadReceipts called with ${receiptsJson.length()} event receipts")
+        val keys = receiptsJson.keys()
+        var totalReceipts = 0
+        
+        while (keys.hasNext()) {
+            val eventId = keys.next()
+            val receiptsArray = receiptsJson.optJSONArray(eventId)
+            if (receiptsArray != null) {
+                val receiptsList = mutableListOf<ReadReceipt>()
+                for (i in 0 until receiptsArray.length()) {
+                    val receiptJson = receiptsArray.optJSONObject(i)
+                    if (receiptJson != null) {
+                        val receipt = ReadReceipt(
+                            userId = receiptJson.optString("user_id", ""),
+                            eventId = receiptJson.optString("event_id", ""),
+                            timestamp = receiptJson.optLong("timestamp", 0),
+                            receiptType = receiptJson.optString("receipt_type", "")
                         )
-                )
-            }
-            
-            // Show count if there are more than 3 receipts
-            if (receipts.size > 3) {
-                Text(
-                    text = "+${receipts.size - 3}",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = MaterialTheme.typography.labelSmall.fontSize * 0.7f
-                    ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 2.dp)
-                )
+                        receiptsList.add(receipt)
+                        Log.d("Andromuks", "ReceiptFunctions: Processed read receipt: ${receipt.userId} read ${receipt.eventId}")
+                        totalReceipts++
+                    }
+                }
+                if (receiptsList.isNotEmpty()) {
+                    readReceiptsMap[eventId] = receiptsList
+                    Log.d("Andromuks", "ReceiptFunctions: Added ${receiptsList.size} read receipts for event: $eventId")
+                }
             }
         }
+        Log.d("Andromuks", "ReceiptFunctions: processReadReceipts completed - processed $totalReceipts total receipts, triggering UI update")
+        updateCounter()
+    }
+    
+    /**
+     * Gets read receipts for a specific event.
+     * 
+     * @param eventId The event ID to get receipts for
+     * @param readReceiptsMap Map containing the read receipts
+     * @return List of read receipts for the event, or empty list if none found
+     */
+    fun getReadReceipts(
+        eventId: String,
+        readReceiptsMap: Map<String, MutableList<ReadReceipt>>
+    ): List<ReadReceipt> {
+        return readReceiptsMap[eventId]?.toList() ?: emptyList()
     }
 }
