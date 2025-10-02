@@ -1600,6 +1600,14 @@ class AppViewModel : ViewModel() {
     private fun processEditRelationships() {
         android.util.Log.d("Andromuks", "AppViewModel: processEditRelationships called with ${eventChainMap.size} events and ${editEventsMap.size} edit events")
         
+        // Safety check: limit the number of edit events to prevent blocking
+        if (editEventsMap.size > 100) {
+            android.util.Log.w("Andromuks", "AppViewModel: Too many edit events (${editEventsMap.size}), limiting to 100 to prevent blocking")
+            val limitedEditEvents = editEventsMap.toList().take(100).toMap()
+            editEventsMap.clear()
+            editEventsMap.putAll(limitedEditEvents)
+        }
+        
         // First, create chain entries for all edit events
         for ((editEventId, editEvent) in editEventsMap) {
             eventChainMap[editEventId] = EventChainEntry(
@@ -1616,7 +1624,14 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Processing ${sortedEditEvents.size} edit events in chronological order")
         
         // Process all edit events to build the chain
+        var processedCount = 0
         for (editEvent in sortedEditEvents) {
+            // Safety check: limit processing to prevent blocking
+            if (processedCount >= 50) {
+                android.util.Log.w("Andromuks", "AppViewModel: Reached processing limit (50), stopping to prevent blocking")
+                break
+            }
+            processedCount++
             val editEventId = editEvent.eventId
             android.util.Log.d("Andromuks", "AppViewModel: Processing edit event ${editEventId} at timestamp ${editEvent.timestamp}")
             
@@ -1708,7 +1723,15 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: replacedBy: ${entry.replacedBy}")
         
         // Follow the edit chain to find the latest edit
+        var chainDepth = 0
         while (currentEntry.replacedBy != null) {
+            // Safety check: limit chain depth to prevent infinite loops
+            if (chainDepth >= 20) {
+                android.util.Log.w("Andromuks", "AppViewModel: Chain depth limit reached (20), stopping to prevent infinite loop")
+                break
+            }
+            chainDepth++
+            
             val editEventId = currentEntry.replacedBy!!
             
             // Check for infinite loop - only check if we're trying to visit an event we've already processed in this chain
