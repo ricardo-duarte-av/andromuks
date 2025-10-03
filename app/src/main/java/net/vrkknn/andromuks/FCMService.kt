@@ -18,6 +18,44 @@ import net.vrkknn.andromuks.utils.Encryption
 import org.json.JSONObject
 import java.util.UUID
 
+/**
+ * Get the existing push encryption key (matches the other Gomuks client implementation)
+ */
+private fun getExistingPushEncryptionKey(context: Context): ByteArray? {
+    return getPushEncryptionKey(context, false, null, null)
+}
+
+/**
+ * Get push encryption key with optional generation (matches the other Gomuks client implementation)
+ */
+private fun getPushEncryptionKey(
+    context: Context,
+    allowGenerate: Boolean,
+    prefEncParam: Encryption.EncryptionInstance?,
+    sharedPrefParam: SharedPreferences?,
+): ByteArray? {
+    // Use simple encryption for now - in the other app this would be a more complex Encryption class
+    val sharedPref = sharedPrefParam ?: context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
+    val encryptedKey = sharedPref.getString("push_encryption_key", null)
+    
+    if (encryptedKey == null) {
+        if (!allowGenerate) {
+            return null
+        }
+        // Generate new key and store it
+        val unencKey = Encryption.generatePlainKey()
+        with(sharedPref.edit()) {
+            putString("push_encryption_key", android.util.Base64.encodeToString(unencKey, android.util.Base64.NO_WRAP))
+            apply()
+        }
+        return unencKey
+    } else {
+        // For now, assume the key is stored as plain base64 (not encrypted with another key)
+        // In the other app, this would be: prefEnc.decrypt(Base64.decode(encryptedKey, Base64.DEFAULT))
+        return android.util.Base64.decode(encryptedKey, android.util.Base64.DEFAULT)
+    }
+}
+
 class FCMService : FirebaseMessagingService() {
     
     companion object {
@@ -35,7 +73,6 @@ class FCMService : FirebaseMessagingService() {
     }
     
     private lateinit var enhancedNotificationDisplay: EnhancedNotificationDisplay
-    private var pushEncryptionKey: ByteArray? = null
     
     override fun onCreate() {
         super.onCreate()
@@ -44,31 +81,6 @@ class FCMService : FirebaseMessagingService() {
         val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
         val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-        
-        // Get push encryption key from SharedPreferences
-        // WebClientPushIntegration stores it as "push_encryption_key" in "web_client_prefs"
-        val webClientPrefs = getSharedPreferences("web_client_prefs", MODE_PRIVATE)
-        
-        // Debug: Log all keys in web_client_prefs
-        Log.d(TAG, "Debugging web_client_prefs keys:")
-        webClientPrefs.all.forEach { (key, value) ->
-            Log.d(TAG, "  $key = ${if (key.contains("key", ignoreCase = true)) "<redacted>" else value}")
-        }
-        
-        val encryptedKey = webClientPrefs.getString("push_encryption_key", null)
-        Log.d(TAG, "Found push encryption key: ${encryptedKey != null}")
-        
-        if (encryptedKey != null) {
-            try {
-                // The key is stored as base64-encoded bytes from WebClientPushIntegration
-                pushEncryptionKey = android.util.Base64.decode(encryptedKey, android.util.Base64.DEFAULT)
-                Log.d(TAG, "Loaded push encryption key (${pushEncryptionKey!!.size} bytes)")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading push encryption key", e)
-            }
-        } else {
-            Log.w(TAG, "No push encryption key found in SharedPreferences")
-        }
         
         enhancedNotificationDisplay = EnhancedNotificationDisplay(this, homeserverUrl, authToken)
         enhancedNotificationDisplay.createNotificationChannel()
@@ -79,11 +91,43 @@ class FCMService : FirebaseMessagingService() {
         
         Log.d(TAG, "FCM message received - data: ${remoteMessage.data}, notification: ${remoteMessage.notification}")
         
-        // Handle data payload
+        // Handle data payload (matches the other Gomuks client approach)
         if (remoteMessage.data.isNotEmpty()) {
             Log.d(TAG, "Processing data payload: ${remoteMessage.data}")
+            
+            // Get push encryption key (matches the other Gomuks client)
+            val pushEncKey = getExistingPushEncryptionKey(this)
+            if (pushEncKey == null) {
+                Log.e(TAG, "No push encryption key found to handle $remoteMessage")
+                return
+            }
+            
+            // Decrypt the payload (matches the other Gomuks client)
+            val decryptedPayload: String = try {
+                Encryption.fromPlainKey(pushEncKey).decrypt(remoteMessage.data.getValue("payload"))
+            } catch (e: Exception) {
+                Log.e(TAG, "Error decrypting payload", e)
+                return
+            }
+            
+            Log.d(TAG, "Successfully decrypted payload: ${decryptedPayload.take(100)}...")
+            
+            // Parse the decrypted JSON and show notification
             CoroutineScope(Dispatchers.Main).launch {
-                handleNotificationData(remoteMessage.data)
+                try {
+                    val jsonObject = JSONObject(decryptedPayload)
+                    val jsonDataMap = mutableMapOf<String, String>()
+                    jsonObject.keys().forEach { key ->
+                        jsonDataMap[key] = jsonObject.getString(key)
+                    }
+                    
+                    val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap)
+                    if (notificationData != null) {
+                        enhancedNotificationDisplay.showEnhancedNotification(notificationData)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parsing decrypted payload", e)
+                }
             }
         }
         
@@ -95,14 +139,6 @@ class FCMService : FirebaseMessagingService() {
                 body = notification.body ?: "",
                 data = remoteMessage.data
             )
-        }
-        
-        // If we have data but no notification payload, show a notification anyway
-        if (remoteMessage.data.isNotEmpty() && remoteMessage.notification == null) {
-            Log.d(TAG, "Data-only payload detected, showing notification")
-            CoroutineScope(Dispatchers.Main).launch {
-                handleNotificationData(remoteMessage.data)
-            }
         }
     }
     
@@ -132,74 +168,6 @@ class FCMService : FirebaseMessagingService() {
         }
     }
     
-    private suspend fun handleNotificationData(data: Map<String, String>) {
-        try {
-            Log.d(TAG, "handleNotificationData called with data: $data")
-            
-            // Get the encrypted payload
-            val encryptedPayload = data["payload"]
-            if (encryptedPayload != null && pushEncryptionKey != null) {
-                Log.d(TAG, "Found encrypted payload: ${encryptedPayload.take(50)}...")
-                
-                try {
-                    // Decrypt the payload using the push encryption key
-                    val encryption = Encryption.fromPlainKey(pushEncryptionKey!!)
-                    val decryptedPayload = encryption.decrypt(encryptedPayload)
-                    
-                    if (decryptedPayload != null) {
-                        Log.d(TAG, "Successfully decrypted payload: ${decryptedPayload.take(100)}...")
-                        
-                        // Parse the decrypted JSON payload
-                        val jsonObject = JSONObject(decryptedPayload)
-                        Log.d(TAG, "Parsed decrypted JSON object: $jsonObject")
-                        
-                        // Convert JSON to Map<String, String> for the parser
-                        val jsonDataMap = mutableMapOf<String, String>()
-                        jsonObject.keys().forEach { key ->
-                            jsonDataMap[key] = jsonObject.getString(key)
-                        }
-                        
-                        Log.d(TAG, "Converted to map: $jsonDataMap")
-                        
-                        // Parse notification data using our parser
-                        val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap)
-                        Log.d(TAG, "Parsed notification data: $notificationData")
-                        
-                        if (notificationData != null) {
-                            Log.d(TAG, "Calling showEnhancedNotification")
-                            // Use enhanced notification display
-                            enhancedNotificationDisplay.showEnhancedNotification(notificationData)
-                            Log.d(TAG, "showEnhancedNotification completed")
-                        } else {
-                            Log.w(TAG, "Failed to parse notification data from decrypted payload")
-                        }
-                    } else {
-                        Log.e(TAG, "Failed to decrypt payload")
-                    }
-                } catch (decryptException: Exception) {
-                    Log.e(TAG, "Error decrypting payload: $encryptedPayload", decryptException)
-                }
-            } else if (encryptedPayload != null) {
-                Log.e(TAG, "Found encrypted payload but no push encryption key available")
-            } else {
-                Log.d(TAG, "No encrypted payload found, trying direct data parsing")
-                // Fallback to direct data parsing (for testing or non-encrypted payloads)
-                val notificationData = NotificationDataParser.parseNotificationData(data)
-                Log.d(TAG, "Parsed notification data: $notificationData")
-                
-                if (notificationData != null) {
-                    Log.d(TAG, "Calling showEnhancedNotification")
-                    enhancedNotificationDisplay.showEnhancedNotification(notificationData)
-                    Log.d(TAG, "showEnhancedNotification completed")
-                } else {
-                    Log.w(TAG, "Failed to parse notification data from: $data")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error handling notification data", e)
-            e.printStackTrace()
-        }
-    }
     
     private fun showNotification(
         title: String,
