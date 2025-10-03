@@ -63,7 +63,7 @@ class FCMService : FirebaseMessagingService() {
         private const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
     }
     
-    private lateinit var enhancedNotificationDisplay: EnhancedNotificationDisplay
+    private var enhancedNotificationDisplay: EnhancedNotificationDisplay? = null
     
     override fun onCreate() {
         super.onCreate()
@@ -73,8 +73,10 @@ class FCMService : FirebaseMessagingService() {
         val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
         
-        enhancedNotificationDisplay = EnhancedNotificationDisplay(this, homeserverUrl, authToken)
-        enhancedNotificationDisplay.createNotificationChannel()
+        if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+            enhancedNotificationDisplay = EnhancedNotificationDisplay(this, homeserverUrl, authToken)
+            enhancedNotificationDisplay?.createNotificationChannel()
+        }
     }
     
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
@@ -153,7 +155,7 @@ class FCMService : FirebaseMessagingService() {
                             
                             val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap)
                             if (notificationData != null) {
-                                enhancedNotificationDisplay.showEnhancedNotification(notificationData)
+                                enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
                             }
                         }
                     }
@@ -177,7 +179,7 @@ class FCMService : FirebaseMessagingService() {
     /**
      * Handle message notification payload
      */
-    private fun handleMessageNotification(jsonObject: JSONObject) {
+    private suspend fun handleMessageNotification(jsonObject: JSONObject) {
         try {
             val messagesArray = jsonObject.getJSONArray("messages")
             Log.d(TAG, "Found ${messagesArray.length()} messages in notification")
@@ -215,7 +217,7 @@ class FCMService : FirebaseMessagingService() {
                 )
                 
                 Log.d(TAG, "Showing notification for room: $roomId")
-                enhancedNotificationDisplay.showEnhancedNotification(notificationData)
+                enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error handling message notification", e)
