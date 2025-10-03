@@ -72,13 +72,24 @@ class WebClientPushIntegration(private val context: Context) {
      */
     private fun getOrCreatePushEncryptionKey(): ByteArray {
         return try {
+            // Check if Android Keystore is available
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+                Log.d(TAG, "Android Keystore not available on this API level, using fallback")
+                return generateFallbackKey()
+            }
+            
             val keyStore = KeyStore.getInstance("AndroidKeyStore")
             keyStore.load(null)
             
             if (keyStore.containsAlias(KEY_ALIAS)) {
                 // Key exists, retrieve it
-                val key = keyStore.getKey(KEY_ALIAS, null) as SecretKey
-                key.encoded
+                val key = keyStore.getKey(KEY_ALIAS, null)
+                if (key is SecretKey) {
+                    key.encoded ?: generateFallbackKey()
+                } else {
+                    Log.w(TAG, "Retrieved key is not a SecretKey, using fallback")
+                    generateFallbackKey()
+                }
             } else {
                 // Generate new key
                 val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
@@ -93,15 +104,22 @@ class WebClientPushIntegration(private val context: Context) {
                 
                 keyGenerator.init(keyGenParameterSpec)
                 val secretKey = keyGenerator.generateKey()
-                secretKey.encoded
+                secretKey.encoded ?: generateFallbackKey()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error with Android Keystore, falling back to simple key generation", e)
-            // Fallback to simple key generation
-            val fallbackKey = UUID.randomUUID().toString().replace("-", "").toByteArray()
-            prefs.edit().putString(KEY_PUSH_ENCRYPTION_KEY, Base64.encodeToString(fallbackKey, Base64.NO_WRAP)).apply()
-            fallbackKey
+            generateFallbackKey()
         }
+    }
+    
+    /**
+     * Generate a fallback encryption key
+     */
+    private fun generateFallbackKey(): ByteArray {
+        val fallbackKey = UUID.randomUUID().toString().replace("-", "").toByteArray()
+        prefs.edit().putString(KEY_PUSH_ENCRYPTION_KEY, Base64.encodeToString(fallbackKey, Base64.NO_WRAP)).apply()
+        Log.d(TAG, "Generated fallback encryption key")
+        return fallbackKey
     }
     
     /**
