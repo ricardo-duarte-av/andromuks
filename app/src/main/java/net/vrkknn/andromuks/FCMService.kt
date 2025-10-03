@@ -43,9 +43,9 @@ class FCMService : FirebaseMessagingService() {
         super.onMessageReceived(remoteMessage)
         
         // Handle data payload
-        remoteMessage.data.isNotEmpty().let { data ->
+        if (remoteMessage.data.isNotEmpty()) {
             CoroutineScope(Dispatchers.Main).launch {
-                handleNotificationData(data)
+                handleNotificationData(remoteMessage.data)
             }
         }
         
