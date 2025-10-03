@@ -104,6 +104,9 @@ class AppViewModel : ViewModel() {
     
     // Conversations API for shortcuts and enhanced notifications
     private var conversationsApi: ConversationsApi? = null
+    
+    // Web client push integration
+    private var webClientPushIntegration: WebClientPushIntegration? = null
 
     var spacesLoaded by mutableStateOf(false)
         private set
@@ -254,6 +257,7 @@ class AppViewModel : ViewModel() {
     fun initializeFCM(context: Context) {
         fcmNotificationManager = FCMNotificationManager(context)
         conversationsApi = ConversationsApi(context)
+        webClientPushIntegration = WebClientPushIntegration(context)
     }
     
     fun registerFCMNotifications() {
@@ -266,6 +270,98 @@ class AppViewModel : ViewModel() {
     
     fun unregisterFCMNotifications() {
         fcmNotificationManager?.unregisterFromBackend()
+    }
+    
+    /**
+     * Get FCM token for Gomuks Backend registration
+     */
+    fun getFCMTokenForGomuksBackend(): String? {
+        return fcmNotificationManager?.getTokenForGomuksBackend()
+    }
+    
+    /**
+     * Create push registration message for web client
+     */
+    fun createWebClientPushMessage(token: String): JSONObject? {
+        return webClientPushIntegration?.createPushRegistrationMessage(token)
+    }
+    
+    /**
+     * Check if push registration should be performed (time-based)
+     */
+    fun shouldRegisterPush(): Boolean {
+        return webClientPushIntegration?.shouldRegisterPush() ?: false
+    }
+    
+    /**
+     * Mark push registration as completed
+     */
+    fun markPushRegistrationCompleted() {
+        webClientPushIntegration?.markPushRegistrationCompleted()
+    }
+    
+    /**
+     * Get device ID for push registration
+     */
+    fun getDeviceID(): String? {
+        return webClientPushIntegration?.getDeviceID()
+    }
+    
+    /**
+     * Store FCM token for Gomuks Backend
+     */
+    fun storeFCMToken(token: String, context: Context) {
+        fcmNotificationManager?.let { manager ->
+            // Store token for Gomuks Backend registration
+            val prefs = context.getSharedPreferences("fcm_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putString("fcm_token_for_gomuks", token).apply()
+        }
+    }
+    
+    /**
+     * Register FCM token with Gomuks Backend via WebSocket
+     */
+    fun registerFCMWithGomuksBackend() {
+        val token = getFCMTokenForGomuksBackend()
+        val deviceId = webClientPushIntegration?.getDeviceID()
+        val encryptionKey = webClientPushIntegration?.getPushEncryptionKey()
+        
+        if (token != null && deviceId != null && encryptionKey != null) {
+            val registrationRequestId = requestIdCounter++
+            fcmRegistrationRequests[registrationRequestId] = "fcm_registration"
+            
+            sendWebSocketCommand("register_push", registrationRequestId, mapOf(
+                "token" to token,
+                "device_id" to deviceId,
+                "encryption" to mapOf(
+                    "key" to encryptionKey
+                )
+            ))
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Sent FCM registration to Gomuks Backend with device_id=$deviceId")
+        } else {
+            android.util.Log.w("Andromuks", "AppViewModel: Missing required data for FCM registration - token=${token != null}, deviceId=${deviceId != null}, encryptionKey=${encryptionKey != null}")
+        }
+    }
+    
+    /**
+     * Handle FCM registration response from Gomuks Backend
+     */
+    fun handleFCMRegistrationResponse(requestId: Int, data: Any) {
+        android.util.Log.d("Andromuks", "AppViewModel: handleFCMRegistrationResponse called with requestId=$requestId")
+        
+        // Remove from pending requests
+        fcmRegistrationRequests.remove(requestId)
+        
+        // Handle the response
+        val success = data as? Boolean ?: false
+        if (success) {
+            android.util.Log.i("Andromuks", "AppViewModel: FCM registration successful")
+            // Mark registration as completed for timing purposes
+            webClientPushIntegration?.markPushRegistrationCompleted()
+        } else {
+            android.util.Log.e("Andromuks", "AppViewModel: FCM registration failed")
+        }
     }
     
     fun updateTypingUsers(roomId: String, userIds: List<String>) {
@@ -284,7 +380,11 @@ class AppViewModel : ViewModel() {
             currentUserId = userId
             android.util.Log.d("Andromuks", "AppViewModel: Set currentUserId: $userId")
         }
-        if (!device.isNullOrBlank()) deviceId = device
+        if (!device.isNullOrBlank()) {
+            deviceId = device
+            // Store device ID for FCM registration
+            webClientPushIntegration?.storeDeviceId(device)
+        }
         // IMPORTANT: Do NOT override gomuks backend URL with Matrix homeserver URL from client_state
         // The backend URL is set via AuthCheck from SharedPreferences (e.g., https://webmuks.aguiarvieira.pt)
         // if (!homeserver.isNullOrBlank()) updateHomeserverUrl(homeserver)
@@ -425,6 +525,14 @@ class AppViewModel : ViewModel() {
         
         // Now that all rooms are loaded, populate space edges
         populateSpaceEdges()
+        
+        // Register FCM with Gomuks Backend if we should (time-based check)
+        if (shouldRegisterPush()) {
+            android.util.Log.d("Andromuks", "AppViewModel: Registering FCM with Gomuks Backend")
+            registerFCMWithGomuksBackend()
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: FCM registration not needed (too recent)")
+        }
         
         android.util.Log.d("Andromuks", "AppViewModel: Calling navigation callback (callback is ${if (onNavigateToRoomList != null) "set" else "null"})")
         if (onNavigateToRoomList != null) {
@@ -619,6 +727,7 @@ class AppViewModel : ViewModel() {
     private val joinRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val leaveRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val outgoingRequests = mutableMapOf<Int, String>() // requestId -> roomId (for all outgoing requests)
+    private val fcmRegistrationRequests = mutableMapOf<Int, String>() // requestId -> "fcm_registration"
     
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
@@ -906,6 +1015,8 @@ class AppViewModel : ViewModel() {
             handleJoinRoomResponse(requestId, data)
         } else if (leaveRoomRequests.containsKey(requestId)) {
             handleLeaveRoomResponse(requestId, data)
+        } else if (fcmRegistrationRequests.containsKey(requestId)) {
+            handleFCMRegistrationResponse(requestId, data)
         } else if (outgoingRequests.containsKey(requestId)) {
             android.util.Log.d("Andromuks", "AppViewModel: Routing to handleOutgoingRequestResponse")
             handleOutgoingRequestResponse(requestId, data)

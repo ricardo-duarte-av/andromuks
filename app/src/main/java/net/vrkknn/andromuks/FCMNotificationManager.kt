@@ -64,7 +64,8 @@ class FCMNotificationManager(private val context: Context) {
     }
     
     /**
-     * Register FCM token with Matrix backend
+     * Register FCM token with Gomuks Backend
+     * This stores the token for the AppViewModel to send via WebSocket
      */
     private suspend fun registerWithBackend(
         fcmToken: String,
@@ -73,37 +74,23 @@ class FCMNotificationManager(private val context: Context) {
         accessToken: String
     ): Boolean {
         return try {
-            val pushGatewayUrl = "$homeserverUrl/_matrix/push/v1/register"
+            // Store the FCM token for Gomuks Backend registration
+            prefs.edit().putString("fcm_token_for_gomuks", fcmToken).apply()
             
-            val requestBody = JSONObject().apply {
-                put("app_display_name", "Andromuks")
-                put("app_id", "pt.aguiarvieira.andromuks")
-                put("data", JSONObject().apply {
-                    put("url", "https://fcm.googleapis.com/fcm/send")
-                    put("format", "event_id_only")
-                    put("key", fcmToken)
-                })
-                put("kind", "http")
-                put("device_display_name", "Android Device")
-                put("profile_tag", "")
-            }.toString()
+            // Store other registration data
+            prefs.edit()
+                .putString("homeserver_url", homeserverUrl)
+                .putString("user_id", userId)
+                .putString("access_token", accessToken)
+                .apply()
             
-            val request = Request.Builder()
-                .url(pushGatewayUrl)
-                .post(requestBody.toRequestBody("application/json".toMediaType()))
-                .addHeader("Authorization", "Bearer $accessToken")
-                .addHeader("Content-Type", "application/json")
-                .build()
+            Log.d(TAG, "Stored FCM token for Gomuks Backend registration: $fcmToken")
             
-            val response = httpClient.newCall(request).execute()
-            val responseBody = response.body?.string()
-            
-            Log.d(TAG, "Backend registration response: $responseBody")
-            
-            response.isSuccessful
+            // Return true as we've prepared the token for registration
+            true
             
         } catch (e: Exception) {
-            Log.e(TAG, "Error registering with backend", e)
+            Log.e(TAG, "Error preparing FCM token for Gomuks Backend registration", e)
             false
         }
     }
@@ -144,6 +131,13 @@ class FCMNotificationManager(private val context: Context) {
      */
     fun getCurrentToken(): String? {
         return prefs.getString(KEY_FCM_TOKEN, null)
+    }
+    
+    /**
+     * Get FCM token for Gomuks Backend registration
+     */
+    fun getTokenForGomuksBackend(): String? {
+        return prefs.getString("fcm_token_for_gomuks", null)
     }
     
     /**
