@@ -334,13 +334,12 @@ class AppViewModel : ViewModel() {
             
             android.util.Log.d("Andromuks", "AppViewModel: Registering FCM with request_id=$registrationRequestId")
             
+            // Use WebSocket command format but with the correct data structure
             sendWebSocketCommand("register_push", registrationRequestId, mapOf(
-                "data" to mapOf(
-                    "token" to token,
-                    "device_id" to deviceId,
-                    "encryption" to mapOf(
-                        "key" to encryptionKey
-                    )
+                "token" to token,
+                "device_id" to deviceId,
+                "encryption" to mapOf(
+                    "key" to encryptionKey
                 )
             ))
             

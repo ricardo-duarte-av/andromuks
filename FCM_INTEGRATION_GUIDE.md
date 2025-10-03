@@ -50,16 +50,14 @@ if (shouldRegisterPush()) {
 ```
 
 ### 2. WebSocket Command Format
-The registration is sent as a WebSocket command using data from Gomuks Backend:
+The registration is sent as a WebSocket command using the correct data structure:
 
 ```kotlin
 sendWebSocketCommand("register_push", requestId, mapOf(
-    "data" to mapOf(
-        "token" to fcmToken,           // From FCM
-        "device_id" to deviceId,       // From client_state WebSocket message
-        "encryption" to mapOf(
-            "key" to encryptionKey     // Generated using Android Keystore
-        )
+    "token" to fcmToken,           // From FCM
+    "device_id" to deviceId,       // From client_state WebSocket message
+    "encryption" to mapOf(
+        "key" to encryptionKey     // Generated using Android Keystore
     )
 ))
 ```
@@ -89,12 +87,10 @@ fun handleFCMRegistrationResponse(requestId: Int, data: Any) {
     "command": "register_push",
     "request_id": 123,
     "data": {
-        "data": {
-            "token": "fcm-token-from-firebase",
-            "device_id": "VYTAQJDZAV",
-            "encryption": {
-                "key": "base64-encoded-keystore-key"
-            }
+        "token": "fcm-token-from-firebase",
+        "device_id": "VYTAQJDZAV",
+        "encryption": {
+            "key": "base64-encoded-keystore-key"
         }
     }
 }
