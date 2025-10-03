@@ -111,15 +111,23 @@ class WebClientPushIntegration(private val context: Context) {
         val lastReg = prefs.getLong(KEY_LAST_PUSH_REG, 0L)
         val now = System.currentTimeMillis()
         val intervalMs = PUSH_REG_INTERVAL_HOURS * 60 * 60 * 1000
+        val timeSinceLastReg = now - lastReg
         
-        return (now - lastReg) > intervalMs
+        Log.d(TAG, "shouldRegisterPush: lastReg=$lastReg, now=$now, timeSinceLastReg=$timeSinceLastReg ms, intervalMs=$intervalMs ms")
+        
+        val shouldRegister = timeSinceLastReg > intervalMs
+        Log.d(TAG, "shouldRegisterPush: returning $shouldRegister")
+        
+        return shouldRegister
     }
     
     /**
      * Mark push registration as completed
      */
     fun markPushRegistrationCompleted() {
-        prefs.edit().putLong(KEY_LAST_PUSH_REG, System.currentTimeMillis()).apply()
+        val timestamp = System.currentTimeMillis()
+        prefs.edit().putLong(KEY_LAST_PUSH_REG, timestamp).apply()
+        Log.d(TAG, "Marked push registration as completed at timestamp: $timestamp")
     }
     
     /**

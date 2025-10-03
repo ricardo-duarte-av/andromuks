@@ -326,9 +326,13 @@ class AppViewModel : ViewModel() {
         val deviceId = webClientPushIntegration?.getDeviceID()
         val encryptionKey = webClientPushIntegration?.getPushEncryptionKey()
         
+        android.util.Log.d("Andromuks", "AppViewModel: registerFCMWithGomuksBackend - token=${token?.take(20)}..., deviceId=$deviceId, encryptionKey=${encryptionKey?.take(20)}...")
+        
         if (token != null && deviceId != null && encryptionKey != null) {
             val registrationRequestId = requestIdCounter++
             fcmRegistrationRequests[registrationRequestId] = "fcm_registration"
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Registering FCM with request_id=$registrationRequestId")
             
             sendWebSocketCommand("register_push", registrationRequestId, mapOf(
                 "data" to mapOf(
@@ -350,19 +354,43 @@ class AppViewModel : ViewModel() {
      * Handle FCM registration response from Gomuks Backend
      */
     fun handleFCMRegistrationResponse(requestId: Int, data: Any) {
-        android.util.Log.d("Andromuks", "AppViewModel: handleFCMRegistrationResponse called with requestId=$requestId")
+        android.util.Log.d("Andromuks", "AppViewModel: handleFCMRegistrationResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
+        android.util.Log.d("Andromuks", "AppViewModel: FCM registration response data: $data")
         
         // Remove from pending requests
         fcmRegistrationRequests.remove(requestId)
         
-        // Handle the response
-        val success = data as? Boolean ?: false
-        if (success) {
-            android.util.Log.i("Andromuks", "AppViewModel: FCM registration successful")
-            // Mark registration as completed for timing purposes
-            webClientPushIntegration?.markPushRegistrationCompleted()
-        } else {
-            android.util.Log.e("Andromuks", "AppViewModel: FCM registration failed")
+        // Handle the response - it could be a boolean, string, or object
+        when (data) {
+            is Boolean -> {
+                if (data) {
+                    android.util.Log.i("Andromuks", "AppViewModel: FCM registration successful (boolean true)")
+                    webClientPushIntegration?.markPushRegistrationCompleted()
+                } else {
+                    android.util.Log.e("Andromuks", "AppViewModel: FCM registration failed (boolean false)")
+                }
+            }
+            is String -> {
+                android.util.Log.i("Andromuks", "AppViewModel: FCM registration response (string): $data")
+                // Assume string response means success
+                webClientPushIntegration?.markPushRegistrationCompleted()
+            }
+            is org.json.JSONObject -> {
+                android.util.Log.i("Andromuks", "AppViewModel: FCM registration response (JSON): ${data.toString()}")
+                // Check if there's a success field or assume JSON response means success
+                val success = data.optBoolean("success", true)
+                if (success) {
+                    android.util.Log.i("Andromuks", "AppViewModel: FCM registration successful (JSON)")
+                    webClientPushIntegration?.markPushRegistrationCompleted()
+                } else {
+                    android.util.Log.e("Andromuks", "AppViewModel: FCM registration failed (JSON)")
+                }
+            }
+            else -> {
+                android.util.Log.i("Andromuks", "AppViewModel: FCM registration response (unknown type): $data")
+                // Assume any response means success
+                webClientPushIntegration?.markPushRegistrationCompleted()
+            }
         }
     }
     
