@@ -1,0 +1,82 @@
+package net.vrkknn.andromuks.utils
+
+import android.util.Base64
+import android.util.Log
+import java.security.SecureRandom
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.SecretKeySpec
+
+/**
+ * Encryption utility for handling push notification payloads
+ * Based on the implementation from your other app
+ */
+object Encryption {
+    
+    private const val TAG = "Encryption"
+    private const val AES_MODE = "AES/GCM/NoPadding"
+    private const val GCM_IV_SIZE = 12 // 96 bits
+    private const val GCM_TAG_SIZE = 16 // 128 bits
+    
+    /**
+     * Create an Encryption instance from a plain key
+     */
+    fun fromPlainKey(key: ByteArray): EncryptionInstance {
+        return EncryptionInstance(key)
+    }
+    
+    /**
+     * Generate a plain key for encryption
+     */
+    fun generatePlainKey(): ByteArray {
+        val keyGenerator = KeyGenerator.getInstance("AES")
+        keyGenerator.init(256) // 256-bit key
+        val secretKey = keyGenerator.generateKey()
+        return secretKey.encoded
+    }
+    
+    /**
+     * Encryption instance that can encrypt/decrypt data
+     */
+    class EncryptionInstance(private val key: SecretKey) {
+        
+        constructor(keyBytes: ByteArray) : this(SecretKeySpec(keyBytes, "AES"))
+        
+        /**
+         * Encrypt input as ByteArray
+         */
+        fun encrypt(input: ByteArray): ByteArray {
+            val cipher = Cipher.getInstance(AES_MODE)
+            cipher.init(Cipher.ENCRYPT_MODE, key)
+            val encrypted = cipher.doFinal(input)
+            return cipher.iv + encrypted
+        }
+        
+        /**
+         * Encrypt input as String
+         */
+        fun encrypt(input: String): String {
+            return Base64.encodeToString(encrypt(input.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+        }
+        
+        /**
+         * Decrypt encrypted ByteArray
+         */
+        fun decrypt(encrypted: ByteArray): ByteArray {
+            val cipher = Cipher.getInstance(AES_MODE)
+            val iv = encrypted.sliceArray(0 until GCM_IV_SIZE)
+            val actualEncrypted = encrypted.sliceArray(GCM_IV_SIZE until encrypted.size)
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_SIZE, iv))
+            return cipher.doFinal(actualEncrypted)
+        }
+        
+        /**
+         * Decrypt encrypted String (base64-encoded)
+         */
+        fun decrypt(encrypted: String): String {
+            return decrypt(Base64.decode(encrypted, Base64.DEFAULT)).toString(Charsets.UTF_8)
+        }
+    }
+}

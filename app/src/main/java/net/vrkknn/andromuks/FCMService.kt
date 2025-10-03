@@ -14,6 +14,7 @@ import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import net.vrkknn.andromuks.utils.Encryption
 import org.json.JSONObject
 import java.util.UUID
 
@@ -34,6 +35,7 @@ class FCMService : FirebaseMessagingService() {
     }
     
     private lateinit var enhancedNotificationDisplay: EnhancedNotificationDisplay
+    private var pushEncryptionKey: ByteArray? = null
     
     override fun onCreate() {
         super.onCreate()
@@ -42,6 +44,20 @@ class FCMService : FirebaseMessagingService() {
         val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
         val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+        
+        // Get push encryption key from SharedPreferences
+        val encryptedKey = sharedPrefs.getString("push_enc_key", null)
+        if (encryptedKey != null) {
+            try {
+                // The key is stored as base64-encoded bytes from WebClientPushIntegration
+                pushEncryptionKey = android.util.Base64.decode(encryptedKey, android.util.Base64.DEFAULT)
+                Log.d(TAG, "Loaded push encryption key (${pushEncryptionKey!!.size} bytes)")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading push encryption key", e)
+            }
+        } else {
+            Log.w(TAG, "No push encryption key found in SharedPreferences")
+        }
         
         enhancedNotificationDisplay = EnhancedNotificationDisplay(this, homeserverUrl, authToken)
         enhancedNotificationDisplay.createNotificationChannel()
@@ -109,40 +125,54 @@ class FCMService : FirebaseMessagingService() {
         try {
             Log.d(TAG, "handleNotificationData called with data: $data")
             
-            // Check if the payload contains a JSON string
-            val jsonPayload = data["payload"] ?: data["data"] ?: data["json"]
-            if (jsonPayload != null) {
-                Log.d(TAG, "Found JSON payload: $jsonPayload")
+            // Get the encrypted payload
+            val encryptedPayload = data["payload"]
+            if (encryptedPayload != null && pushEncryptionKey != null) {
+                Log.d(TAG, "Found encrypted payload: ${encryptedPayload.take(50)}...")
+                
                 try {
-                    val jsonObject = JSONObject(jsonPayload)
-                    Log.d(TAG, "Parsed JSON object: $jsonObject")
+                    // Decrypt the payload using the push encryption key
+                    val encryption = Encryption.fromPlainKey(pushEncryptionKey!!)
+                    val decryptedPayload = encryption.decrypt(encryptedPayload)
                     
-                    // Convert JSON to Map<String, String> for the parser
-                    val jsonDataMap = mutableMapOf<String, String>()
-                    jsonObject.keys().forEach { key ->
-                        jsonDataMap[key] = jsonObject.getString(key)
-                    }
-                    
-                    Log.d(TAG, "Converted to map: $jsonDataMap")
-                    
-                    // Parse notification data using our parser
-                    val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap)
-                    Log.d(TAG, "Parsed notification data: $notificationData")
-                    
-                    if (notificationData != null) {
-                        Log.d(TAG, "Calling showEnhancedNotification")
-                        // Use enhanced notification display
-                        enhancedNotificationDisplay.showEnhancedNotification(notificationData)
-                        Log.d(TAG, "showEnhancedNotification completed")
+                    if (decryptedPayload != null) {
+                        Log.d(TAG, "Successfully decrypted payload: ${decryptedPayload.take(100)}...")
+                        
+                        // Parse the decrypted JSON payload
+                        val jsonObject = JSONObject(decryptedPayload)
+                        Log.d(TAG, "Parsed decrypted JSON object: $jsonObject")
+                        
+                        // Convert JSON to Map<String, String> for the parser
+                        val jsonDataMap = mutableMapOf<String, String>()
+                        jsonObject.keys().forEach { key ->
+                            jsonDataMap[key] = jsonObject.getString(key)
+                        }
+                        
+                        Log.d(TAG, "Converted to map: $jsonDataMap")
+                        
+                        // Parse notification data using our parser
+                        val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap)
+                        Log.d(TAG, "Parsed notification data: $notificationData")
+                        
+                        if (notificationData != null) {
+                            Log.d(TAG, "Calling showEnhancedNotification")
+                            // Use enhanced notification display
+                            enhancedNotificationDisplay.showEnhancedNotification(notificationData)
+                            Log.d(TAG, "showEnhancedNotification completed")
+                        } else {
+                            Log.w(TAG, "Failed to parse notification data from decrypted payload")
+                        }
                     } else {
-                        Log.w(TAG, "Failed to parse notification data from JSON payload")
+                        Log.e(TAG, "Failed to decrypt payload")
                     }
-                } catch (jsonException: Exception) {
-                    Log.e(TAG, "Error parsing JSON payload: $jsonPayload", jsonException)
+                } catch (decryptException: Exception) {
+                    Log.e(TAG, "Error decrypting payload: $encryptedPayload", decryptException)
                 }
+            } else if (encryptedPayload != null) {
+                Log.e(TAG, "Found encrypted payload but no push encryption key available")
             } else {
-                Log.d(TAG, "No JSON payload found, trying direct data parsing")
-                // Fallback to direct data parsing
+                Log.d(TAG, "No encrypted payload found, trying direct data parsing")
+                // Fallback to direct data parsing (for testing or non-encrypted payloads)
                 val notificationData = NotificationDataParser.parseNotificationData(data)
                 Log.d(TAG, "Parsed notification data: $notificationData")
                 
