@@ -57,7 +57,11 @@ class WebClientPushIntegration(private val context: Context) {
     fun getPushEncryptionKey(): String {
         return try {
             val keyBytes = getOrCreatePushEncryptionKey()
-            Base64.encodeToString(keyBytes, Base64.NO_WRAP)
+            val base64Key = Base64.encodeToString(keyBytes, Base64.NO_WRAP)
+            Log.d(TAG, "getPushEncryptionKey: Generated key of size ${keyBytes.size} bytes")
+            Log.d(TAG, "getPushEncryptionKey: Key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}")
+            Log.d(TAG, "getPushEncryptionKey: Base64 key: $base64Key")
+            base64Key
         } catch (e: Exception) {
             Log.e(TAG, "Error getting push encryption key", e)
             // Fallback to simple key generation
@@ -118,8 +122,11 @@ class WebClientPushIntegration(private val context: Context) {
      */
     private fun generateFallbackKey(): ByteArray {
         val fallbackKey = UUID.randomUUID().toString().replace("-", "").toByteArray()
-        prefs.edit().putString(KEY_PUSH_ENCRYPTION_KEY, Base64.encodeToString(fallbackKey, Base64.NO_WRAP)).apply()
-        Log.d(TAG, "Generated fallback encryption key")
+        val base64Key = Base64.encodeToString(fallbackKey, Base64.NO_WRAP)
+        prefs.edit().putString(KEY_PUSH_ENCRYPTION_KEY, base64Key).apply()
+        Log.d(TAG, "Generated fallback encryption key of size ${fallbackKey.size} bytes")
+        Log.d(TAG, "Fallback key (first 8 bytes): ${fallbackKey.take(8).joinToString { "%02x".format(it) }}")
+        Log.d(TAG, "Fallback key stored as: $base64Key")
         return fallbackKey
     }
     

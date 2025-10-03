@@ -24,21 +24,27 @@ import java.util.UUID
  * This is the same key that was sent to the Gomuks Backend
  */
 private fun getExistingPushEncryptionKey(context: Context): ByteArray? {
-    // Get the key from WebClientPushIntegration - the same one used for registration
-    val sharedPref = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
-    val encryptedKey = sharedPref.getString("push_encryption_key", null)
-    
-    if (encryptedKey != null) {
-        try {
+    return try {
+        // Use the same key retrieval method as WebClientPushIntegration
+        val sharedPref = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
+        val encryptedKey = sharedPref.getString("push_encryption_key", null)
+        
+        Log.d("FCMService", "Retrieved encrypted key from SharedPreferences: $encryptedKey")
+        
+        if (encryptedKey != null) {
             // The key is stored as base64-encoded bytes
-            return android.util.Base64.decode(encryptedKey, android.util.Base64.DEFAULT)
-        } catch (e: Exception) {
-            Log.e("FCMService", "Error decoding push encryption key", e)
+            val decodedKey = android.util.Base64.decode(encryptedKey, android.util.Base64.DEFAULT)
+            Log.d("FCMService", "Decoded key of size: ${decodedKey.size} bytes")
+            Log.d("FCMService", "Decoded key (first 8 bytes): ${decodedKey.take(8).joinToString { "%02x".format(it) }}")
+            decodedKey
+        } else {
+            Log.e("FCMService", "No push encryption key found in SharedPreferences")
+            null
         }
+    } catch (e: Exception) {
+        Log.e("FCMService", "Error getting push encryption key", e)
+        null
     }
-    
-    Log.e("FCMService", "No push encryption key found")
-    return null
 }
 
 class FCMService : FirebaseMessagingService() {
@@ -87,9 +93,16 @@ class FCMService : FirebaseMessagingService() {
                 return
             }
             
+            // Debug: Log key and payload info
+            val encryptedPayload = remoteMessage.data.getValue("payload")
+            Log.d(TAG, "Using push encryption key of size: ${pushEncKey.size} bytes")
+            Log.d(TAG, "Key (first 8 bytes): ${pushEncKey.take(8).joinToString { "%02x".format(it) }}")
+            Log.d(TAG, "Encrypted payload length: ${encryptedPayload.length}")
+            Log.d(TAG, "Encrypted payload (first 50 chars): ${encryptedPayload.take(50)}")
+            
             // Decrypt the payload (matches the other Gomuks client)
             val decryptedPayload: String = try {
-                Encryption.fromPlainKey(pushEncKey).decrypt(remoteMessage.data.getValue("payload"))
+                Encryption.fromPlainKey(pushEncKey).decrypt(encryptedPayload)
             } catch (e: Exception) {
                 Log.e(TAG, "Error decrypting payload", e)
                 return
