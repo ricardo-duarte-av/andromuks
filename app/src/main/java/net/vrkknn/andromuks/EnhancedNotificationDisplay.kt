@@ -165,7 +165,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             context,
             data.roomId.hashCode() + 1,
             replyIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
         )
         
         return NotificationCompat.Action.Builder(
@@ -188,7 +192,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             context,
             data.roomId.hashCode() + 2,
             markReadIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
         )
         
         return NotificationCompat.Action.Builder(
