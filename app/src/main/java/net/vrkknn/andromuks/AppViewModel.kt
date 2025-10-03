@@ -254,7 +254,7 @@ class AppViewModel : ViewModel() {
         authToken = token
     }
     
-    fun initializeFCM(context: Context) {
+    fun initializeFCM(context: Context, homeserverUrl: String = "", authToken: String = "") {
         fcmNotificationManager = FCMNotificationManager(context)
         conversationsApi = ConversationsApi(context, homeserverUrl, authToken)
         webClientPushIntegration = WebClientPushIntegration(context)

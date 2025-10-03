@@ -36,8 +36,8 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
 
         if (token != null && homeserverUrl != null) {
             Log.d("AuthCheckScreen", "Token and server URL found. Attempting auto WebSocket connect.")
-            // Initialize FCM
-            appViewModel.initializeFCM(context)
+            // Initialize FCM with homeserver URL and auth token
+            appViewModel.initializeFCM(context, homeserverUrl, token)
             // Set homeserver URL and auth token in ViewModel for avatar loading
             appViewModel.updateHomeserverUrl(homeserverUrl)
             appViewModel.updateAuthToken(token)
