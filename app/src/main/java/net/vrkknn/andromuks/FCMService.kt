@@ -29,20 +29,20 @@ private fun getExistingPushEncryptionKey(context: Context): ByteArray? {
         val sharedPref = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
         val encryptedKey = sharedPref.getString("push_encryption_key", null)
         
-        Log.d("FCMService", "Retrieved encrypted key from SharedPreferences: $encryptedKey")
+        Log.d("Andromuks", "FCMService: Retrieved encrypted key from SharedPreferences: $encryptedKey")
         
         if (encryptedKey != null) {
             // The key is stored as base64-encoded bytes
             val decodedKey = android.util.Base64.decode(encryptedKey, android.util.Base64.DEFAULT)
-            Log.d("FCMService", "Decoded key of size: ${decodedKey.size} bytes")
-            Log.d("FCMService", "Decoded key (first 8 bytes): ${decodedKey.take(8).joinToString { "%02x".format(it) }}")
+            Log.d("Andromuks", "FCMService: Decoded key of size: ${decodedKey.size} bytes")
+            Log.d("Andromuks", "FCMService: Decoded key (first 8 bytes): ${decodedKey.take(8).joinToString { "%02x".format(it) }}")
             decodedKey
         } else {
-            Log.e("FCMService", "No push encryption key found in SharedPreferences")
+            Log.e("Andromuks", "FCMService: No push encryption key found in SharedPreferences")
             null
         }
     } catch (e: Exception) {
-        Log.e("FCMService", "Error getting push encryption key", e)
+        Log.e("Andromuks", "FCMService: Error getting push encryption key", e)
         null
     }
 }
@@ -58,6 +58,7 @@ class FCMService : FirebaseMessagingService() {
         // Notification action constants
         private const val ACTION_REPLY = "action_reply"
         private const val ACTION_MARK_READ = "action_mark_read"
+        private const val KEY_REPLY_TEXT = "key_reply_text"
         private const val EXTRA_ROOM_ID = "extra_room_id"
         private const val EXTRA_EVENT_ID = "extra_event_id"
         private const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
@@ -210,6 +211,9 @@ class FCMService : FirebaseMessagingService() {
                 val avatarUrl = senderAvatar?.let { convertToFullUrl(it) }
                 val roomAvatarUrl = roomAvatar?.let { convertToFullUrl(it) }
                 
+                // Determine if this is a DM or Group room
+                val isDirectMessage = roomName == senderDisplayName
+                
                 val notificationData = NotificationData(
                     roomId = roomId,
                     eventId = eventId,
@@ -217,7 +221,7 @@ class FCMService : FirebaseMessagingService() {
                     senderDisplayName = senderDisplayName,
                     roomName = roomName,
                     body = text,
-                    type = "m.text",
+                    type = if (isDirectMessage) "dm" else "group",
                     avatarUrl = avatarUrl,
                     roomAvatarUrl = roomAvatarUrl,
                     timestamp = timestamp,
@@ -276,6 +280,60 @@ class FCMService : FirebaseMessagingService() {
         }
     }
     
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action) {
+            ACTION_REPLY -> {
+                val roomId = intent.getStringExtra("room_id")
+                val eventId = intent.getStringExtra("event_id")
+                val replyText = getReplyText(intent)
+                
+                if (roomId != null && replyText != null) {
+                    Log.d(TAG, "Handling reply action for room: $roomId, text: $replyText")
+                    sendReplyMessage(roomId, replyText)
+                }
+            }
+            ACTION_MARK_READ -> {
+                val roomId = intent.getStringExtra("room_id")
+                val eventId = intent.getStringExtra("event_id")
+                
+                if (roomId != null) {
+                    Log.d(TAG, "Handling mark read action for room: $roomId, event: $eventId")
+                    markMessageAsRead(roomId, eventId)
+                }
+            }
+        }
+        
+        return START_NOT_STICKY
+    }
+    
+    private fun getReplyText(intent: Intent): String? {
+        return androidx.core.app.RemoteInput.getResultsFromIntent(intent)
+            ?.getCharSequence(KEY_REPLY_TEXT)
+            ?.toString()
+    }
+    
+    private fun sendReplyMessage(roomId: String, text: String) {
+        Log.d(TAG, "Sending reply message to room $roomId: $text")
+        
+        // Send a broadcast to the main app to handle the WebSocket command
+        val intent = Intent("net.vrkknn.andromuks.SEND_MESSAGE").apply {
+            putExtra("room_id", roomId)
+            putExtra("message_text", text)
+        }
+        sendBroadcast(intent)
+    }
+    
+    private fun markMessageAsRead(roomId: String, eventId: String?) {
+        Log.d(TAG, "Marking message as read in room $roomId, event: $eventId")
+        
+        // Send a broadcast to the main app to handle the WebSocket command
+        val intent = Intent("net.vrkknn.andromuks.MARK_READ").apply {
+            putExtra("room_id", roomId)
+            putExtra("event_id", eventId)
+        }
+        sendBroadcast(intent)
+    }
+
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         
@@ -360,6 +418,6 @@ class FCMService : FirebaseMessagingService() {
         // 3. Handle response and store registration status
         
         // For now, we'll just log the token
-        android.util.Log.d("FCMService", "New FCM token: $token")
+        android.util.Log.d("Andromuks", "FCMService: New FCM token: $token")
     }
 }

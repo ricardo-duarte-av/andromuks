@@ -25,8 +25,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     
     companion object {
         private const val TAG = "EnhancedNotificationDisplay"
-        private const val CHANNEL_ID = "matrix_notifications"
-        private const val CHANNEL_NAME = "Matrix Messages"
+        private const val DM_CHANNEL_ID = "matrix_direct_messages"
+        private const val GROUP_CHANNEL_ID = "matrix_group_messages"
+        private const val DM_CHANNEL_NAME = "Direct Messages"
+        private const val GROUP_CHANNEL_NAME = "Group Messages"
         private const val CHANNEL_DESCRIPTION = "Notifications for Matrix messages and events"
         
         // Notification action constants
@@ -45,19 +47,34 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                CHANNEL_NAME,
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            
+            // Create Direct Messages channel
+            val dmChannel = NotificationChannel(
+                DM_CHANNEL_ID,
+                DM_CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = CHANNEL_DESCRIPTION
+                description = "Direct message notifications"
                 enableLights(true)
                 enableVibration(true)
                 setShowBadge(true)
             }
             
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.createNotificationChannel(channel)
+            // Create Group Messages channel
+            val groupChannel = NotificationChannel(
+                GROUP_CHANNEL_ID,
+                GROUP_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Group message notifications"
+                enableLights(true)
+                enableVibration(true)
+                setShowBadge(true)
+            }
+            
+            notificationManager.createNotificationChannel(dmChannel)
+            notificationManager.createNotificationChannel(groupChannel)
         }
     }
     
@@ -68,20 +85,33 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         try {
             val notificationId = generateNotificationId(notificationData.roomId)
             
-            // Create conversation person
-            val person = createPersonFromNotificationData(notificationData)
+            // Create conversation person (use room avatar for conversation, sender avatar for message)
+            val conversationPerson = Person.Builder()
+                .setKey(notificationData.roomId)
+                .setName(notificationData.roomName ?: notificationData.roomId.substringAfterLast(":"))
+                .setIcon(loadPersonIconSync(notificationData.roomAvatarUrl))
+                .build()
+            
+            val messagePerson = createPersonFromNotificationData(notificationData)
             
             // Create messaging style
-            val messagingStyle = NotificationCompat.MessagingStyle(person)
+            val messagingStyle = NotificationCompat.MessagingStyle(conversationPerson)
                 .setConversationTitle(notificationData.roomName)
                 .addMessage(
                     notificationData.body,
                     notificationData.timestamp ?: System.currentTimeMillis(),
-                    person
+                    messagePerson
                 )
             
+            // Determine which channel to use based on notification type
+            val channelId = when (notificationData.type) {
+                "dm" -> DM_CHANNEL_ID
+                "group" -> GROUP_CHANNEL_ID
+                else -> DM_CHANNEL_ID // Default to DM channel
+            }
+            
             // Create main notification
-            val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            val notification = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setStyle(messagingStyle)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
@@ -92,17 +122,12 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setGroup(notificationData.roomId) // Group by room
                 .setGroupSummary(false)
+                .setShortcutId(notificationData.roomId) // Important for Conversations settings
                 .apply {
                     // Add reply action
                     addAction(createReplyAction(notificationData))
                     // Add mark as read action
                     addAction(createMarkReadAction(notificationData))
-                    // Add room avatar if available
-                    notificationData.roomAvatarUrl?.let { avatarUrl ->
-                        loadAvatarBitmap(avatarUrl)?.let { bitmap ->
-                            setLargeIcon(bitmap)
-                        }
-                    }
                 }
                 .build()
             

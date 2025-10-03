@@ -1,6 +1,11 @@
 package net.vrkknn.andromuks
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -20,6 +25,7 @@ import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 
 class MainActivity : ComponentActivity() {
     private lateinit var appViewModel: AppViewModel
+    private lateinit var notificationBroadcastReceiver: BroadcastReceiver
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,10 +45,44 @@ class MainActivity : ComponentActivity() {
                         if (roomId != null) {
                             appViewModel.setPendingRoomNavigation(roomId)
                         }
+                        
+                        // Register broadcast receiver for notification actions
+                        registerNotificationBroadcastReceiver()
                     }
                 )
             }
         }
+    }
+    
+    private fun registerNotificationBroadcastReceiver() {
+        notificationBroadcastReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    "net.vrkknn.andromuks.SEND_MESSAGE" -> {
+                        val roomId = intent.getStringExtra("room_id")
+                        val messageText = intent.getStringExtra("message_text")
+                        if (roomId != null && messageText != null) {
+                            Log.d("Andromuks", "MainActivity: Received send message broadcast for room $roomId: $messageText")
+                            appViewModel.sendMessage(roomId, messageText)
+                        }
+                    }
+                    "net.vrkknn.andromuks.MARK_READ" -> {
+                        val roomId = intent.getStringExtra("room_id")
+                        val eventId = intent.getStringExtra("event_id")
+                        if (roomId != null) {
+                            Log.d("Andromuks", "MainActivity: Received mark read broadcast for room $roomId, event: $eventId")
+                            appViewModel.markRoomAsRead(roomId)
+                        }
+                    }
+                }
+            }
+        }
+        
+        val filter = IntentFilter().apply {
+            addAction("net.vrkknn.andromuks.SEND_MESSAGE")
+            addAction("net.vrkknn.andromuks.MARK_READ")
+        }
+        registerReceiver(notificationBroadcastReceiver, filter)
     }
     
     override fun onResume() {
@@ -56,6 +96,17 @@ class MainActivity : ComponentActivity() {
         super.onPause()
         if (::appViewModel.isInitialized) {
             appViewModel.onAppBecameInvisible()
+        }
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        try {
+            if (::notificationBroadcastReceiver.isInitialized) {
+                unregisterReceiver(notificationBroadcastReceiver)
+            }
+        } catch (e: Exception) {
+            Log.w("Andromuks", "MainActivity: Error unregistering broadcast receiver", e)
         }
     }
 }

@@ -127,6 +127,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             .setIcon(icon)
             .setIntent(intent)
             .setRank(0) // Simple rank, can be improved later
+            .setCategories(setOf("net.vrkknn.andromuks.conversation")) // Add conversation category
             .build()
     }
     

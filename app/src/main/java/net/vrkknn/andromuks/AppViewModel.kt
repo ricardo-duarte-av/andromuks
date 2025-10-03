@@ -666,9 +666,13 @@ class AppViewModel : ViewModel() {
         val roomId = pendingRoomNavigation
         if (roomId != null) {
             android.util.Log.d("Andromuks", "AppViewModel: Getting pending room navigation: $roomId")
-            pendingRoomNavigation = null // Clear after getting
         }
         return roomId
+    }
+    
+    fun clearPendingRoomNavigation() {
+        android.util.Log.d("Andromuks", "AppViewModel: Clearing pending room navigation")
+        pendingRoomNavigation = null
     }
     
     /**

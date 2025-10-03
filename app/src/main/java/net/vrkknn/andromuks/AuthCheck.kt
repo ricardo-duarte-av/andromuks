@@ -52,6 +52,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 val pendingRoomId = appViewModel.getPendingRoomNavigation()
                 if (pendingRoomId != null) {
                     android.util.Log.d("Andromuks", "AuthCheck: Navigating to pending room: $pendingRoomId")
+                    appViewModel.clearPendingRoomNavigation()
                     navController.navigate("room_timeline/$pendingRoomId")
                 } else {
                     navController.navigate("room_list")
