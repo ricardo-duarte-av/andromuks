@@ -127,18 +127,35 @@ class FCMService : FirebaseMessagingService() {
             
             Log.d(TAG, "Successfully decrypted payload: ${decryptedPayload.take(100)}...")
             
-            // Parse the decrypted JSON and show notification
+            // Parse the decrypted JSON and handle different payload types
             CoroutineScope(Dispatchers.Main).launch {
                 try {
                     val jsonObject = JSONObject(decryptedPayload)
-                    val jsonDataMap = mutableMapOf<String, String>()
-                    jsonObject.keys().forEach { key ->
-                        jsonDataMap[key] = jsonObject.getString(key)
-                    }
+                    Log.d(TAG, "Decrypted JSON keys: ${jsonObject.keys().asSequence().toList()}")
                     
-                    val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap)
-                    if (notificationData != null) {
-                        enhancedNotificationDisplay.showEnhancedNotification(notificationData)
+                    // Handle different payload types
+                    when {
+                        jsonObject.has("messages") -> {
+                            Log.d(TAG, "Processing message notification payload")
+                            handleMessageNotification(jsonObject)
+                        }
+                        jsonObject.has("dismiss") -> {
+                            Log.d(TAG, "Processing dismiss notification payload")
+                            handleDismissNotification(jsonObject)
+                        }
+                        else -> {
+                            Log.d(TAG, "Unknown payload type, trying legacy parsing")
+                            // Try legacy parsing for backward compatibility
+                            val jsonDataMap = mutableMapOf<String, String>()
+                            jsonObject.keys().forEach { key ->
+                                jsonDataMap[key] = jsonObject.getString(key)
+                            }
+                            
+                            val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap)
+                            if (notificationData != null) {
+                                enhancedNotificationDisplay.showEnhancedNotification(notificationData)
+                            }
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Error parsing decrypted payload", e)
@@ -154,6 +171,78 @@ class FCMService : FirebaseMessagingService() {
                 body = notification.body ?: "",
                 data = remoteMessage.data
             )
+        }
+    }
+    
+    /**
+     * Handle message notification payload
+     */
+    private fun handleMessageNotification(jsonObject: JSONObject) {
+        try {
+            val messagesArray = jsonObject.getJSONArray("messages")
+            Log.d(TAG, "Found ${messagesArray.length()} messages in notification")
+            
+            // Process each message
+            for (i in 0 until messagesArray.length()) {
+                val message = messagesArray.getJSONObject(i)
+                Log.d(TAG, "Processing message: $message")
+                
+                // Extract message data and create notification
+                val roomId = message.optString("room_id", "")
+                val eventId = message.optString("event_id", "")
+                val sender = message.optString("sender", "")
+                val senderDisplayName = message.optString("sender_display_name", sender)
+                val roomName = message.optString("room_name", roomId)
+                val body = message.optString("body", "New message")
+                val type = message.optString("type", "")
+                val avatarUrl = message.optString("avatar_url", null)
+                val roomAvatarUrl = message.optString("room_avatar_url", null)
+                val timestamp = message.optLong("timestamp", System.currentTimeMillis())
+                val unreadCount = message.optInt("unread_count", 1)
+                
+                val notificationData = NotificationData(
+                    roomId = roomId,
+                    eventId = eventId,
+                    sender = sender,
+                    senderDisplayName = senderDisplayName,
+                    roomName = roomName,
+                    body = body,
+                    type = type,
+                    avatarUrl = avatarUrl,
+                    roomAvatarUrl = roomAvatarUrl,
+                    timestamp = timestamp,
+                    unreadCount = unreadCount
+                )
+                
+                Log.d(TAG, "Showing notification for room: $roomId")
+                enhancedNotificationDisplay.showEnhancedNotification(notificationData)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling message notification", e)
+        }
+    }
+    
+    /**
+     * Handle dismiss notification payload
+     */
+    private fun handleDismissNotification(jsonObject: JSONObject) {
+        try {
+            val dismissArray = jsonObject.getJSONArray("dismiss")
+            Log.d(TAG, "Found ${dismissArray.length()} dismiss requests")
+            
+            // Dismiss notifications for each room
+            for (i in 0 until dismissArray.length()) {
+                val dismissItem = dismissArray.getJSONObject(i)
+                val roomId = dismissItem.optString("room_id", "")
+                
+                Log.d(TAG, "Dismissing notifications for room: $roomId")
+                
+                // Dismiss the notification for this room
+                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                notificationManager.cancel(roomId.hashCode())
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling dismiss notification", e)
         }
     }
     
