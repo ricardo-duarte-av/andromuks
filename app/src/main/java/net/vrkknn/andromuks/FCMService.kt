@@ -35,7 +35,13 @@ class FCMService : FirebaseMessagingService() {
     
     override fun onCreate() {
         super.onCreate()
-        enhancedNotificationDisplay = EnhancedNotificationDisplay(this)
+        
+        // Get auth token and homeserver URL from SharedPreferences
+        val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+        val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+        val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+        
+        enhancedNotificationDisplay = EnhancedNotificationDisplay(this, homeserverUrl, authToken)
         enhancedNotificationDisplay.createNotificationChannel()
     }
     

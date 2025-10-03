@@ -17,10 +17,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.utils.MediaUtils
 import java.io.IOException
 import java.net.URL
 
-class EnhancedNotificationDisplay(private val context: Context) {
+class EnhancedNotificationDisplay(private val context: Context, private val homeserverUrl: String, private val authToken: String) {
     
     companion object {
         private const val TAG = "EnhancedNotificationDisplay"
@@ -37,7 +38,7 @@ class EnhancedNotificationDisplay(private val context: Context) {
         private const val KEY_REPLY_TEXT = "key_reply_text"
     }
     
-    private val conversationsApi = ConversationsApi(context)
+    private val conversationsApi = ConversationsApi(context, homeserverUrl)
     
     /**
      * Create notification channel
@@ -234,11 +235,20 @@ class EnhancedNotificationDisplay(private val context: Context) {
     }
     
     /**
-     * Load avatar bitmap from URL
+     * Load avatar bitmap from URL (handles both MXC and HTTP URLs)
      */
     private suspend fun loadAvatarBitmap(avatarUrl: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
-            val connection = URL(avatarUrl).openConnection()
+            // Convert MXC URL to HTTP URL if needed
+            val httpUrl = if (avatarUrl.startsWith("mxc://")) {
+                MediaUtils.mxcToHttpUrl(avatarUrl, homeserverUrl) ?: return@withContext null
+            } else {
+                avatarUrl
+            }
+            
+            Log.d(TAG, "Loading avatar bitmap from: $httpUrl")
+            val connection = URL(httpUrl).openConnection()
+            connection.setRequestProperty("Cookie", "gomuks_auth=$authToken")
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
             val inputStream = connection.getInputStream()

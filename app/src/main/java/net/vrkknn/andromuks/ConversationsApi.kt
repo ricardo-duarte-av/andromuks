@@ -17,6 +17,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.utils.MediaUtils
 import java.io.IOException
 import java.net.URL
 
@@ -29,7 +30,7 @@ data class ConversationShortcut(
     val timestamp: Long
 )
 
-class ConversationsApi(private val context: Context) {
+class ConversationsApi(private val context: Context, private val homeserverUrl: String, private val authToken: String) {
     
     companion object {
         private const val TAG = "ConversationsApi"
@@ -166,11 +167,20 @@ class ConversationsApi(private val context: Context) {
     }
     
     /**
-     * Load bitmap from URL
+     * Load bitmap from URL (handles both MXC and HTTP URLs)
      */
     private suspend fun loadBitmapFromUrl(url: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
-            val connection = URL(url).openConnection()
+            // Convert MXC URL to HTTP URL if needed
+            val httpUrl = if (url.startsWith("mxc://")) {
+                MediaUtils.mxcToHttpUrl(url, homeserverUrl) ?: return@withContext null
+            } else {
+                url
+            }
+            
+            Log.d(TAG, "Loading bitmap from: $httpUrl")
+            val connection = URL(httpUrl).openConnection()
+            connection.setRequestProperty("Cookie", "gomuks_auth=$authToken")
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
             val inputStream = connection.getInputStream()

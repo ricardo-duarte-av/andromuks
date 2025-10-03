@@ -256,7 +256,7 @@ class AppViewModel : ViewModel() {
     
     fun initializeFCM(context: Context) {
         fcmNotificationManager = FCMNotificationManager(context)
-        conversationsApi = ConversationsApi(context)
+        conversationsApi = ConversationsApi(context, gomuksBackendUrl, authToken)
         webClientPushIntegration = WebClientPushIntegration(context)
     }
     
