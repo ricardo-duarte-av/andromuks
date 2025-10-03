@@ -54,10 +54,12 @@ The registration is sent as a WebSocket command using data from Gomuks Backend:
 
 ```kotlin
 sendWebSocketCommand("register_push", requestId, mapOf(
-    "token" to fcmToken,           // From FCM
-    "device_id" to deviceId,       // From client_state WebSocket message
-    "encryption" to mapOf(
-        "key" to encryptionKey     // Generated using Android Keystore
+    "data" to mapOf(
+        "token" to fcmToken,           // From FCM
+        "device_id" to deviceId,       // From client_state WebSocket message
+        "encryption" to mapOf(
+            "key" to encryptionKey     // Generated using Android Keystore
+        )
     )
 ))
 ```
@@ -87,10 +89,12 @@ fun handleFCMRegistrationResponse(requestId: Int, data: Any) {
     "command": "register_push",
     "request_id": 123,
     "data": {
-        "token": "fcm-token-from-firebase",
-        "device_id": "VYTAQJDZAV",
-        "encryption": {
-            "key": "base64-encoded-keystore-key"
+        "data": {
+            "token": "fcm-token-from-firebase",
+            "device_id": "VYTAQJDZAV",
+            "encryption": {
+                "key": "base64-encoded-keystore-key"
+            }
         }
     }
 }

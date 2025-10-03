@@ -331,10 +331,12 @@ class AppViewModel : ViewModel() {
             fcmRegistrationRequests[registrationRequestId] = "fcm_registration"
             
             sendWebSocketCommand("register_push", registrationRequestId, mapOf(
-                "token" to token,
-                "device_id" to deviceId,
-                "encryption" to mapOf(
-                    "key" to encryptionKey
+                "data" to mapOf(
+                    "token" to token,
+                    "device_id" to deviceId,
+                    "encryption" to mapOf(
+                        "key" to encryptionKey
+                    )
                 )
             ))
             
