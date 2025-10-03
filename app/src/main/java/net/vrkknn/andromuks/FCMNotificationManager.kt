@@ -1,0 +1,198 @@
+package net.vrkknn.andromuks
+
+import android.content.Context
+import android.content.SharedPreferences
+import android.util.Log
+import com.google.firebase.messaging.FirebaseMessaging
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import okhttp3.*
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
+import java.io.IOException
+
+class FCMNotificationManager(private val context: Context) {
+    
+    companion object {
+        private const val TAG = "FCMNotificationManager"
+        private const val PREFS_NAME = "fcm_prefs"
+        private const val KEY_FCM_TOKEN = "fcm_token"
+        private const val KEY_BACKEND_REGISTERED = "backend_registered"
+        private const val KEY_HOMESERVER_URL = "homeserver_url"
+        private const val KEY_USER_ID = "user_id"
+        private const val KEY_ACCESS_TOKEN = "access_token"
+    }
+    
+    private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    private val httpClient = OkHttpClient()
+    
+    /**
+     * Initialize FCM and register with backend
+     */
+    fun initializeAndRegister(
+        homeserverUrl: String,
+        userId: String,
+        accessToken: String
+    ) {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Get FCM token
+                val fcmToken = FirebaseMessaging.getInstance().token.await()
+                Log.d(TAG, "FCM Token: $fcmToken")
+                
+                // Store credentials
+                storeCredentials(homeserverUrl, userId, accessToken)
+                
+                // Register with backend
+                val success = registerWithBackend(fcmToken, homeserverUrl, userId, accessToken)
+                
+                if (success) {
+                    prefs.edit().putString(KEY_FCM_TOKEN, fcmToken).apply()
+                    prefs.edit().putBoolean(KEY_BACKEND_REGISTERED, true).apply()
+                    Log.d(TAG, "Successfully registered FCM token with backend")
+                } else {
+                    Log.e(TAG, "Failed to register FCM token with backend")
+                }
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error initializing FCM", e)
+            }
+        }
+    }
+    
+    /**
+     * Register FCM token with Matrix backend
+     */
+    private suspend fun registerWithBackend(
+        fcmToken: String,
+        homeserverUrl: String,
+        userId: String,
+        accessToken: String
+    ): Boolean {
+        return try {
+            val pushGatewayUrl = "$homeserverUrl/_matrix/push/v1/register"
+            
+            val requestBody = JSONObject().apply {
+                put("app_display_name", "Andromuks")
+                put("app_id", "pt.aguiarvieira.andromuks")
+                put("data", JSONObject().apply {
+                    put("url", "https://fcm.googleapis.com/fcm/send")
+                    put("format", "event_id_only")
+                    put("key", fcmToken)
+                })
+                put("kind", "http")
+                put("device_display_name", "Android Device")
+                put("profile_tag", "")
+            }.toString()
+            
+            val request = Request.Builder()
+                .url(pushGatewayUrl)
+                .post(requestBody.toRequestBody("application/json".toMediaType()))
+                .addHeader("Authorization", "Bearer $accessToken")
+                .addHeader("Content-Type", "application/json")
+                .build()
+            
+            val response = httpClient.newCall(request).execute()
+            val responseBody = response.body?.string()
+            
+            Log.d(TAG, "Backend registration response: $responseBody")
+            
+            response.isSuccessful
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error registering with backend", e)
+            false
+        }
+    }
+    
+    /**
+     * Unregister FCM token from backend
+     */
+    fun unregisterFromBackend() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val homeserverUrl = prefs.getString(KEY_HOMESERVER_URL, null)
+                val accessToken = prefs.getString(KEY_ACCESS_TOKEN, null)
+                
+                if (homeserverUrl != null && accessToken != null) {
+                    val pushGatewayUrl = "$homeserverUrl/_matrix/push/v1/register"
+                    
+                    val request = Request.Builder()
+                        .url(pushGatewayUrl)
+                        .delete()
+                        .addHeader("Authorization", "Bearer $accessToken")
+                        .build()
+                    
+                    val response = httpClient.newCall(request).execute()
+                    
+                    if (response.isSuccessful) {
+                        prefs.edit().putBoolean(KEY_BACKEND_REGISTERED, false).apply()
+                        Log.d(TAG, "Successfully unregistered from backend")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error unregistering from backend", e)
+            }
+        }
+    }
+    
+    /**
+     * Get current FCM token
+     */
+    fun getCurrentToken(): String? {
+        return prefs.getString(KEY_FCM_TOKEN, null)
+    }
+    
+    /**
+     * Check if registered with backend
+     */
+    fun isRegisteredWithBackend(): Boolean {
+        return prefs.getBoolean(KEY_BACKEND_REGISTERED, false)
+    }
+    
+    /**
+     * Store user credentials for FCM registration
+     */
+    private fun storeCredentials(homeserverUrl: String, userId: String, accessToken: String) {
+        prefs.edit()
+            .putString(KEY_HOMESERVER_URL, homeserverUrl)
+            .putString(KEY_USER_ID, userId)
+            .putString(KEY_ACCESS_TOKEN, accessToken)
+            .apply()
+    }
+    
+    /**
+     * Clear stored credentials
+     */
+    fun clearCredentials() {
+        prefs.edit().clear().apply()
+    }
+    
+    /**
+     * Refresh FCM token and re-register with backend
+     */
+    fun refreshToken() {
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val newToken = FirebaseMessaging.getInstance().token.await()
+                val homeserverUrl = prefs.getString(KEY_HOMESERVER_URL, null)
+                val userId = prefs.getString(KEY_USER_ID, null)
+                val accessToken = prefs.getString(KEY_ACCESS_TOKEN, null)
+                
+                if (homeserverUrl != null && userId != null && accessToken != null) {
+                    val success = registerWithBackend(newToken, homeserverUrl, userId, accessToken)
+                    
+                    if (success) {
+                        prefs.edit().putString(KEY_FCM_TOKEN, newToken).apply()
+                        Log.d(TAG, "Successfully refreshed FCM token")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error refreshing FCM token", e)
+            }
+        }
+    }
+}

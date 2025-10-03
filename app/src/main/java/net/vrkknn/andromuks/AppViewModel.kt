@@ -17,6 +17,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import android.content.Context
 
 data class MemberProfile(
     val displayName: String?,
@@ -97,6 +98,12 @@ class AppViewModel : ViewModel() {
     // Timestamp update counter for dynamic time displays
     var timestampUpdateCounter by mutableStateOf(0)
         private set
+    
+    // FCM notification manager
+    private var fcmNotificationManager: FCMNotificationManager? = null
+    
+    // Conversations API for shortcuts and enhanced notifications
+    private var conversationsApi: ConversationsApi? = null
 
     var spacesLoaded by mutableStateOf(false)
         private set
@@ -244,6 +251,23 @@ class AppViewModel : ViewModel() {
         authToken = token
     }
     
+    fun initializeFCM(context: Context) {
+        fcmNotificationManager = FCMNotificationManager(context)
+        conversationsApi = ConversationsApi(context)
+    }
+    
+    fun registerFCMNotifications() {
+        fcmNotificationManager?.let { manager ->
+            if (homeserverUrl.isNotBlank() && authToken.isNotBlank() && currentUserId.isNotBlank()) {
+                manager.initializeAndRegister(homeserverUrl, currentUserId, authToken)
+            }
+        }
+    }
+    
+    fun unregisterFCMNotifications() {
+        fcmNotificationManager?.unregisterFromBackend()
+    }
+    
     fun updateTypingUsers(roomId: String, userIds: List<String>) {
         // Only update if this is the current room
         if (currentRoomId == roomId) {
@@ -375,6 +399,9 @@ class AppViewModel : ViewModel() {
         allRooms = sortedRooms // Update allRooms for filtering
         updateCounter++ // Force recomposition
         android.util.Log.d("Andromuks", "AppViewModel: spaceList updated, current size: ${spaceList.size}")
+        
+        // Update conversation shortcuts
+        conversationsApi?.updateConversationShortcuts(sortedRooms)
         
         // Check if current room needs timeline update
         checkAndUpdateCurrentRoomTimeline(syncJson)

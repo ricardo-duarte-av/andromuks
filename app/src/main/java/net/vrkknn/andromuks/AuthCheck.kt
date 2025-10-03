@@ -36,6 +36,8 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
 
         if (token != null && homeserverUrl != null) {
             Log.d("AuthCheckScreen", "Token and server URL found. Attempting auto WebSocket connect.")
+            // Initialize FCM
+            appViewModel.initializeFCM(context)
             // Set homeserver URL and auth token in ViewModel for avatar loading
             appViewModel.updateHomeserverUrl(homeserverUrl)
             appViewModel.updateAuthToken(token)
@@ -43,6 +45,8 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             appViewModel.setNavigationCallback {
                 android.util.Log.d("Andromuks", "AuthCheck: Navigation callback triggered - navigating to room_list")
                 appViewModel.isLoading = false
+                // Register FCM notifications after successful auth
+                appViewModel.registerFCMNotifications()
                 navController.navigate("room_list")
             }
             Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
