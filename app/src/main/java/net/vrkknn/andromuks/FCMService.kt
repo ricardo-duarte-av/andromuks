@@ -99,6 +99,13 @@ class FCMService : FirebaseMessagingService() {
             Log.d(TAG, "Key (first 8 bytes): ${pushEncKey.take(8).joinToString { "%02x".format(it) }}")
             Log.d(TAG, "Encrypted payload length: ${encryptedPayload.length}")
             Log.d(TAG, "Encrypted payload (first 50 chars): ${encryptedPayload.take(50)}")
+            Log.d(TAG, "Encrypted payload (last 50 chars): ${encryptedPayload.takeLast(50)}")
+            
+            // Check if payload might be JSON with multiple encrypted parts
+            if (encryptedPayload.startsWith("{") || encryptedPayload.contains("\"")) {
+                Log.d(TAG, "Payload appears to be JSON format, not raw encrypted data")
+                Log.d(TAG, "Full payload: $encryptedPayload")
+            }
             
             // Decrypt the payload (matches the other Gomuks client)
             val decryptedPayload: String = try {
