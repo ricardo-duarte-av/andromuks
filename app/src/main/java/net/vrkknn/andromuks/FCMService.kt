@@ -48,8 +48,11 @@ class FCMService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
         
+        Log.d(TAG, "FCM message received - data: ${remoteMessage.data}, notification: ${remoteMessage.notification}")
+        
         // Handle data payload
         if (remoteMessage.data.isNotEmpty()) {
+            Log.d(TAG, "Processing data payload: ${remoteMessage.data}")
             CoroutineScope(Dispatchers.Main).launch {
                 handleNotificationData(remoteMessage.data)
             }
@@ -57,11 +60,20 @@ class FCMService : FirebaseMessagingService() {
         
         // Handle notification payload (for when app is in background)
         remoteMessage.notification?.let { notification ->
+            Log.d(TAG, "Processing notification payload - title: ${notification.title}, body: ${notification.body}")
             showNotification(
                 title = notification.title ?: "New message",
                 body = notification.body ?: "",
                 data = remoteMessage.data
             )
+        }
+        
+        // If we have data but no notification payload, show a notification anyway
+        if (remoteMessage.data.isNotEmpty() && remoteMessage.notification == null) {
+            Log.d(TAG, "Data-only payload detected, showing notification")
+            CoroutineScope(Dispatchers.Main).launch {
+                handleNotificationData(remoteMessage.data)
+            }
         }
     }
     
@@ -93,15 +105,22 @@ class FCMService : FirebaseMessagingService() {
     
     private suspend fun handleNotificationData(data: Map<String, String>) {
         try {
+            Log.d(TAG, "handleNotificationData called with data: $data")
+            
             // Parse notification data using our parser
             val notificationData = NotificationDataParser.parseNotificationData(data)
+            Log.d(TAG, "Parsed notification data: $notificationData")
             
             if (notificationData != null) {
+                Log.d(TAG, "Calling showEnhancedNotification")
                 // Use enhanced notification display
                 enhancedNotificationDisplay.showEnhancedNotification(notificationData)
+                Log.d(TAG, "showEnhancedNotification completed")
+            } else {
+                Log.w(TAG, "Failed to parse notification data from: $data")
             }
         } catch (e: Exception) {
-            // Log error but don't crash
+            Log.e(TAG, "Error handling notification data", e)
             e.printStackTrace()
         }
     }

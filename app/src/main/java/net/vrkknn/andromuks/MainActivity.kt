@@ -33,6 +33,12 @@ class MainActivity : ComponentActivity() {
                         // Load cached user profiles on app startup
                         // This restores previously saved user profile data from disk
                         appViewModel.loadCachedProfiles(this)
+                        
+                        // Check if we were launched from a conversation shortcut
+                        val roomId = intent.getStringExtra("room_id")
+                        if (roomId != null) {
+                            appViewModel.setPendingRoomNavigation(roomId)
+                        }
                     }
                 )
             }

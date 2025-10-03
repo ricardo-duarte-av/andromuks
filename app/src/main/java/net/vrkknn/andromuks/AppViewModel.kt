@@ -632,6 +632,9 @@ class AppViewModel : ViewModel() {
     var onNavigateToRoomList: (() -> Unit)? = null
     private var pendingNavigation = false
     
+    // Pending room navigation from shortcuts
+    private var pendingRoomNavigation: String? = null
+    
     // Websocket restart callback
     var onRestartWebSocket: (() -> Unit)? = null
     
@@ -652,6 +655,20 @@ class AppViewModel : ViewModel() {
             pendingNavigation = false
             callback()
         }
+    }
+    
+    fun setPendingRoomNavigation(roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: Set pending room navigation to: $roomId")
+        pendingRoomNavigation = roomId
+    }
+    
+    fun getPendingRoomNavigation(): String? {
+        val roomId = pendingRoomNavigation
+        if (roomId != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Getting pending room navigation: $roomId")
+            pendingRoomNavigation = null // Clear after getting
+        }
+        return roomId
     }
     
     /**

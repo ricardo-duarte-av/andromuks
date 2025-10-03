@@ -47,7 +47,15 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 appViewModel.isLoading = false
                 // Register FCM notifications after successful auth
                 appViewModel.registerFCMNotifications()
-                navController.navigate("room_list")
+                
+                // Check if we need to navigate to a specific room (from shortcut)
+                val pendingRoomId = appViewModel.getPendingRoomNavigation()
+                if (pendingRoomId != null) {
+                    android.util.Log.d("Andromuks", "AuthCheck: Navigating to pending room: $pendingRoomId")
+                    navController.navigate("room_timeline/$pendingRoomId")
+                } else {
+                    navController.navigate("room_list")
+                }
             }
             Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
             // Now connect websocket
