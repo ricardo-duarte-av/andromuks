@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -19,41 +20,25 @@ import org.json.JSONObject
 import java.util.UUID
 
 /**
- * Get the existing push encryption key (matches the other Gomuks client implementation)
+ * Get the push encryption key that was used for registration
+ * This is the same key that was sent to the Gomuks Backend
  */
 private fun getExistingPushEncryptionKey(context: Context): ByteArray? {
-    return getPushEncryptionKey(context, false, null, null)
-}
-
-/**
- * Get push encryption key with optional generation (matches the other Gomuks client implementation)
- */
-private fun getPushEncryptionKey(
-    context: Context,
-    allowGenerate: Boolean,
-    prefEncParam: Encryption.EncryptionInstance?,
-    sharedPrefParam: SharedPreferences?,
-): ByteArray? {
-    // Use simple encryption for now - in the other app this would be a more complex Encryption class
-    val sharedPref = sharedPrefParam ?: context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
+    // Get the key from WebClientPushIntegration - the same one used for registration
+    val sharedPref = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
     val encryptedKey = sharedPref.getString("push_encryption_key", null)
     
-    if (encryptedKey == null) {
-        if (!allowGenerate) {
-            return null
+    if (encryptedKey != null) {
+        try {
+            // The key is stored as base64-encoded bytes
+            return android.util.Base64.decode(encryptedKey, android.util.Base64.DEFAULT)
+        } catch (e: Exception) {
+            Log.e("FCMService", "Error decoding push encryption key", e)
         }
-        // Generate new key and store it
-        val unencKey = Encryption.generatePlainKey()
-        with(sharedPref.edit()) {
-            putString("push_encryption_key", android.util.Base64.encodeToString(unencKey, android.util.Base64.NO_WRAP))
-            apply()
-        }
-        return unencKey
-    } else {
-        // For now, assume the key is stored as plain base64 (not encrypted with another key)
-        // In the other app, this would be: prefEnc.decrypt(Base64.decode(encryptedKey, Base64.DEFAULT))
-        return android.util.Base64.decode(encryptedKey, android.util.Base64.DEFAULT)
     }
+    
+    Log.e("FCMService", "No push encryption key found")
+    return null
 }
 
 class FCMService : FirebaseMessagingService() {
