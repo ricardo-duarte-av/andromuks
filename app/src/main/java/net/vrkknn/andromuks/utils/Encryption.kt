@@ -79,7 +79,7 @@ object Encryption {
             Log.d(TAG, "IV (first 4 bytes): ${iv.take(4).joinToString { "%02x".format(it) }}")
             
             val cipher = Cipher.getInstance(AES_MODE)
-            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_SIZE, iv))
+            cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_SIZE * 8, iv))  // Tag size in bits
             return cipher.doFinal(actualEncrypted)
         }
         

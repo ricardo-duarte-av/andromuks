@@ -61,6 +61,11 @@ class WebClientPushIntegration(private val context: Context) {
             Log.d(TAG, "getPushEncryptionKey: Generated key of size ${keyBytes.size} bytes")
             Log.d(TAG, "getPushEncryptionKey: Key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}")
             Log.d(TAG, "getPushEncryptionKey: Base64 key: $base64Key")
+            
+            // Store the key in SharedPreferences for FCMService to use
+            prefs.edit().putString(KEY_PUSH_ENCRYPTION_KEY, base64Key).apply()
+            Log.d(TAG, "getPushEncryptionKey: Stored key in SharedPreferences: $base64Key")
+            
             base64Key
         } catch (e: Exception) {
             Log.e(TAG, "Error getting push encryption key", e)
@@ -83,20 +88,26 @@ class WebClientPushIntegration(private val context: Context) {
                 return generateFallbackKey()
             }
             
+            Log.d(TAG, "Attempting to use Android Keystore for encryption key")
             val keyStore = KeyStore.getInstance("AndroidKeyStore")
             keyStore.load(null)
             
             if (keyStore.containsAlias(KEY_ALIAS)) {
                 // Key exists, retrieve it
+                Log.d(TAG, "Retrieving existing key from AndroidKeyStore")
                 val key = keyStore.getKey(KEY_ALIAS, null)
                 if (key is SecretKey) {
-                    key.encoded ?: generateFallbackKey()
+                    val keyBytes = key.encoded ?: generateFallbackKey()
+                    Log.d(TAG, "Retrieved AndroidKeyStore key of size: ${keyBytes.size} bytes")
+                    Log.d(TAG, "AndroidKeyStore key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}")
+                    keyBytes
                 } else {
                     Log.w(TAG, "Retrieved key is not a SecretKey, using fallback")
                     generateFallbackKey()
                 }
             } else {
                 // Generate new key
+                Log.d(TAG, "Generating new key in AndroidKeyStore")
                 val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
                 val keyGenParameterSpec = KeyGenParameterSpec.Builder(
                     KEY_ALIAS,
@@ -109,7 +120,10 @@ class WebClientPushIntegration(private val context: Context) {
                 
                 keyGenerator.init(keyGenParameterSpec)
                 val secretKey = keyGenerator.generateKey()
-                secretKey.encoded ?: generateFallbackKey()
+                val keyBytes = secretKey.encoded ?: generateFallbackKey()
+                Log.d(TAG, "Generated new AndroidKeyStore key of size: ${keyBytes.size} bytes")
+                Log.d(TAG, "New AndroidKeyStore key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}")
+                keyBytes
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error with Android Keystore, falling back to simple key generation", e)

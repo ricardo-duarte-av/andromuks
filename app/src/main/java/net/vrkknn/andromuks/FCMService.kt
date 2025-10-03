@@ -101,17 +101,27 @@ class FCMService : FirebaseMessagingService() {
             Log.d(TAG, "Encrypted payload (first 50 chars): ${encryptedPayload.take(50)}")
             Log.d(TAG, "Encrypted payload (last 50 chars): ${encryptedPayload.takeLast(50)}")
             
+            // Determine payload type based on length
+            val payloadType = when {
+                encryptedPayload.length < 200 -> "SHORT_PAYLOAD (likely message notification)"
+                encryptedPayload.length > 1000 -> "LONG_PAYLOAD (likely mark_read/sync notification)"
+                else -> "MEDIUM_PAYLOAD (unknown type)"
+            }
+            Log.d(TAG, "Detected payload type: $payloadType")
+            
             // Check if payload might be JSON with multiple encrypted parts
             if (encryptedPayload.startsWith("{") || encryptedPayload.contains("\"")) {
                 Log.d(TAG, "Payload appears to be JSON format, not raw encrypted data")
                 Log.d(TAG, "Full payload: $encryptedPayload")
+                return // Skip decryption for JSON payloads
             }
             
             // Decrypt the payload (matches the other Gomuks client)
             val decryptedPayload: String = try {
                 Encryption.fromPlainKey(pushEncKey).decrypt(encryptedPayload)
             } catch (e: Exception) {
-                Log.e(TAG, "Error decrypting payload", e)
+                Log.e(TAG, "Error decrypting $payloadType", e)
+                Log.e(TAG, "This might be a mark_read notification or different payload format")
                 return
             }
             
