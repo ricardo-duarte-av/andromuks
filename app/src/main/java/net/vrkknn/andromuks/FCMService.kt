@@ -46,7 +46,18 @@ class FCMService : FirebaseMessagingService() {
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
         
         // Get push encryption key from SharedPreferences
-        val encryptedKey = sharedPrefs.getString("push_enc_key", null)
+        // WebClientPushIntegration stores it as "push_encryption_key" in "web_client_prefs"
+        val webClientPrefs = getSharedPreferences("web_client_prefs", MODE_PRIVATE)
+        
+        // Debug: Log all keys in web_client_prefs
+        Log.d(TAG, "Debugging web_client_prefs keys:")
+        webClientPrefs.all.forEach { (key, value) ->
+            Log.d(TAG, "  $key = ${if (key.contains("key", ignoreCase = true)) "<redacted>" else value}")
+        }
+        
+        val encryptedKey = webClientPrefs.getString("push_encryption_key", null)
+        Log.d(TAG, "Found push encryption key: ${encryptedKey != null}")
+        
         if (encryptedKey != null) {
             try {
                 // The key is stored as base64-encoded bytes from WebClientPushIntegration
