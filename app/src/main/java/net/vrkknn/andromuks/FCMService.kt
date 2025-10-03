@@ -280,31 +280,8 @@ class FCMService : FirebaseMessagingService() {
         }
     }
     
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_REPLY -> {
-                val roomId = intent.getStringExtra("room_id")
-                val eventId = intent.getStringExtra("event_id")
-                val replyText = getReplyText(intent)
-                
-                if (roomId != null && replyText != null) {
-                    Log.d(TAG, "Handling reply action for room: $roomId, text: $replyText")
-                    sendReplyMessage(roomId, replyText)
-                }
-            }
-            ACTION_MARK_READ -> {
-                val roomId = intent.getStringExtra("room_id")
-                val eventId = intent.getStringExtra("event_id")
-                
-                if (roomId != null) {
-                    Log.d(TAG, "Handling mark read action for room: $roomId, event: $eventId")
-                    markMessageAsRead(roomId, eventId)
-                }
-            }
-        }
-        
-        return START_NOT_STICKY
-    }
+    // Note: onStartCommand is final in FirebaseMessagingService, so we handle actions differently
+    // The reply and mark read actions will be handled via the notification actions directly
     
     private fun getReplyText(intent: Intent): String? {
         return androidx.core.app.RemoteInput.getResultsFromIntent(intent)

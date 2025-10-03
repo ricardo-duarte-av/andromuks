@@ -180,13 +180,12 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             .setLabel("Reply")
             .build()
         
-        val replyIntent = Intent(context, FCMService::class.java).apply {
-            action = ACTION_REPLY
+        val replyIntent = Intent("net.vrkknn.andromuks.ACTION_REPLY").apply {
             putExtra("room_id", data.roomId)
             putExtra("event_id", data.eventId)
         }
         
-        val replyPendingIntent = PendingIntent.getService(
+        val replyPendingIntent = PendingIntent.getBroadcast(
             context,
             data.roomId.hashCode() + 1,
             replyIntent,
@@ -208,12 +207,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Create mark as read action
      */
     private fun createMarkReadAction(data: NotificationData): NotificationCompat.Action {
-        val markReadIntent = Intent(context, FCMService::class.java).apply {
-            action = ACTION_MARK_READ
+        val markReadIntent = Intent("net.vrkknn.andromuks.ACTION_MARK_READ").apply {
             putExtra("room_id", data.roomId)
         }
         
-        val markReadPendingIntent = PendingIntent.getService(
+        val markReadPendingIntent = PendingIntent.getBroadcast(
             context,
             data.roomId.hashCode() + 2,
             markReadIntent,
@@ -321,7 +319,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     fun showGroupSummaryNotification(roomCount: Int) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            val summaryNotification = NotificationCompat.Builder(context, CHANNEL_ID)
+            val summaryNotification = NotificationCompat.Builder(context, DM_CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle("Matrix Messages")
                 .setContentText("$roomCount unread conversations")

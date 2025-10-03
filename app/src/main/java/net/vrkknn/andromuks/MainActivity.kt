@@ -71,7 +71,7 @@ class MainActivity : ComponentActivity() {
                         val eventId = intent.getStringExtra("event_id")
                         if (roomId != null) {
                             Log.d("Andromuks", "MainActivity: Received mark read broadcast for room $roomId, event: $eventId")
-                            appViewModel.markRoomAsRead(roomId)
+                            appViewModel.markRoomAsRead(roomId, eventId ?: "")
                         }
                     }
                 }
