@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -19,6 +20,7 @@ import java.util.UUID
 class FCMService : FirebaseMessagingService() {
     
     companion object {
+        private const val TAG = "FCMService"
         private const val CHANNEL_ID = "matrix_notifications"
         private const val CHANNEL_NAME = "Matrix Messages"
         private const val CHANNEL_DESCRIPTION = "Notifications for Matrix messages and events"
@@ -107,17 +109,50 @@ class FCMService : FirebaseMessagingService() {
         try {
             Log.d(TAG, "handleNotificationData called with data: $data")
             
-            // Parse notification data using our parser
-            val notificationData = NotificationDataParser.parseNotificationData(data)
-            Log.d(TAG, "Parsed notification data: $notificationData")
-            
-            if (notificationData != null) {
-                Log.d(TAG, "Calling showEnhancedNotification")
-                // Use enhanced notification display
-                enhancedNotificationDisplay.showEnhancedNotification(notificationData)
-                Log.d(TAG, "showEnhancedNotification completed")
+            // Check if the payload contains a JSON string
+            val jsonPayload = data["payload"] ?: data["data"] ?: data["json"]
+            if (jsonPayload != null) {
+                Log.d(TAG, "Found JSON payload: $jsonPayload")
+                try {
+                    val jsonObject = JSONObject(jsonPayload)
+                    Log.d(TAG, "Parsed JSON object: $jsonObject")
+                    
+                    // Convert JSON to Map<String, String> for the parser
+                    val jsonDataMap = mutableMapOf<String, String>()
+                    jsonObject.keys().forEach { key ->
+                        jsonDataMap[key] = jsonObject.getString(key)
+                    }
+                    
+                    Log.d(TAG, "Converted to map: $jsonDataMap")
+                    
+                    // Parse notification data using our parser
+                    val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap)
+                    Log.d(TAG, "Parsed notification data: $notificationData")
+                    
+                    if (notificationData != null) {
+                        Log.d(TAG, "Calling showEnhancedNotification")
+                        // Use enhanced notification display
+                        enhancedNotificationDisplay.showEnhancedNotification(notificationData)
+                        Log.d(TAG, "showEnhancedNotification completed")
+                    } else {
+                        Log.w(TAG, "Failed to parse notification data from JSON payload")
+                    }
+                } catch (jsonException: Exception) {
+                    Log.e(TAG, "Error parsing JSON payload: $jsonPayload", jsonException)
+                }
             } else {
-                Log.w(TAG, "Failed to parse notification data from: $data")
+                Log.d(TAG, "No JSON payload found, trying direct data parsing")
+                // Fallback to direct data parsing
+                val notificationData = NotificationDataParser.parseNotificationData(data)
+                Log.d(TAG, "Parsed notification data: $notificationData")
+                
+                if (notificationData != null) {
+                    Log.d(TAG, "Calling showEnhancedNotification")
+                    enhancedNotificationDisplay.showEnhancedNotification(notificationData)
+                    Log.d(TAG, "showEnhancedNotification completed")
+                } else {
+                    Log.w(TAG, "Failed to parse notification data from: $data")
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error handling notification data", e)
