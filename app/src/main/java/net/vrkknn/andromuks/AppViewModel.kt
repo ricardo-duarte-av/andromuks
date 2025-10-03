@@ -334,14 +334,18 @@ class AppViewModel : ViewModel() {
             
             android.util.Log.d("Andromuks", "AppViewModel: Registering FCM with request_id=$registrationRequestId")
             
-            // Use WebSocket command format but with the correct data structure
-            sendWebSocketCommand("register_push", registrationRequestId, mapOf(
-                "token" to token,
+            // Use the correct JSON structure for Gomuks Backend
+            val registrationData = mapOf(
+                "type" to "fcm",
                 "device_id" to deviceId,
+                "data" to token,
                 "encryption" to mapOf(
                     "key" to encryptionKey
-                )
-            ))
+                ),
+                "expiration" to (System.currentTimeMillis() / 1000 + 86400) // 24 hours from now
+            )
+            
+            sendWebSocketCommand("register_push", registrationRequestId, registrationData)
             
             android.util.Log.d("Andromuks", "AppViewModel: Sent FCM registration to Gomuks Backend with device_id=$deviceId")
         } else {

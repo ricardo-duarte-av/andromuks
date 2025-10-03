@@ -87,11 +87,13 @@ fun handleFCMRegistrationResponse(requestId: Int, data: Any) {
     "command": "register_push",
     "request_id": 123,
     "data": {
-        "token": "fcm-token-from-firebase",
+        "type": "fcm",
         "device_id": "VYTAQJDZAV",
+        "data": "fcm-token-from-firebase",
         "encryption": {
             "key": "base64-encoded-keystore-key"
-        }
+        },
+        "expiration": 1234567890
     }
 }
 ```
