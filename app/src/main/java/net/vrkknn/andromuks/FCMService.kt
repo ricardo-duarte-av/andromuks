@@ -189,18 +189,26 @@ class FCMService : FirebaseMessagingService() {
                 val message = messagesArray.getJSONObject(i)
                 Log.d(TAG, "Processing message: $message")
                 
-                // Extract message data and create notification
+                // Extract message data from the correct JSON structure
                 val roomId = message.optString("room_id", "")
                 val eventId = message.optString("event_id", "")
-                val sender = message.optString("sender", "")
-                val senderDisplayName = message.optString("sender_display_name", sender)
                 val roomName = message.optString("room_name", roomId)
-                val body = message.optString("body", "New message")
-                val type = message.optString("type", "")
-                val avatarUrl = message.optString("avatar_url", null)
-                val roomAvatarUrl = message.optString("room_avatar_url", null)
+                val text = message.optString("text", "New message")
                 val timestamp = message.optLong("timestamp", System.currentTimeMillis())
-                val unreadCount = message.optInt("unread_count", 1)
+                val sound = message.optBoolean("sound", true)
+                
+                // Extract sender information
+                val senderObject = message.optJSONObject("sender")
+                val sender = senderObject?.optString("id", "") ?: ""
+                val senderDisplayName = senderObject?.optString("name", sender) ?: sender
+                val senderAvatar = senderObject?.optString("avatar", null)
+                
+                // Extract room avatar
+                val roomAvatar = message.optString("room_avatar", null)
+                
+                // Convert relative URLs to full URLs
+                val avatarUrl = senderAvatar?.let { convertToFullUrl(it) }
+                val roomAvatarUrl = roomAvatar?.let { convertToFullUrl(it) }
                 
                 val notificationData = NotificationData(
                     roomId = roomId,
@@ -208,19 +216,39 @@ class FCMService : FirebaseMessagingService() {
                     sender = sender,
                     senderDisplayName = senderDisplayName,
                     roomName = roomName,
-                    body = body,
-                    type = type,
+                    body = text,
+                    type = "m.text",
                     avatarUrl = avatarUrl,
                     roomAvatarUrl = roomAvatarUrl,
                     timestamp = timestamp,
-                    unreadCount = unreadCount
+                    unreadCount = 1
                 )
                 
-                Log.d(TAG, "Showing notification for room: $roomId")
+                Log.d(TAG, "Showing notification for room: $roomId, sender: $senderDisplayName, text: $text")
                 enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error handling message notification", e)
+        }
+    }
+    
+    /**
+     * Convert relative Gomuks media URL to full URL
+     */
+    private fun convertToFullUrl(relativeUrl: String?): String? {
+        if (relativeUrl.isNullOrEmpty()) return null
+        
+        return if (relativeUrl.startsWith("_gomuks/")) {
+            // Get homeserver URL from SharedPreferences
+            val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+            val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+            if (homeserverUrl.isNotEmpty()) {
+                "$homeserverUrl/$relativeUrl"
+            } else {
+                null
+            }
+        } else {
+            relativeUrl
         }
     }
     
