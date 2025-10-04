@@ -293,18 +293,12 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         
         return ShortcutInfo.Builder(context, shortcut.roomId)
             .setShortLabel(shortcut.roomName)
-            .setLongLabel(shortcut.roomName)
+            //.setLongLabel(shortcut.roomName)
             .setIcon(icon)
             .setIntent(intent)
             .setRank(0) // Simple rank, can be improved later
             .setCategories(setOf("android.shortcut.conversation")) // Use standard conversation category
             .setLongLived(true)
-            .apply {
-                // setIsConversation() is only available on API 30+
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    setIsConversation()
-                }
-            }
             .build()
     }
     
