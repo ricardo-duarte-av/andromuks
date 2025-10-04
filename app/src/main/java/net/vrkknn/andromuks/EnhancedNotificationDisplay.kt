@@ -101,6 +101,12 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 loadAvatarAsIcon(it) 
             } ?: IconCompat.createWithResource(context, R.drawable.ic_notification)
             
+            // Load room avatar for large icon
+            val roomAvatarBitmap = notificationData.roomAvatarUrl?.let { 
+                loadAvatarBitmap(it) 
+            }
+            val circularRoomAvatar = roomAvatarBitmap?.let { createCircularBitmap(it) }
+            
             // Create conversation person (use room avatar for conversation, sender avatar for message)
             val conversationPerson = Person.Builder()
                 .setKey(notificationData.roomId)
@@ -143,6 +149,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setGroup(notificationData.roomId) // Group by room
                 .setGroupSummary(false)
                 .setShortcutId(notificationData.roomId) // Important for Conversations settings
+                .setLargeIcon(circularRoomAvatar) // Use circular room avatar as large icon
                 .apply {
                     // Add reply action
                     addAction(createReplyAction(notificationData))
@@ -165,11 +172,12 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     
     
     /**
-     * Create room intent
+     * Create room intent with Matrix URI scheme
      */
     private fun createRoomIntent(data: NotificationData): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            action = Intent.ACTION_VIEW
+            data = android.net.Uri.parse("matrix:roomid/${data.roomId.substring(1)}${data.eventId?.let { "/e/${it.substring(1)}" } ?: ""}")
             putExtra("room_id", data.roomId)
             putExtra("event_id", data.eventId)
         }
@@ -267,7 +275,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val bitmap = loadAvatarBitmap(avatarUrl)
             if (bitmap != null) {
                 val circularBitmap = createCircularBitmap(bitmap)
-                IconCompat.createWithBitmap(circularBitmap)
+                IconCompat.createWithAdaptiveBitmap(circularBitmap)
             } else {
                 Log.w(TAG, "Failed to load avatar bitmap, using default icon")
                 IconCompat.createWithResource(context, R.drawable.ic_notification)

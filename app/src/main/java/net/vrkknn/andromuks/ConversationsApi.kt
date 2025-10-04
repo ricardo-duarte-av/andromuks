@@ -105,6 +105,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     private suspend fun createShortcutInfo(shortcut: ConversationShortcut): ShortcutInfo {
         val intent = android.content.Intent(context, MainActivity::class.java).apply {
             action = android.content.Intent.ACTION_VIEW
+            data = android.net.Uri.parse("matrix:roomid/${shortcut.roomId.substring(1)}")
             putExtra("room_id", shortcut.roomId)
             flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
@@ -112,14 +113,14 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         val icon = if (shortcut.roomAvatarUrl != null) {
             try {
                 loadBitmapFromUrl(shortcut.roomAvatarUrl)?.let { bitmap ->
-                    Icon.createWithBitmap(bitmap)
-                } ?: Icon.createWithResource(context, R.mipmap.ic_launcher)
+                    Icon.createWithAdaptiveBitmap(bitmap)
+                } ?: Icon.createWithResource(context, R.drawable.ic_notification)
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading avatar for shortcut", e)
-                Icon.createWithResource(context, R.mipmap.ic_launcher)
+                Icon.createWithResource(context, R.drawable.ic_notification)
             }
         } else {
-            Icon.createWithResource(context, R.mipmap.ic_launcher)
+            Icon.createWithResource(context, R.drawable.ic_notification)
         }
         
         return ShortcutInfo.Builder(context, shortcut.roomId)
@@ -128,7 +129,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             .setIcon(icon)
             .setIntent(intent)
             .setRank(0) // Simple rank, can be improved later
-            .setCategories(setOf("net.vrkknn.andromuks.conversation")) // Add conversation category
+            .setCategories(setOf("android.shortcut.conversation")) // Use standard conversation category
             .build()
     }
     
