@@ -86,14 +86,27 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         try {
             val notificationId = generateNotificationId(notificationData.roomId)
             
+            // Load avatars asynchronously
+            val roomAvatarIcon = notificationData.roomAvatarUrl?.let { 
+                loadAvatarAsIcon(it) 
+            } ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher)
+            
+            val senderAvatarIcon = notificationData.avatarUrl?.let { 
+                loadAvatarAsIcon(it) 
+            } ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher)
+            
             // Create conversation person (use room avatar for conversation, sender avatar for message)
             val conversationPerson = Person.Builder()
                 .setKey(notificationData.roomId)
                 .setName(notificationData.roomName ?: notificationData.roomId.substringAfterLast(":"))
-                .setIcon(loadPersonIconSync(notificationData.roomAvatarUrl))
+                .setIcon(roomAvatarIcon)
                 .build()
             
-            val messagePerson = createPersonFromNotificationData(notificationData)
+            val messagePerson = Person.Builder()
+                .setKey(notificationData.sender)
+                .setName(notificationData.senderDisplayName ?: notificationData.sender.substringAfterLast(":"))
+                .setIcon(senderAvatarIcon)
+                .build()
             
             // Create messaging style
             val messagingStyle = NotificationCompat.MessagingStyle(conversationPerson)
@@ -144,16 +157,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         }
     }
     
-    /**
-     * Create person from notification data
-     */
-    private fun createPersonFromNotificationData(data: NotificationData): Person {
-        return Person.Builder()
-            .setKey(data.sender)
-            .setName(data.senderDisplayName ?: data.sender.substringAfterLast(":"))
-            .setIcon(loadPersonIconSync(data.avatarUrl))
-            .build()
-    }
     
     /**
      * Create room intent
@@ -247,6 +250,24 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
         } else {
             null
+        }
+    }
+    
+    /**
+     * Load avatar as IconCompat (synchronous version that loads the actual avatar)
+     */
+    private suspend fun loadAvatarAsIcon(avatarUrl: String): IconCompat? {
+        return try {
+            val bitmap = loadAvatarBitmap(avatarUrl)
+            if (bitmap != null) {
+                IconCompat.createWithBitmap(bitmap)
+            } else {
+                Log.w(TAG, "Failed to load avatar bitmap, using default icon")
+                IconCompat.createWithResource(context, R.mipmap.ic_launcher)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading avatar as icon: $avatarUrl", e)
+            IconCompat.createWithResource(context, R.mipmap.ic_launcher)
         }
     }
     
