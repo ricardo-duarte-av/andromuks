@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
             addAction("net.vrkknn.andromuks.SEND_MESSAGE")
             addAction("net.vrkknn.andromuks.MARK_READ")
         }
-        registerReceiver(notificationBroadcastReceiver, filter)
+        registerReceiver(notificationBroadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
     }
     
     private fun registerNotificationActionReceiver() {
@@ -118,7 +118,7 @@ class MainActivity : ComponentActivity() {
             addAction("net.vrkknn.andromuks.ACTION_REPLY")
             addAction("net.vrkknn.andromuks.ACTION_MARK_READ")
         }
-        registerReceiver(notificationActionReceiver, filter)
+        registerReceiver(notificationActionReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
     }
     
     private fun getReplyText(intent: Intent): String? {
