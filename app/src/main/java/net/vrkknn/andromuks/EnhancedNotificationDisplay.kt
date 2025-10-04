@@ -309,10 +309,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Create mark as read action
      */
     private fun createMarkReadAction(data: NotificationData): NotificationCompat.Action {
+        Log.d(TAG, "createMarkReadAction: Creating mark read action for room: ${data.roomId}, event: ${data.eventId}")
+        
         val markReadIntent = Intent("net.vrkknn.andromuks.ACTION_MARK_READ").apply {
             setPackage(context.packageName)
             putExtra("room_id", data.roomId)
+            putExtra("event_id", data.eventId)
         }
+        
+        Log.d(TAG, "createMarkReadAction: Intent created with room_id: ${data.roomId}, event_id: ${data.eventId}")
         
         val markReadPendingIntent = PendingIntent.getBroadcast(
             context,
@@ -324,6 +329,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
         )
+        
+        Log.d(TAG, "createMarkReadAction: PendingIntent created successfully")
         
         return NotificationCompat.Action.Builder(
             R.mipmap.ic_launcher,

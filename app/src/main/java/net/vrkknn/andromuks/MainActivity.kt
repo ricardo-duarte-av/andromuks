@@ -108,12 +108,22 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     "net.vrkknn.andromuks.ACTION_MARK_READ" -> {
+                        Log.d("Andromuks", "MainActivity: ACTION_MARK_READ received in broadcast receiver")
                         val roomId = intent.getStringExtra("room_id")
                         val eventId = intent.getStringExtra("event_id")
                         
-                        if (roomId != null) {
-                            Log.d("Andromuks", "MainActivity: Handling mark read action for room: $roomId, event: $eventId")
-                            appViewModel.markRoomAsRead(roomId, eventId ?: "")
+                        Log.d("Andromuks", "MainActivity: Mark read data extracted - roomId: $roomId, eventId: '$eventId'")
+                        
+                        if (roomId != null && eventId != null && eventId.isNotEmpty()) {
+                            Log.d("Andromuks", "MainActivity: Calling appViewModel.markRoomAsRead for room: $roomId, event: $eventId")
+                            appViewModel.markRoomAsRead(roomId, eventId)
+                            
+                            // Dismiss the notification
+                            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+                            notificationManager.cancel(roomId.hashCode())
+                            Log.d("Andromuks", "MainActivity: Dismissed notification for room: $roomId")
+                        } else {
+                            Log.w("Andromuks", "MainActivity: Missing required data for mark read - roomId: $roomId, eventId: '$eventId'")
                         }
                     }
                 }

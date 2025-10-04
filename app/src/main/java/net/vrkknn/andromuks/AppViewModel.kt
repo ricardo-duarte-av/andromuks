@@ -173,7 +173,12 @@ class AppViewModel : ViewModel() {
     }
     
     fun getReadReceipts(eventId: String): List<ReadReceipt> {
-        return ReceiptFunctions.getReadReceipts(eventId, readReceipts)
+        val receipts = ReceiptFunctions.getReadReceipts(eventId, readReceipts)
+        android.util.Log.d("Andromuks", "AppViewModel: getReadReceipts($eventId) -> ${receipts.size} receipts")
+        if (receipts.isEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: Available receipt event IDs: ${readReceipts.keys.joinToString(", ")}")
+        }
+        return receipts
     }
     
     fun getPendingInvites(): List<RoomInvite> {
@@ -1072,6 +1077,65 @@ class AppViewModel : ViewModel() {
             "text" to text,
             "mentions" to mapOf(
                 "user_ids" to emptyList<String>(),
+                "room" to false
+            ),
+            "url_previews" to emptyList<String>()
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with data: $commandData")
+        sendWebSocketCommand("send_message", messageRequestId, commandData)
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $messageRequestId")
+    }
+    
+    fun sendReply(roomId: String, text: String, originalEvent: net.vrkknn.andromuks.TimelineEvent) {
+        android.util.Log.d("Andromuks", "AppViewModel: sendReply called with roomId: '$roomId', text: '$text', originalEvent: ${originalEvent.eventId}")
+        
+        // Check if WebSocket is connected, if not, try to reconnect
+        if (webSocket == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
+            restartWebSocketConnection()
+            
+            // Wait a bit for reconnection and then retry
+            CoroutineScope(Dispatchers.Main).launch {
+                delay(2000) // Wait 2 seconds for reconnection
+                if (webSocket != null) {
+                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket reconnected, retrying reply send")
+                    sendReplyInternal(roomId, text, originalEvent)
+                } else {
+                    android.util.Log.e("Andromuks", "AppViewModel: WebSocket reconnection failed, cannot send reply")
+                }
+            }
+            return
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket is connected, proceeding with sendReplyInternal")
+        sendReplyInternal(roomId, text, originalEvent)
+    }
+    
+    private fun sendReplyInternal(roomId: String, text: String, originalEvent: net.vrkknn.andromuks.TimelineEvent) {
+        android.util.Log.d("Andromuks", "AppViewModel: sendReplyInternal called")
+        val messageRequestId = requestIdCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: Generated request_id: $messageRequestId")
+        
+        messageRequests[messageRequestId] = roomId
+        android.util.Log.d("Andromuks", "AppViewModel: Stored request in messageRequests map")
+        
+        // Extract mentions from the original message sender
+        val mentions = mutableListOf<String>()
+        if (originalEvent.sender.isNotBlank()) {
+            mentions.add(originalEvent.sender)
+        }
+        
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "text" to text,
+            "relates_to" to mapOf(
+                "m.in_reply_to" to mapOf(
+                    "event_id" to originalEvent.eventId
+                )
+            ),
+            "mentions" to mapOf(
+                "user_ids" to mentions,
                 "room" to false
             ),
             "url_previews" to emptyList<String>()
@@ -2286,7 +2350,7 @@ class AppViewModel : ViewModel() {
     }
     
     fun markRoomAsRead(roomId: String, eventId: String) {
-        android.util.Log.d("Andromuks", "AppViewModel: Marking room as read: $roomId, eventId: $eventId")
+        android.util.Log.d("Andromuks", "AppViewModel: markRoomAsRead called with roomId: '$roomId', eventId: '$eventId'")
         
         // Check if WebSocket is connected, if not, try to reconnect
         if (webSocket == null) {
@@ -2306,18 +2370,27 @@ class AppViewModel : ViewModel() {
             return
         }
         
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket is connected, proceeding with markRoomAsReadInternal")
         markRoomAsReadInternal(roomId, eventId)
     }
     
     private fun markRoomAsReadInternal(roomId: String, eventId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: markRoomAsReadInternal called")
         val markReadRequestId = requestIdCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: Generated request_id: $markReadRequestId")
+        
         markReadRequests[markReadRequestId] = roomId
-        sendWebSocketCommand("mark_read", markReadRequestId, mapOf(
+        android.util.Log.d("Andromuks", "AppViewModel: Stored request in markReadRequests map")
+        
+        val commandData = mapOf(
             "room_id" to roomId,
             "event_id" to eventId,
             "receipt_type" to "m.read"
-        ))
-        android.util.Log.d("Andromuks", "AppViewModel: Sent mark_read with request_id: $markReadRequestId")
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: mark_read with data: $commandData")
+        sendWebSocketCommand("mark_read", markReadRequestId, commandData)
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $markReadRequestId")
     }
     
     fun getRoomSummary(roomId: String) {

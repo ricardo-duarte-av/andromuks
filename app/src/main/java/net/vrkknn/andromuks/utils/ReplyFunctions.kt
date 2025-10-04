@@ -1,19 +1,52 @@
 package net.vrkknn.andromuks.utils
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Reply
+import androidx.compose.material.icons.filled.TagFaces
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReplyInfo
 import net.vrkknn.andromuks.TimelineEvent
@@ -131,6 +164,251 @@ fun ReplyPreview(
                         overflow = TextOverflow.Ellipsis,
                         lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Modifier that adds popup menu functionality to any message bubble.
+ * Can be applied to existing Surface components to add React, Reply, Edit, Delete options.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun Modifier.messageBubbleMenu(
+    event: TimelineEvent,
+    onReply: () -> Unit,
+    onReact: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit
+): Modifier {
+    var showMenu by remember { mutableStateOf(false) }
+    
+    return this
+        .clickable { 
+            android.util.Log.d("ReplyFunctions", "MessageBubbleMenu: Click detected, showing menu")
+            showMenu = !showMenu 
+        }
+        .then(
+            Modifier.pointerInput(Unit) {
+                detectDragGestures(
+                    onDragStart = { 
+                        android.util.Log.d("ReplyFunctions", "MessageBubbleMenu: Long press detected")
+                        showMenu = true 
+                    },
+                    onDragEnd = { 
+                        android.util.Log.d("ReplyFunctions", "MessageBubbleMenu: Drag end")
+                        showMenu = false 
+                    },
+                    onDrag = { _, _ -> }
+                )
+            }
+        )
+        .then(
+            Modifier.background(androidx.compose.ui.graphics.Color.Red.copy(alpha = 0.1f)) // Temporary debug background
+        )
+}
+
+/**
+ * Reply preview component for the text input area.
+ * Shows a compact preview of the message being replied to with a cancel button.
+ */
+@Composable
+fun ReplyPreviewInput(
+    event: TimelineEvent,
+    userProfileCache: Map<String, MemberProfile>,
+    onCancel: () -> Unit
+) {
+    val profile = userProfileCache[event.sender]
+    val displayName = profile?.displayName ?: event.sender
+    
+    // Get message content
+    val content = event.content ?: event.decrypted
+    val body = content?.optString("body", "") ?: ""
+    val msgType = content?.optString("msgtype", "") ?: ""
+    
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(8.dp),
+        tonalElevation = 1.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Reply icon
+            Icon(
+                imageVector = Icons.Filled.Reply,
+                contentDescription = "Replying to",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            
+            // Message preview
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = displayName,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = when {
+                        msgType == "m.image" -> "📷 Image"
+                        msgType == "m.video" -> "🎥 Video"
+                        msgType == "m.file" -> "📎 File"
+                        body.isBlank() -> "Empty message"
+                        else -> body
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            
+            // Cancel button
+            IconButton(
+                onClick = onCancel,
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Cancel reply",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Message bubble wrapper with popup menu functionality.
+ * Provides long press/click to show menu with React, Reply, Edit, Delete options.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MessageBubbleWithMenu(
+    event: TimelineEvent,
+    bubbleColor: androidx.compose.ui.graphics.Color,
+    bubbleShape: androidx.compose.foundation.shape.RoundedCornerShape,
+    modifier: Modifier = Modifier,
+    onReply: () -> Unit,
+    onReact: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    content: @Composable RowScope.() -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    val hapticFeedback = LocalHapticFeedback.current
+    
+    Box {
+        Surface(
+            modifier = modifier
+                .pointerInput(Unit) {
+                    detectTapGestures(
+                        onLongPress = { 
+                            android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Long press detected")
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            showMenu = true 
+                        },
+                        onTap = {
+                            android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Regular tap detected")
+                            // Don't do anything on regular tap - let other click handlers work
+                        }
+                    )
+                },
+            color = bubbleColor,
+            shape = bubbleShape,
+            tonalElevation = 2.dp
+        ) {
+            Row(content = content)
+        }
+        
+        // Horizontal icon-only menu
+        if (showMenu) {
+            Card(
+                modifier = Modifier
+                    .padding(8.dp)
+                    .background(androidx.compose.ui.graphics.Color.Transparent),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    // React button
+                    IconButton(
+                        onClick = {
+                            showMenu = false
+                            onReact()
+                        },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.TagFaces,
+                            contentDescription = "React",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    
+                    // Reply button
+                    IconButton(
+                        onClick = {
+                            showMenu = false
+                            onReply()
+                        },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Reply,
+                            contentDescription = "Reply",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    
+                    // Edit button
+                    IconButton(
+                        onClick = {
+                            showMenu = false
+                            onEdit()
+                        },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Edit,
+                            contentDescription = "Edit",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    
+                    // Delete button
+                    IconButton(
+                        onClick = {
+                            showMenu = false
+                            onDelete()
+                        },
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
         }

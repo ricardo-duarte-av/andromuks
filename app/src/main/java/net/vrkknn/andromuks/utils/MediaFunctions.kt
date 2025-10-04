@@ -3,6 +3,7 @@ package net.vrkknn.andromuks.utils
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
@@ -36,6 +37,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
+import net.vrkknn.andromuks.TimelineEvent
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -183,7 +185,12 @@ fun MediaMessage(
     authToken: String,
     isMine: Boolean,
     isEncrypted: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    event: TimelineEvent? = null,
+    onReply: () -> Unit = {},
+    onReact: () -> Unit = {},
+    onEdit: () -> Unit = {},
+    onDelete: () -> Unit = {}
 ) {
     var showImageViewer by remember { mutableStateOf(false) }
     
@@ -203,19 +210,93 @@ fun MediaMessage(
     
     if (hasCaption) {
         // With caption: Image inside the caption bubble
-        Surface(
-            modifier = modifier.fillMaxWidth(0.8f),
-            shape = RoundedCornerShape(
-                topStart = if (isMine) 12.dp else 4.dp,
-                topEnd = if (isMine) 4.dp else 12.dp,
-                bottomStart = 12.dp,
-                bottomEnd = 12.dp
-            ),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            tonalElevation = 1.dp
-        ) {
-            Column {
-                // Image content inside the caption bubble
+        if (event != null) {
+            MessageBubbleWithMenu(
+                event = event,
+                bubbleColor = MaterialTheme.colorScheme.surfaceVariant,
+                bubbleShape = RoundedCornerShape(
+                    topStart = if (isMine) 12.dp else 4.dp,
+                    topEnd = if (isMine) 4.dp else 12.dp,
+                    bottomStart = 12.dp,
+                    bottomEnd = 12.dp
+                ),
+                modifier = modifier.fillMaxWidth(0.8f),
+                onReply = onReply,
+                onReact = onReact,
+                onEdit = onEdit,
+                onDelete = onDelete
+            ) {
+                Column {
+                    // Image content inside the caption bubble
+                    MediaContent(
+                        mediaMessage = mediaMessage,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        isEncrypted = isEncrypted,
+                        onImageClick = { showImageViewer = true }
+                    )
+                    
+                    // Caption text below the image, inside the same bubble
+                    Text(
+                        text = mediaMessage.caption,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        } else {
+            Surface(
+                modifier = modifier.fillMaxWidth(0.8f),
+                shape = RoundedCornerShape(
+                    topStart = if (isMine) 12.dp else 4.dp,
+                    topEnd = if (isMine) 4.dp else 12.dp,
+                    bottomStart = 12.dp,
+                    bottomEnd = 12.dp
+                ),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 1.dp
+            ) {
+                Column {
+                    // Image content inside the caption bubble
+                    MediaContent(
+                        mediaMessage = mediaMessage,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        isEncrypted = isEncrypted,
+                        onImageClick = { showImageViewer = true }
+                    )
+                    
+                    // Caption text below the image, inside the same bubble
+                    Text(
+                        text = mediaMessage.caption,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
+        }
+    } else {
+        // Without caption: Image directly in message bubble with pointed corners
+        if (event != null) {
+            MessageBubbleWithMenu(
+                event = event,
+                bubbleColor = MaterialTheme.colorScheme.surfaceVariant,
+                bubbleShape = RoundedCornerShape(
+                    topStart = if (isMine) 12.dp else 4.dp,
+                    topEnd = if (isMine) 4.dp else 12.dp,
+                    bottomStart = 12.dp,
+                    bottomEnd = 12.dp
+                ),
+                modifier = modifier
+                    .fillMaxWidth(0.8f)
+                    .wrapContentHeight(),
+                onReply = onReply,
+                onReact = onReact,
+                onEdit = onEdit,
+                onDelete = onDelete
+            ) {
                 MediaContent(
                     mediaMessage = mediaMessage,
                     homeserverUrl = homeserverUrl,
@@ -223,38 +304,29 @@ fun MediaMessage(
                     isEncrypted = isEncrypted,
                     onImageClick = { showImageViewer = true }
                 )
-                
-                // Caption text below the image, inside the same bubble
-                Text(
-                    text = mediaMessage.caption,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            }
+        } else {
+            Surface(
+                modifier = modifier
+                    .fillMaxWidth(0.8f) // Max 80% width
+                    .wrapContentHeight(),
+                shape = RoundedCornerShape(
+                    topStart = if (isMine) 12.dp else 4.dp,
+                    topEnd = if (isMine) 4.dp else 12.dp,
+                    bottomStart = 12.dp,
+                    bottomEnd = 12.dp
+                ),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 1.dp
+            ) {
+                MediaContent(
+                    mediaMessage = mediaMessage,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    isEncrypted = isEncrypted,
+                    onImageClick = { showImageViewer = true }
                 )
             }
-        }
-    } else {
-        // Without caption: Image directly in message bubble with pointed corners
-        Surface(
-            modifier = modifier
-                .fillMaxWidth(0.8f) // Max 80% width
-                .wrapContentHeight(),
-            shape = RoundedCornerShape(
-                topStart = if (isMine) 12.dp else 4.dp,
-                topEnd = if (isMine) 4.dp else 12.dp,
-                bottomStart = 12.dp,
-                bottomEnd = 12.dp
-            ),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            tonalElevation = 1.dp
-        ) {
-            MediaContent(
-                mediaMessage = mediaMessage,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                isEncrypted = isEncrypted,
-                onImageClick = { showImageViewer = true }
-            )
         }
     }
 }
@@ -394,7 +466,12 @@ private fun MediaContent(
                         contentDescription = mediaMessage.filename,
                         modifier = Modifier
                             .fillMaxSize()
-                            .clickable { onImageClick() },
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = { onImageClick() }
+                                    // Don't handle onLongPress - let it bubble up to MessageBubbleWithMenu
+                                )
+                            },
                         placeholder = blurHashPainter,
                         error = blurHashPainter, // Use BlurHash as error fallback too
                         onSuccess = { 

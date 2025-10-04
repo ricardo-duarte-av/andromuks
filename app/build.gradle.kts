@@ -76,6 +76,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    // Material icons extended (for Reply, Mood, etc.)
+    implementation("androidx.compose.material:material-icons-extended:1.7.4")
     // Material pull-to-refresh (stable)
     implementation("androidx.compose.material:material:1.5.4")
     implementation(libs.androidx.navigation.compose)

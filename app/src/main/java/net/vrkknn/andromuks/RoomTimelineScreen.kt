@@ -75,6 +75,8 @@ import net.vrkknn.andromuks.utils.ReplyPreview
 import net.vrkknn.andromuks.utils.RichMessageText
 import net.vrkknn.andromuks.utils.MessageTextWithMentions
 import net.vrkknn.andromuks.utils.SmartMessageText
+import net.vrkknn.andromuks.utils.ReplyPreviewInput
+import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -101,6 +103,59 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.RowScope
+
+/**
+ * Sealed class for timeline items (events and date dividers)
+ */
+sealed class TimelineItem {
+    data class Event(val event: TimelineEvent) : TimelineItem()
+    data class DateDivider(val date: String) : TimelineItem()
+}
+
+/**
+ * Format timestamp to date string (dd / MM / yyyy)
+ */
+private fun formatDate(timestamp: Long): String {
+    val date = Date(timestamp)
+    val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
+    return formatter.format(date)
+}
+
+/**
+ * Date divider component for timeline events
+ */
+@Composable
+fun DateDivider(date: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        androidx.compose.foundation.layout.Spacer(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+        )
+        
+        Text(
+            text = date,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+        
+        androidx.compose.foundation.layout.Spacer(
+            modifier = Modifier
+                .weight(1f)
+                .height(1.dp)
+                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+        )
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -121,6 +176,11 @@ fun RoomTimelineScreen(
     Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
     val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
+    
+    Log.d("Andromuks", "RoomTimelineScreen: Timeline events count: ${timelineEvents.size}, isLoading: $isLoading")
+
+    // Reply state
+    var replyingToEvent by remember { mutableStateOf<TimelineEvent?>(null) }
 
     // Build user profile cache from m.room.member events
     val userProfileCache = remember(timelineEvents) {
@@ -152,16 +212,26 @@ fun RoomTimelineScreen(
     
     // Sort events so newer messages are at the bottom, and filter unprocessed events if setting is disabled
     val sortedEvents = remember(timelineEvents, appViewModel.showUnprocessedEvents) {
+        Log.d("Andromuks", "RoomTimelineScreen: Processing ${timelineEvents.size} timeline events, showUnprocessedEvents: ${appViewModel.showUnprocessedEvents}")
+        
+        // Debug: Log event types in timeline
+        val eventTypes = timelineEvents.groupBy { it.type }
+        Log.d("Andromuks", "RoomTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(", ")}")
+        
         val filteredEvents = if (appViewModel.showUnprocessedEvents) {
             // Show all events when unprocessed events are enabled, but always exclude redaction events
-            timelineEvents.filter { event ->
+            val filtered = timelineEvents.filter { event ->
                 event.type != "m.room.redaction"
             }
+            Log.d("Andromuks", "RoomTimelineScreen: After redaction filtering: ${filtered.size} events")
+            filtered
         } else {
             // Only show allowed events when unprocessed events are disabled
-            timelineEvents.filter { event ->
+            val filtered = timelineEvents.filter { event ->
                 allowedEventTypes.contains(event.type)
             }
+            Log.d("Andromuks", "RoomTimelineScreen: After type filtering: ${filtered.size} events")
+            filtered
         }
         
         // Filter out superseded events (original messages that have been edited)
@@ -174,21 +244,55 @@ fun RoomTimelineScreen(
                     otherEvent.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace" &&
                     otherEvent.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId
                 }
+                if (hasBeenEdited) {
+                    Log.d("Andromuks", "RoomTimelineScreen: Filtering out edited event: ${event.eventId}")
+                }
                 !hasBeenEdited // Keep the event if it hasn't been edited
             } else {
                 true // Keep non-message events
             }
         }
         
-        eventsWithoutSuperseded.sortedBy { it.timestamp }
+        Log.d("Andromuks", "RoomTimelineScreen: After edit filtering: ${eventsWithoutSuperseded.size} events")
+        
+        val sorted = eventsWithoutSuperseded.sortedBy { it.timestamp }
+        Log.d("Andromuks", "RoomTimelineScreen: Final sorted events: ${sorted.size} events")
+        
+        sorted
     }
 
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
     LaunchedEffect(sortedEvents.size, isLoading) {
+        Log.d("Andromuks", "RoomTimelineScreen: LaunchedEffect - sortedEvents.size: ${sortedEvents.size}, isLoading: $isLoading")
         if (!isLoading && sortedEvents.isNotEmpty()) {
+            Log.d("Andromuks", "RoomTimelineScreen: Auto-scrolling to bottom")
             listState.scrollToItem(sortedEvents.lastIndex)
         }
+    }
+    
+    // Create timeline items with date dividers
+    val timelineItems = remember(sortedEvents) {
+        val items = mutableListOf<TimelineItem>()
+        var lastDate: String? = null
+        
+        for (event in sortedEvents) {
+            // Format date inline to avoid @Composable context issue
+            val date = Date(event.timestamp)
+            val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
+            val eventDate = formatter.format(date)
+            
+            // Add date divider if this is a new date
+            if (lastDate == null || eventDate != lastDate) {
+                items.add(TimelineItem.DateDivider(eventDate))
+                lastDate = eventDate
+            }
+            
+            // Add the event
+            items.add(TimelineItem.Event(event))
+        }
+        
+        items
     }
     
     LaunchedEffect(roomId) {
@@ -265,35 +369,45 @@ fun RoomTimelineScreen(
                             vertical = 8.dp
                             )
                         ) {
-                            items(sortedEvents) { event ->
-                                val isMine = myUserId != null && event.sender == myUserId
-                                TimelineEventItem(
-                                    event = event,
-                                    timelineEvents = timelineEvents,
-                                    homeserverUrl = homeserverUrl,
-                                    authToken = authToken,
-                                    userProfileCache = appViewModel.getMemberMap(roomId),
-                                    isMine = isMine,
-                                    appViewModel = appViewModel,
-                                    onScrollToMessage = { eventId ->
-                                        // Find the index of the message to scroll to
-                                        val index = sortedEvents.indexOfFirst { it.eventId == eventId }
-                                        if (index >= 0) {
-                                            coroutineScope.launch {
-                                                listState.animateScrollToItem(index)
-                                            }
-                                        } else {
-                                            // Show toast if message not found
-                                            android.widget.Toast.makeText(
-                                                context,
-                                                "Cannot find message",
-                                                android.widget.Toast.LENGTH_SHORT
-                                            ).show()
-                                        }
+                            items(timelineItems) { item ->
+                                when (item) {
+                                    is TimelineItem.DateDivider -> {
+                                        DateDivider(item.date)
                                     }
-                                )
+                                    is TimelineItem.Event -> {
+                                        val event = item.event
+                                        Log.d("Andromuks", "RoomTimelineScreen: Processing timeline event: ${event.eventId}, type: ${event.type}, sender: ${event.sender}")
+                                        val isMine = myUserId != null && event.sender == myUserId
+                                        TimelineEventItem(
+                                            event = event,
+                                            timelineEvents = timelineEvents,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                            userProfileCache = appViewModel.getMemberMap(roomId),
+                                            isMine = isMine,
+                                            appViewModel = appViewModel,
+                                            onScrollToMessage = { eventId ->
+                                                // Find the index of the message to scroll to
+                                                val index = sortedEvents.indexOfFirst { it.eventId == eventId }
+                                                if (index >= 0) {
+                                                    coroutineScope.launch {
+                                                        listState.animateScrollToItem(index)
+                                                    }
+                                                } else {
+                                                    // Show toast if message not found
+                                                    android.widget.Toast.makeText(
+                                                        context,
+                                                        "Cannot find message",
+                                                        android.widget.Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                            },
+                                            onReply = { event -> replyingToEvent = event }
+                                        )
+                                    }
+                                }
+                            }
                         }
-                    }
                 }
             
                 
@@ -316,7 +430,7 @@ fun RoomTimelineScreen(
                         .padding(bottom = bottomInset)
                     ) {
                         var draft by remember { mutableStateOf("") }
-                        var lastTypingTime by remember { mutableStateOf(0L) }
+    var lastTypingTime by remember { mutableStateOf(0L) }
                         
                         // Typing detection with debouncing
                         LaunchedEffect(draft) {
@@ -327,6 +441,17 @@ fun RoomTimelineScreen(
                                     lastTypingTime = currentTime
                                 }
                             }
+                        }
+                        
+                        // Reply preview (if replying to a message)
+                        if (replyingToEvent != null) {
+                            ReplyPreviewInput(
+                                event = replyingToEvent!!,
+                                userProfileCache = userProfileCache.mapValues { (_, pair) ->
+                                    MemberProfile(pair.first, pair.second)
+                                },
+                                onCancel = { replyingToEvent = null }
+                            )
                         }
                         
                         Row(
@@ -364,7 +489,13 @@ fun RoomTimelineScreen(
                             Button(
                                 onClick = { 
                                     if (draft.isNotBlank()) {
-                                        appViewModel.sendMessage(roomId, draft)
+                                        // Send reply if replying to a message, otherwise send regular message
+                                        if (replyingToEvent != null) {
+                                            appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                            replyingToEvent = null // Clear reply state
+                                        } else {
+                                            appViewModel.sendMessage(roomId, draft)
+                                        }
                                         draft = "" // Clear the input after sending
                                     }
                                 },
@@ -420,7 +551,6 @@ fun formatTimestamp(timestamp: Long): String {
 }
 
 
-
 @Composable
 fun TimelineEventItem(
     event: TimelineEvent,
@@ -430,7 +560,8 @@ fun TimelineEventItem(
     userProfileCache: Map<String, MemberProfile>,
     isMine: Boolean,
     appViewModel: AppViewModel? = null,
-    onScrollToMessage: (String) -> Unit = {}
+    onScrollToMessage: (String) -> Unit = {},
+    onReply: (TimelineEvent) -> Unit = {}
 ) {
     val context = LocalContext.current
     // Lookup display name and avatar from cache
@@ -496,7 +627,9 @@ fun TimelineEventItem(
                 // For my messages, show read receipts first, then name and time
                 if (isMine && appViewModel != null) {
                     val receipts = appViewModel.getReadReceipts(event.eventId)
+                    Log.d("Andromuks", "RoomTimelineScreen: My message ${event.eventId} - found ${receipts.size} read receipts")
                     if (receipts.isNotEmpty()) {
+                        Log.d("Andromuks", "RoomTimelineScreen: Rendering read receipts for my message ${event.eventId}")
                         InlineReadReceiptAvatars(
                             receipts = receipts,
                             userProfileCache = userProfileCache,
@@ -506,6 +639,8 @@ fun TimelineEventItem(
                             messageSender = event.sender
                         )
                         Spacer(modifier = Modifier.width(8.dp))
+                    } else {
+                        Log.d("Andromuks", "RoomTimelineScreen: No recepts for my message ${event.eventId}")
                     }
                 }
                 
@@ -528,7 +663,9 @@ fun TimelineEventItem(
                 // For others' messages, show name and time first, then read receipts
                 if (!isMine && appViewModel != null) {
                     val receipts = appViewModel.getReadReceipts(event.eventId)
+                    Log.d("Andromuks", "RoomTimelineScreen: Other's message ${event.eventId} - found ${receipts.size} read receipts")
                     if (receipts.isNotEmpty()) {
+                        Log.d("Andromuks", "RoomTimelineScreen: Rendering read receipts for other's message ${event.eventId}")
                         Spacer(modifier = Modifier.width(8.dp))
                         InlineReadReceiptAvatars(
                             receipts = receipts,
@@ -538,6 +675,8 @@ fun TimelineEventItem(
                             appViewModel = appViewModel,
                             messageSender = event.sender
                         )
+                    } else {
+                        Log.d("Andromuks", "RoomTimelineScreen: No recepts for others message ${event.eventId}")
                     }
                 }
             }
@@ -694,7 +833,12 @@ fun TimelineEventItem(
                                         mediaMessage = mediaMessage,
                                         homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                         authToken = authToken,
-                                        isMine = isMine
+                                        isMine = isMine,
+                                        event = event,
+                                        onReply = { onReply(event) },
+                                        onReact = { /* TODO: Implement reaction */ },
+                                        onEdit = { /* TODO: Implement edit */ },
+                                        onDelete = { /* TODO: Implement delete */ }
                                     )
                                 }
                             } else {
@@ -702,7 +846,12 @@ fun TimelineEventItem(
                                     mediaMessage = mediaMessage,
                                     homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                     authToken = authToken,
-                                    isMine = isMine
+                                    isMine = isMine,
+                                    event = event,
+                                    onReply = { onReply(event) },
+                                    onReact = { /* TODO: Implement reaction */ },
+                                    onEdit = { /* TODO: Implement edit */ },
+                                    onDelete = { /* TODO: Implement delete */ }
                                 )
                             }
                             
@@ -788,11 +937,15 @@ fun TimelineEventItem(
                         ) {
                             // Display reply with nested structure if this is a reply
                             if (replyInfo != null && originalEvent != null) {
-                                Surface(
+                                MessageBubbleWithMenu(
+                                    event = event,
+                                    bubbleColor = bubbleColor,
+                                    bubbleShape = bubbleShape,
                                     modifier = Modifier.padding(top = 4.dp),
-                                    color = bubbleColor,
-                                    shape = bubbleShape,
-                                    tonalElevation = 2.dp
+                                    onReply = { onReply(event) },
+                                    onReact = { /* TODO: Implement reaction */ },
+                                    onEdit = { /* TODO: Implement edit */ },
+                                    onDelete = { /* TODO: Implement delete */ }
                                 ) {
                                     Column(
                                         modifier = Modifier.padding(12.dp)
@@ -837,12 +990,16 @@ fun TimelineEventItem(
                                     }
                                 }
                             } else {
-                                // Regular message bubble
-                                Surface(
+                                // Regular message bubble with popup menu
+                                MessageBubbleWithMenu(
+                                    event = event,
+                                    bubbleColor = bubbleColor,
+                                    bubbleShape = bubbleShape,
                                     modifier = Modifier.padding(top = 4.dp),
-                                    color = bubbleColor,
-                                    shape = bubbleShape,
-                                    tonalElevation = 2.dp
+                                    onReply = { onReply(event) },
+                                    onReact = { /* TODO: Implement reaction */ },
+                                    onEdit = { /* TODO: Implement edit */ },
+                                    onDelete = { /* TODO: Implement delete */ }
                                 ) {
                                     SmartMessageText(
                                         body = finalBody,
@@ -1026,7 +1183,12 @@ fun TimelineEventItem(
                                             homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                             authToken = authToken,
                                             isMine = isMine,
-                                            isEncrypted = true
+                                            isEncrypted = true,
+                                            event = event,
+                                            onReply = { onReply(event) },
+                                            onReact = { /* TODO: Implement reaction */ },
+                                            onEdit = { /* TODO: Implement edit */ },
+                                            onDelete = { /* TODO: Implement delete */ }
                                         )
                                     }
                                 } else {
@@ -1035,7 +1197,12 @@ fun TimelineEventItem(
                                         homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                         authToken = authToken,
                                         isMine = isMine,
-                                        isEncrypted = true
+                                        isEncrypted = true,
+                                        event = event,
+                                        onReply = { onReply(event) },
+                                        onReact = { /* TODO: Implement reaction */ },
+                                        onEdit = { /* TODO: Implement edit */ },
+                                        onDelete = { /* TODO: Implement delete */ }
                                     )
                                 }
                                 
@@ -1080,11 +1247,15 @@ fun TimelineEventItem(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
                                 ) {
-                                    Surface(
-                                        color = bubbleColor,
-                                        shape = bubbleShape,
-                                        tonalElevation = 2.dp,
-                                        modifier = Modifier.padding(top = 4.dp)
+                                    MessageBubbleWithMenu(
+                                        event = event,
+                                        bubbleColor = bubbleColor,
+                                        bubbleShape = bubbleShape,
+                                        modifier = Modifier.padding(top = 4.dp),
+                                        onReply = { onReply(event) },
+                                        onReact = { /* TODO: Implement reaction */ },
+                                        onEdit = { /* TODO: Implement edit */ },
+                                        onDelete = { /* TODO: Implement delete */ }
                                     ) {
                                         Text(
                                             text = body,
