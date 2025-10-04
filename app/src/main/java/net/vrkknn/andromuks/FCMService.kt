@@ -15,6 +15,7 @@ import com.google.firebase.messaging.RemoteMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.Encryption
 import org.json.JSONObject
 import java.util.UUID
@@ -211,6 +212,8 @@ class FCMService : FirebaseMessagingService() {
                 val avatarUrl = senderAvatar?.let { convertToFullUrl(it) }
                 val roomAvatarUrl = roomAvatar?.let { convertToFullUrl(it) }
                 
+                Log.d(TAG, "Avatar URLs - sender: $avatarUrl, room: $roomAvatarUrl")
+                
                 // Determine if this is a DM or Group room
                 val isDirectMessage = roomName == senderDisplayName
                 
@@ -242,17 +245,30 @@ class FCMService : FirebaseMessagingService() {
     private fun convertToFullUrl(relativeUrl: String?): String? {
         if (relativeUrl.isNullOrEmpty()) return null
         
-        return if (relativeUrl.startsWith("_gomuks/")) {
-            // Get homeserver URL from SharedPreferences
-            val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-            val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-            if (homeserverUrl.isNotEmpty()) {
-                "$homeserverUrl/$relativeUrl"
-            } else {
-                null
+        return when {
+            relativeUrl.startsWith("mxc://") -> {
+                // Get homeserver URL from SharedPreferences
+                val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                if (homeserverUrl.isNotEmpty()) {
+                    AvatarUtils.mxcToHttpUrl(relativeUrl, homeserverUrl)
+                } else {
+                    null
+                }
             }
-        } else {
-            relativeUrl
+            relativeUrl.startsWith("_gomuks/") -> {
+                // Get homeserver URL from SharedPreferences
+                val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                if (homeserverUrl.isNotEmpty()) {
+                    "$homeserverUrl/$relativeUrl"
+                } else {
+                    null
+                }
+            }
+            else -> {
+                relativeUrl
+            }
         }
     }
     
