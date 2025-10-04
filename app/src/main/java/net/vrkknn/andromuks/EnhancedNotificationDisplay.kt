@@ -181,6 +181,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             .build()
         
         val replyIntent = Intent("net.vrkknn.andromuks.ACTION_REPLY").apply {
+            setPackage(context.packageName)
             putExtra("room_id", data.roomId)
             putExtra("event_id", data.eventId)
         }
@@ -190,7 +191,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             data.roomId.hashCode() + 1,
             replyIntent,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
             } else {
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
@@ -208,6 +209,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     private fun createMarkReadAction(data: NotificationData): NotificationCompat.Action {
         val markReadIntent = Intent("net.vrkknn.andromuks.ACTION_MARK_READ").apply {
+            setPackage(context.packageName)
             putExtra("room_id", data.roomId)
         }
         
