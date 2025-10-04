@@ -17,7 +17,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import net.vrkknn.andromuks.utils.MediaUtils
+import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.MediaCache
 import java.io.IOException
 import java.net.URL
 
@@ -272,10 +273,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     private suspend fun loadAvatarBitmap(avatarUrl: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
-            // Convert MXC URL or relative Gomuks URL to HTTP URL if needed
+            // Convert URL to proper format and get HTTP URL
             val httpUrl = when {
                 avatarUrl.startsWith("mxc://") -> {
-                    MediaUtils.mxcToHttpUrl(avatarUrl, homeserverUrl) ?: return@withContext null
+                    AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl) ?: return@withContext null
                 }
                 avatarUrl.startsWith("_gomuks/") -> {
                     "$homeserverUrl/$avatarUrl"
@@ -286,12 +287,31 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
             
             Log.d(TAG, "Loading avatar bitmap from: $httpUrl")
+            
+            // Try to get from cache first
+            val cachedFile = if (avatarUrl.startsWith("mxc://")) {
+                MediaCache.getCachedFile(context, avatarUrl)
+            } else null
+            
+            if (cachedFile != null && cachedFile.exists()) {
+                Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
+                return@withContext android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
+            }
+            
+            // Download and cache if not cached
             val connection = URL(httpUrl).openConnection()
             connection.setRequestProperty("Cookie", "gomuks_auth=$authToken")
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
             val inputStream = connection.getInputStream()
-            android.graphics.BitmapFactory.decodeStream(inputStream)
+            val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+            
+            // Cache the downloaded avatar if it's an MXC URL
+            if (bitmap != null && avatarUrl.startsWith("mxc://")) {
+                MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+            }
+            
+            bitmap
         } catch (e: IOException) {
             Log.e(TAG, "Error loading avatar bitmap: $avatarUrl", e)
             null

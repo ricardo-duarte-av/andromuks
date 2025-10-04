@@ -17,7 +17,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import net.vrkknn.andromuks.utils.MediaUtils
+import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.MediaCache
 import java.io.IOException
 import java.net.URL
 
@@ -172,10 +173,10 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
      */
     private suspend fun loadBitmapFromUrl(url: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
-            // Convert MXC URL or relative Gomuks URL to HTTP URL if needed
+            // Convert URL to proper format and get HTTP URL
             val httpUrl = when {
                 url.startsWith("mxc://") -> {
-                    MediaUtils.mxcToHttpUrl(url, homeserverUrl) ?: return@withContext null
+                    AvatarUtils.mxcToHttpUrl(url, homeserverUrl) ?: return@withContext null
                 }
                 url.startsWith("_gomuks/") -> {
                     "$homeserverUrl/$url"
@@ -186,12 +187,31 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             }
             
             Log.d(TAG, "Loading bitmap from: $httpUrl")
+            
+            // Try to get from cache first
+            val cachedFile = if (url.startsWith("mxc://")) {
+                MediaCache.getCachedFile(context, url)
+            } else null
+            
+            if (cachedFile != null && cachedFile.exists()) {
+                Log.d(TAG, "Using cached bitmap file: ${cachedFile.absolutePath}")
+                return@withContext BitmapFactory.decodeFile(cachedFile.absolutePath)
+            }
+            
+            // Download and cache if not cached
             val connection = URL(httpUrl).openConnection()
             connection.setRequestProperty("Cookie", "gomuks_auth=$authToken")
             connection.connectTimeout = 5000
             connection.readTimeout = 5000
             val inputStream = connection.getInputStream()
-            BitmapFactory.decodeStream(inputStream)
+            val bitmap = BitmapFactory.decodeStream(inputStream)
+            
+            // Cache the downloaded bitmap if it's an MXC URL
+            if (bitmap != null && url.startsWith("mxc://")) {
+                MediaCache.downloadAndCache(context, url, httpUrl, authToken)
+            }
+            
+            bitmap
         } catch (e: IOException) {
             Log.e(TAG, "Error loading bitmap from URL: $url", e)
             null
