@@ -344,13 +344,29 @@ object SpaceRoomParser {
             // Check if dm_user_id is populated in meta - this indicates a DM
             val dmUserId = meta.optString("dm_user_id")?.takeIf { it.isNotBlank() }
             
+            // Debug: Log all meta keys to see what's available
+            val metaKeys = meta.keys().asSequence().toList()
+            Log.d("Andromuks", "SpaceRoomParser: Room $roomId meta keys: $metaKeys")
+            Log.d("Andromuks", "SpaceRoomParser: Room $roomId dm_user_id: '$dmUserId'")
+            
             if (dmUserId != null) {
                 Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (dm_user_id: $dmUserId)")
                 return true
-            } else {
-                Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as group room (no dm_user_id)")
-                return false
             }
+            
+            // Fallback: Check if room name suggests it's a DM (contains @ symbol or looks like a user ID)
+            val roomName = meta.optString("name", "")
+            val isLikelyDM = roomName.contains("@") || 
+                            roomName.matches(Regex("^@[^:]+:[^:]+$")) || // Matrix user ID format
+                            roomName.matches(Regex("^[^:]+:[^:]+$")) // Simple user ID format
+            
+            if (isLikelyDM) {
+                Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (fallback: name suggests DM: '$roomName')")
+                return true
+            }
+            
+            Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as group room (no dm_user_id, name: '$roomName')")
+            return false
             
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error detecting DM status for room $roomId", e)

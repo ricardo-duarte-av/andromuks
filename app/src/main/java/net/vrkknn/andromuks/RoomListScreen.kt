@@ -750,44 +750,10 @@ fun RoomListContent(
             key = { it.id }, // Stable key for animations
             contentType = { it.id } // Content type for better performance
         ) { room ->
-            val animationState = appViewModel.getRoomAnimationState(room.id)
-            val currentIndex = filteredRooms.indexOf(room)
-            
-            // Clear animation state after animation completes
-            LaunchedEffect(animationState?.isAnimating) {
-                if (animationState?.isAnimating == true) {
-                    delay(350) // Slightly longer than animation duration
-                    appViewModel.clearRoomAnimationState(room.id)
-                }
-            }
-            
-            // Animate position changes for reordering
-            val animatedOffset by animateFloatAsState(
-                targetValue = if (animationState?.previousPosition != null && 
-                                 animationState.previousPosition != currentIndex) {
-                    // Calculate offset based on position change
-                    val positionDiff = (animationState.previousPosition - currentIndex).toFloat()
-                    positionDiff * 80f // 80dp per position
-                } else {
-                    0f
-                },
-                animationSpec = spring(
-                    dampingRatio = 0.8f,
-                    stiffness = 300f
-                ),
-                label = "room_position_animation"
-            )
-            
             AnimatedVisibility(
                 visible = true,
-                enter = slideInVertically(
-                    animationSpec = tween(300),
-                    initialOffsetY = { -it / 2 }
-                ) + fadeIn(animationSpec = tween(300)),
-                exit = slideOutVertically(
-                    animationSpec = tween(300),
-                    targetOffsetY = { -it / 2 }
-                ) + fadeOut(animationSpec = tween(300))
+                enter = fadeIn(animationSpec = tween(200)),
+                exit = fadeOut(animationSpec = tween(200))
             ) {
                 RoomListItem(
                     room = room,
@@ -797,14 +763,7 @@ fun RoomListContent(
                         navController.navigate("room_timeline/${room.id}")
                     },
                     timestampUpdateTrigger = timestampUpdateTrigger,
-                    modifier = Modifier
-                        .animateContentSize(
-                            animationSpec = spring(
-                                dampingRatio = 0.8f,
-                                stiffness = 300f
-                            )
-                        )
-                        .offset(y = animatedOffset.dp)
+                    modifier = Modifier.animateContentSize()
                 )
             }
         }

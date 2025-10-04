@@ -258,6 +258,8 @@ class AppViewModel : ViewModel() {
                     (it.unreadCount != null && it.unreadCount > 0) || 
                     (it.highlightCount != null && it.highlightCount > 0) 
                 }
+                android.util.Log.d("Andromuks", "AppViewModel: DIRECT_CHATS section - total rooms: ${roomsToUse.size}, DM rooms: ${dmRooms.size}")
+                android.util.Log.d("Andromuks", "AppViewModel: DM rooms: ${dmRooms.map { "${it.name} (${it.id})" }}")
                 RoomSection(
                     type = RoomSectionType.DIRECT_CHATS,
                     rooms = dmRooms,
