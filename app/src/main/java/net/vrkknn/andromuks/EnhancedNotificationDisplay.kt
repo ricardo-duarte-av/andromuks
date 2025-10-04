@@ -15,6 +15,7 @@ import android.graphics.RectF
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationCompat.MessagingStyle
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
@@ -92,8 +93,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         try {
             val notificationId = generateNotificationId(notificationData.roomId)
 
-            val isGroupRoom = notificationData.roomName != notificationData.sender.name
-            
+            val isGroupRoom = notificationData.roomName != notificationData.senderDisplayName
             // Load avatars asynchronously
             val roomAvatarIcon = notificationData.roomAvatarUrl?.let { 
                 loadAvatarAsIcon(it) 
