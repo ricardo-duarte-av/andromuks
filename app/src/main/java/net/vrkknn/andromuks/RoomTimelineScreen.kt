@@ -271,6 +271,33 @@ fun RoomTimelineScreen(
         }
     }
     
+    // Track if we've already triggered pagination for this scroll position
+    var lastPaginationTrigger by remember(sortedEvents.size, roomId) { mutableStateOf(Pair(-1, -1)) }
+    
+    // Monitor scroll position for pagination
+    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+        Log.d("Andromuks", "RoomTimelineScreen: LaunchedEffect triggered - scroll position changed")
+        Log.d("Andromuks", "RoomTimelineScreen: Scroll position changed - index: ${listState.firstVisibleItemIndex}, offset: ${listState.firstVisibleItemScrollOffset}, isLoading: $isLoading")
+        Log.d("Andromuks", "RoomTimelineScreen: Checking conditions - index==0: ${listState.firstVisibleItemIndex == 0}, offset<10: ${listState.firstVisibleItemScrollOffset < 10}, !isLoading: ${!isLoading}")
+        
+        // Trigger pagination when user scrolls to the top (be more lenient with the offset)
+        if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 10 && !isLoading) {
+            val currentPosition = Pair(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
+            Log.d("Andromuks", "RoomTimelineScreen: All conditions met! Current position: $currentPosition, last trigger: $lastPaginationTrigger")
+            
+            // Only trigger if we haven't already triggered for this exact position
+            if (currentPosition != lastPaginationTrigger) {
+                Log.d("Andromuks", "RoomTimelineScreen: User scrolled to top, triggering pagination")
+                lastPaginationTrigger = currentPosition
+                appViewModel.loadOlderMessages(roomId)
+            } else {
+                Log.d("Andromuks", "RoomTimelineScreen: Already triggered pagination for this position")
+            }
+        } else {
+            Log.d("Andromuks", "RoomTimelineScreen: Conditions not met for pagination")
+        }
+    }
+    
     // Create timeline items with date dividers
     val timelineItems = remember(sortedEvents) {
         val items = mutableListOf<TimelineItem>()

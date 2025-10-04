@@ -790,6 +790,12 @@ class AppViewModel : ViewModel() {
     private val outgoingRequests = mutableMapOf<Int, String>() // requestId -> roomId (for all outgoing requests)
     private val fcmRegistrationRequests = mutableMapOf<Int, String>() // requestId -> "fcm_registration"
     private val eventRequests = mutableMapOf<Int, (TimelineEvent?) -> Unit>() // requestId -> callback
+    private val paginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for pagination)
+    
+    // Pagination state
+    private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
+    private var isPaginating: Boolean = false // Prevent multiple pagination requests
+    private var hasMoreMessages: Boolean = true // Whether there are more messages to load
     
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
@@ -989,6 +995,11 @@ class AppViewModel : ViewModel() {
         timelineEvents = emptyList()
         isTimelineLoading = true
         
+        // Reset pagination state for new room
+        smallestRowId = -1L
+        isPaginating = false
+        hasMoreMessages = true
+        
         // Clear edit chain mapping when opening a new room
         eventChainMap.clear()
         editEventsMap.clear()
@@ -1173,6 +1184,9 @@ class AppViewModel : ViewModel() {
             handleFCMRegistrationResponse(requestId, data)
         } else if (eventRequests.containsKey(requestId)) {
             handleEventResponse(requestId, data)
+        } else if (paginateRequests.containsKey(requestId)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Routing pagination response to handleTimelineResponse")
+            handleTimelineResponse(requestId, data)
         } else if (outgoingRequests.containsKey(requestId)) {
             android.util.Log.d("Andromuks", "AppViewModel: Routing to handleOutgoingRequestResponse")
             handleOutgoingRequestResponse(requestId, data)
@@ -1392,7 +1406,7 @@ class AppViewModel : ViewModel() {
     
     fun handleTimelineResponse(requestId: Int, data: Any) {
         android.util.Log.d("Andromuks", "AppViewModel: handleTimelineResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
-        val roomId = timelineRequests[requestId]
+        val roomId = timelineRequests[requestId] ?: paginateRequests[requestId]
         if (roomId == null) {
             android.util.Log.w("Andromuks", "AppViewModel: Received response for unknown request ID: $requestId")
             return
@@ -1445,7 +1459,30 @@ class AppViewModel : ViewModel() {
                 }
             }
             android.util.Log.d("Andromuks", "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}")
+            
+            // Handle empty pagination responses
+            if (paginateRequests.containsKey(requestId) && timelineList.isEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: Empty pagination response - no more messages to load")
+                paginateRequests.remove(requestId)
+                isPaginating = false
+                return
+            }
+            
             if (timelineList.isNotEmpty()) {
+                // Store smallest rowId for pagination (only for initial paginate, not pagination requests)
+                if (!paginateRequests.containsKey(requestId)) {
+                    val currentSmallest = timelineList.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
+                    android.util.Log.d("Andromuks", "AppViewModel: Initial paginate - found smallest rowId: $currentSmallest from ${timelineList.size} events")
+                    if (currentSmallest > 0) {
+                        smallestRowId = currentSmallest
+                        android.util.Log.d("Andromuks", "AppViewModel: Stored smallest rowId for pagination: $smallestRowId")
+                    } else {
+                        android.util.Log.w("Andromuks", "AppViewModel: No valid rowId found for pagination")
+                    }
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: This is a pagination request, not storing rowId")
+                }
+                
                 // Populate edit chain mapping for clean edit handling
                 eventChainMap.clear()
                 editEventsMap.clear()
@@ -1476,11 +1513,21 @@ class AppViewModel : ViewModel() {
                 // Process edit relationships
                 processEditRelationships()
                 
-                // Build timeline from chain mapping
-                buildTimelineFromChain()
-                
-                isTimelineLoading = false
-                android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
+                if (paginateRequests.containsKey(requestId)) {
+                    // This is a pagination request - merge with existing timeline
+                    android.util.Log.d("Andromuks", "AppViewModel: Processing pagination request, merging with existing timeline")
+                    android.util.Log.d("Andromuks", "AppViewModel: Timeline list size before merge: ${timelineList.size}")
+                    mergePaginationEvents(timelineList)
+                    paginateRequests.remove(requestId)
+                    isPaginating = false
+                    android.util.Log.d("Andromuks", "AppViewModel: Pagination completed, isPaginating set to false")
+                    android.util.Log.d("Andromuks", "AppViewModel: Timeline events count after merge: ${timelineEvents.size}")
+                } else {
+                    // This is an initial paginate - build timeline from chain mapping
+                    buildTimelineFromChain()
+                    isTimelineLoading = false
+                    android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
+                }
                 
                 // Mark room as read when timeline is successfully loaded - use most recent event by timestamp
                 val mostRecentEvent = timelineList.maxByOrNull { it.timestamp }
@@ -1500,6 +1547,14 @@ class AppViewModel : ViewModel() {
                     processEventsArray(eventsArray)
                 } else {
                     android.util.Log.d("Andromuks", "AppViewModel: JSONObject did not contain 'events' array")
+                }
+                
+                // Parse has_more field for pagination
+                if (paginateRequests.containsKey(requestId)) {
+                    val hasMore = data.optBoolean("has_more", true) // Default to true if not present
+                    hasMoreMessages = hasMore
+                    android.util.Log.d("Andromuks", "AppViewModel: Parsed has_more: $hasMore from pagination response")
+                    android.util.Log.d("Andromuks", "AppViewModel: Full pagination response data keys: ${data.keys().asSequence().toList()}")
                 }
                 
                 // Process read receipts from timeline response
@@ -2029,6 +2084,70 @@ class AppViewModel : ViewModel() {
         updateCounter++
         
         android.util.Log.d("Andromuks", "AppViewModel: Built timeline with ${timelineEvents.size} events from chain")
+    }
+    
+    private fun mergePaginationEvents(newEvents: List<TimelineEvent>) {
+        android.util.Log.d("Andromuks", "AppViewModel: mergePaginationEvents called with ${newEvents.size} new events")
+        android.util.Log.d("Andromuks", "AppViewModel: Current timeline has ${timelineEvents.size} events")
+        
+        // Add new events to existing timeline
+        val currentEvents = timelineEvents.toMutableList()
+        currentEvents.addAll(newEvents)
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Combined timeline has ${currentEvents.size} events before sorting")
+        
+        // Sort chronologically by timestamp
+        this.timelineEvents = currentEvents.sortedBy { it.timestamp }
+        updateCounter++
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Timeline sorted and updated, updateCounter incremented to $updateCounter")
+        
+        // Update smallest rowId for next pagination
+        val newSmallest = newEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
+        android.util.Log.d("Andromuks", "AppViewModel: New smallest rowId from pagination: $newSmallest, current smallestRowId: $smallestRowId")
+        if (newSmallest > 0 && newSmallest < smallestRowId) {
+            smallestRowId = newSmallest
+            android.util.Log.d("Andromuks", "AppViewModel: Updated smallest rowId for pagination: $smallestRowId")
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Merged pagination events, timeline now has ${this.timelineEvents.size} events")
+    }
+    
+    fun loadOlderMessages(roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: loadOlderMessages called for room: $roomId")
+        android.util.Log.d("Andromuks", "AppViewModel: Current state - isPaginating: $isPaginating, smallestRowId: $smallestRowId, hasMoreMessages: $hasMoreMessages, webSocket connected: ${webSocket != null}")
+        
+        if (isPaginating || smallestRowId <= 0 || !hasMoreMessages) {
+            android.util.Log.d("Andromuks", "AppViewModel: Pagination blocked - isPaginating: $isPaginating, smallestRowId: $smallestRowId, hasMoreMessages: $hasMoreMessages")
+            return
+        }
+        
+        if (webSocket == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot load older messages")
+            return
+        }
+        
+        isPaginating = true
+        val paginateRequestId = requestIdCounter++
+        paginateRequests[paginateRequestId] = roomId
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sending pagination request with requestId: $paginateRequestId, max_timeline_id: $smallestRowId")
+        sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+            "room_id" to roomId,
+            "max_timeline_id" to smallestRowId,
+            "limit" to 50,
+            "reset" to false
+        ))
+        
+        // Set a timeout to reset pagination state if no response comes back
+        CoroutineScope(Dispatchers.Main).launch {
+            delay(10000) // 10 second timeout
+            if (paginateRequests.containsKey(paginateRequestId)) {
+                android.util.Log.w("Andromuks", "AppViewModel: Pagination request $paginateRequestId timed out, resetting state")
+                paginateRequests.remove(paginateRequestId)
+                isPaginating = false
+            }
+        }
     }
     
     /**
