@@ -26,6 +26,7 @@ import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 class MainActivity : ComponentActivity() {
     private lateinit var appViewModel: AppViewModel
     private lateinit var notificationBroadcastReceiver: BroadcastReceiver
+    private lateinit var notificationActionReceiver: BroadcastReceiver
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,6 +49,7 @@ class MainActivity : ComponentActivity() {
                         
                         // Register broadcast receiver for notification actions
                         registerNotificationBroadcastReceiver()
+                        registerNotificationActionReceiver()
                     }
                 )
             }
@@ -85,6 +87,46 @@ class MainActivity : ComponentActivity() {
         registerReceiver(notificationBroadcastReceiver, filter)
     }
     
+    private fun registerNotificationActionReceiver() {
+        notificationActionReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    "net.vrkknn.andromuks.ACTION_REPLY" -> {
+                        val roomId = intent.getStringExtra("room_id")
+                        val eventId = intent.getStringExtra("event_id")
+                        val replyText = getReplyText(intent)
+                        
+                        if (roomId != null && replyText != null) {
+                            Log.d("Andromuks", "MainActivity: Handling reply action for room: $roomId, text: $replyText")
+                            appViewModel.sendMessage(roomId, replyText)
+                        }
+                    }
+                    "net.vrkknn.andromuks.ACTION_MARK_READ" -> {
+                        val roomId = intent.getStringExtra("room_id")
+                        val eventId = intent.getStringExtra("event_id")
+                        
+                        if (roomId != null) {
+                            Log.d("Andromuks", "MainActivity: Handling mark read action for room: $roomId, event: $eventId")
+                            appViewModel.markRoomAsRead(roomId, eventId ?: "")
+                        }
+                    }
+                }
+            }
+        }
+        
+        val filter = IntentFilter().apply {
+            addAction("net.vrkknn.andromuks.ACTION_REPLY")
+            addAction("net.vrkknn.andromuks.ACTION_MARK_READ")
+        }
+        registerReceiver(notificationActionReceiver, filter)
+    }
+    
+    private fun getReplyText(intent: Intent): String? {
+        return androidx.core.app.RemoteInput.getResultsFromIntent(intent)
+            ?.getCharSequence("key_reply_text")
+            ?.toString()
+    }
+    
     override fun onResume() {
         super.onResume()
         if (::appViewModel.isInitialized) {
@@ -105,8 +147,11 @@ class MainActivity : ComponentActivity() {
             if (::notificationBroadcastReceiver.isInitialized) {
                 unregisterReceiver(notificationBroadcastReceiver)
             }
+            if (::notificationActionReceiver.isInitialized) {
+                unregisterReceiver(notificationActionReceiver)
+            }
         } catch (e: Exception) {
-            Log.w("Andromuks", "MainActivity: Error unregistering broadcast receiver", e)
+            Log.w("Andromuks", "MainActivity: Error unregistering broadcast receivers", e)
         }
     }
 }

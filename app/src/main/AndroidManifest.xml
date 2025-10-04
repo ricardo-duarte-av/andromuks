@@ -39,15 +39,6 @@
             </intent-filter>
         </service>
 
-        <!-- Notification Action Receiver -->
-        <receiver
-            android:name=".NotificationActionReceiver"
-            android:exported="false">
-            <intent-filter>
-                <action android:name="net.vrkknn.andromuks.ACTION_REPLY" />
-                <action android:name="net.vrkknn.andromuks.ACTION_MARK_READ" />
-            </intent-filter>
-        </receiver>
 
         <!-- Default notification icon -->
         <meta-data
