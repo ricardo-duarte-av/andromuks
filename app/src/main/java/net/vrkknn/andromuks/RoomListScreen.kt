@@ -24,8 +24,20 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.spring
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -49,6 +61,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.imePadding
@@ -731,17 +745,68 @@ fun RoomListContent(
             }
         }
         
-        items(filteredRooms.size) { idx ->
-            val room = filteredRooms[idx]
-            RoomListItem(
-                room = room,
-                homeserverUrl = appViewModel.homeserverUrl,
-                authToken = authToken,
-                onRoomClick = { 
-                    navController.navigate("room_timeline/${room.id}")
+        items(
+            items = filteredRooms,
+            key = { it.id }, // Stable key for animations
+            contentType = { it.id } // Content type for better performance
+        ) { room ->
+            val animationState = appViewModel.getRoomAnimationState(room.id)
+            val currentIndex = filteredRooms.indexOf(room)
+            
+            // Clear animation state after animation completes
+            LaunchedEffect(animationState?.isAnimating) {
+                if (animationState?.isAnimating == true) {
+                    delay(350) // Slightly longer than animation duration
+                    appViewModel.clearRoomAnimationState(room.id)
+                }
+            }
+            
+            // Animate position changes for reordering
+            val animatedOffset by animateFloatAsState(
+                targetValue = if (animationState?.previousPosition != null && 
+                                 animationState.previousPosition != currentIndex) {
+                    // Calculate offset based on position change
+                    val positionDiff = (animationState.previousPosition - currentIndex).toFloat()
+                    positionDiff * 80f // 80dp per position
+                } else {
+                    0f
                 },
-                timestampUpdateTrigger = timestampUpdateTrigger
+                animationSpec = spring(
+                    dampingRatio = 0.8f,
+                    stiffness = 300f
+                ),
+                label = "room_position_animation"
             )
+            
+            AnimatedVisibility(
+                visible = true,
+                enter = slideInVertically(
+                    animationSpec = tween(300),
+                    initialOffsetY = { -it / 2 }
+                ) + fadeIn(animationSpec = tween(300)),
+                exit = slideOutVertically(
+                    animationSpec = tween(300),
+                    targetOffsetY = { -it / 2 }
+                ) + fadeOut(animationSpec = tween(300))
+            ) {
+                RoomListItem(
+                    room = room,
+                    homeserverUrl = appViewModel.homeserverUrl,
+                    authToken = authToken,
+                    onRoomClick = { 
+                        navController.navigate("room_timeline/${room.id}")
+                    },
+                    timestampUpdateTrigger = timestampUpdateTrigger,
+                    modifier = Modifier
+                        .animateContentSize(
+                            animationSpec = spring(
+                                dampingRatio = 0.8f,
+                                stiffness = 300f
+                            )
+                        )
+                        .offset(y = animatedOffset.dp)
+                )
+            }
         }
     }
 }

@@ -101,6 +101,10 @@ class AppViewModel : ViewModel() {
     var timestampUpdateCounter by mutableStateOf(0)
         private set
     
+    // Per-room animation state for smooth transitions
+    var roomAnimationStates by mutableStateOf(mapOf<String, RoomAnimationState>())
+        private set
+    
     // FCM notification manager
     private var fcmNotificationManager: FCMNotificationManager? = null
     
@@ -151,6 +155,35 @@ class AppViewModel : ViewModel() {
     
     fun triggerTimestampUpdate() {
         timestampUpdateCounter++
+    }
+    
+    /**
+     * Updates animation state for a specific room
+     */
+    private fun updateRoomAnimationState(roomId: String, isAnimating: Boolean = false, newPosition: Int? = null) {
+        val currentState = roomAnimationStates[roomId]
+        val updatedState = RoomAnimationState(
+            roomId = roomId,
+            lastUpdateTime = System.currentTimeMillis(),
+            isAnimating = isAnimating,
+            previousPosition = currentState?.currentPosition,
+            currentPosition = newPosition ?: currentState?.currentPosition
+        )
+        roomAnimationStates = roomAnimationStates + (roomId to updatedState)
+    }
+    
+    /**
+     * Gets animation state for a specific room
+     */
+    fun getRoomAnimationState(roomId: String): RoomAnimationState? {
+        return roomAnimationStates[roomId]
+    }
+    
+    /**
+     * Clears animation state for a room after animation completes
+     */
+    fun clearRoomAnimationState(roomId: String) {
+        roomAnimationStates = roomAnimationStates - roomId
     }
     
     fun restartWebSocketConnection() {
@@ -503,9 +536,13 @@ class AppViewModel : ViewModel() {
                     room
                 }
                 roomMap[room.id] = updatedRoom
+                // Update animation state for this room
+                updateRoomAnimationState(room.id, isAnimating = true)
                 android.util.Log.d("Andromuks", "AppViewModel: Updated room: ${updatedRoom.name} (unread: ${updatedRoom.unreadCount}, message: ${updatedRoom.messagePreview?.take(20)}...)")
             } else {
                 roomMap[room.id] = room
+                // Update animation state for new room
+                updateRoomAnimationState(room.id, isAnimating = true)
                 android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (unread: ${room.unreadCount})")
             }
         }
@@ -513,6 +550,8 @@ class AppViewModel : ViewModel() {
         // Add new rooms
         syncResult.newRooms.forEach { room ->
             roomMap[room.id] = room
+            // Update animation state for new room
+            updateRoomAnimationState(room.id, isAnimating = true)
             android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name}")
         }
         
@@ -520,6 +559,8 @@ class AppViewModel : ViewModel() {
         syncResult.removedRoomIds.forEach { roomId ->
             val removedRoom = roomMap.remove(roomId)
             if (removedRoom != null) {
+                // Remove animation state for removed room
+                roomAnimationStates = roomAnimationStates - roomId
                 android.util.Log.d("Andromuks", "AppViewModel: Removed room: ${removedRoom.name}")
             }
         }
@@ -535,6 +576,12 @@ class AppViewModel : ViewModel() {
         // Update the UI with the current room list
         val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
         android.util.Log.d("Andromuks", "AppViewModel: Updating spaceList with ${sortedRooms.size} rooms")
+        
+        // Update animation states with new positions
+        sortedRooms.forEachIndexed { index, room ->
+            updateRoomAnimationState(room.id, isAnimating = false, newPosition = index)
+        }
+        
         setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
         allRooms = sortedRooms // Update allRooms for filtering
         updateCounter++ // Force recomposition

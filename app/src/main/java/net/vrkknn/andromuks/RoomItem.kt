@@ -63,3 +63,12 @@ data class RoomState(
     val topic: String?,
     val avatarUrl: String?
 )
+
+@Immutable
+data class RoomAnimationState(
+    val roomId: String,
+    val lastUpdateTime: Long,
+    val isAnimating: Boolean = false,
+    val previousPosition: Int? = null,
+    val currentPosition: Int? = null
+)

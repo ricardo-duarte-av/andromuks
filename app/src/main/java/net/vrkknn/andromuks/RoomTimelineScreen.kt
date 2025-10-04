@@ -422,6 +422,7 @@ fun RoomTimelineScreen(
                                             authToken = authToken,
                                             userProfileCache = appViewModel.getMemberMap(roomId),
                                             isMine = isMine,
+                                            myUserId = myUserId,
                                             appViewModel = appViewModel,
                                             onScrollToMessage = { eventId ->
                                                 // Find the index of the message to scroll to
@@ -566,23 +567,6 @@ fun RoomTimelineScreen(
 
 
 
-@Composable
-fun TimelineEventItem(
-    event: TimelineEvent,
-    timelineEvents: List<TimelineEvent>,
-    userProfileCache: Map<String, MemberProfile>,
-    homeserverUrl: String,
-    authToken: String,
-    appViewModel: AppViewModel?,
-    modifier: Modifier = Modifier
-) {
-    // This is a placeholder - the actual implementation would be quite complex
-    // For now, just show a simple text representation
-    Text(
-        text = "Event: ${event.type}",
-        modifier = modifier.padding(8.dp)
-    )
-}
 
 fun formatTimestamp(timestamp: Long): String {
     val date = java.util.Date(timestamp)
@@ -599,15 +583,58 @@ fun TimelineEventItem(
     authToken: String,
     userProfileCache: Map<String, MemberProfile>,
     isMine: Boolean,
+    myUserId: String?,
     appViewModel: AppViewModel? = null,
     onScrollToMessage: (String) -> Unit = {},
     onReply: (TimelineEvent) -> Unit = {}
 ) {
     val context = LocalContext.current
-    // Lookup display name and avatar from cache
-    val profile = userProfileCache[event.sender]
-    val displayName = profile?.displayName
-    val avatarUrl = profile?.avatarUrl
+    
+    // Check for per-message profile (e.g., from Beeper bridge)
+    // This can be in either the content (for regular messages) or decrypted content (for encrypted messages)
+    val perMessageProfile = event.content?.optJSONObject("com.beeper.per_message_profile")
+    val encryptedPerMessageProfile = event.decrypted?.optJSONObject("com.beeper.per_message_profile")
+    val hasPerMessageProfile = perMessageProfile != null
+    val hasEncryptedPerMessageProfile = encryptedPerMessageProfile != null
+    
+    // Use per-message profile if available (prioritize encrypted over regular), otherwise fall back to regular profile cache
+    val actualProfile = when {
+        hasEncryptedPerMessageProfile -> {
+            val encryptedPerMessageDisplayName = encryptedPerMessageProfile?.optString("displayname")?.takeIf { it.isNotBlank() }
+            val encryptedPerMessageAvatarUrl = encryptedPerMessageProfile?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+            val encryptedPerMessageUserId = encryptedPerMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
+            
+            // Create a temporary profile object for encrypted per-message profile
+            MemberProfile(encryptedPerMessageDisplayName, encryptedPerMessageAvatarUrl)
+        }
+        hasPerMessageProfile -> {
+            val perMessageDisplayName = perMessageProfile?.optString("displayname")?.takeIf { it.isNotBlank() }
+            val perMessageAvatarUrl = perMessageProfile?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+            val perMessageUserId = perMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
+            
+            // Create a temporary profile object for per-message profile
+            MemberProfile(perMessageDisplayName, perMessageAvatarUrl)
+        }
+        else -> userProfileCache[event.sender]
+    }
+    
+    val displayName = actualProfile?.displayName
+    val avatarUrl = actualProfile?.avatarUrl
+    
+    // For per-message profiles, we also need to track the bridge sender
+    val bridgeSender = if (hasPerMessageProfile || hasEncryptedPerMessageProfile) event.sender else null
+    
+    // For per-message profiles, check if the message is "mine" based on the per-message profile user ID
+    val actualIsMine = if (hasPerMessageProfile || hasEncryptedPerMessageProfile) {
+        val perMessageUserId = if (hasEncryptedPerMessageProfile) {
+            encryptedPerMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
+        } else {
+            perMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
+        }
+        myUserId != null && perMessageUserId == myUserId
+    } else {
+        isMine
+    }
     
     // Check if this is a narrator event (system event)
     val isNarratorEvent = event.type in setOf("m.room.member", "m.room.name", "m.room.topic", "m.room.avatar")
@@ -647,7 +674,7 @@ fun TimelineEventItem(
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.Top
     ) {
-        if (!isMine) {
+        if (!actualIsMine) {
             AvatarImage(
                 mxcUrl = avatarUrl,
                 homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
@@ -662,10 +689,10 @@ fun TimelineEventItem(
         Column(modifier = Modifier.weight(1f)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
             ) {
                 // For my messages, show read receipts first, then name and time
-                if (isMine && appViewModel != null) {
+                if (actualIsMine && appViewModel != null) {
                     val receipts = appViewModel.getReadReceipts(event.eventId)
                     Log.d("Andromuks", "RoomTimelineScreen: My message ${event.eventId} - found ${receipts.size} read receipts")
                     if (receipts.isNotEmpty()) {
@@ -684,8 +711,18 @@ fun TimelineEventItem(
                     }
                 }
                 
+                // Show per-message profile name and bridge sender info
+                val headerText = if ((hasPerMessageProfile || hasEncryptedPerMessageProfile) && bridgeSender != null) {
+                    // Get bridge sender display name for better readability
+                    val bridgeProfile = userProfileCache[bridgeSender]
+                    val bridgeDisplayName = bridgeProfile?.displayName ?: bridgeSender
+                    "${displayName ?: "Unknown"}, sent by ${bridgeDisplayName}"
+                } else {
+                    displayName ?: event.sender
+                }
+                
                 Text(
-                    text = displayName ?: event.sender,
+                    text = headerText,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary
                 )
@@ -701,7 +738,7 @@ fun TimelineEventItem(
                 )
                 
                 // For others' messages, show name and time first, then read receipts
-                if (!isMine && appViewModel != null) {
+                if (!actualIsMine && appViewModel != null) {
                     val receipts = appViewModel.getReadReceipts(event.eventId)
                     Log.d("Andromuks", "RoomTimelineScreen: Other's message ${event.eventId} - found ${receipts.size} read receipts")
                     if (receipts.isNotEmpty()) {
@@ -779,7 +816,7 @@ fun TimelineEventItem(
                             // Display deletion message for media
                             val deletionMessage = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache)
                             
-                            val bubbleShape = if (isMine) {
+                            val bubbleShape = if (actualIsMine) {
                                 RoundedCornerShape(
                                     topStart = 16.dp,
                                     topEnd = 2.dp,
@@ -795,12 +832,12 @@ fun TimelineEventItem(
                                 )
                             }
                             
-                            val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                            val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                            val bubbleColor = if (actualIsMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                            val textColor = if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
                             
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
                             ) {
                                 Surface(
                                     color = bubbleColor,
@@ -862,7 +899,7 @@ fun TimelineEventItem(
                                         userProfileCache = userProfileCache,
                                         homeserverUrl = homeserverUrl,
                                         authToken = authToken,
-                                        isMine = isMine,
+                                        isMine = actualIsMine,
                                         modifier = Modifier.padding(bottom = 8.dp),
                                         onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
@@ -873,7 +910,7 @@ fun TimelineEventItem(
                                         mediaMessage = mediaMessage,
                                         homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                         authToken = authToken,
-                                        isMine = isMine,
+                                        isMine = actualIsMine,
                                         event = event,
                                         onReply = { onReply(event) },
                                         onReact = { /* TODO: Implement reaction */ },
@@ -886,7 +923,7 @@ fun TimelineEventItem(
                                     mediaMessage = mediaMessage,
                                     homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                     authToken = authToken,
-                                    isMine = isMine,
+                                    isMine = actualIsMine,
                                     event = event,
                                     onReply = { onReply(event) },
                                     onReact = { /* TODO: Implement reaction */ },
@@ -903,7 +940,7 @@ fun TimelineEventItem(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(top = 4.dp),
-                                        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                        horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
                                     ) {
                                         ReactionBadges(
                                             eventId = event.eventId,
@@ -914,7 +951,7 @@ fun TimelineEventItem(
                             }
                         } else {
                             // Fallback to text message if media parsing fails
-                    val bubbleShape = if (isMine) {
+                    val bubbleShape = if (actualIsMine) {
                         RoundedCornerShape(
                             topStart = 16.dp,
                             topEnd = 2.dp,
@@ -929,12 +966,12 @@ fun TimelineEventItem(
                             bottomStart = 8.dp
                         )
                     }
-                    val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                    val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                    val bubbleColor = if (actualIsMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                    val textColor = if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                        horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
                     ) {
                         Surface(
                             color = bubbleColor,
@@ -953,7 +990,7 @@ fun TimelineEventItem(
                         }
                     } else {
                         // Regular text message
-                        val bubbleShape = if (isMine) {
+                        val bubbleShape = if (actualIsMine) {
                             RoundedCornerShape(
                                 topStart = 16.dp,
                                 topEnd = 2.dp,
@@ -968,12 +1005,12 @@ fun TimelineEventItem(
                                 bottomStart = 16.dp
                             )
                         }
-                        val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                        val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                        val bubbleColor = if (actualIsMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                        val textColor = if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                            horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
                         ) {
                             // Display reply with nested structure if this is a reply
                             if (replyInfo != null && originalEvent != null) {
@@ -997,7 +1034,7 @@ fun TimelineEventItem(
                                             userProfileCache = userProfileCache,
                                             homeserverUrl = homeserverUrl,
                                             authToken = authToken,
-                                            isMine = isMine,
+                                            isMine = actualIsMine,
                                             modifier = Modifier.padding(bottom = 8.dp),
                                             onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
@@ -1074,7 +1111,7 @@ fun TimelineEventItem(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(top = 4.dp),
-                                    horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                    horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
                                 ) {
                                     ReactionBadges(
                                         eventId = event.eventId,
@@ -1211,7 +1248,7 @@ fun TimelineEventItem(
                                             userProfileCache = userProfileCache,
                                             homeserverUrl = homeserverUrl,
                                             authToken = authToken,
-                                            isMine = isMine,
+                                            isMine = actualIsMine,
                                             modifier = Modifier.padding(bottom = 8.dp),
                                             onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
@@ -1222,7 +1259,7 @@ fun TimelineEventItem(
                                             mediaMessage = mediaMessage,
                                             homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                             authToken = authToken,
-                                            isMine = isMine,
+                                            isMine = actualIsMine,
                                             isEncrypted = true,
                                             event = event,
                                             onReply = { onReply(event) },
@@ -1236,7 +1273,7 @@ fun TimelineEventItem(
                                         mediaMessage = mediaMessage,
                                         homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                         authToken = authToken,
-                                        isMine = isMine,
+                                        isMine = actualIsMine,
                                         isEncrypted = true,
                                         event = event,
                                         onReply = { onReply(event) },
@@ -1254,7 +1291,7 @@ fun TimelineEventItem(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(top = 4.dp),
-                                            horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                            horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
                                         ) {
                                             ReactionBadges(
                                                 eventId = event.eventId,
@@ -1265,7 +1302,7 @@ fun TimelineEventItem(
                                 }
                             } else {
                                 // Fallback to text message if encrypted media parsing fails
-                                val bubbleShape = if (isMine) {
+                                val bubbleShape = if (actualIsMine) {
                                     RoundedCornerShape(
                                         topStart = 16.dp,
                                         topEnd = 2.dp,
@@ -1280,12 +1317,12 @@ fun TimelineEventItem(
                                         bottomStart = 8.dp
                                     )
                                 }
-                                val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                                val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                val bubbleColor = if (actualIsMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                                val textColor = if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                    horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
                                 ) {
                                     MessageBubbleWithMenu(
                                         event = event,
@@ -1314,7 +1351,7 @@ fun TimelineEventItem(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .padding(top = 4.dp),
-                                            horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                            horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
                                         ) {
                                             ReactionBadges(
                                                 eventId = event.eventId,
@@ -1326,7 +1363,7 @@ fun TimelineEventItem(
                             }
                         } else {
                             // Regular text message
-                            val bubbleShape = if (isMine) {
+                            val bubbleShape = if (actualIsMine) {
                                 RoundedCornerShape(
                                     topStart = 16.dp,
                                     topEnd = 2.dp,
@@ -1341,12 +1378,12 @@ fun TimelineEventItem(
                                     bottomStart = 8.dp
                                 )
                             }
-                            val bubbleColor = if (isMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-                            val textColor = if (isMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                            val bubbleColor = if (actualIsMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                            val textColor = if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
                             ) {
                                 // Display encrypted text message with nested reply structure
                                 if (replyInfo != null && originalEvent != null) {
@@ -1370,7 +1407,7 @@ fun TimelineEventItem(
                                                 userProfileCache = userProfileCache,
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
-                                                isMine = isMine,
+                                                isMine = actualIsMine,
                                                 modifier = Modifier.padding(bottom = 8.dp),
                                                 onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
@@ -1447,7 +1484,7 @@ fun TimelineEventItem(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(top = 4.dp),
-                                        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+                                        horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
                                     ) {
                                         ReactionBadges(
                                             eventId = event.eventId,
@@ -1479,7 +1516,7 @@ fun TimelineEventItem(
             }
         }
         
-        if (isMine) {
+        if (actualIsMine) {
             Spacer(modifier = Modifier.width(8.dp))
         }
     }
