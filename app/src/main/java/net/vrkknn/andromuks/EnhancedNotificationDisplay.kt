@@ -95,11 +95,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Load avatars asynchronously
             val roomAvatarIcon = notificationData.roomAvatarUrl?.let { 
                 loadAvatarAsIcon(it) 
-            } ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher)
+            } ?: IconCompat.createWithResource(context, R.drawable.ic_notification)
             
             val senderAvatarIcon = notificationData.avatarUrl?.let { 
                 loadAvatarAsIcon(it) 
-            } ?: IconCompat.createWithResource(context, R.mipmap.ic_launcher)
+            } ?: IconCompat.createWithResource(context, R.drawable.ic_notification)
             
             // Create conversation person (use room avatar for conversation, sender avatar for message)
             val conversationPerson = Person.Builder()
@@ -132,7 +132,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             // Create main notification
             val notification = NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(R.drawable.ic_notification)
                 .setStyle(messagingStyle)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setContentIntent(createRoomIntent(notificationData))
@@ -249,7 +249,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             try {
                 // For now, use default icon since we can't call suspend function here
                 // In a real implementation, you'd need to load this asynchronously
-                IconCompat.createWithResource(context, R.mipmap.ic_launcher)
+                IconCompat.createWithResource(context, R.drawable.ic_notification)
             } catch (e: Exception) {
                 Log.e(TAG, "Error creating person icon", e)
                 null
@@ -270,11 +270,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 IconCompat.createWithBitmap(circularBitmap)
             } else {
                 Log.w(TAG, "Failed to load avatar bitmap, using default icon")
-                IconCompat.createWithResource(context, R.mipmap.ic_launcher)
+                IconCompat.createWithResource(context, R.drawable.ic_notification)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading avatar as icon: $avatarUrl", e)
-            IconCompat.createWithResource(context, R.mipmap.ic_launcher)
+            IconCompat.createWithResource(context, R.drawable.ic_notification)
         }
     }
     
