@@ -92,13 +92,19 @@ class MainActivity : ComponentActivity() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
                     "net.vrkknn.andromuks.ACTION_REPLY" -> {
+                        Log.d("Andromuks", "MainActivity: ACTION_REPLY received in broadcast receiver")
                         val roomId = intent.getStringExtra("room_id")
                         val eventId = intent.getStringExtra("event_id")
                         val replyText = getReplyText(intent)
                         
+                        Log.d("Andromuks", "MainActivity: Reply data extracted - roomId: $roomId, eventId: $eventId, replyText: '$replyText'")
+                        
                         if (roomId != null && replyText != null) {
-                            Log.d("Andromuks", "MainActivity: Handling reply action for room: $roomId, text: $replyText")
+                            Log.d("Andromuks", "MainActivity: Calling appViewModel.sendMessage for room: $roomId")
                             appViewModel.sendMessage(roomId, replyText)
+                            Log.d("Andromuks", "MainActivity: sendMessage call completed")
+                        } else {
+                            Log.w("Andromuks", "MainActivity: Missing required data - roomId: $roomId, replyText: $replyText")
                         }
                     }
                     "net.vrkknn.andromuks.ACTION_MARK_READ" -> {
@@ -122,9 +128,16 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun getReplyText(intent: Intent): String? {
-        return androidx.core.app.RemoteInput.getResultsFromIntent(intent)
+        Log.d("Andromuks", "MainActivity: getReplyText called")
+        val remoteInputResults = androidx.core.app.RemoteInput.getResultsFromIntent(intent)
+        Log.d("Andromuks", "MainActivity: RemoteInput results: $remoteInputResults")
+        
+        val replyText = remoteInputResults
             ?.getCharSequence("key_reply_text")
             ?.toString()
+            
+        Log.d("Andromuks", "MainActivity: Extracted reply text: '$replyText'")
+        return replyText
     }
     
     override fun onNewIntent(intent: Intent) {

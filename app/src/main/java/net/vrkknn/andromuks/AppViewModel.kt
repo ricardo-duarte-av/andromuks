@@ -13,6 +13,8 @@ import net.vrkknn.andromuks.utils.processReactionEvent
 import org.json.JSONObject
 import okhttp3.WebSocket
 import org.json.JSONArray
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -1033,7 +1035,7 @@ class AppViewModel : ViewModel() {
     }
     
     fun sendMessage(roomId: String, text: String) {
-        android.util.Log.d("Andromuks", "AppViewModel: Sending message to room: $roomId")
+        android.util.Log.d("Andromuks", "AppViewModel: sendMessage called with roomId: '$roomId', text: '$text'")
         
         // Check if WebSocket is connected, if not, try to reconnect
         if (webSocket == null) {
@@ -1053,13 +1055,19 @@ class AppViewModel : ViewModel() {
             return
         }
         
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket is connected, proceeding with sendMessageInternal")
         sendMessageInternal(roomId, text)
     }
     
     private fun sendMessageInternal(roomId: String, text: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: sendMessageInternal called")
         val messageRequestId = requestIdCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: Generated request_id: $messageRequestId")
+        
         messageRequests[messageRequestId] = roomId
-        sendWebSocketCommand("send_message", messageRequestId, mapOf(
+        android.util.Log.d("Andromuks", "AppViewModel: Stored request in messageRequests map")
+        
+        val commandData = mapOf(
             "room_id" to roomId,
             "text" to text,
             "mentions" to mapOf(
@@ -1067,8 +1075,11 @@ class AppViewModel : ViewModel() {
                 "room" to false
             ),
             "url_previews" to emptyList<String>()
-        ))
-        android.util.Log.d("Andromuks", "AppViewModel: Sent message with request_id: $messageRequestId")
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with data: $commandData")
+        sendWebSocketCommand("send_message", messageRequestId, commandData)
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $messageRequestId")
     }
 
     fun handleResponse(requestId: Int, data: Any) {

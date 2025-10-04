@@ -271,6 +271,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Create reply action
      */
     private fun createReplyAction(data: NotificationData): NotificationCompat.Action {
+        Log.d(TAG, "createReplyAction: Creating reply action for room: ${data.roomId}, event: ${data.eventId}")
+        
         val remoteInput = RemoteInput.Builder(KEY_REPLY_TEXT)
             .setLabel("Reply")
             .build()
@@ -280,6 +282,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             putExtra("room_id", data.roomId)
             putExtra("event_id", data.eventId)
         }
+        
+        Log.d(TAG, "createReplyAction: Intent created with room_id: ${data.roomId}, event_id: ${data.eventId}")
         
         val replyPendingIntent = PendingIntent.getBroadcast(
             context,
@@ -291,6 +295,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
         )
+        
+        Log.d(TAG, "createReplyAction: PendingIntent created successfully")
         
         return NotificationCompat.Action.Builder(
             R.mipmap.ic_launcher,
