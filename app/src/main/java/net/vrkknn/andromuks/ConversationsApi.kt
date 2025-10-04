@@ -114,13 +114,13 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             try {
                 loadBitmapFromUrl(shortcut.roomAvatarUrl)?.let { bitmap ->
                     Icon.createWithAdaptiveBitmap(bitmap)
-                } ?: Icon.createWithResource(context, R.drawable.ic_notification)
+                } ?: Icon.createWithResource(context, R.drawable.ic_matrix_notification)
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading avatar for shortcut", e)
-                Icon.createWithResource(context, R.drawable.ic_notification)
+                Icon.createWithResource(context, R.drawable.ic_matrix_notification)
             }
         } else {
-            Icon.createWithResource(context, R.drawable.ic_notification)
+            Icon.createWithResource(context, R.drawable.ic_matrix_notification)
         }
         
         return ShortcutInfo.Builder(context, shortcut.roomId)
