@@ -178,10 +178,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .build()
             
             // Create messaging style - extract existing style if available
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val systemNotificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val notifID = notificationData.roomId.hashCode()
             
-            val messagingStyle = (notificationManager.activeNotifications.lastOrNull { it.id == notifID }?.let {
+            val messagingStyle = (systemNotificationManager.activeNotifications.lastOrNull { it.id == notifID }?.let {
                 MessagingStyle.extractMessagingStyleFromNotification(it.notification)
             } ?: NotificationCompat.MessagingStyle(conversationPerson))
                 .setConversationTitle(

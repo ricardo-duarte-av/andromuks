@@ -170,8 +170,13 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 .setIcon(shortcutIcon)
                 .setIntent(roomIntent)
                 .setCategories(setOf("android.shortcut.conversation"))
-                .setIsConversation()
                 .setLongLived(true)
+                .apply {
+                    // setIsConversation() is only available on API 30+
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        setIsConversation()
+                    }
+                }
                 .build()
             
             // Add or update the shortcut
@@ -293,8 +298,13 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             .setIntent(intent)
             .setRank(0) // Simple rank, can be improved later
             .setCategories(setOf("android.shortcut.conversation")) // Use standard conversation category
-            .setIsConversation()
             .setLongLived(true)
+            .apply {
+                // setIsConversation() is only available on API 30+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    setIsConversation()
+                }
+            }
             .build()
     }
     
