@@ -55,6 +55,10 @@ object ReceiptFunctions {
     /**
      * Processes read receipts from a JSON response.
      * 
+     * Read receipts represent "User has read the room up to event X", so when a user
+     * reads a newer message, we must remove their receipt from all older messages
+     * and only show it on the latest message they've read.
+     * 
      * @param receiptsJson JSON object containing read receipts
      * @param readReceiptsMap Mutable map to store the processed receipts (eventId -> list of receipts)
      * @param updateCounter Counter to trigger UI updates (will be incremented)
@@ -68,11 +72,14 @@ object ReceiptFunctions {
         val keys = receiptsJson.keys()
         var totalReceipts = 0
         
+        // Track the latest read receipt for each user
+        val userLatestReceipts = mutableMapOf<String, ReadReceipt>()
+        
+        // First pass: collect all receipts and find the latest for each user
         while (keys.hasNext()) {
             val eventId = keys.next()
             val receiptsArray = receiptsJson.optJSONArray(eventId)
             if (receiptsArray != null) {
-                val receiptsList = mutableListOf<ReadReceipt>()
                 for (i in 0 until receiptsArray.length()) {
                     val receiptJson = receiptsArray.optJSONObject(i)
                     if (receiptJson != null) {
@@ -82,18 +89,46 @@ object ReceiptFunctions {
                             timestamp = receiptJson.optLong("timestamp", 0),
                             receiptType = receiptJson.optString("receipt_type", "")
                         )
-                        receiptsList.add(receipt)
-                        Log.d("Andromuks", "ReceiptFunctions: Processed read receipt: ${receipt.userId} read ${receipt.eventId}")
+                        
+                        // Track the latest receipt for this user
+                        val existingLatest = userLatestReceipts[receipt.userId]
+                        if (existingLatest == null || receipt.timestamp > existingLatest.timestamp) {
+                            userLatestReceipts[receipt.userId] = receipt
+                        }
+                        
+                        Log.d("Andromuks", "ReceiptFunctions: Processed read receipt: ${receipt.userId} read ${receipt.eventId} at ${receipt.timestamp}")
                         totalReceipts++
                     }
                 }
-                if (receiptsList.isNotEmpty()) {
-                    readReceiptsMap[eventId] = receiptsList
-                    Log.d("Andromuks", "ReceiptFunctions: Added ${receiptsList.size} read receipts for event: $eventId")
+            }
+        }
+        
+        // Second pass: remove all existing receipts for users who have new receipts
+        val usersWithNewReceipts = userLatestReceipts.keys
+        for (eventId in readReceiptsMap.keys.toList()) {
+            val receiptsList = readReceiptsMap[eventId]
+            if (receiptsList != null) {
+                // Remove receipts for users who have new receipts
+                val filteredReceipts = receiptsList.filter { it.userId !in usersWithNewReceipts }
+                if (filteredReceipts.isEmpty()) {
+                    readReceiptsMap.remove(eventId)
+                    Log.d("Andromuks", "ReceiptFunctions: Removed all receipts for event: $eventId")
+                } else {
+                    readReceiptsMap[eventId] = filteredReceipts.toMutableList()
+                    Log.d("Andromuks", "ReceiptFunctions: Updated receipts for event: $eventId (removed ${receiptsList.size - filteredReceipts.size} receipts)")
                 }
             }
         }
-        Log.d("Andromuks", "ReceiptFunctions: processReadReceipts completed - processed $totalReceipts total receipts, triggering UI update")
+        
+        // Third pass: add the latest receipts to their respective events
+        for ((userId, latestReceipt) in userLatestReceipts) {
+            val eventId = latestReceipt.eventId
+            val receiptsList = readReceiptsMap.getOrPut(eventId) { mutableListOf() }
+            receiptsList.add(latestReceipt)
+            Log.d("Andromuks", "ReceiptFunctions: Added latest receipt for user $userId to event: $eventId")
+        }
+        
+        Log.d("Andromuks", "ReceiptFunctions: processReadReceipts completed - processed $totalReceipts total receipts, ${userLatestReceipts.size} unique users, triggering UI update")
         updateCounter()
     }
     
@@ -116,6 +151,47 @@ object ReceiptFunctions {
         Log.d("Andromuks", "ReceiptFunctions: getReadReceipts($eventId) -> ${receipts.size} receipts")
         
         return receipts
+    }
+    
+    /**
+     * Removes read receipts for a specific user from all events.
+     * This is used when a user reads a newer message, so their receipt
+     * should only appear on the latest message they've read.
+     * 
+     * @param userId The user ID to remove receipts for
+     * @param readReceiptsMap Map containing the read receipts
+     * @return Number of receipts removed
+     */
+    fun removeUserReceipts(
+        userId: String,
+        readReceiptsMap: MutableMap<String, MutableList<ReadReceipt>>
+    ): Int {
+        Log.d("Andromuks", "ReceiptFunctions: removeUserReceipts called for userId: $userId")
+        var removedCount = 0
+        
+        for (eventId in readReceiptsMap.keys.toList()) {
+            val receiptsList = readReceiptsMap[eventId]
+            if (receiptsList != null) {
+                val originalSize = receiptsList.size
+                receiptsList.removeAll { it.userId == userId }
+                val newSize = receiptsList.size
+                val removed = originalSize - newSize
+                
+                if (removed > 0) {
+                    removedCount += removed
+                    Log.d("Andromuks", "ReceiptFunctions: Removed $removed receipts for user $userId from event: $eventId")
+                    
+                    // Remove the event entry if no receipts remain
+                    if (receiptsList.isEmpty()) {
+                        readReceiptsMap.remove(eventId)
+                        Log.d("Andromuks", "ReceiptFunctions: Removed empty event entry: $eventId")
+                    }
+                }
+            }
+        }
+        
+        Log.d("Andromuks", "ReceiptFunctions: removeUserReceipts completed - removed $removedCount total receipts for user: $userId")
+        return removedCount
     }
 }
 
