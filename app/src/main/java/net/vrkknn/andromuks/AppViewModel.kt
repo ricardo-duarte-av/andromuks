@@ -1034,6 +1034,18 @@ class AppViewModel : ViewModel() {
     
     fun sendMessage(roomId: String, text: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Sending message to room: $roomId")
+        
+        // Check if WebSocket is connected, if not, try to reconnect
+        if (webSocket == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
+            restartWebSocketConnection()
+            
+            // Store the message to send after reconnection
+            // For now, we'll just log that we can't send the message
+            android.util.Log.w("Andromuks", "AppViewModel: Cannot send message immediately, WebSocket reconnecting")
+            return
+        }
+        
         val messageRequestId = requestIdCounter++
         messageRequests[messageRequestId] = roomId
         sendWebSocketCommand("send_message", messageRequestId, mapOf(

@@ -172,11 +172,17 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
      */
     private suspend fun loadBitmapFromUrl(url: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
-            // Convert MXC URL to HTTP URL if needed
-            val httpUrl = if (url.startsWith("mxc://")) {
-                MediaUtils.mxcToHttpUrl(url, homeserverUrl) ?: return@withContext null
-            } else {
-                url
+            // Convert MXC URL or relative Gomuks URL to HTTP URL if needed
+            val httpUrl = when {
+                url.startsWith("mxc://") -> {
+                    MediaUtils.mxcToHttpUrl(url, homeserverUrl) ?: return@withContext null
+                }
+                url.startsWith("_gomuks/") -> {
+                    "$homeserverUrl/$url"
+                }
+                else -> {
+                    url
+                }
             }
             
             Log.d(TAG, "Loading bitmap from: $httpUrl")

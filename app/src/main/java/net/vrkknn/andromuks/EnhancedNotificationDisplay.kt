@@ -272,11 +272,17 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     private suspend fun loadAvatarBitmap(avatarUrl: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
-            // Convert MXC URL to HTTP URL if needed
-            val httpUrl = if (avatarUrl.startsWith("mxc://")) {
-                MediaUtils.mxcToHttpUrl(avatarUrl, homeserverUrl) ?: return@withContext null
-            } else {
-                avatarUrl
+            // Convert MXC URL or relative Gomuks URL to HTTP URL if needed
+            val httpUrl = when {
+                avatarUrl.startsWith("mxc://") -> {
+                    MediaUtils.mxcToHttpUrl(avatarUrl, homeserverUrl) ?: return@withContext null
+                }
+                avatarUrl.startsWith("_gomuks/") -> {
+                    "$homeserverUrl/$avatarUrl"
+                }
+                else -> {
+                    avatarUrl
+                }
             }
             
             Log.d(TAG, "Loading avatar bitmap from: $httpUrl")
