@@ -258,8 +258,6 @@ class AppViewModel : ViewModel() {
                     (it.unreadCount != null && it.unreadCount > 0) || 
                     (it.highlightCount != null && it.highlightCount > 0) 
                 }
-                android.util.Log.d("Andromuks", "AppViewModel: DIRECT_CHATS section - total rooms: ${roomsToUse.size}, DM rooms: ${dmRooms.size}")
-                android.util.Log.d("Andromuks", "AppViewModel: DM rooms: ${dmRooms.map { "${it.name} (${it.id})" }}")
                 RoomSection(
                     type = RoomSectionType.DIRECT_CHATS,
                     rooms = dmRooms,
@@ -488,6 +486,54 @@ class AppViewModel : ViewModel() {
         return roomMemberCache[roomId] ?: emptyMap()
     }
     
+    /**
+     * Gets user profile information for a given user ID
+     * First checks room member cache, then current user profile, then requests profile if needed
+     */
+    fun getUserProfile(userId: String, roomId: String? = null): MemberProfile? {
+        android.util.Log.d("Andromuks", "AppViewModel: getUserProfile called for userId='$userId', roomId='$roomId'")
+        
+        // Check room member cache first if roomId is provided
+        if (roomId != null) {
+            val roomMember = roomMemberCache[roomId]?.get(userId)
+            android.util.Log.d("Andromuks", "AppViewModel: Room member cache for room '$roomId' has ${roomMemberCache[roomId]?.size ?: 0} members")
+            if (roomMember != null) {
+                android.util.Log.d("Andromuks", "AppViewModel: Found room member: $roomMember")
+                return roomMember
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: User '$userId' not found in room '$roomId' member cache")
+            }
+        }
+        
+        // Check if it's the current user
+        if (userId == currentUserId && currentUserProfile != null) {
+            return MemberProfile(
+                displayName = currentUserProfile!!.displayName,
+                avatarUrl = currentUserProfile!!.avatarUrl
+            )
+        }
+        
+        // Try to find in any room's member cache
+        for (roomMembers in roomMemberCache.values) {
+            val member = roomMembers[userId]
+            if (member != null) {
+                return member
+            }
+        }
+        
+        // If we have a Matrix ID format but no profile, request it
+        if (userId.startsWith("@") && userId.contains(":")) {
+            android.util.Log.d("Andromuks", "AppViewModel: Requesting profile for Matrix user: $userId")
+            requestUserProfile(userId)
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: User ID '$userId' is not a Matrix ID format, not requesting profile")
+        }
+        
+        return null
+    }
+    
+
+    
     private fun populateMemberCacheFromSync(syncJson: JSONObject) {
         val data = syncJson.optJSONObject("data") ?: return
         val roomsJson = data.optJSONObject("rooms") ?: return
@@ -531,9 +577,12 @@ class AppViewModel : ViewModel() {
         syncResult.updatedRooms.forEach { room ->
             val existingRoom = roomMap[room.id]
             if (existingRoom != null) {
-                // Preserve existing message preview if new room data doesn't have one
+                // Preserve existing message preview and sender if new room data doesn't have one
                 val updatedRoom = if (room.messagePreview.isNullOrBlank() && !existingRoom.messagePreview.isNullOrBlank()) {
-                    room.copy(messagePreview = existingRoom.messagePreview)
+                    room.copy(
+                        messagePreview = existingRoom.messagePreview,
+                        messageSender = existingRoom.messageSender
+                    )
                 } else {
                     room
                 }

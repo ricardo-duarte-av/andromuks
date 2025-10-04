@@ -56,9 +56,10 @@ object SpaceRoomParser {
                                 val body = content?.optString("body")?.takeIf { it.isNotBlank() }
                                 if (body != null) {
                                     messagePreview = body
-                                    // Extract sender user ID (we'll use the local part for now)
+                                    // Extract sender user ID (use full Matrix ID for profile lookup)
                                     val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
-                                    messageSender = sender?.substringAfterLast(":") ?: sender
+                                    android.util.Log.d("Andromuks", "SpaceRoomParser: Message event sender: '$sender' for room $roomId")
+                                    messageSender = sender
                                     break // Found the last message, stop looking
                                 }
                             }
@@ -70,9 +71,10 @@ object SpaceRoomParser {
                                     val body = decrypted?.optString("body")?.takeIf { it.isNotBlank() }
                                     if (body != null) {
                                         messagePreview = body
-                                        // Extract sender user ID (we'll use the local part for now)
+                                        // Extract sender user ID (use full Matrix ID for profile lookup)
                                         val sender = event.optString("sender")?.takeIf { it.isNotBlank() }
-                                        messageSender = sender?.substringAfterLast(":") ?: sender
+                                        android.util.Log.d("Andromuks", "SpaceRoomParser: Encrypted message event sender: '$sender' for room $roomId")
+                                        messageSender = sender
                                         break // Found the last message, stop looking
                                     }
                                 }
@@ -90,6 +92,7 @@ object SpaceRoomParser {
                 }
             }
 
+            android.util.Log.d("Andromuks", "SpaceRoomParser: Creating RoomItem for '$name' - messagePreview='$messagePreview', messageSender='$messageSender'")
             rooms.add(
                 RoomItem(
                     id = roomId,
@@ -248,16 +251,8 @@ object SpaceRoomParser {
                                         val roomMembers = memberCache?.get(roomId)
                                         val memberProfile = roomMembers?.get(sender)
                                         Log.d("Andromuks", "SpaceRoomParser: Looking up sender '$sender' in room '$roomId', found profile: $memberProfile")
-                                        messageSender = if (memberProfile?.displayName != null && memberProfile.displayName.isNotBlank()) {
-                                            Log.d("Andromuks", "SpaceRoomParser: Using display name: ${memberProfile.displayName}")
-                                            memberProfile.displayName
-                                        } else {
-                                            // No display name found, request it from server
-                                            Log.d("Andromuks", "SpaceRoomParser: No display name for $sender, requesting profile")
-                                            appViewModel?.requestUserProfile(sender)
-                                            // For now, use Matrix ID until profile is fetched
-                                            sender
-                                        }
+                                        messageSender = sender // Always use Matrix ID for profile lookup
+                                        Log.d("Andromuks", "SpaceRoomParser: Using Matrix ID for messageSender: $sender")
                                     } else {
                                         Log.w("Andromuks", "SpaceRoomParser: WARNING - No sender found in message event!")
                                         Log.w("Andromuks", "SpaceRoomParser: Event that caused the issue: ${event.toString()}")
@@ -283,16 +278,8 @@ object SpaceRoomParser {
                                             val roomMembers = memberCache?.get(roomId)
                                             val memberProfile = roomMembers?.get(sender)
                                             Log.d("Andromuks", "SpaceRoomParser: Looking up encrypted sender '$sender' in room '$roomId', found profile: $memberProfile")
-                                            messageSender = if (memberProfile?.displayName != null && memberProfile.displayName.isNotBlank()) {
-                                                Log.d("Andromuks", "SpaceRoomParser: Using display name: ${memberProfile.displayName}")
-                                                memberProfile.displayName
-                                            } else {
-                                                // No display name found, request it from server
-                                                Log.d("Andromuks", "SpaceRoomParser: No display name for $sender, requesting profile")
-                                                appViewModel?.requestUserProfile(sender)
-                                                // For now, use Matrix ID until profile is fetched
-                                                sender
-                                            }
+                                            messageSender = sender // Always use Matrix ID for profile lookup
+                                            Log.d("Andromuks", "SpaceRoomParser: Using Matrix ID for encrypted messageSender: $sender")
                                         } else {
                                             Log.w("Andromuks", "SpaceRoomParser: WARNING - No sender found in encrypted message event!")
                                             Log.w("Andromuks", "SpaceRoomParser: Encrypted event that caused the issue: ${event.toString()}")
@@ -344,10 +331,6 @@ object SpaceRoomParser {
             // Check if dm_user_id is populated in meta - this indicates a DM
             val dmUserId = meta.optString("dm_user_id")?.takeIf { it.isNotBlank() }
             
-            // Debug: Log all meta keys to see what's available
-            val metaKeys = meta.keys().asSequence().toList()
-            Log.d("Andromuks", "SpaceRoomParser: Room $roomId meta keys: $metaKeys")
-            Log.d("Andromuks", "SpaceRoomParser: Room $roomId dm_user_id: '$dmUserId'")
             
             if (dmUserId != null) {
                 Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (dm_user_id: $dmUserId)")
@@ -357,8 +340,7 @@ object SpaceRoomParser {
             // Fallback: Check if room name suggests it's a DM (contains @ symbol or looks like a user ID)
             val roomName = meta.optString("name", "")
             val isLikelyDM = roomName.contains("@") || 
-                            roomName.matches(Regex("^@[^:]+:[^:]+$")) || // Matrix user ID format
-                            roomName.matches(Regex("^[^:]+:[^:]+$")) // Simple user ID format
+                            roomName.matches(Regex("^@[^:]+:[^:]+$")) // Matrix user ID format
             
             if (isLikelyDM) {
                 Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (fallback: name suggests DM: '$roomName')")

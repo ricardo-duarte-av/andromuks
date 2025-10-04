@@ -434,6 +434,7 @@ fun RoomListItem(
     authToken: String,
     onRoomClick: (RoomItem) -> Unit,
     timestampUpdateTrigger: Int = 0,
+    appViewModel: AppViewModel,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -530,18 +531,48 @@ fun RoomListItem(
                     }
                 }
                 
-                // Message preview
-                if (room.messagePreview != null) {
-                    val messageText = if (room.messageSender != null && room.messageSender.isNotBlank()) {
-                        "${room.messageSender}: ${room.messagePreview}"
-                    } else {
-                        // This should never happen as we ensure messageSender is always set
-                        android.util.Log.w("Andromuks", "RoomListScreen: WARNING - No messageSender for room ${room.name}")
-                        android.util.Log.w("Andromuks", "RoomListScreen: Room details - ID: ${room.id}, Preview: '${room.messagePreview}', Sender: '${room.messageSender}'")
-                        room.messagePreview
+                // Enhanced message preview with sender avatar and display name
+                if (room.messagePreview != null && room.messageSender != null) {
+                    val senderProfile = appViewModel.getUserProfile(room.messageSender, room.id)
+                    val senderDisplayName = senderProfile?.displayName ?: room.messageSender
+                    val senderAvatarUrl = senderProfile?.avatarUrl
+                    
+                    // Debug logging for avatar loading
+                    android.util.Log.d("Andromuks", "RoomListScreen: Room '${room.name}' messageSender='${room.messageSender}'")
+                    android.util.Log.d("Andromuks", "RoomListScreen: Sender profile for ${room.messageSender}: displayName='$senderDisplayName', avatarUrl='$senderAvatarUrl'")
+                    android.util.Log.d("Andromuks", "RoomListScreen: Avatar loading params - homeserverUrl='$homeserverUrl', authToken length=${authToken.length}")
+                    
+                    Row(
+                        modifier = Modifier.padding(top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Sender avatar (mini) - use 20dp for better visibility
+                        AvatarImage(
+                            mxcUrl = senderAvatarUrl,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            fallbackText = senderDisplayName,
+                            size = 20.dp
+                        )
+                        
+                        Spacer(modifier = Modifier.width(6.dp))
+                        
+                        // Sender name and message
+                        Text(
+                            text = "$senderDisplayName: ${room.messagePreview}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
+                } else if (room.messagePreview != null) {
+                    // Fallback for when messageSender is null
+                    android.util.Log.w("Andromuks", "RoomListScreen: WARNING - No messageSender for room ${room.name}")
+                    android.util.Log.w("Andromuks", "RoomListScreen: Room details - ID: ${room.id}, Preview: '${room.messagePreview}', Sender: '${room.messageSender}'")
                     Text(
-                        text = messageText,
+                        text = room.messagePreview,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
@@ -763,6 +794,7 @@ fun RoomListContent(
                         navController.navigate("room_timeline/${room.id}")
                     },
                     timestampUpdateTrigger = timestampUpdateTrigger,
+                    appViewModel = appViewModel,
                     modifier = Modifier.animateContentSize()
                 )
             }
