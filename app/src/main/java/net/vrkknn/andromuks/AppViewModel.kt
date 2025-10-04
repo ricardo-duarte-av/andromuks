@@ -797,6 +797,7 @@ class AppViewModel : ViewModel() {
     private var isPaginating: Boolean = false // Prevent multiple pagination requests
     private var hasMoreMessages: Boolean = true // Whether there are more messages to load
     
+    
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
     private var lastReceivedRequestId: Int = 0

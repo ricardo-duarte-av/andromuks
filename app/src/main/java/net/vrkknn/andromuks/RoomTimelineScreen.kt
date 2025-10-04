@@ -341,12 +341,22 @@ fun RoomTimelineScreen(
     
     // Save updated profiles to disk when member cache changes
     // This persists user profile data (display names, avatars) to disk for future app sessions
-    // Profiles are saved whenever the updateCounter changes (indicating profile updates)
+    // Only save profiles for users involved in the events being processed to avoid performance issues
     LaunchedEffect(appViewModel.updateCounter) {
-        // Save all updated profiles to disk for persistence
-        val memberMap = appViewModel.getMemberMap(roomId)
-        for ((userId, profile) in memberMap) {
-            appViewModel.saveProfileToDisk(context, userId, profile)
+        // Only save profiles for users who are actually involved in the current timeline events
+        val usersInTimeline = sortedEvents.map { it.sender }.distinct().toSet()
+        if (usersInTimeline.isNotEmpty()) {
+            val memberMap = appViewModel.getMemberMap(roomId)
+            val profilesToSave = usersInTimeline.filter { memberMap.containsKey(it) }
+            if (profilesToSave.isNotEmpty()) {
+                android.util.Log.d("Andromuks", "RoomTimelineScreen: Saving ${profilesToSave.size} profiles to disk for users in timeline")
+                for (userId in profilesToSave) {
+                    val profile = memberMap[userId]
+                    if (profile != null) {
+                        appViewModel.saveProfileToDisk(context, userId, profile)
+                    }
+                }
+            }
         }
     }
     
