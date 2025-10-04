@@ -127,12 +127,12 @@ class MainActivity : ComponentActivity() {
             ?.toString()
     }
     
-    override fun onNewIntent(intent: Intent?) {
+    override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         
         // Handle room navigation from notification clicks
-        intent?.getStringExtra("room_id")?.let { roomId ->
+        intent.getStringExtra("room_id")?.let { roomId ->
             if (::appViewModel.isInitialized) {
                 Log.d("Andromuks", "MainActivity: onNewIntent - Navigating to room: $roomId")
                 appViewModel.setPendingRoomNavigation(roomId)
