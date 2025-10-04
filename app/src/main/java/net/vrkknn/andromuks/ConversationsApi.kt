@@ -2,14 +2,17 @@ package net.vrkknn.andromuks
 
 import android.app.Person
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ShortcutInfo
 import android.content.pm.ShortcutManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.Icon
+import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
+import androidx.core.app.Person as CorePerson
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
@@ -19,7 +22,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.MediaCache
+import net.vrkknn.andromuks.utils.MediaUtils
 import java.io.IOException
+import java.net.HttpURLConnection
 import java.net.URL
 
 data class ConversationShortcut(
@@ -36,6 +41,164 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     companion object {
         private const val TAG = "ConversationsApi"
         private const val MAX_SHORTCUTS = 4
+    }
+    
+    /**
+     * Build a Person object from notification data (like the working Gomuks app)
+     */
+    suspend fun buildPersonFromNotificationData(
+        userId: String,
+        displayName: String,
+        avatarUrl: String?
+    ): CorePerson {
+        val userAvatar = downloadAvatar(avatarUrl)
+        return CorePerson.Builder()
+            .setKey(userId)
+            .setName(displayName)
+            .setUri("matrix:u/${userId.substring(1)}")
+            .setIcon(if (userAvatar != null) IconCompat.createWithAdaptiveBitmap(userAvatar) else null)
+            .build()
+    }
+    
+    /**
+     * Download avatar using existing MediaCache infrastructure
+     */
+    private suspend fun downloadAvatar(avatarUrl: String?): Bitmap? = withContext(Dispatchers.IO) {
+        Log.d(TAG, "downloadAvatar called with: $avatarUrl")
+        
+        if (avatarUrl.isNullOrEmpty()) {
+            Log.w(TAG, "Avatar URL is null or empty, returning null")
+            return@withContext null
+        }
+        
+        return@withContext try {
+            // Check if we have a cached version first
+            val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+            
+            if (cachedFile != null) {
+                Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
+                return@withContext BitmapFactory.decodeFile(cachedFile.absolutePath)
+            }
+            
+            // Convert MXC URL to HTTP URL
+            val httpUrl = when {
+                avatarUrl.startsWith("mxc://") -> {
+                    AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
+                }
+                avatarUrl.startsWith("_gomuks/") -> {
+                    "$homeserverUrl/$avatarUrl"
+                }
+                else -> {
+                    avatarUrl
+                }
+            }
+            
+            if (httpUrl == null) {
+                Log.e(TAG, "Failed to convert avatar URL to HTTP URL: $avatarUrl")
+                return@withContext null
+            }
+            
+            Log.d(TAG, "Downloading and caching avatar from: $httpUrl")
+            
+            // Download and cache using existing MediaCache infrastructure
+            val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+            
+            if (downloadedFile != null) {
+                Log.d(TAG, "Successfully downloaded and cached avatar: ${downloadedFile.absolutePath}")
+                BitmapFactory.decodeFile(downloadedFile.absolutePath)
+            } else {
+                Log.e(TAG, "Failed to download avatar")
+                null
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception during avatar download: $avatarUrl", e)
+            null
+        }
+    }
+    
+    /**
+     * Get circular bitmap (exactly like working Gomuks app)
+     */
+    private fun getCircularBitmap(bitmap: Bitmap?): Bitmap? {
+        if (bitmap == null) return null
+        val size = Math.min(bitmap.width, bitmap.height)
+        val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(output)
+        val paint = android.graphics.Paint()
+        val rect = android.graphics.Rect(0, 0, size, size)
+        val rectF = android.graphics.RectF(rect)
+        val radius = size / 2f
+        paint.isAntiAlias = true
+        canvas.drawARGB(0, 0, 0, 0)
+        canvas.drawCircle(radius, radius, radius, paint)
+        paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
+        canvas.drawBitmap(bitmap, null, rect, paint)
+        return output
+    }
+    
+    /**
+     * Create or update room shortcut (exactly like working Gomuks app)
+     */
+    suspend fun createOrUpdateRoomShortcut(
+        roomId: String,
+        roomName: String,
+        roomAvatarUrl: String?,
+        senderName: String
+    ) {
+        try {
+            val isGroupRoom = roomName != senderName
+            
+            // Create intent for the room
+            val roomIntent = Intent(context, MainActivity::class.java).apply {
+                setAction(Intent.ACTION_VIEW)
+                setData(Uri.parse("matrix:roomid/${roomId.substring(1)}"))
+            }
+            
+            // Download room avatar with authentication using gomuks_auth cookie
+            val roomAvatar = downloadAvatar(roomAvatarUrl)
+            val circularRoomAvatar = getCircularBitmap(roomAvatar)
+            val shortcutIcon = if (circularRoomAvatar != null) {
+                IconCompat.createWithBitmap(circularRoomAvatar)
+            } else {
+                IconCompat.createWithResource(context, R.drawable.ic_matrix_notification)
+            }
+            
+            // Create shortcut for the room
+            val shortcut = ShortcutInfoCompat.Builder(context, roomId)
+                .setShortLabel(roomName)
+                .setLongLabel("$roomName ${if (isGroupRoom) "" else " (💬)"}")
+                .setIcon(shortcutIcon)
+                .setIntent(roomIntent)
+                .setCategories(setOf("android.shortcut.conversation"))
+                .setIsConversation()
+                .setLongLived(true)
+                .build()
+            
+            // Add or update the shortcut
+            try {
+                // Remove any previous shortcut with the same id (for icon update)
+                ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(roomId))
+                // Add the updated shortcut
+                ShortcutManagerCompat.pushDynamicShortcut(context, shortcut)
+                Log.d(TAG, "Created/updated shortcut for room: $roomName")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to create shortcut for room: $roomName", e)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating room shortcut", e)
+        }
+    }
+    
+    /**
+     * Remove room shortcut when notifications are dismissed
+     */
+    fun removeRoomShortcut(roomId: String) {
+        try {
+            ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(roomId))
+            Log.d(TAG, "Removed shortcut for room: $roomId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to remove shortcut for room: $roomId", e)
+        }
     }
     
     /**
@@ -130,6 +293,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             .setIntent(intent)
             .setRank(0) // Simple rank, can be improved later
             .setCategories(setOf("android.shortcut.conversation")) // Use standard conversation category
+            .setIsConversation()
+            .setLongLived(true)
             .build()
     }
     

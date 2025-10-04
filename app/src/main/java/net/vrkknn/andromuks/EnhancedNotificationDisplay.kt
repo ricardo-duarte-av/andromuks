@@ -19,6 +19,8 @@ import androidx.core.app.NotificationCompat.MessagingStyle
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,10 +35,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     
     companion object {
         private const val TAG = "EnhancedNotificationDisplay"
-        private const val DM_CHANNEL_ID = "matrix_direct_messages"
-        private const val GROUP_CHANNEL_ID = "matrix_group_messages"
-        private const val DM_CHANNEL_NAME = "Direct Messages"
-        private const val GROUP_CHANNEL_NAME = "Group Messages"
+    private const val DM_CHANNEL_ID = "matrix_direct_messages"
+    private const val GROUP_CHANNEL_ID = "matrix_group_messages"
+    private const val CONVERSATION_CHANNEL_ID = "conversation_channel"
+    private const val DM_CHANNEL_NAME = "Direct Messages"
+    private const val GROUP_CHANNEL_NAME = "Group Messages"
         private const val CHANNEL_DESCRIPTION = "Notifications for Matrix messages and events"
         
         // Notification action constants
@@ -83,15 +86,67 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             notificationManager.createNotificationChannel(dmChannel)
             notificationManager.createNotificationChannel(groupChannel)
+            
+            // Single conversation channel for all conversations
+            val conversationChannel = NotificationChannel(
+                CONVERSATION_CHANNEL_ID,
+                "Conversations",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Conversation notifications"
+                enableVibration(true)
+                enableLights(true)
+            }
+            
+            notificationManager.createNotificationChannel(conversationChannel)
         }
     }
+    
+    /**
+     * Creates a conversation channel for a specific room/conversation
+     * This is required for per-conversation notification settings
+     */
+    private fun createConversationChannel(roomId: String, roomName: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            
+            // Create a unique channel ID for this conversation
+            val conversationChannelId = "${CONVERSATION_CHANNEL_ID}_$roomId"
+            
+            // Create native Android notification channel
+            val channel = NotificationChannel(
+                conversationChannelId,
+                roomName,
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Notifications for $roomName"
+                enableVibration(true)
+                enableLights(true)
+            }
+            
+            // Set conversation ID for Android 11+ conversation features
+            channel.setConversationId(CONVERSATION_CHANNEL_ID, roomId)
+            
+            // Create the channel
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+    
+    
+    /**
+     * Remove room shortcut when notifications are dismissed
+     */
+    fun removeRoomShortcut(roomId: String) {
+        conversationsApi?.removeRoomShortcut(roomId)
+    }
+
+
     
     /**
      * Show enhanced notification with conversation features
      */
     suspend fun showEnhancedNotification(notificationData: NotificationData) {
         try {
-            val notificationId = generateNotificationId(notificationData.roomId)
 
             val isGroupRoom = notificationData.roomName != notificationData.senderDisplayName
             // Load avatars asynchronously
@@ -122,8 +177,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setIcon(senderAvatarIcon)
                 .build()
             
-            // Create messaging style
-            val messagingStyle = NotificationCompat.MessagingStyle(conversationPerson)
+            // Create messaging style - extract existing style if available
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notifID = notificationData.roomId.hashCode()
+            
+            val messagingStyle = (notificationManager.activeNotifications.lastOrNull { it.id == notifID }?.let {
+                MessagingStyle.extractMessagingStyleFromNotification(it.notification)
+            } ?: NotificationCompat.MessagingStyle(conversationPerson))
                 .setConversationTitle(
                     if (isGroupRoom) notificationData.roomName else null
                 )
@@ -135,12 +195,23 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     )
                 )
             
-            // Determine which channel to use based on notification type
-            val channelId = when (notificationData.type) {
-                "dm" -> DM_CHANNEL_ID
-                "group" -> GROUP_CHANNEL_ID
-                else -> DM_CHANNEL_ID // Default to DM channel
+            // Create or update conversation shortcut for this room using ConversationsApi
+            conversationsApi?.let { api ->
+                CoroutineScope(Dispatchers.IO).launch {
+                    api.createOrUpdateRoomShortcut(
+                        notificationData.roomId,
+                        notificationData.roomName ?: notificationData.roomId.substringAfterLast(":"),
+                        notificationData.roomAvatarUrl,
+                        notificationData.senderDisplayName ?: notificationData.sender.substringAfterLast(":")
+                    )
+                }
             }
+            
+            // Create conversation channel for this room
+            createConversationChannel(notificationData.roomId, notificationData.roomName ?: notificationData.roomId.substringAfterLast(":"))
+            
+            // Use conversation channel for all notifications
+            val channelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
             
             // Create main notification
             val notification = NotificationCompat.Builder(context, channelId)
@@ -154,7 +225,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setGroup(notificationData.roomId) // Group by room
                 .setGroupSummary(false)
-                .setShortcutId(notificationData.roomId) // Important for Conversations settings
+                .setShortcutId(notificationData.roomId) // Link to the room shortcut for per-room settings
                 .setLargeIcon(circularRoomAvatar) // Use circular room avatar as large icon
                 .apply {
                     // Add reply action
@@ -166,7 +237,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             // Show notification
             val notificationManager = NotificationManagerCompat.from(context)
-            notificationManager.notify(notificationId, notification)
+            notificationManager.notify(notifID, notification)
             
             // Update conversation shortcuts
             updateConversationShortcuts(notificationData)
@@ -348,10 +419,25 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     private suspend fun loadAvatarBitmap(avatarUrl: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
-            // Convert URL to proper format and get HTTP URL
+            Log.d(TAG, "loadAvatarBitmap called with: $avatarUrl")
+            
+            if (avatarUrl.isEmpty()) {
+                Log.w(TAG, "Avatar URL is empty, returning null")
+                return@withContext null
+            }
+            
+            // Check if we have a cached version first
+            val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+            
+            if (cachedFile != null) {
+                Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
+                return@withContext android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
+            }
+            
+            // Convert MXC URL to HTTP URL
             val httpUrl = when {
                 avatarUrl.startsWith("mxc://") -> {
-                    AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl) ?: return@withContext null
+                    AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
                 }
                 avatarUrl.startsWith("_gomuks/") -> {
                     "$homeserverUrl/$avatarUrl"
@@ -361,34 +447,25 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 }
             }
             
-            Log.d(TAG, "Loading avatar bitmap from: $httpUrl")
-            
-            // Try to get from cache first
-            val cachedFile = if (avatarUrl.startsWith("mxc://")) {
-                MediaCache.getCachedFile(context, avatarUrl)
-            } else null
-            
-            if (cachedFile != null && cachedFile.exists()) {
-                Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
-                return@withContext android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
+            if (httpUrl == null) {
+                Log.e(TAG, "Failed to convert avatar URL to HTTP URL: $avatarUrl")
+                return@withContext null
             }
             
-            // Download and cache if not cached
-            val connection = URL(httpUrl).openConnection()
-            connection.setRequestProperty("Cookie", "gomuks_auth=$authToken")
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
-            val inputStream = connection.getInputStream()
-            val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+            Log.d(TAG, "Downloading and caching avatar from: $httpUrl")
             
-            // Cache the downloaded avatar if it's an MXC URL
-            if (bitmap != null && avatarUrl.startsWith("mxc://")) {
-                MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+            // Download and cache using existing MediaCache infrastructure
+            val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+            
+            if (downloadedFile != null) {
+                Log.d(TAG, "Successfully downloaded and cached avatar: ${downloadedFile.absolutePath}")
+                android.graphics.BitmapFactory.decodeFile(downloadedFile.absolutePath)
+            } else {
+                Log.e(TAG, "Failed to download avatar")
+                null
             }
-            
-            bitmap
-        } catch (e: IOException) {
-            Log.e(TAG, "Error loading avatar bitmap: $avatarUrl", e)
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception during avatar download: $avatarUrl", e)
             null
         }
     }
@@ -410,12 +487,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         }
     }
     
-    /**
-     * Generate notification ID
-     */
-    private fun generateNotificationId(roomId: String): Int {
-        return roomId.hashCode().let { kotlin.math.abs(it) }
-    }
     
     /**
      * Show group summary notification

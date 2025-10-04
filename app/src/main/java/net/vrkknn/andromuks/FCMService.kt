@@ -290,6 +290,9 @@ class FCMService : FirebaseMessagingService() {
                 // Dismiss the notification for this room
                 val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
                 notificationManager.cancel(roomId.hashCode())
+                
+                // Remove room shortcut when notifications are dismissed
+                enhancedNotificationDisplay?.removeRoomShortcut(roomId)
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error handling dismiss notification", e)
