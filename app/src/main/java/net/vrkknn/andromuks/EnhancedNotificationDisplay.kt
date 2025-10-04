@@ -91,6 +91,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     suspend fun showEnhancedNotification(notificationData: NotificationData) {
         try {
             val notificationId = generateNotificationId(notificationData.roomId)
+
+            val isGroupRoom = notificationData.roomName != notificationData.sender.name
             
             // Load avatars asynchronously
             val roomAvatarIcon = notificationData.roomAvatarUrl?.let { 
@@ -122,11 +124,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             // Create messaging style
             val messagingStyle = NotificationCompat.MessagingStyle(conversationPerson)
-                .setConversationTitle(notificationData.roomName)
+                .setConversationTitle(
+                    if (isGroupRoom) notificationData.roomName else null
+                )
                 .addMessage(
-                    notificationData.body,
-                    notificationData.timestamp ?: System.currentTimeMillis(),
-                    messagePerson
+                    MessagingStyle.Message(
+                        notificationData.body,
+                        notificationData.timestamp ?: System.currentTimeMillis(),
+                        if (isGroupRoom) messagePerson else null
+                    )
                 )
             
             // Determine which channel to use based on notification type
