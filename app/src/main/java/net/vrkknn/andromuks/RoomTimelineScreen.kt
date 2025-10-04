@@ -443,46 +443,49 @@ fun RoomTimelineScreen(
                             }
                         }
                         
-                        // Reply preview (if replying to a message)
-                        if (replyingToEvent != null) {
-                            ReplyPreviewInput(
-                                event = replyingToEvent!!,
-                                userProfileCache = userProfileCache.mapValues { (_, pair) ->
-                                    MemberProfile(pair.first, pair.second)
-                                },
-                                onCancel = { replyingToEvent = null }
-                            )
-                        }
-                        
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Pill-shaped text input
+                            // Pill-shaped text input with optional reply preview inside
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                shape = RoundedCornerShape(50.dp), // Pill shape with semicircular ends
+                                shape = RoundedCornerShape(16.dp), // Rounded rectangle that works both as pill and expanded
                                 tonalElevation = 1.dp,
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .height(56.dp) // Increased height for better text visibility
+                                modifier = Modifier.weight(1f)
                             ) {
-                                TextField(
-                                    value = draft,
-                                    onValueChange = { draft = it },
-                                    placeholder = { Text("Type a message...") },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp), // Increased height to match Surface
-                                    singleLine = true,
-                                    colors = androidx.compose.material3.TextFieldDefaults.colors(
-                                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                                        disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+                                Column {
+                                    // Reply preview inside the text input (if replying)
+                                    if (replyingToEvent != null) {
+                                        ReplyPreviewInput(
+                                            event = replyingToEvent!!,
+                                            userProfileCache = userProfileCache.mapValues { (_, pair) ->
+                                                MemberProfile(pair.first, pair.second)
+                                            },
+                                            onCancel = { replyingToEvent = null },
+                                            appViewModel = appViewModel,
+                                            roomId = roomId
+                                        )
+                                    }
+                                    
+                                    // Text input field
+                                    TextField(
+                                        value = draft,
+                                        onValueChange = { draft = it },
+                                        placeholder = { Text("Type a message...") },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(56.dp),
+                                        singleLine = true,
+                                        colors = androidx.compose.material3.TextFieldDefaults.colors(
+                                            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                                            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                                            disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+                                        )
                                     )
-                                )
+                                }
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             // Circular send button
@@ -1310,11 +1313,15 @@ fun TimelineEventItem(
                             ) {
                                 // Display encrypted text message with nested reply structure
                                 if (replyInfo != null && originalEvent != null) {
-                                    Surface(
+                                    MessageBubbleWithMenu(
+                                        event = event,
+                                        bubbleColor = bubbleColor,
+                                        bubbleShape = bubbleShape,
                                         modifier = Modifier.padding(top = 4.dp),
-                                        color = bubbleColor,
-                                        shape = bubbleShape,
-                                        tonalElevation = 2.dp
+                                        onReply = { onReply(event) },
+                                        onReact = { /* TODO: Implement reaction */ },
+                                        onEdit = { /* TODO: Implement edit */ },
+                                        onDelete = { /* TODO: Implement delete */ }
                                     ) {
                                         Column(
                                             modifier = Modifier.padding(12.dp)
@@ -1360,11 +1367,15 @@ fun TimelineEventItem(
                                     }
                                 } else {
                                     // Regular encrypted message bubble
-                                    Surface(
+                                    MessageBubbleWithMenu(
+                                        event = event,
+                                        bubbleColor = bubbleColor,
+                                        bubbleShape = bubbleShape,
                                         modifier = Modifier.padding(top = 4.dp),
-                                        color = bubbleColor,
-                                        shape = bubbleShape,
-                                        tonalElevation = 2.dp
+                                        onReply = { onReply(event) },
+                                        onReact = { /* TODO: Implement reaction */ },
+                                        onEdit = { /* TODO: Implement edit */ },
+                                        onDelete = { /* TODO: Implement delete */ }
                                     ) {
                                         SmartMessageText(
                                             body = finalBody,

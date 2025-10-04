@@ -789,6 +789,7 @@ class AppViewModel : ViewModel() {
     private val leaveRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val outgoingRequests = mutableMapOf<Int, String>() // requestId -> roomId (for all outgoing requests)
     private val fcmRegistrationRequests = mutableMapOf<Int, String>() // requestId -> "fcm_registration"
+    private val eventRequests = mutableMapOf<Int, (TimelineEvent?) -> Unit>() // requestId -> callback
     
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
@@ -1170,6 +1171,8 @@ class AppViewModel : ViewModel() {
             handleLeaveRoomResponse(requestId, data)
         } else if (fcmRegistrationRequests.containsKey(requestId)) {
             handleFCMRegistrationResponse(requestId, data)
+        } else if (eventRequests.containsKey(requestId)) {
+            handleEventResponse(requestId, data)
         } else if (outgoingRequests.containsKey(requestId)) {
             android.util.Log.d("Andromuks", "AppViewModel: Routing to handleOutgoingRequestResponse")
             handleOutgoingRequestResponse(requestId, data)
@@ -1619,6 +1622,24 @@ class AppViewModel : ViewModel() {
             }
             else -> {
                 android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleMessageResponse: ${data::class.java.simpleName}")
+            }
+        }
+    }
+    
+    private fun handleEventResponse(requestId: Int, data: Any) {
+        val callback = eventRequests.remove(requestId) ?: return
+        android.util.Log.d("Andromuks", "AppViewModel: Handling event response for requestId: $requestId")
+        
+        when (data) {
+            is JSONObject -> {
+                // Create TimelineEvent from the response
+                val event = TimelineEvent.fromJson(data)
+                android.util.Log.d("Andromuks", "AppViewModel: Retrieved event: ${event.eventId}, type: ${event.type}, sender: ${event.sender}")
+                callback(event)
+            }
+            else -> {
+                android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleEventResponse: ${data::class.java.simpleName}")
+                callback(null)
             }
         }
     }
@@ -2484,6 +2505,48 @@ class AppViewModel : ViewModel() {
         val jsonString = json.toString()
         android.util.Log.d("Andromuks", "AppViewModel: Sending command: $jsonString")
         ws.send(jsonString)
+    }
+    
+    /**
+     * Send get_event command to retrieve full event details from server
+     * Useful when we only have partial event information (e.g., for reply previews)
+     */
+    fun getEvent(roomId: String, eventId: String, callback: (TimelineEvent?) -> Unit) {
+        android.util.Log.d("Andromuks", "AppViewModel: getEvent called for roomId: '$roomId', eventId: '$eventId'")
+        
+        // Check if WebSocket is connected
+        if (webSocket == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
+            restartWebSocketConnection()
+            
+            // Wait a bit for reconnection and then retry
+            CoroutineScope(Dispatchers.Main).launch {
+                delay(2000) // Wait 2 seconds for reconnection
+                if (webSocket != null) {
+                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket reconnected, retrying getEvent")
+                    getEvent(roomId, eventId, callback)
+                } else {
+                    android.util.Log.e("Andromuks", "AppViewModel: WebSocket reconnection failed, cannot get event")
+                    callback(null)
+                }
+            }
+            return
+        }
+        
+        val eventRequestId = requestIdCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: Generated request_id for get_event: $eventRequestId")
+        
+        // Store the callback to handle the response
+        eventRequests[eventRequestId] = callback
+        
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "event_id" to eventId
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: get_event with data: $commandData")
+        sendWebSocketCommand("get_event", eventRequestId, commandData)
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $eventRequestId")
     }
 
     // Settings functions

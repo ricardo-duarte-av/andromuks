@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -218,28 +219,116 @@ fun Modifier.messageBubbleMenu(
 fun ReplyPreviewInput(
     event: TimelineEvent,
     userProfileCache: Map<String, MemberProfile>,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
+    roomId: String? = null
 ) {
     val profile = userProfileCache[event.sender]
-    val displayName = profile?.displayName ?: event.sender
+    var displayName = profile?.displayName ?: event.sender
     
-    // Get message content
-    val content = event.content ?: event.decrypted
-    val body = content?.optString("body", "") ?: ""
-    val msgType = content?.optString("msgtype", "") ?: ""
+    // If we don't have a display name, try to fetch it
+    var isFetchingProfile by remember { mutableStateOf(false) }
+    
+    if (profile?.displayName == null && appViewModel != null && !isFetchingProfile) {
+        LaunchedEffect(event.sender) {
+            android.util.Log.d("ReplyPreviewInput", "No display name for ${event.sender}, fetching profile...")
+            isFetchingProfile = true
+            appViewModel.requestUserProfile(event.sender)
+            // Note: The profile will be updated via the profile cache when the response comes back
+        }
+    }
+    
+    // Get message content - handle both encrypted and non-encrypted messages
+    var content = event.content ?: event.decrypted
+    var body = content?.optString("body", "") ?: ""
+    var msgType = content?.optString("msgtype", "") ?: ""
+    
+    // If content is null OR we're missing important fields (body, msgType), fetch the full event
+    var isFetchingEvent by remember { mutableStateOf(false) }
+    var fetchedEvent by remember { mutableStateOf<TimelineEvent?>(null) }
+    
+    val needsFullEvent = content == null || body.isBlank() || msgType.isBlank()
+    
+    if (needsFullEvent && appViewModel != null && roomId != null && !isFetchingEvent && fetchedEvent == null) {
+        LaunchedEffect(event.eventId) {
+            android.util.Log.d("ReplyPreviewInput", "Missing content/body/msgType, fetching full event details for: ${event.eventId}")
+            android.util.Log.d("ReplyPreviewInput", "Content null: ${content == null}, Body blank: ${body.isBlank()}, MsgType blank: ${msgType.isBlank()}")
+            isFetchingEvent = true
+            appViewModel.getEvent(roomId, event.eventId) { fullEvent ->
+                isFetchingEvent = false
+                if (fullEvent != null) {
+                    android.util.Log.d("ReplyPreviewInput", "Successfully fetched event: ${fullEvent.eventId}")
+                    fetchedEvent = fullEvent
+                } else {
+                    android.util.Log.w("ReplyPreviewInput", "Failed to fetch event: ${event.eventId}")
+                }
+            }
+        }
+    }
+    
+    // Use fetched event data if available
+    if (fetchedEvent != null) {
+        android.util.Log.d("ReplyPreviewInput", "Processing fetched event data...")
+        android.util.Log.d("ReplyPreviewInput", "Fetched event type: '${fetchedEvent!!.type}'")
+        
+        // Choose content source based on event type
+        content = when (fetchedEvent!!.type) {
+            "m.room.encrypted" -> {
+                android.util.Log.d("ReplyPreviewInput", "Event is encrypted, using decrypted content")
+                fetchedEvent!!.decrypted
+            }
+            "m.room.message" -> {
+                android.util.Log.d("ReplyPreviewInput", "Event is message, using content")
+                fetchedEvent!!.content
+            }
+            else -> {
+                android.util.Log.d("ReplyPreviewInput", "Unknown event type, trying decrypted then content")
+                fetchedEvent!!.decrypted ?: fetchedEvent!!.content
+            }
+        }
+        
+        android.util.Log.d("ReplyPreviewInput", "Selected content: $content")
+        
+        body = content?.optString("body", "") ?: ""
+        msgType = content?.optString("msgtype", "") ?: ""
+        
+        android.util.Log.d("ReplyPreviewInput", "Fetched body: '$body'")
+        android.util.Log.d("ReplyPreviewInput", "Fetched msgType: '$msgType'")
+        
+        // Update display name if we got a full event with sender info
+        if (fetchedEvent!!.sender.isNotBlank()) {
+            val fetchedProfile = userProfileCache[fetchedEvent!!.sender]
+            if (fetchedProfile?.displayName != null) {
+                // The display name will be updated in the UI automatically
+            }
+        }
+    }
+    
+    // Final debug logging
+    android.util.Log.d("ReplyPreviewInput", "=== FINAL VALUES ===")
+    android.util.Log.d("ReplyPreviewInput", "Event sender: ${event.sender}")
+    android.util.Log.d("ReplyPreviewInput", "Profile: $profile")
+    android.util.Log.d("ReplyPreviewInput", "Display name: $displayName")
+    android.util.Log.d("ReplyPreviewInput", "Final body: '$body'")
+    android.util.Log.d("ReplyPreviewInput", "Final msgType: '$msgType'")
+    android.util.Log.d("ReplyPreviewInput", "Content null: ${content == null}")
+    android.util.Log.d("ReplyPreviewInput", "Fetched event null: ${fetchedEvent == null}")
+    android.util.Log.d("ReplyPreviewInput", "Is fetching event: $isFetchingEvent")
+    android.util.Log.d("ReplyPreviewInput", "Is fetching profile: $isFetchingProfile")
     
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(8.dp),
-        tonalElevation = 1.dp
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(bottom = 4.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+        shape = RoundedCornerShape(12.dp),
+        tonalElevation = 0.dp
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(12.dp),
+                .padding(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Reply icon
@@ -262,6 +351,7 @@ fun ReplyPreviewInput(
                 )
                 Text(
                     text = when {
+                        isFetchingEvent -> "Loading message..."
                         msgType == "m.image" -> "📷 Image"
                         msgType == "m.video" -> "🎥 Video"
                         msgType == "m.file" -> "📎 File"
