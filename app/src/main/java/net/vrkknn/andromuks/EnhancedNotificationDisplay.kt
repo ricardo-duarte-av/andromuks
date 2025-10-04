@@ -174,17 +174,17 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     /**
      * Create room intent with Matrix URI scheme
      */
-    private fun createRoomIntent(data: NotificationData): PendingIntent {
+    private fun createRoomIntent(notificationData: NotificationData): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
-            data = android.net.Uri.parse("matrix:roomid/${data.roomId.substring(1)}${data.eventId?.let { "/e/${it.substring(1)}" } ?: ""}")
-            putExtra("room_id", data.roomId)
-            putExtra("event_id", data.eventId)
+            data = android.net.Uri.parse("matrix:roomid/${notificationData.roomId.substring(1)}${notificationData.eventId?.let { "/e/${it.substring(1)}" } ?: ""}")
+            putExtra("room_id", notificationData.roomId)
+            putExtra("event_id", notificationData.eventId)
         }
         
         return PendingIntent.getActivity(
             context,
-            data.roomId.hashCode(),
+            notificationData.roomId.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
