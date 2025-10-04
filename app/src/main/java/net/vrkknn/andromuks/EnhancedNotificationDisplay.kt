@@ -6,6 +6,12 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.Rect
+import android.graphics.RectF
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -260,7 +266,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         return try {
             val bitmap = loadAvatarBitmap(avatarUrl)
             if (bitmap != null) {
-                IconCompat.createWithBitmap(bitmap)
+                val circularBitmap = createCircularBitmap(bitmap)
+                IconCompat.createWithBitmap(circularBitmap)
             } else {
                 Log.w(TAG, "Failed to load avatar bitmap, using default icon")
                 IconCompat.createWithResource(context, R.mipmap.ic_launcher)
@@ -269,6 +276,39 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             Log.e(TAG, "Error loading avatar as icon: $avatarUrl", e)
             IconCompat.createWithResource(context, R.mipmap.ic_launcher)
         }
+    }
+    
+    /**
+     * Convert a bitmap to a circular shape
+     */
+    private fun createCircularBitmap(bitmap: Bitmap): Bitmap {
+        val size = minOf(bitmap.width, bitmap.height)
+        val circularBitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(circularBitmap)
+        
+        val paint = Paint().apply {
+            isAntiAlias = true
+        }
+        
+        val rect = Rect(0, 0, size, size)
+        val rectF = RectF(rect)
+        
+        // Draw circle
+        canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
+        
+        // Set paint to use source bitmap
+        paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+        
+        // Scale and draw the bitmap to fit the circle
+        val scaledBitmap = Bitmap.createScaledBitmap(bitmap, size, size, true)
+        canvas.drawBitmap(scaledBitmap, 0f, 0f, paint)
+        
+        // Recycle the scaled bitmap to free memory
+        if (scaledBitmap != bitmap) {
+            scaledBitmap.recycle()
+        }
+        
+        return circularBitmap
     }
     
     /**
