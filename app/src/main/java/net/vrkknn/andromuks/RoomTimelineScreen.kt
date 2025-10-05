@@ -178,6 +178,30 @@ fun RoomTimelineScreen(
     val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
     
+    // Get the room item to check if it's a DM and get proper display name
+    val roomItem = appViewModel.getRoomById(roomId)
+    val isDirectMessage = roomItem?.isDirectMessage ?: false
+    
+    // For DM rooms, calculate the display name from member profiles
+    val displayRoomName = if (isDirectMessage && roomItem != null) {
+        val memberMap = appViewModel.getMemberMap(roomId)
+        val otherParticipant = memberMap.keys.find { it != myUserId }
+        val otherProfile = otherParticipant?.let { memberMap[it] }
+        otherProfile?.displayName ?: otherParticipant ?: roomName
+    } else {
+        roomName
+    }
+    
+    // For DM rooms, get the avatar from the other participant
+    val displayAvatarUrl = if (isDirectMessage && roomItem != null) {
+        val memberMap = appViewModel.getMemberMap(roomId)
+        val otherParticipant = memberMap.keys.find { it != myUserId }
+        val otherProfile = otherParticipant?.let { memberMap[it] }
+        otherProfile?.avatarUrl
+    } else {
+        appViewModel.currentRoomState?.avatarUrl
+    }
+    
     Log.d("Andromuks", "RoomTimelineScreen: Timeline events count: ${timelineEvents.size}, isLoading: $isLoading")
 
     // Reply state
@@ -384,7 +408,8 @@ fun RoomTimelineScreen(
                 // 1. Room Header (always visible at the top, below status bar)
                 RoomHeader(
                     roomState = appViewModel.currentRoomState,
-                    fallbackName = roomName,
+                    fallbackName = displayRoomName,
+                    fallbackAvatarUrl = displayAvatarUrl,
                     homeserverUrl = appViewModel.homeserverUrl,
                     authToken = appViewModel.authToken
                 )
@@ -1566,6 +1591,7 @@ fun TimelineEventItem(
 fun RoomHeader(
     roomState: RoomState?,
     fallbackName: String,
+    fallbackAvatarUrl: String? = null,
     homeserverUrl: String,
     authToken: String
 ) {
@@ -1588,7 +1614,7 @@ fun RoomHeader(
         ) {
             // Room avatar
             AvatarImage(
-                mxcUrl = roomState?.avatarUrl,
+                mxcUrl = roomState?.avatarUrl ?: fallbackAvatarUrl,
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
                 fallbackText = roomState?.name ?: fallbackName,
