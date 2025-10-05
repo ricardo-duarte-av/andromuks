@@ -1109,6 +1109,9 @@ class AppViewModel : ViewModel() {
         eventChainMap.clear()
         editEventsMap.clear()
         
+        // Clear message reactions when switching rooms
+        messageReactions = emptyMap()
+        
         // Ensure member cache exists for this room
         if (roomMemberCache[roomId] == null) {
             roomMemberCache[roomId] = mutableMapOf()
