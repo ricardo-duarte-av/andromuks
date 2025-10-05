@@ -16,6 +16,10 @@ import androidx.core.app.Person as CorePerson
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
+import coil.ImageLoader
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
+import coil.request.ImageRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -36,7 +40,7 @@ data class ConversationShortcut(
     val timestamp: Long
 )
 
-class ConversationsApi(private val context: Context, private val homeserverUrl: String, private val authToken: String) {
+class ConversationsApi(private val context: Context, private val homeserverUrl: String, private val authToken: String, private val realMatrixHomeserverUrl: String = "") {
     
     companion object {
         private const val TAG = "ConversationsApi"
@@ -61,7 +65,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     }
     
     /**
-     * Download avatar using existing MediaCache infrastructure
+     * Download avatar using Coil with MediaCache integration
      */
     private suspend fun downloadAvatar(avatarUrl: String?): Bitmap? = withContext(Dispatchers.IO) {
         Log.d(TAG, "downloadAvatar called with: $avatarUrl")
@@ -75,39 +79,68 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             // Check if we have a cached version first
             val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
             
-            if (cachedFile != null) {
+            val imageUrl = if (cachedFile != null) {
                 Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
-                return@withContext BitmapFactory.decodeFile(cachedFile.absolutePath)
-            }
-            
-            // Convert MXC URL to HTTP URL
-            val httpUrl = when {
-                avatarUrl.startsWith("mxc://") -> {
-                    AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
-                }
-                avatarUrl.startsWith("_gomuks/") -> {
-                    "$homeserverUrl/$avatarUrl"
-                }
-                else -> {
-                    avatarUrl
-                }
-            }
-            
-            if (httpUrl == null) {
-                Log.e(TAG, "Failed to convert avatar URL to HTTP URL: $avatarUrl")
-                return@withContext null
-            }
-            
-            Log.d(TAG, "Downloading and caching avatar from: $httpUrl")
-            
-            // Download and cache using existing MediaCache infrastructure
-            val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
-            
-            if (downloadedFile != null) {
-                Log.d(TAG, "Successfully downloaded and cached avatar: ${downloadedFile.absolutePath}")
-                BitmapFactory.decodeFile(downloadedFile.absolutePath)
+                cachedFile.absolutePath
             } else {
-                Log.e(TAG, "Failed to download avatar")
+                // Convert MXC URL to HTTP URL
+                val httpUrl = when {
+                    avatarUrl.startsWith("mxc://") -> {
+                        AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
+                    }
+                    avatarUrl.startsWith("_gomuks/") -> {
+                        "$homeserverUrl/$avatarUrl"
+                    }
+                    else -> {
+                        avatarUrl
+                    }
+                }
+                
+                if (httpUrl == null) {
+                    Log.e(TAG, "Failed to convert avatar URL to HTTP URL: $avatarUrl")
+                    return@withContext null
+                }
+                
+                Log.d(TAG, "Downloading and caching avatar from: $httpUrl")
+                
+                // Download and cache using existing MediaCache infrastructure
+                val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+                
+                if (downloadedFile != null) {
+                    Log.d(TAG, "Successfully downloaded and cached avatar: ${downloadedFile.absolutePath}")
+                    downloadedFile.absolutePath
+                } else {
+                    Log.e(TAG, "Failed to download avatar")
+                    return@withContext null
+                }
+            }
+            
+            // Create ImageLoader with GIF support
+            val imageLoader = ImageLoader.Builder(context)
+                .components {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        add(ImageDecoderDecoder.Factory())
+                    } else {
+                        add(GifDecoder.Factory())
+                    }
+                }
+                .build()
+            
+            // Load bitmap using Coil
+            val request = ImageRequest.Builder(context)
+                .data(imageUrl)
+                .apply {
+                    if (cachedFile == null) {
+                        addHeader("Cookie", "gomuks_auth=$authToken")
+                    }
+                }
+                .build()
+            
+            val drawable = imageLoader.execute(request).drawable
+            if (drawable is android.graphics.drawable.BitmapDrawable) {
+                drawable.bitmap
+            } else {
+                Log.w(TAG, "Failed to get bitmap from Coil drawable")
                 null
             }
         } catch (e: Exception) {
@@ -117,11 +150,20 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     }
     
     /**
-     * Get circular bitmap (exactly like working Gomuks app)
+     * Get circular bitmap from first frame of GIF or static image
      */
     private fun getCircularBitmap(bitmap: Bitmap?): Bitmap? {
         if (bitmap == null) return null
-        val size = Math.min(bitmap.width, bitmap.height)
+        
+        // Convert hardware bitmap to software bitmap if needed
+        val softwareBitmap = if (bitmap.config == Bitmap.Config.HARDWARE) {
+            Log.d(TAG, "Converting hardware bitmap to software bitmap")
+            bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        } else {
+            bitmap
+        }
+        
+        val size = Math.min(softwareBitmap.width, softwareBitmap.height)
         val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(output)
         val paint = android.graphics.Paint()
@@ -132,8 +174,119 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         canvas.drawARGB(0, 0, 0, 0)
         canvas.drawCircle(radius, radius, radius, paint)
         paint.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
-        canvas.drawBitmap(bitmap, null, rect, paint)
+        canvas.drawBitmap(softwareBitmap, null, rect, paint)
+        
+        // Clean up the software bitmap if we created a copy
+        if (softwareBitmap != bitmap) {
+            softwareBitmap.recycle()
+        }
+        
         return output
+    }
+    
+    /**
+     * Get first frame of GIF or static image as circular bitmap
+     */
+    private suspend fun getCircularBitmapFromUrl(avatarUrl: String?): Bitmap? = withContext(Dispatchers.IO) {
+        if (avatarUrl.isNullOrEmpty()) return@withContext null
+        
+        try {
+            // Check if we have a cached version first
+            val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+            
+            val imageUrl = if (cachedFile != null) {
+                Log.d(TAG, "Using cached file for circular bitmap: ${cachedFile.absolutePath}")
+                cachedFile.absolutePath
+            } else {
+                // Convert MXC URL to HTTP URL
+                val httpUrl = when {
+                    avatarUrl.startsWith("mxc://") -> {
+                        AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
+                    }
+                    avatarUrl.startsWith("_gomuks/") -> {
+                        "$homeserverUrl/$avatarUrl"
+                    }
+                    else -> {
+                        avatarUrl
+                    }
+                }
+                
+                if (httpUrl == null) {
+                    Log.e(TAG, "Failed to convert avatar URL to HTTP URL: $avatarUrl")
+                    return@withContext null
+                }
+                
+                // Download and cache using existing MediaCache infrastructure
+                val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+                
+                if (downloadedFile != null) {
+                    Log.d(TAG, "Successfully downloaded and cached avatar: ${downloadedFile.absolutePath}")
+                    downloadedFile.absolutePath
+                } else {
+                    Log.e(TAG, "Failed to download avatar")
+                    return@withContext null
+                }
+            }
+            
+            // Create ImageLoader with GIF support
+            val imageLoader = ImageLoader.Builder(context)
+                .components {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        add(ImageDecoderDecoder.Factory())
+                    } else {
+                        add(GifDecoder.Factory())
+                    }
+                }
+                .build()
+            
+            // Load first frame using Coil
+            val request = ImageRequest.Builder(context)
+                .data(imageUrl)
+                .apply {
+                    if (cachedFile == null) {
+                        addHeader("Cookie", "gomuks_auth=$authToken")
+                    }
+                }
+                .build()
+            
+            val drawable = imageLoader.execute(request).drawable
+            Log.d(TAG, "Loaded drawable type: ${drawable?.javaClass?.simpleName ?: "null"}")
+            val bitmap = when (drawable) {
+                is android.graphics.drawable.BitmapDrawable -> {
+                    Log.d(TAG, "Got BitmapDrawable, bitmap size: ${drawable.bitmap.width}x${drawable.bitmap.height}")
+                    drawable.bitmap
+                }
+                is android.graphics.drawable.AnimationDrawable -> {
+                    Log.d(TAG, "Got AnimationDrawable with ${drawable.numberOfFrames} frames")
+                    // For animated GIFs, get the first frame
+                    if (drawable.numberOfFrames > 0) {
+                        val firstFrame = drawable.getFrame(0)
+                        if (firstFrame is android.graphics.drawable.BitmapDrawable) {
+                            Log.d(TAG, "Got first frame as BitmapDrawable, bitmap size: ${firstFrame.bitmap.width}x${firstFrame.bitmap.height}")
+                            firstFrame.bitmap
+                        } else {
+                            Log.w(TAG, "First frame is not a BitmapDrawable")
+                            null
+                        }
+                    } else {
+                        Log.w(TAG, "AnimationDrawable has no frames")
+                        null
+                    }
+                }
+                else -> {
+                    Log.w(TAG, "Unexpected drawable type: ${drawable?.javaClass?.simpleName ?: "null"}")
+                    null
+                }
+            }
+            
+            // Convert to circular bitmap
+            val circularBitmap = getCircularBitmap(bitmap)
+            Log.d(TAG, "Circular bitmap result: ${circularBitmap != null}")
+            circularBitmap
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception during circular bitmap creation: $avatarUrl", e)
+            null
+        }
     }
     
     /**
@@ -148,25 +301,35 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         try {
             val isGroupRoom = roomName != senderName
             
-            // Create intent for the room
+            // Create intent for the room with proper matrix: URI
+            val matrixUri = if (realMatrixHomeserverUrl.isNotEmpty()) {
+                val serverHost = Uri.parse(realMatrixHomeserverUrl).host ?: ""
+                "matrix:roomid/${roomId.substring(1)}?via=$serverHost"
+            } else {
+                "matrix:roomid/${roomId.substring(1)}"
+            }
+            Log.d(TAG, "Creating room shortcut with matrix URI: $matrixUri")
             val roomIntent = Intent(context, MainActivity::class.java).apply {
                 setAction(Intent.ACTION_VIEW)
-                setData(Uri.parse("matrix:roomid/${roomId.substring(1)}"))
+                setData(Uri.parse(matrixUri))
             }
             
-            // Download room avatar with authentication using gomuks_auth cookie
-            val roomAvatar = downloadAvatar(roomAvatarUrl)
-            val circularRoomAvatar = getCircularBitmap(roomAvatar)
+            // Download room avatar and get first frame as circular bitmap
+            Log.d(TAG, "Creating shortcut for room: $roomName, avatarUrl: $roomAvatarUrl")
+            val circularRoomAvatar = getCircularBitmapFromUrl(roomAvatarUrl)
+            Log.d(TAG, "Circular room avatar result: ${circularRoomAvatar != null}")
             val shortcutIcon = if (circularRoomAvatar != null) {
+                Log.d(TAG, "Using room avatar for shortcut")
                 IconCompat.createWithBitmap(circularRoomAvatar)
             } else {
+                Log.d(TAG, "Using fallback icon for shortcut")
                 IconCompat.createWithResource(context, R.drawable.ic_matrix_notification)
             }
             
             // Create shortcut for the room
             val shortcut = ShortcutInfoCompat.Builder(context, roomId)
                 .setShortLabel(roomName)
-                .setLongLabel("$roomName ${if (isGroupRoom) "" else " (💬)"}")
+                .setLongLabel(roomName)
                 .setIcon(shortcutIcon)
                 .setIntent(roomIntent)
                 .setCategories(setOf("android.shortcut.conversation"))
@@ -211,6 +374,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
      */
     fun updateConversationShortcuts(rooms: List<RoomItem>) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            Log.d(TAG, "updateConversationShortcuts called with ${rooms.size} rooms, realMatrixHomeserverUrl: $realMatrixHomeserverUrl")
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val shortcuts = createShortcutsFromRooms(rooms)
@@ -271,23 +435,37 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
      */
     @RequiresApi(Build.VERSION_CODES.N_MR1)
     private suspend fun createShortcutInfo(shortcut: ConversationShortcut): ShortcutInfo {
+        // Create proper matrix: URI with via parameter
+        val matrixUri = if (realMatrixHomeserverUrl.isNotEmpty()) {
+            val serverHost = Uri.parse(realMatrixHomeserverUrl).host ?: ""
+            "matrix:roomid/${shortcut.roomId.substring(1)}?via=$serverHost"
+        } else {
+            "matrix:roomid/${shortcut.roomId.substring(1)}"
+        }
+        Log.d(TAG, "Creating conversation shortcut with matrix URI: $matrixUri")
         val intent = android.content.Intent(context, MainActivity::class.java).apply {
             action = android.content.Intent.ACTION_VIEW
-            data = android.net.Uri.parse("matrix:roomid/${shortcut.roomId.substring(1)}")
+            data = android.net.Uri.parse(matrixUri)
             putExtra("room_id", shortcut.roomId)
             flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         
         val icon = if (shortcut.roomAvatarUrl != null) {
             try {
-                loadBitmapFromUrl(shortcut.roomAvatarUrl)?.let { bitmap ->
+                Log.d(TAG, "Creating shortcut icon for room: ${shortcut.roomName}, avatarUrl: ${shortcut.roomAvatarUrl}")
+                getCircularBitmapFromUrl(shortcut.roomAvatarUrl)?.let { bitmap ->
+                    Log.d(TAG, "Using room avatar for shortcut icon")
                     Icon.createWithAdaptiveBitmap(bitmap)
-                } ?: Icon.createWithResource(context, R.drawable.ic_matrix_notification)
+                } ?: run {
+                    Log.d(TAG, "Room avatar is null, using fallback icon")
+                    Icon.createWithResource(context, R.drawable.ic_matrix_notification)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading avatar for shortcut", e)
                 Icon.createWithResource(context, R.drawable.ic_matrix_notification)
             }
         } else {
+            Log.d(TAG, "No room avatar URL, using fallback icon")
             Icon.createWithResource(context, R.drawable.ic_matrix_notification)
         }
         
@@ -339,50 +517,77 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     }
     
     /**
-     * Load bitmap from URL (handles both MXC and HTTP URLs)
+     * Load bitmap from URL using Coil with MediaCache integration
      */
     private suspend fun loadBitmapFromUrl(url: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
-            // Convert URL to proper format and get HTTP URL
-            val httpUrl = when {
-                url.startsWith("mxc://") -> {
-                    AvatarUtils.mxcToHttpUrl(url, homeserverUrl) ?: return@withContext null
-                }
-                url.startsWith("_gomuks/") -> {
-                    "$homeserverUrl/$url"
-                }
-                else -> {
-                    url
-                }
-            }
-            
-            Log.d(TAG, "Loading bitmap from: $httpUrl")
-            
-            // Try to get from cache first
+            // Check if we have a cached version first
             val cachedFile = if (url.startsWith("mxc://")) {
                 MediaCache.getCachedFile(context, url)
             } else null
             
-            if (cachedFile != null && cachedFile.exists()) {
+            val imageUrl = if (cachedFile != null && cachedFile.exists()) {
                 Log.d(TAG, "Using cached bitmap file: ${cachedFile.absolutePath}")
-                return@withContext BitmapFactory.decodeFile(cachedFile.absolutePath)
+                cachedFile.absolutePath
+            } else {
+                // Convert URL to proper format and get HTTP URL
+                val httpUrl = when {
+                    url.startsWith("mxc://") -> {
+                        AvatarUtils.mxcToHttpUrl(url, homeserverUrl) ?: return@withContext null
+                    }
+                    url.startsWith("_gomuks/") -> {
+                        "$homeserverUrl/$url"
+                    }
+                    else -> {
+                        url
+                    }
+                }
+                
+                Log.d(TAG, "Loading bitmap from: $httpUrl")
+                
+                // Download and cache if not cached
+                if (url.startsWith("mxc://")) {
+                    val downloadedFile = MediaCache.downloadAndCache(context, url, httpUrl, authToken)
+                    if (downloadedFile != null) {
+                        downloadedFile.absolutePath
+                    } else {
+                        Log.e(TAG, "Failed to download and cache bitmap")
+                        return@withContext null
+                    }
+                } else {
+                    httpUrl
+                }
             }
             
-            // Download and cache if not cached
-            val connection = URL(httpUrl).openConnection()
-            connection.setRequestProperty("Cookie", "gomuks_auth=$authToken")
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
-            val inputStream = connection.getInputStream()
-            val bitmap = BitmapFactory.decodeStream(inputStream)
+            // Create ImageLoader with GIF support
+            val imageLoader = ImageLoader.Builder(context)
+                .components {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        add(ImageDecoderDecoder.Factory())
+                    } else {
+                        add(GifDecoder.Factory())
+                    }
+                }
+                .build()
             
-            // Cache the downloaded bitmap if it's an MXC URL
-            if (bitmap != null && url.startsWith("mxc://")) {
-                MediaCache.downloadAndCache(context, url, httpUrl, authToken)
+            // Load bitmap using Coil
+            val request = ImageRequest.Builder(context)
+                .data(imageUrl)
+                .apply {
+                    if (cachedFile == null) {
+                        addHeader("Cookie", "gomuks_auth=$authToken")
+                    }
+                }
+                .build()
+            
+            val drawable = imageLoader.execute(request).drawable
+            if (drawable is android.graphics.drawable.BitmapDrawable) {
+                drawable.bitmap
+            } else {
+                Log.w(TAG, "Failed to get bitmap from Coil drawable")
+                null
             }
-            
-            bitmap
-        } catch (e: IOException) {
+        } catch (e: Exception) {
             Log.e(TAG, "Error loading bitmap from URL: $url", e)
             null
         }

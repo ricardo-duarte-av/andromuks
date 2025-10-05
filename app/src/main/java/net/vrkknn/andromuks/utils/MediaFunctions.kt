@@ -43,7 +43,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import android.os.Build
 import coil.compose.AsyncImage
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
+import coil.ImageLoader
 import java.io.File
 import java.security.MessageDigest
 import java.net.URL
@@ -377,6 +381,19 @@ private fun MediaContent(
                 val context = LocalContext.current
                 val coroutineScope = rememberCoroutineScope()
                 
+                // Create ImageLoader with GIF support
+                val imageLoader = remember {
+                    ImageLoader.Builder(context)
+                        .components {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                add(ImageDecoderDecoder.Factory())
+                            } else {
+                                add(GifDecoder.Factory())
+                            }
+                        }
+                        .build()
+                }
+                
                 // Check if we have a cached version first
                 val cachedFile = remember(mediaMessage.url) {
                     MediaCache.getCachedFile(context, mediaMessage.url)
@@ -463,6 +480,7 @@ private fun MediaContent(
                             .memoryCachePolicy(CachePolicy.ENABLED)
                             .diskCachePolicy(CachePolicy.ENABLED)
                             .build(),
+                        imageLoader = imageLoader,
                         contentDescription = mediaMessage.filename,
                         modifier = Modifier
                             .fillMaxSize()
@@ -586,6 +604,19 @@ private fun ImageViewerDialog(
             // Image with zoom and pan
             val context = LocalContext.current
             
+            // Create ImageLoader with GIF support
+            val imageLoader = remember {
+                ImageLoader.Builder(context)
+                    .components {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            add(ImageDecoderDecoder.Factory())
+                        } else {
+                            add(GifDecoder.Factory())
+                        }
+                    }
+                    .build()
+            }
+            
             // Check if we have a cached version first
             val cachedFile = remember(mediaMessage.url) {
                 MediaCache.getCachedFile(context, mediaMessage.url)
@@ -617,6 +648,7 @@ private fun ImageViewerDialog(
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
+                imageLoader = imageLoader,
                 contentDescription = mediaMessage.filename,
                 modifier = Modifier
                     .fillMaxSize()

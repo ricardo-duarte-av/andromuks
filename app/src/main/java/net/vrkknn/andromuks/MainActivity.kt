@@ -41,10 +41,14 @@ class MainActivity : ComponentActivity() {
                         // This restores previously saved user profile data from disk
                         appViewModel.loadCachedProfiles(this)
                         
-                        // Check if we were launched from a conversation shortcut
+                        // Check if we were launched from a conversation shortcut or matrix: URI
                         val roomId = intent.getStringExtra("room_id")
-                        if (roomId != null) {
-                            appViewModel.setPendingRoomNavigation(roomId)
+                        val matrixUri = intent.data
+                        Log.d("Andromuks", "MainActivity: onCreate - roomId extra: $roomId, matrixUri: $matrixUri")
+                        val extractedRoomId = roomId ?: extractRoomIdFromMatrixUri(matrixUri)
+                        Log.d("Andromuks", "MainActivity: onCreate - extractedRoomId: $extractedRoomId")
+                        if (extractedRoomId != null) {
+                            appViewModel.setPendingRoomNavigation(extractedRoomId)
                         }
                         
                         // Register broadcast receiver for notification actions
@@ -154,8 +158,13 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         
-        // Handle room navigation from notification clicks
-        intent.getStringExtra("room_id")?.let { roomId ->
+        // Handle room navigation from notification clicks or matrix: URIs
+        val roomId = intent.getStringExtra("room_id")
+        val matrixUri = intent.data
+        Log.d("Andromuks", "MainActivity: onNewIntent - roomId extra: $roomId, matrixUri: $matrixUri")
+        val extractedRoomId = roomId ?: extractRoomIdFromMatrixUri(matrixUri)
+        Log.d("Andromuks", "MainActivity: onNewIntent - extractedRoomId: $extractedRoomId")
+        extractedRoomId?.let { roomId ->
             if (::appViewModel.isInitialized) {
                 Log.d("Andromuks", "MainActivity: onNewIntent - Navigating to room: $roomId")
                 appViewModel.setPendingRoomNavigation(roomId)
@@ -194,6 +203,44 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.w("Andromuks", "MainActivity: Error unregistering broadcast receivers", e)
         }
+    }
+    
+    /**
+     * Extract room ID from matrix: URI
+     * Examples:
+     * - matrix:roomid/bDYZaOWoWwefjYdoRz:aguiarvieira.pt?via=aguiarvieira.pt
+     * - matrix:roomid/bDYZaOWoWwefjYdoRz:aguiarvieira.pt
+     */
+    private fun extractRoomIdFromMatrixUri(uri: android.net.Uri?): String? {
+        Log.d("Andromuks", "MainActivity: extractRoomIdFromMatrixUri called with uri: $uri")
+        if (uri == null) {
+            Log.d("Andromuks", "MainActivity: URI is null")
+            return null
+        }
+        if (uri.scheme != "matrix") {
+            Log.d("Andromuks", "MainActivity: URI scheme is not 'matrix', got: ${uri.scheme}")
+            return null
+        }
+        
+        val path = uri.path
+        Log.d("Andromuks", "MainActivity: URI path: $path")
+        if (path == null || !path.startsWith("/roomid/")) {
+            Log.d("Andromuks", "MainActivity: Path is null or doesn't start with '/roomid/'")
+            return null
+        }
+        
+        // Extract room ID from path: /roomid/bDYZaOWoWwefjYdoRz:aguiarvieira.pt
+        val roomIdWithoutExclamation = path.removePrefix("/roomid/")
+        Log.d("Andromuks", "MainActivity: Room ID without exclamation: $roomIdWithoutExclamation")
+        if (roomIdWithoutExclamation.isNotEmpty()) {
+            // Add back the ! prefix to make it a proper room ID
+            val fullRoomId = "!$roomIdWithoutExclamation"
+            Log.d("Andromuks", "MainActivity: Full room ID: $fullRoomId")
+            return fullRoomId
+        }
+        
+        Log.d("Andromuks", "MainActivity: Room ID without exclamation is empty")
+        return null
     }
 }
 

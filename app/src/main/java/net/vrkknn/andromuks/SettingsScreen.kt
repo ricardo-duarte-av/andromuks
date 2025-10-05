@@ -76,6 +76,40 @@ fun SettingsScreen(
                 }
             }
 
+            // Keep WebSocket Opened Setting
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Keep WebSocket opened",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Maintain WebSocket connection in background to receive real-time updates",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    Switch(
+                        checked = appViewModel.keepWebSocketOpened,
+                        onCheckedChange = { appViewModel.toggleKeepWebSocketOpened() }
+                    )
+                }
+            }
+
             // About Section
             Text(
                 text = "About",

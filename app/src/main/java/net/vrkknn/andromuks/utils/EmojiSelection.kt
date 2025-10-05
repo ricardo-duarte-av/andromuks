@@ -36,7 +36,6 @@ import coil.decode.ImageDecoderDecoder
 import coil.request.ImageRequest
 import coil.request.CachePolicy
 import coil.ImageLoader
-import net.vrkknn.andromuks.utils.AvatarUtils.loadBitmapFromUrl
 import net.vrkknn.andromuks.utils.MediaUtils
 
 /**

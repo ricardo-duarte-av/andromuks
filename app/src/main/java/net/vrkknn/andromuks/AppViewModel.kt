@@ -42,6 +42,9 @@ class AppViewModel : ViewModel() {
         private set
     var authToken by mutableStateOf("")
         private set
+    var realMatrixHomeserverUrl by mutableStateOf("")
+        private set
+    private var appContext: Context? = null
 
     // Auth/client state
     var currentUserId by mutableStateOf("")
@@ -55,6 +58,8 @@ class AppViewModel : ViewModel() {
 
     // Settings
     var showUnprocessedEvents by mutableStateOf(true)
+        private set
+    var keepWebSocketOpened by mutableStateOf(false)
         private set
 
 
@@ -299,8 +304,9 @@ class AppViewModel : ViewModel() {
     }
     
     fun initializeFCM(context: Context, homeserverUrl: String = "", authToken: String = "") {
+        appContext = context
         fcmNotificationManager = FCMNotificationManager(context)
-        conversationsApi = ConversationsApi(context, homeserverUrl, authToken)
+        conversationsApi = ConversationsApi(context, homeserverUrl, authToken, realMatrixHomeserverUrl)
         webClientPushIntegration = WebClientPushIntegration(context)
     }
     
@@ -462,9 +468,13 @@ class AppViewModel : ViewModel() {
             // Store device ID for FCM registration
             webClientPushIntegration?.storeDeviceId(device)
         }
+        // Store the real Matrix homeserver URL for matrix: URI handling
+        if (!homeserver.isNullOrBlank()) {
+            realMatrixHomeserverUrl = homeserver
+            android.util.Log.d("Andromuks", "AppViewModel: Set realMatrixHomeserverUrl: $homeserver")
+        }
         // IMPORTANT: Do NOT override gomuks backend URL with Matrix homeserver URL from client_state
         // The backend URL is set via AuthCheck from SharedPreferences (e.g., https://webmuks.aguiarvieira.pt)
-        // if (!homeserver.isNullOrBlank()) updateHomeserverUrl(homeserver)
         // Optionally, fetch profile for current user
         if (!currentUserId.isNullOrBlank()) {
             requestUserProfile(currentUserId)
@@ -678,16 +688,11 @@ class AppViewModel : ViewModel() {
         // Check if current room needs timeline update
         checkAndUpdateCurrentRoomTimeline(syncJson)
         
-        // Temporary workaround: navigate after 3 sync messages if we have rooms
-        if (syncMessageCount >= 3 && roomMap.isNotEmpty() && !spacesLoaded) {
-            android.util.Log.d("Andromuks", "AppViewModel: Workaround - navigating after $syncMessageCount sync messages")
+        // Set spacesLoaded after 3 sync messages, but don't trigger navigation yet
+        // Navigation will be triggered by onInitComplete() after all initialization is done
+        if (syncMessageCount >= 3 && !spacesLoaded) {
+            android.util.Log.d("Andromuks", "AppViewModel: Setting spacesLoaded after $syncMessageCount sync messages")
             spacesLoaded = true
-            if (onNavigateToRoomList != null) {
-                onNavigateToRoomList?.invoke()
-            } else {
-                android.util.Log.d("Andromuks", "AppViewModel: Navigation callback not set yet, marking as pending")
-                pendingNavigation = true
-            }
         }
     }
     
@@ -697,6 +702,18 @@ class AppViewModel : ViewModel() {
         
         // Now that all rooms are loaded, populate space edges
         populateSpaceEdges()
+        
+        // Update ConversationsApi with the real homeserver URL and refresh shortcuts
+        // This happens after init_complete when we have all the data we need
+        if (realMatrixHomeserverUrl.isNotEmpty() && appContext != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Updating ConversationsApi with real homeserver URL after init_complete")
+            // Create new ConversationsApi instance with real homeserver URL
+            conversationsApi = ConversationsApi(appContext!!, homeserverUrl, authToken, realMatrixHomeserverUrl)
+            // Refresh shortcuts with the new homeserver URL and populated rooms
+            if (roomMap.isNotEmpty()) {
+                conversationsApi?.updateConversationShortcuts(roomMap.values.toList())
+            }
+        }
         
         // Register FCM with Gomuks Backend if we should (time-based check)
         if (shouldRegisterPush()) {
@@ -825,6 +842,12 @@ class AppViewModel : ViewModel() {
         appInvisibleJob?.cancel()
         appInvisibleJob = null
         
+        // If keepWebSocketOpened is enabled, the service should be maintaining the connection
+        if (keepWebSocketOpened) {
+            android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened is enabled, service should maintain connection")
+            return
+        }
+        
         // If WebSocket is not connected, restart it
         if (webSocket == null) {
             android.util.Log.d("Andromuks", "AppViewModel: WebSocket not connected, restarting...")
@@ -838,6 +861,12 @@ class AppViewModel : ViewModel() {
     fun onAppBecameInvisible() {
         android.util.Log.d("Andromuks", "AppViewModel: App became invisible")
         isAppVisible = false
+        
+        // If keepWebSocketOpened is enabled, don't start shutdown timer
+        if (keepWebSocketOpened) {
+            android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened is enabled, not starting shutdown timer")
+            return
+        }
         
         // Cancel any existing shutdown job
         appInvisibleJob?.cancel()
@@ -862,6 +891,12 @@ class AppViewModel : ViewModel() {
      * gracefully while preserving resources.
      */
     fun suspendApp() {
+        // Don't suspend if keepWebSocketOpened is enabled
+        if (keepWebSocketOpened) {
+            android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened is enabled, not suspending app")
+            return
+        }
+        
         android.util.Log.d("Andromuks", "AppViewModel: App manually suspended, starting 15-second timer to close websocket")
         onAppBecameInvisible() // This will start the 15-second timer
     }
@@ -871,6 +906,13 @@ class AppViewModel : ViewModel() {
      */
     private fun shutdownWebSocket() {
         android.util.Log.d("Andromuks", "AppViewModel: Shutting down WebSocket connection")
+        
+        // Don't shutdown if keepWebSocketOpened is enabled
+        if (keepWebSocketOpened) {
+            android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened is enabled, not shutting down")
+            return
+        }
+        
         clearWebSocket()
     }
     
@@ -2883,5 +2925,50 @@ class AppViewModel : ViewModel() {
     // Settings functions
     fun toggleShowUnprocessedEvents() {
         showUnprocessedEvents = !showUnprocessedEvents
+    }
+
+    fun toggleKeepWebSocketOpened() {
+        keepWebSocketOpened = !keepWebSocketOpened
+        android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened setting changed to: $keepWebSocketOpened")
+        
+        if (keepWebSocketOpened) {
+            // Start the WebSocket service to maintain connection
+            startWebSocketService()
+        } else {
+            // Stop the WebSocket service
+            stopWebSocketService()
+        }
+    }
+
+    private fun startWebSocketService() {
+        appContext?.let { context ->
+            val intent = android.content.Intent(context, WebSocketService::class.java)
+            context.startForegroundService(intent)
+            
+            // Bind to the service to pass connection parameters
+            context.bindService(intent, object : android.content.ServiceConnection {
+                override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
+                    val webSocketService = (service as WebSocketService.WebSocketBinder).getService()
+                    webSocketService.setConnectionParameters(
+                        realMatrixHomeserverUrl,
+                        authToken,
+                        this@AppViewModel
+                    )
+                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket service connected and parameters set")
+                }
+                
+                override fun onServiceDisconnected(name: android.content.ComponentName?) {
+                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket service disconnected")
+                }
+            }, Context.BIND_AUTO_CREATE)
+        }
+    }
+
+    private fun stopWebSocketService() {
+        appContext?.let { context ->
+            val intent = android.content.Intent(context, WebSocketService::class.java)
+            context.stopService(intent)
+            android.util.Log.d("Andromuks", "AppViewModel: WebSocket service stopped")
+        }
     }
 }

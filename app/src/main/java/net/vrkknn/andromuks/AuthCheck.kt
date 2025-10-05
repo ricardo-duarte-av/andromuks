@@ -44,6 +44,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             // Set up navigation callback BEFORE connecting websocket
             appViewModel.setNavigationCallback {
                 android.util.Log.d("Andromuks", "AuthCheck: Navigation callback triggered - navigating to room_list")
+                android.util.Log.d("Andromuks", "AuthCheck: Navigation callback - pendingRoomId: ${appViewModel.getPendingRoomNavigation()}")
                 appViewModel.isLoading = false
                 // Register FCM notifications after successful auth
                 appViewModel.registerFCMNotifications()
@@ -53,7 +54,19 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 if (pendingRoomId != null) {
                     android.util.Log.d("Andromuks", "AuthCheck: Navigating to pending room: $pendingRoomId")
                     appViewModel.clearPendingRoomNavigation()
-                    navController.navigate("room_timeline/$pendingRoomId")
+                    
+                    // Check if the room exists in our room list
+                    val roomExists = appViewModel.getRoomById(pendingRoomId) != null
+                    android.util.Log.d("Andromuks", "AuthCheck: Room exists check - roomExists: $roomExists, roomId: $pendingRoomId")
+                    if (roomExists) {
+                        android.util.Log.d("Andromuks", "AuthCheck: Room exists, navigating to room timeline")
+                        navController.navigate("room_timeline/$pendingRoomId")
+                    } else {
+                        android.util.Log.w("Andromuks", "AuthCheck: Room $pendingRoomId not found in room list, showing toast and going to room list")
+                        // Show toast and navigate to room list
+                        android.widget.Toast.makeText(context, "Room $pendingRoomId not found. Please try again later.", android.widget.Toast.LENGTH_LONG).show()
+                        navController.navigate("room_list")
+                    }
                 } else {
                     navController.navigate("room_list")
                 }

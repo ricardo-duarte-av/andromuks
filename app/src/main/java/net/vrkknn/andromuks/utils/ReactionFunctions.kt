@@ -33,7 +33,6 @@ import coil.request.CachePolicy
 import coil.ImageLoader
 import net.vrkknn.andromuks.MessageReaction
 import net.vrkknn.andromuks.ReactionEvent
-import net.vrkknn.andromuks.utils.AvatarUtils.loadBitmapFromUrl
 import net.vrkknn.andromuks.utils.MediaUtils
 
 /**

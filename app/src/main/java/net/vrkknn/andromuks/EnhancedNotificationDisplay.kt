@@ -51,7 +51,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         private const val KEY_REPLY_TEXT = "key_reply_text"
     }
     
-    private val conversationsApi = ConversationsApi(context, homeserverUrl, authToken)
+    private val conversationsApi = ConversationsApi(context, homeserverUrl, authToken, "")
     
     /**
      * Create notification channel
