@@ -77,6 +77,7 @@ import net.vrkknn.andromuks.utils.MessageTextWithMentions
 import net.vrkknn.andromuks.utils.SmartMessageText
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
+import net.vrkknn.andromuks.utils.EmojiSelectionDialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -181,6 +182,10 @@ fun RoomTimelineScreen(
 
     // Reply state
     var replyingToEvent by remember { mutableStateOf<TimelineEvent?>(null) }
+    
+    // Emoji selection state
+    var showEmojiSelection by remember { mutableStateOf(false) }
+    var reactingToEvent by remember { mutableStateOf<TimelineEvent?>(null) }
 
     // Build user profile cache from m.room.member events
     val userProfileCache = remember(timelineEvents) {
@@ -440,7 +445,11 @@ fun RoomTimelineScreen(
                                                     ).show()
                                                 }
                                             },
-                                            onReply = { event -> replyingToEvent = event }
+                                            onReply = { event -> replyingToEvent = event },
+                                            onReact = { event -> 
+                                                reactingToEvent = event
+                                                showEmojiSelection = true
+                                            }
                                         )
                                     }
                                 }
@@ -563,6 +572,24 @@ fun RoomTimelineScreen(
             }
         }
     }
+    
+    // Emoji selection dialog
+            if (showEmojiSelection && reactingToEvent != null) {
+                EmojiSelectionDialog(
+                    recentEmojis = appViewModel.recentEmojis,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    onEmojiSelected = { emoji ->
+                        appViewModel.sendReaction(roomId, reactingToEvent!!.eventId, emoji)
+                        showEmojiSelection = false
+                        reactingToEvent = null
+                    },
+                    onDismiss = {
+                        showEmojiSelection = false
+                        reactingToEvent = null
+                    }
+                )
+            }
 }
 
 
@@ -586,7 +613,8 @@ fun TimelineEventItem(
     myUserId: String?,
     appViewModel: AppViewModel? = null,
     onScrollToMessage: (String) -> Unit = {},
-    onReply: (TimelineEvent) -> Unit = {}
+    onReply: (TimelineEvent) -> Unit = {},
+    onReact: (TimelineEvent) -> Unit = {}
 ) {
     val context = LocalContext.current
     
@@ -913,7 +941,7 @@ fun TimelineEventItem(
                                         isMine = actualIsMine,
                                         event = event,
                                         onReply = { onReply(event) },
-                                        onReact = { /* TODO: Implement reaction */ },
+                                        onReact = { onReact(event) },
                                         onEdit = { /* TODO: Implement edit */ },
                                         onDelete = { /* TODO: Implement delete */ }
                                     )
@@ -926,7 +954,7 @@ fun TimelineEventItem(
                                     isMine = actualIsMine,
                                     event = event,
                                     onReply = { onReply(event) },
-                                    onReact = { /* TODO: Implement reaction */ },
+                                    onReact = { onReact(event) },
                                     onEdit = { /* TODO: Implement edit */ },
                                     onDelete = { /* TODO: Implement delete */ }
                                 )
@@ -944,7 +972,9 @@ fun TimelineEventItem(
                                     ) {
                                         ReactionBadges(
                                             eventId = event.eventId,
-                                            reactions = reactions
+                                            reactions = reactions,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken
                                         )
                                     }
                                 }
@@ -1020,7 +1050,7 @@ fun TimelineEventItem(
                                     bubbleShape = bubbleShape,
                                     modifier = Modifier.padding(top = 4.dp),
                                     onReply = { onReply(event) },
-                                    onReact = { /* TODO: Implement reaction */ },
+                                    onReact = { onReact(event) },
                                     onEdit = { /* TODO: Implement edit */ },
                                     onDelete = { /* TODO: Implement delete */ }
                                 ) {
@@ -1074,7 +1104,7 @@ fun TimelineEventItem(
                                     bubbleShape = bubbleShape,
                                     modifier = Modifier.padding(top = 4.dp),
                                     onReply = { onReply(event) },
-                                    onReact = { /* TODO: Implement reaction */ },
+                                    onReact = { onReact(event) },
                                     onEdit = { /* TODO: Implement edit */ },
                                     onDelete = { /* TODO: Implement delete */ }
                                 ) {
@@ -1115,7 +1145,9 @@ fun TimelineEventItem(
                                 ) {
                                     ReactionBadges(
                                         eventId = event.eventId,
-                                        reactions = reactions
+                                        reactions = reactions,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken
                                     )
                                 }
                             }
@@ -1263,7 +1295,7 @@ fun TimelineEventItem(
                                             isEncrypted = true,
                                             event = event,
                                             onReply = { onReply(event) },
-                                            onReact = { /* TODO: Implement reaction */ },
+                                            onReact = { onReact(event) },
                                             onEdit = { /* TODO: Implement edit */ },
                                             onDelete = { /* TODO: Implement delete */ }
                                         )
@@ -1277,7 +1309,7 @@ fun TimelineEventItem(
                                         isEncrypted = true,
                                         event = event,
                                         onReply = { onReply(event) },
-                                        onReact = { /* TODO: Implement reaction */ },
+                                        onReact = { onReact(event) },
                                         onEdit = { /* TODO: Implement edit */ },
                                         onDelete = { /* TODO: Implement delete */ }
                                     )
@@ -1295,7 +1327,9 @@ fun TimelineEventItem(
                                         ) {
                                             ReactionBadges(
                                                 eventId = event.eventId,
-                                                reactions = reactions
+                                                reactions = reactions,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken
                                             )
                                         }
                                     }
@@ -1330,7 +1364,7 @@ fun TimelineEventItem(
                                         bubbleShape = bubbleShape,
                                         modifier = Modifier.padding(top = 4.dp),
                                         onReply = { onReply(event) },
-                                        onReact = { /* TODO: Implement reaction */ },
+                                        onReact = { onReact(event) },
                                         onEdit = { /* TODO: Implement edit */ },
                                         onDelete = { /* TODO: Implement delete */ }
                                     ) {
@@ -1355,7 +1389,9 @@ fun TimelineEventItem(
                                         ) {
                                             ReactionBadges(
                                                 eventId = event.eventId,
-                                                reactions = reactions
+                                                reactions = reactions,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken
                                             )
                                         }
                                     }
@@ -1393,7 +1429,7 @@ fun TimelineEventItem(
                                         bubbleShape = bubbleShape,
                                         modifier = Modifier.padding(top = 4.dp),
                                         onReply = { onReply(event) },
-                                        onReact = { /* TODO: Implement reaction */ },
+                                        onReact = { onReact(event) },
                                         onEdit = { /* TODO: Implement edit */ },
                                         onDelete = { /* TODO: Implement delete */ }
                                     ) {
@@ -1447,7 +1483,7 @@ fun TimelineEventItem(
                                         bubbleShape = bubbleShape,
                                         modifier = Modifier.padding(top = 4.dp),
                                         onReply = { onReply(event) },
-                                        onReact = { /* TODO: Implement reaction */ },
+                                        onReact = { onReact(event) },
                                         onEdit = { /* TODO: Implement edit */ },
                                         onDelete = { /* TODO: Implement delete */ }
                                     ) {
@@ -1488,7 +1524,9 @@ fun TimelineEventItem(
                                     ) {
                                         ReactionBadges(
                                             eventId = event.eventId,
-                                            reactions = reactions
+                                            reactions = reactions,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken
                                         )
                                     }
                                 }
@@ -1503,8 +1541,9 @@ fun TimelineEventItem(
                     }
                 }
                 "m.reaction" -> {
-                    // Reactions are handled as badges below messages, not as separate timeline items
-                    // This case should rarely be hit since reactions are usually processed differently
+                    // Reaction events are processed by processReactionEvent and displayed as badges on messages
+                    // No need to render them as separate timeline items
+                    return
                 }
                 else -> {
                     Text(

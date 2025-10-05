@@ -93,6 +93,10 @@ class AppViewModel : ViewModel() {
     var messageReactions by mutableStateOf(mapOf<String, List<MessageReaction>>())
         private set
     
+    // Recent emojis for reactions
+    var recentEmojis by mutableStateOf(listOf<String>())
+        private set
+    
     // Force recomposition counter
     var updateCounter by mutableStateOf(0)
         private set
@@ -565,10 +569,40 @@ class AppViewModel : ViewModel() {
             }
         }
     }
+    
+    private fun processAccountData(syncJson: JSONObject) {
+        val data = syncJson.optJSONObject("data") ?: return
+        val accountData = data.optJSONObject("account_data") ?: return
+        
+        // Process recent emoji account data
+        val recentEmojiData = accountData.optJSONObject("io.element.recent_emoji")
+        if (recentEmojiData != null) {
+            val content = recentEmojiData.optJSONObject("content")
+            val recentEmojiArray = content?.optJSONArray("recent_emoji")
+            
+            if (recentEmojiArray != null) {
+                val emojis = mutableListOf<String>()
+                for (i in 0 until recentEmojiArray.length()) {
+                    val emojiEntry = recentEmojiArray.optJSONArray(i)
+                    if (emojiEntry != null && emojiEntry.length() >= 1) {
+                        val emoji = emojiEntry.optString(0)
+                        if (emoji.isNotBlank()) {
+                            emojis.add(emoji)
+                        }
+                    }
+                }
+                recentEmojis = emojis
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded ${emojis.size} recent emojis from account_data")
+            }
+        }
+    }
 
     fun updateRoomsFromSyncJson(syncJson: JSONObject) {
         // First, populate member cache from sync data
         populateMemberCacheFromSync(syncJson)
+        
+        // Process account_data for recent emojis
+        processAccountData(syncJson)
         
         val syncResult = SpaceRoomParser.parseSyncUpdate(syncJson, roomMemberCache, this)
         syncMessageCount++
@@ -879,6 +913,7 @@ class AppViewModel : ViewModel() {
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> userId
     private val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    private val reactionRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
     private val pendingInvites = mutableMapOf<String, RoomInvite>() // roomId -> RoomInvite
@@ -1058,36 +1093,7 @@ class AppViewModel : ViewModel() {
         ws.send(payload)
     }
     
-    // Send a reaction and track the response
-    fun sendReaction(roomId: String, eventId: String, key: String) {
-        val ws = webSocket ?: return
-        val reqId = requestIdCounter++
-        
-        // Track this outgoing request
-        trackOutgoingRequest(reqId, roomId)
-        
-        val json = org.json.JSONObject()
-        json.put("command", "send_event")
-        json.put("request_id", reqId)
-        val data = org.json.JSONObject()
-        data.put("room_id", roomId)
-        data.put("type", "m.reaction")
-        val content = org.json.JSONObject()
-        val relatesTo = org.json.JSONObject()
-        relatesTo.put("rel_type", "m.annotation")
-        relatesTo.put("event_id", eventId)
-        relatesTo.put("key", key)
-        content.put("m.relates_to", relatesTo)
-        data.put("content", content)
-        data.put("disable_encryption", false)
-        data.put("synchronous", false)
-        json.put("data", data)
-        
-        val payload = json.toString()
-        android.util.Log.d("Andromuks", "AppViewModel: Sending reaction: $payload")
-        ws.send(payload)
-    }
-    
+   
     fun requestRoomTimeline(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId")
         currentRoomId = roomId
@@ -1198,6 +1204,75 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $messageRequestId")
     }
     
+    fun sendReaction(roomId: String, eventId: String, emoji: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: sendReaction called with roomId: '$roomId', eventId: '$eventId', emoji: '$emoji'")
+        
+        val ws = webSocket ?: return
+        val reactionRequestId = requestIdCounter++
+        
+        // Track this outgoing request
+        reactionRequests[reactionRequestId] = roomId
+        
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "type" to "m.reaction",
+            "content" to mapOf(
+                "m.relates_to" to mapOf(
+                    "rel_type" to "m.annotation",
+                    "event_id" to eventId,
+                    "key" to emoji
+                )
+            ),
+            "disable_encryption" to false,
+            "synchronous" to false
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_event with data: $commandData")
+        sendWebSocketCommand("send_event", reactionRequestId, commandData)
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $reactionRequestId")
+        
+        // Update recent emojis
+        updateRecentEmojis(emoji)
+    }
+    
+    private fun updateRecentEmojis(emoji: String) {
+        val currentEmojis = recentEmojis.toMutableList()
+        
+        // Remove emoji if it already exists
+        currentEmojis.remove(emoji)
+        
+        // Add emoji to the beginning
+        currentEmojis.add(0, emoji)
+        
+        // Keep only the first 20 emojis
+        val updatedEmojis = currentEmojis.take(20)
+        
+        // Update local state
+        recentEmojis = updatedEmojis
+        
+        // Send to server
+        sendAccountDataUpdate(updatedEmojis)
+    }
+    
+    private fun sendAccountDataUpdate(emojis: List<String>) {
+        val ws = webSocket ?: return
+        val accountDataRequestId = requestIdCounter++
+        
+        // Create the recent_emoji array format: [["emoji", 1], ...]
+        val recentEmojiArray = emojis.map { listOf(it, 1) }
+        
+        val commandData = mapOf(
+            "type" to "io.element.recent_emoji",
+            "content" to mapOf(
+                "recent_emoji" to recentEmojiArray
+            )
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: set_account_data with data: $commandData")
+        sendWebSocketCommand("set_account_data", accountDataRequestId, commandData)
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $accountDataRequestId")
+    }
+    
     fun sendReply(roomId: String, text: String, originalEvent: net.vrkknn.andromuks.TimelineEvent) {
         android.util.Log.d("Andromuks", "AppViewModel: sendReply called with roomId: '$roomId', text: '$text', originalEvent: ${originalEvent.eventId}")
         
@@ -1269,6 +1344,8 @@ class AppViewModel : ViewModel() {
             handleRoomStateResponse(requestId, data)
         } else if (messageRequests.containsKey(requestId)) {
             handleMessageResponse(requestId, data)
+        } else if (reactionRequests.containsKey(requestId)) {
+            handleReactionResponse(requestId, data)
         } else if (markReadRequests.containsKey(requestId)) {
             // Handle mark_read response - data should be a boolean
             val success = data as? Boolean ?: false
@@ -1473,16 +1550,28 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: processSendCompleteEvent called")
         try {
             val event = TimelineEvent.fromJson(eventData)
-            android.util.Log.d("Andromuks", "AppViewModel: Created timeline event from send_complete: ${event.eventId}, eventRoomId=${event.roomId}, currentRoomId=$currentRoomId")
+            android.util.Log.d("Andromuks", "AppViewModel: Created timeline event from send_complete: ${event.eventId}, type=${event.type}, eventRoomId=${event.roomId}, currentRoomId=$currentRoomId")
             
-            // Add the event to the timeline if it's for the current room
-            if (event.roomId == currentRoomId) {
-                val currentEvents = timelineEvents.toMutableList()
-                currentEvents.add(event)
-                timelineEvents = currentEvents.sortedBy { it.timestamp }
-                android.util.Log.d("Andromuks", "AppViewModel: Added send_complete event to timeline, total events: ${timelineEvents.size}")
+            if (event.type == "m.reaction") {
+                // Process reaction events to update messageReactions instead of adding to timeline
+                val relatesTo = event.content?.optJSONObject("m.relates_to")
+                val emoji = relatesTo?.optString("key", "") ?: ""
+                val relatesToEventId = relatesTo?.optString("event_id", "") ?: ""
+                
+                if (emoji.isNotBlank() && relatesToEventId.isNotBlank()) {
+                    val reactionEvent = ReactionEvent(
+                        eventId = event.eventId,
+                        sender = event.sender,
+                        emoji = emoji,
+                        relatesToEventId = relatesToEventId,
+                        timestamp = event.timestamp
+                    )
+                    processReactionEvent(reactionEvent)
+                    android.util.Log.d("Andromuks", "AppViewModel: Processed send_complete reaction: $emoji from ${event.sender} to $relatesToEventId")
+                }
             } else {
-                android.util.Log.d("Andromuks", "AppViewModel: send_complete event roomId (${event.roomId}) doesn't match currentRoomId ($currentRoomId), not adding to timeline")
+                // Use addTimelineEvent for non-reaction events
+                addTimelineEvent(event)
             }
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Error parsing send_complete event", e)
@@ -1490,7 +1579,7 @@ class AppViewModel : ViewModel() {
     }
     
     fun addTimelineEvent(event: TimelineEvent) {
-        android.util.Log.d("Andromuks", "AppViewModel: addTimelineEvent called for event: ${event.eventId}, roomId=${event.roomId}, currentRoomId=$currentRoomId")
+        android.util.Log.d("Andromuks", "AppViewModel: addTimelineEvent called for event: ${event.eventId}, type=${event.type}, roomId=${event.roomId}, currentRoomId=$currentRoomId")
         
         // Only add to timeline if it's for the current room
         if (event.roomId == currentRoomId) {
@@ -1767,15 +1856,36 @@ class AppViewModel : ViewModel() {
                 // Create TimelineEvent from the response
                 val event = TimelineEvent.fromJson(data)
                 if (event.type == "m.room.message") {
-                    // Add the sent message to timeline immediately
-                    val updatedTimeline = timelineEvents + event
-                    timelineEvents = updatedTimeline.sortedBy { it.timestamp }
-                    updateCounter++
+                    // Add the sent message to timeline using addTimelineEvent (which checks room ID)
+                    addTimelineEvent(event)
                     android.util.Log.d("Andromuks", "AppViewModel: Added sent message to timeline: ${event.content?.optString("body")}")
                 }
             }
             else -> {
                 android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleMessageResponse: ${data::class.java.simpleName}")
+            }
+        }
+    }
+    
+    private fun handleReactionResponse(requestId: Int, data: Any) {
+        val roomId = reactionRequests.remove(requestId) ?: return
+        android.util.Log.d("Andromuks", "AppViewModel: Handling reaction response for room: $roomId, currentRoomId: $currentRoomId")
+        
+        when (data) {
+            is JSONObject -> {
+                // Create TimelineEvent from the response
+                val event = TimelineEvent.fromJson(data)
+                android.util.Log.d("Andromuks", "AppViewModel: Created reaction event: type=${event.type}, roomId=${event.roomId}, eventId=${event.eventId}")
+                if (event.type == "m.reaction") {
+                    // Don't add response events to timeline - they have temporary transaction IDs
+                    // The real event will come via send_complete with proper Matrix event ID
+                    android.util.Log.d("Andromuks", "AppViewModel: Ignoring reaction response event (temporary ID), waiting for send_complete: ${event.content?.optJSONObject("m.relates_to")?.optString("key")}")
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: Expected m.reaction event but got: ${event.type}")
+                }
+            }
+            else -> {
+                android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleReactionResponse: ${data::class.java.simpleName}")
             }
         }
     }

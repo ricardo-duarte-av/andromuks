@@ -203,12 +203,15 @@ fun connectToWebsocket(
                         val data = jsonObject.optJSONObject("data")
                         val event = data?.optJSONObject("event")
                         Log.d("Andromuks", "NetworkUtils: Processing send_complete, hasEvent=${event != null}")
+                        if (event != null) {
+                            val eventType = event.optString("type", "unknown")
+                            val eventId = event.optString("event_id", "unknown")
+                            Log.d("Andromuks", "NetworkUtils: send_complete event - type: $eventType, eventId: $eventId")
+                        }
                         appViewModel.viewModelScope.launch(Dispatchers.Main) {
                             if (event != null) {
-                                // Process send_complete like sync_complete - add event to timeline
-                                val timelineEvent = TimelineEvent.fromJson(event)
-                                android.util.Log.d("Andromuks", "NetworkUtils: Adding send_complete event to timeline: ${timelineEvent.eventId}")
-                                appViewModel.addTimelineEvent(timelineEvent)
+                                // Use the dedicated processSendCompleteEvent function
+                                appViewModel.processSendCompleteEvent(event)
                             }
                         }
                     }
