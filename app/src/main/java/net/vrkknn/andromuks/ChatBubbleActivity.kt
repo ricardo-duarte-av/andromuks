@@ -127,6 +127,9 @@ class ChatBubbleActivity : ComponentActivity() {
         }
         Log.d("Andromuks", "ChatBubbleActivity: onDestroy - isFinishing: $isFinishing")
         Log.d("Andromuks", "ChatBubbleActivity: onDestroy - isDestroyed: $isDestroyed")
+        
+        // Clean up resources but don't prevent destruction
+        // The Android system will manage the bubble lifecycle
         super.onDestroy()
     }
     

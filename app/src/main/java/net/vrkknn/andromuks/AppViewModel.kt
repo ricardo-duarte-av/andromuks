@@ -313,6 +313,12 @@ class AppViewModel : ViewModel() {
     fun registerFCMNotifications() {
         fcmNotificationManager?.let { manager ->
             if (homeserverUrl.isNotBlank() && authToken.isNotBlank() && currentUserId.isNotBlank()) {
+                // Set callback to register with Gomuks backend when FCM token is ready
+                manager.setOnTokenReadyCallback {
+                    android.util.Log.d("Andromuks", "AppViewModel: FCM token ready, registering with Gomuks Backend")
+                    registerFCMWithGomuksBackend()
+                }
+                
                 manager.initializeAndRegister(homeserverUrl, currentUserId, authToken)
             }
         }
@@ -372,6 +378,12 @@ class AppViewModel : ViewModel() {
      * Register FCM token with Gomuks Backend via WebSocket
      */
     fun registerFCMWithGomuksBackend() {
+        // Check if registration is needed (time-based check)
+        if (!shouldRegisterPush()) {
+            android.util.Log.d("Andromuks", "AppViewModel: FCM registration not needed (too recent)")
+            return
+        }
+        
         val token = getFCMTokenForGomuksBackend()
         val deviceId = webClientPushIntegration?.getDeviceID()
         val encryptionKey = webClientPushIntegration?.getPushEncryptionKey()
@@ -715,13 +727,8 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Register FCM with Gomuks Backend if we should (time-based check)
-        if (shouldRegisterPush()) {
-            android.util.Log.d("Andromuks", "AppViewModel: Registering FCM with Gomuks Backend")
-            registerFCMWithGomuksBackend()
-        } else {
-            android.util.Log.d("Andromuks", "AppViewModel: FCM registration not needed (too recent)")
-        }
+        // FCM registration with Gomuks Backend will be triggered via callback when token is ready
+        // This ensures we don't try to register before the FCM token is available
         
         android.util.Log.d("Andromuks", "AppViewModel: Calling navigation callback (callback is ${if (onNavigateToRoomList != null) "set" else "null"})")
         if (onNavigateToRoomList != null) {

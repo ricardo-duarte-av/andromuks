@@ -26,6 +26,9 @@ class FCMNotificationManager(private val context: Context) {
         private const val KEY_ACCESS_TOKEN = "access_token"
     }
     
+    // Callback to notify when FCM token is ready for Gomuks backend registration
+    private var onTokenReadyCallback: (() -> Unit)? = null
+    
     private val prefs: SharedPreferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
     private val httpClient = OkHttpClient()
     
@@ -53,6 +56,9 @@ class FCMNotificationManager(private val context: Context) {
                     prefs.edit().putString(KEY_FCM_TOKEN, fcmToken).apply()
                     prefs.edit().putBoolean(KEY_BACKEND_REGISTERED, true).apply()
                     Log.d(TAG, "Successfully registered FCM token with backend")
+                    
+                    // Notify that token is ready for Gomuks backend registration
+                    onTokenReadyCallback?.invoke()
                 } else {
                     Log.e(TAG, "Failed to register FCM token with backend")
                 }
@@ -60,6 +66,18 @@ class FCMNotificationManager(private val context: Context) {
             } catch (e: Exception) {
                 Log.e(TAG, "Error initializing FCM", e)
             }
+        }
+    }
+    
+    /**
+     * Set callback to be called when FCM token is ready for Gomuks backend registration
+     */
+    fun setOnTokenReadyCallback(callback: () -> Unit) {
+        onTokenReadyCallback = callback
+        
+        // If token is already available, call the callback immediately
+        if (getTokenForGomuksBackend() != null) {
+            callback()
         }
     }
     
