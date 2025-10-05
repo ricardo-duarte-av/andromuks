@@ -90,9 +90,8 @@ class ChatBubbleActivity : ComponentActivity() {
         Thread.currentThread().stackTrace.take(10).forEach {
             Log.d("Andromuks", "ChatBubbleActivity: onStop -   at $it")
         }
-        // In bubble mode, we want to move to background, not finish
-        Log.d("Andromuks", "ChatBubbleActivity: onStop - moving task to back")
-        moveTaskToBack(true)
+        // Don't automatically move to background - let the user control the bubble
+        Log.d("Andromuks", "ChatBubbleActivity: onStop - NOT moving to background automatically")
     }
     
     override fun onNewIntent(intent: Intent) {
@@ -116,6 +115,7 @@ class ChatBubbleActivity : ComponentActivity() {
             Log.d("Andromuks", "ChatBubbleActivity: finish() -   at $it")
         }
         // Don't call super.finish() to prevent the bubble from closing
+        // Instead, just move to background so it can be reopened
         moveTaskToBack(true)
     }
     
