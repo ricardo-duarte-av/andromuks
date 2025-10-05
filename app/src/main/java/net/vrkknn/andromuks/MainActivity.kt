@@ -31,6 +31,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
         setContent {
             AndromuksTheme {
                 AppNavigation(
@@ -177,22 +178,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onResume() {
-        super.onResume()
-        if (::appViewModel.isInitialized) {
-            appViewModel.onAppBecameVisible()
-        }
-    }
-    
-    override fun onPause() {
-        super.onPause()
-        if (::appViewModel.isInitialized) {
-            appViewModel.onAppBecameInvisible()
-        }
-    }
-    
     override fun onDestroy() {
         super.onDestroy()
+        Log.d("Andromuks", "MainActivity: onDestroy called")
         try {
             if (::notificationBroadcastReceiver.isInitialized) {
                 unregisterReceiver(notificationBroadcastReceiver)
@@ -203,6 +191,36 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.w("Andromuks", "MainActivity: Error unregistering broadcast receivers", e)
         }
+    }
+    
+    override fun onStop() {
+        super.onStop()
+        Log.d("Andromuks", "MainActivity: onStop called")
+    }
+    
+    override fun onPause() {
+        super.onPause()
+        Log.d("Andromuks", "MainActivity: onPause called")
+        if (::appViewModel.isInitialized) {
+            appViewModel.onAppBecameInvisible()
+        }
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        Log.d("Andromuks", "MainActivity: onResume called")
+        if (::appViewModel.isInitialized) {
+            appViewModel.onAppBecameVisible()
+        }
+    }
+    
+    override fun onStart() {
+        super.onStart()
+        Log.d("Andromuks", "MainActivity: onStart called")
+    }
+    
+    override fun onBackPressed() {
+        super.onBackPressed()
     }
     
     /**
@@ -254,6 +272,7 @@ fun AppNavigation(
     
     // Notify the parent about the ViewModel creation
     onViewModelCreated(appViewModel)
+    
     NavHost(
         navController = navController,
         startDestination = "auth_check",

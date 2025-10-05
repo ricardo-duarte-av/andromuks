@@ -49,9 +49,26 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 // Register FCM notifications after successful auth
                 appViewModel.registerFCMNotifications()
                 
-                // Check if we need to navigate to a specific room (from shortcut)
+                // Check if we need to navigate to a specific room (from shortcut or bubble)
                 val pendingRoomId = appViewModel.getPendingRoomNavigation()
-                if (pendingRoomId != null) {
+                val pendingBubbleId = appViewModel.getPendingBubbleNavigation()
+                
+                if (pendingBubbleId != null) {
+                    android.util.Log.d("Andromuks", "AuthCheck: Navigating to pending bubble: $pendingBubbleId")
+                    appViewModel.clearPendingBubbleNavigation()
+                    
+                    // Check if the room exists in our room list
+                    val roomExists = appViewModel.getRoomById(pendingBubbleId) != null
+                    android.util.Log.d("Andromuks", "AuthCheck: Bubble room exists check - roomExists: $roomExists, roomId: $pendingBubbleId")
+                    if (roomExists) {
+                        android.util.Log.d("Andromuks", "AuthCheck: Room exists, navigating to chat bubble")
+                        navController.navigate("chat_bubble/$pendingBubbleId")
+                    } else {
+                        android.util.Log.w("Andromuks", "AuthCheck: Bubble room $pendingBubbleId not found in room list, staying in bubble mode")
+                        // In bubble mode, don't navigate away - just show the bubble with empty state
+                        navController.navigate("chat_bubble/$pendingBubbleId")
+                    }
+                } else if (pendingRoomId != null) {
                     android.util.Log.d("Andromuks", "AuthCheck: Navigating to pending room: $pendingRoomId")
                     appViewModel.clearPendingRoomNavigation()
                     

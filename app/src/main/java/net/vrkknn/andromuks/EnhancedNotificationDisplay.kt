@@ -16,6 +16,7 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationCompat.MessagingStyle
+import androidx.core.app.NotificationCompat.BubbleMetadata
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
@@ -213,6 +214,19 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Use conversation channel for all notifications
             val channelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
             
+            // Create bubble metadata for chat bubbles (Android 11+)
+            val bubbleMetadata = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                BubbleMetadata.Builder(
+                    createBubbleIntent(notificationData),
+                    roomAvatarIcon
+                ).apply {
+                    setAutoExpandBubble(true) // Auto-expand the bubble
+                    setSuppressNotification(true) // Suppress the notification when bubble is active
+                    // Set desired height for the bubble (optional)
+                    setDesiredHeight(600) // 600dp height for the bubble
+                }.build()
+            } else null
+            
             // Create main notification
             val notification = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(R.drawable.ic_matrix_notification)
@@ -228,6 +242,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setShortcutId(notificationData.roomId) // Link to the room shortcut for per-room settings
                 .setLargeIcon(circularRoomAvatar) // Use circular room avatar as large icon
                 .apply {
+                    // Add bubble metadata for chat bubbles (Android 11+)
+                    if (bubbleMetadata != null) {
+                        setBubbleMetadata(bubbleMetadata)
+                    }
                     // Add reply action
                     addAction(createReplyAction(notificationData))
                     // Add mark as read action
@@ -264,6 +282,31 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             notificationData.roomId.hashCode(),
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+    }
+    
+    /**
+     * Create bubble intent for ChatBubbleScreen
+     */
+    private fun createBubbleIntent(notificationData: NotificationData): PendingIntent {
+        val intent = Intent(context, ChatBubbleActivity::class.java).apply {
+            action = Intent.ACTION_VIEW
+            data = android.net.Uri.parse("matrix://bubble/${notificationData.roomId.substring(1)}")
+            putExtra("room_id", notificationData.roomId)
+            flags = Intent.FLAG_ACTIVITY_NEW_DOCUMENT or
+                    Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
+                    Intent.FLAG_ACTIVITY_RETAIN_IN_RECENTS
+        }
+        
+        return PendingIntent.getActivity(
+            context,
+            notificationData.roomId.hashCode() + 1000, // Different request code for bubble
+            intent,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
         )
     }
     

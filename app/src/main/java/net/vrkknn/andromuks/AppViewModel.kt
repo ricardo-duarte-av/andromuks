@@ -791,6 +791,9 @@ class AppViewModel : ViewModel() {
     // Pending room navigation from shortcuts
     private var pendingRoomNavigation: String? = null
     
+    // Pending bubble navigation from chat bubbles
+    private var pendingBubbleNavigation: String? = null
+    
     // Websocket restart callback
     var onRestartWebSocket: (() -> Unit)? = null
     
@@ -829,6 +832,24 @@ class AppViewModel : ViewModel() {
     fun clearPendingRoomNavigation() {
         android.util.Log.d("Andromuks", "AppViewModel: Clearing pending room navigation")
         pendingRoomNavigation = null
+    }
+    
+    fun setPendingBubbleNavigation(roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: Set pending bubble navigation to: $roomId")
+        pendingBubbleNavigation = roomId
+    }
+    
+    fun getPendingBubbleNavigation(): String? {
+        val roomId = pendingBubbleNavigation
+        if (roomId != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Getting pending bubble navigation: $roomId")
+        }
+        return roomId
+    }
+    
+    fun clearPendingBubbleNavigation() {
+        android.util.Log.d("Andromuks", "AppViewModel: Clearing pending bubble navigation")
+        pendingBubbleNavigation = null
     }
     
     /**
@@ -873,12 +894,16 @@ class AppViewModel : ViewModel() {
         
         // Start delayed shutdown (15 seconds) - reduced from 30 seconds for better UX
         appInvisibleJob = viewModelScope.launch {
+            android.util.Log.d("Andromuks", "AppViewModel: Starting 15s shutdown timer")
             delay(15_000) // 15 seconds delay (changed from 30 seconds)
             
             // Check if app is still invisible after delay
             if (!isAppVisible) {
                 android.util.Log.d("Andromuks", "AppViewModel: App still invisible after 15s, shutting down WebSocket")
+                android.util.Log.d("Andromuks", "AppViewModel: Shutdown timer - keepWebSocketOpened: $keepWebSocketOpened")
                 shutdownWebSocket()
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: App became visible again, canceling shutdown")
             }
         }
     }
@@ -2927,6 +2952,11 @@ class AppViewModel : ViewModel() {
         showUnprocessedEvents = !showUnprocessedEvents
     }
 
+    fun enableKeepWebSocketOpened(enabled: Boolean) {
+        keepWebSocketOpened = enabled
+        android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened setting changed to: $keepWebSocketOpened")
+    }
+    
     fun toggleKeepWebSocketOpened() {
         keepWebSocketOpened = !keepWebSocketOpened
         android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened setting changed to: $keepWebSocketOpened")
