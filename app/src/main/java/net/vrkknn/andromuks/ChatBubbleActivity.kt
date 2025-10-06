@@ -54,7 +54,7 @@ class ChatBubbleActivity : ComponentActivity() {
                         }
                     },
                     onCloseBubble = {
-                        Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble called - moving to background")
+                        Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble called - minimizing bubble")
                         moveTaskToBack(true)
                     }
                 )
@@ -110,27 +110,20 @@ class ChatBubbleActivity : ComponentActivity() {
     
     
     override fun onBackPressed() {
-        Log.d("Andromuks", "ChatBubbleActivity: Back pressed - closing bubble")
+        Log.d("Andromuks", "ChatBubbleActivity: Back pressed - minimizing bubble")
         
-        // Check if we can pop the navigation stack first
-        if (::appViewModel.isInitialized) {
-            // If we're in the loading screen, close the bubble
-            // If we're in the chat screen, we want to close the bubble too
-            Log.d("Andromuks", "ChatBubbleActivity: Back pressed - closing bubble completely")
-            moveTaskToBack(true)
-        } else {
-            // Fallback to default behavior
-            super.onBackPressed()
-        }
+        // Minimize the bubble by moving it to background
+        Log.d("Andromuks", "ChatBubbleActivity: Back pressed - moving bubble to background")
+        moveTaskToBack(true)
     }
     
     override fun finish() {
-        Log.d("Andromuks", "ChatBubbleActivity: finish() called - preventing finish for bubble")
+        Log.d("Andromuks", "ChatBubbleActivity: finish() called - preventing bubble destruction")
         Log.d("Andromuks", "ChatBubbleActivity: finish() - Stack trace:")
         Thread.currentThread().stackTrace.take(10).forEach {
             Log.d("Andromuks", "ChatBubbleActivity: finish() -   at $it")
         }
-        // Don't call super.finish() to prevent the bubble from closing
+        // Don't call super.finish() to prevent the bubble from being destroyed
         // Instead, just move to background so it can be reopened
         moveTaskToBack(true)
     }

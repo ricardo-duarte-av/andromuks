@@ -287,9 +287,13 @@ class FCMService : FirebaseMessagingService() {
                 
                 Log.d(TAG, "Dismissing notifications for room: $roomId")
                 
-                // Dismiss the notification for this room
-                val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-                notificationManager.cancel(roomId.hashCode())
+                // For now, let's not dismiss any notifications to preserve bubbles
+                // TODO: Implement proper bubble detection to selectively dismiss
+                Log.d(TAG, "Room $roomId - NOT dismissing notification to preserve bubble")
+                Log.d(TAG, "This prevents the bubble from disappearing when conversation is marked as read")
+                
+                // Don't dismiss the notification to preserve the bubble
+                // This is a temporary fix - ideally we'd detect if the notification has bubble metadata
                 
                 // NOTE: Do NOT remove room shortcut when dismissing notifications
                 // The shortcut should remain so the chat bubble stays open

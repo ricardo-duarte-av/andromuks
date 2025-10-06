@@ -83,10 +83,12 @@ fun ChatBubbleLoadingScreen(
     val token = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", null) }
     val homeserverUrl = remember(sharedPreferences) { sharedPreferences.getString("homeserver_url", null) }
     
-    // Handle back button press to close the bubble
+    // Handle back button press to minimize the bubble
     BackHandler {
-        Log.d("Andromuks", "ChatBubbleLoadingScreen: Back button pressed - closing bubble")
+        Log.d("Andromuks", "ChatBubbleLoadingScreen: Back button pressed - minimizing bubble")
+        Log.d("Andromuks", "ChatBubbleLoadingScreen: BackHandler triggered - calling onCloseBubble")
         onCloseBubble()
+        Log.d("Andromuks", "ChatBubbleLoadingScreen: BackHandler - onCloseBubble call completed")
     }
     
     LaunchedEffect(Unit) {
@@ -109,6 +111,12 @@ fun ChatBubbleLoadingScreen(
             // Get room ID from intent
             val roomId = (context as? ComponentActivity)?.intent?.getStringExtra("room_id")
             Log.d("Andromuks", "ChatBubbleLoadingScreen: Room ID from intent: $roomId")
+            
+            // Trigger initial pagination to get latest messages for the bubble
+            if (roomId != null) {
+                Log.d("Andromuks", "ChatBubbleLoadingScreen: Triggering initial pagination for bubble room: $roomId")
+                appViewModel.loadOlderMessages(roomId)
+            }
             
                 if (roomId != null) {
                     Log.d("Andromuks", "ChatBubbleLoadingScreen: Navigating to chat bubble: $roomId")
@@ -158,10 +166,12 @@ fun ChatBubbleScreen(
     
     val context = LocalContext.current
     
-    // Handle back button press to close the bubble
+    // Handle back button press to minimize the bubble
     BackHandler {
-        Log.d("Andromuks", "ChatBubbleScreen: Back button pressed - closing bubble")
+        Log.d("Andromuks", "ChatBubbleScreen: Back button pressed - minimizing bubble")
+        Log.d("Andromuks", "ChatBubbleScreen: BackHandler triggered - calling onCloseBubble")
         onCloseBubble()
+        Log.d("Andromuks", "ChatBubbleScreen: BackHandler - onCloseBubble call completed")
     }
     
     DisposableEffect(Unit) {
@@ -280,6 +290,15 @@ fun ChatBubbleScreen(
         // Request room state and timeline
         appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId)
+        
+        // Trigger pagination to get the latest messages for the bubble
+        Log.d("Andromuks", "ChatBubbleScreen: Triggering pagination for bubble to get latest messages")
+        Log.d("Andromuks", "ChatBubbleScreen: Current timeline events before pagination: ${timelineEvents.size}")
+        appViewModel.loadOlderMessages(roomId)
+        
+        // Wait a moment for pagination to complete, then log the result
+        kotlinx.coroutines.delay(1000)
+        Log.d("Andromuks", "ChatBubbleScreen: Timeline events after pagination: ${timelineEvents.size}")
     }
     
     // Use imePadding for keyboard handling
