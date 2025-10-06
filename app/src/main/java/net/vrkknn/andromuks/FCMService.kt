@@ -208,11 +208,16 @@ class FCMService : FirebaseMessagingService() {
                 // Extract room avatar
                 val roomAvatar = message.optString("room_avatar", null)
                 
+                // Extract image field for image notifications
+                val image = message.optString("image", null)
+                Log.d(TAG, "Extracted image field: $image")
+                
                 // Convert relative URLs to full URLs
                 val avatarUrl = senderAvatar?.let { convertToFullUrl(it) }
                 val roomAvatarUrl = roomAvatar?.let { convertToFullUrl(it) }
+                val imageUrl = image?.let { convertToFullUrl(it) }
                 
-                Log.d(TAG, "Avatar URLs - sender: $avatarUrl, room: $roomAvatarUrl")
+                Log.d(TAG, "Avatar URLs - sender: $avatarUrl, room: $roomAvatarUrl, image: $imageUrl")
                 
                 // Determine if this is a DM or Group room
                 val isDirectMessage = roomName == senderDisplayName
@@ -228,7 +233,8 @@ class FCMService : FirebaseMessagingService() {
                     avatarUrl = avatarUrl,
                     roomAvatarUrl = roomAvatarUrl,
                     timestamp = timestamp,
-                    unreadCount = 1
+                    unreadCount = 1,
+                    image = imageUrl
                 )
                 
                 Log.d(TAG, "Showing notification for room: $roomId, sender: $senderDisplayName, text: $text")
@@ -385,6 +391,20 @@ class FCMService : FirebaseMessagingService() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
+        // Determine if this is likely a group room based on available data
+        // If room_name != sender_display_name, it's a group room
+        // If room_name == sender_display_name or room_name is null, it's a DM
+        val roomName = data["room_name"]
+        val senderDisplayName = data["sender_display_name"] ?: data["sender"]?.substringAfterLast(":")
+        val isLikelyGroupRoom = when {
+            roomName != null && senderDisplayName != null -> roomName != senderDisplayName
+            roomName != null -> true // If we have room name but no sender name, assume group
+            else -> title.contains(":") || title.length > 20 // Fallback to heuristic
+        }
+        
+        // Choose sound based on room type
+        val soundResource = if (isLikelyGroupRoom) R.raw.descending else R.raw.bright
+        
         // Create notification with reply action
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
@@ -396,6 +416,7 @@ class FCMService : FirebaseMessagingService() {
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setSound(android.net.Uri.parse("android.resource://" + packageName + "/" + soundResource))
             .build()
         
         // Show notification

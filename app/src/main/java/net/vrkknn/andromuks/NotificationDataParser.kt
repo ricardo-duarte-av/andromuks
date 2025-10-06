@@ -15,7 +15,8 @@ data class NotificationData(
     val avatarUrl: String?,
     val roomAvatarUrl: String?,
     val timestamp: Long?,
-    val unreadCount: Int?
+    val unreadCount: Int?,
+    val image: String? = null
 )
 
 class NotificationDataParser {
@@ -40,6 +41,7 @@ class NotificationDataParser {
                 val type = data["type"]
                 val avatarUrl = data["avatar_url"]
                 val roomAvatarUrl = data["room_avatar_url"]
+                val image = data["image"]
                 
                 // Parse timestamp
                 val timestamp = data["ts"]?.toLongOrNull()
@@ -65,7 +67,8 @@ class NotificationDataParser {
                     avatarUrl = avatarUrl,
                     roomAvatarUrl = roomAvatarUrl,
                     timestamp = timestamp,
-                    unreadCount = unreadCount
+                    unreadCount = unreadCount,
+                    image = image
                 )
                 
             } catch (e: Exception) {

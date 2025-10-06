@@ -20,6 +20,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import android.app.ActivityManager
+import android.content.ComponentName
+import androidx.activity.OnBackPressedCallback
 
 class ChatBubbleActivity : ComponentActivity() {
     private lateinit var appViewModel: AppViewModel
@@ -27,9 +30,34 @@ class ChatBubbleActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        
+
         Log.d("Andromuks", "ChatBubbleActivity: onCreate called")
-        
+
+        // Set up proper back button handling for bubbles
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                Log.d("Andromuks", "ChatBubbleActivity: OnBackPressedCallback triggered - minimizing bubble")
+                Log.d("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - calling moveTaskToBack")
+                try {
+                    moveTaskToBack(true)
+                    Log.d("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - moveTaskToBack completed")
+                } catch (e: Exception) {
+                    Log.e("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - moveTaskToBack failed", e)
+                    // Try alternative approach - simulate home button
+                    try {
+                        val homeIntent = Intent(Intent.ACTION_MAIN).apply {
+                            addCategory(Intent.CATEGORY_HOME)
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        startActivity(homeIntent)
+                        Log.d("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - home intent completed")
+                    } catch (e2: Exception) {
+                        Log.e("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - home intent also failed", e2)
+                    }
+                }
+            }
+        })
+
         setContent {
             AndromuksTheme {
                 ChatBubbleNavigation(
@@ -55,7 +83,21 @@ class ChatBubbleActivity : ComponentActivity() {
                     },
                     onCloseBubble = {
                         Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble called - minimizing bubble")
-                        moveTaskToBack(true)
+                        Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - calling moveTaskToBack")
+                        try {
+                            moveTaskToBack(true)
+                            Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - moveTaskToBack completed")
+                        } catch (e: Exception) {
+                            Log.e("Andromuks", "ChatBubbleActivity: onCloseBubble - moveTaskToBack failed", e)
+                            // Try alternative approach
+                            try {
+                                val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                                activityManager.moveTaskToFront(taskId, ActivityManager.MOVE_TASK_WITH_HOME)
+                                Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - alternative method completed")
+                            } catch (e2: Exception) {
+                                Log.e("Andromuks", "ChatBubbleActivity: onCloseBubble - alternative method also failed", e2)
+                            }
+                        }
                     }
                 )
             }
@@ -111,10 +153,11 @@ class ChatBubbleActivity : ComponentActivity() {
     
     override fun onBackPressed() {
         Log.d("Andromuks", "ChatBubbleActivity: Back pressed - minimizing bubble")
+        Log.d("Andromuks", "ChatBubbleActivity: Back pressed - calling moveTaskToBack")
         
         // Minimize the bubble by moving it to background
-        Log.d("Andromuks", "ChatBubbleActivity: Back pressed - moving bubble to background")
         moveTaskToBack(true)
+        Log.d("Andromuks", "ChatBubbleActivity: Back pressed - moveTaskToBack completed")
     }
     
     override fun finish() {

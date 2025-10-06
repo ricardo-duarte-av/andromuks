@@ -391,15 +391,15 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     Icon.createWithAdaptiveBitmap(bitmap) // Use adaptive bitmap for better transparency
                 } ?: run {
                     Log.d(TAG, "Room avatar is null, using fallback icon")
-                    Icon.createWithResource(context, R.drawable.ic_matrix_notification)
+                    Icon.createWithResource(context, R.drawable.matrix)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading avatar for shortcut", e)
-                Icon.createWithResource(context, R.drawable.ic_matrix_notification)
+                Icon.createWithResource(context, R.drawable.matrix)
             }
         } else {
             Log.d(TAG, "No room avatar URL, using fallback icon")
-            Icon.createWithResource(context, R.drawable.ic_matrix_notification)
+            Icon.createWithResource(context, R.drawable.matrix)
         }
         
         return ShortcutInfo.Builder(context, shortcut.roomId)

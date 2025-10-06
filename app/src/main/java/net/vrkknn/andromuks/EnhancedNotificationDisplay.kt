@@ -71,6 +71,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 enableLights(true)
                 enableVibration(true)
                 setShowBadge(true)
+                setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + R.raw.bright), null)
             }
             
             // Create Group Messages channel
@@ -83,6 +84,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 enableLights(true)
                 enableVibration(true)
                 setShowBadge(true)
+                setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + R.raw.descending), null)
             }
             
             notificationManager.createNotificationChannel(dmChannel)
@@ -97,6 +99,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 description = "Conversation notifications"
                 enableVibration(true)
                 enableLights(true)
+                setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + R.raw.bright), null)
             }
             
             notificationManager.createNotificationChannel(conversationChannel)
@@ -107,12 +110,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Creates a conversation channel for a specific room/conversation
      * This is required for per-conversation notification settings
      */
-    private fun createConversationChannel(roomId: String, roomName: String) {
+    private fun createConversationChannel(roomId: String, roomName: String, isGroupRoom: Boolean) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
             // Create a unique channel ID for this conversation
             val conversationChannelId = "${CONVERSATION_CHANNEL_ID}_$roomId"
+            
+            // Choose sound based on room type
+            val soundResource = if (isGroupRoom) R.raw.descending else R.raw.bright
             
             // Create native Android notification channel
             val channel = NotificationChannel(
@@ -123,6 +129,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 description = "Notifications for $roomName"
                 enableVibration(true)
                 enableLights(true)
+                setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + soundResource), null)
             }
             
             // Set conversation ID for Android 11+ conversation features
@@ -148,8 +155,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     suspend fun showEnhancedNotification(notificationData: NotificationData) {
         try {
-
             val isGroupRoom = notificationData.roomName != notificationData.senderDisplayName
+            val hasImage = !notificationData.image.isNullOrEmpty()
+            Log.d(TAG, "showEnhancedNotification - hasImage: $hasImage, image: ${notificationData.image}")
             // Load avatars asynchronously
             val roomAvatarIcon = notificationData.roomAvatarUrl?.let { 
                 loadAvatarAsIcon(it) 
@@ -182,19 +190,39 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val systemNotificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val notifID = notificationData.roomId.hashCode()
             
-            val messagingStyle = (systemNotificationManager.activeNotifications.lastOrNull { it.id == notifID }?.let {
-                MessagingStyle.extractMessagingStyleFromNotification(it.notification)
-            } ?: NotificationCompat.MessagingStyle(conversationPerson))
-                .setConversationTitle(
-                    if (isGroupRoom) notificationData.roomName else null
-                )
-                .addMessage(
-                    MessagingStyle.Message(
-                        notificationData.body,
-                        notificationData.timestamp ?: System.currentTimeMillis(),
-                        if (isGroupRoom) messagePerson else null
+            // Load image bitmap if this is an image notification
+            val imageBitmap = if (hasImage) {
+                Log.d(TAG, "Loading image bitmap for URL: ${notificationData.image}")
+                notificationData.image?.let { imageUrl ->
+                    loadAvatarBitmap(imageUrl)
+                }
+            } else {
+                Log.d(TAG, "No image to load - hasImage: $hasImage")
+                null
+            }
+            
+            val messagingStyle = if (hasImage && imageBitmap != null) {
+                // Create BigPictureStyle for image notifications
+                NotificationCompat.BigPictureStyle()
+                    .bigPicture(imageBitmap)
+                    .setBigContentTitle(if (isGroupRoom) notificationData.roomName else notificationData.senderDisplayName)
+                    .setSummaryText(notificationData.body)
+            } else {
+                // Create MessagingStyle for text notifications
+                (systemNotificationManager.activeNotifications.lastOrNull { it.id == notifID }?.let {
+                    MessagingStyle.extractMessagingStyleFromNotification(it.notification)
+                } ?: NotificationCompat.MessagingStyle(conversationPerson))
+                    .setConversationTitle(
+                        if (isGroupRoom) notificationData.roomName else null
                     )
-                )
+                    .addMessage(
+                        MessagingStyle.Message(
+                            notificationData.body,
+                            notificationData.timestamp ?: System.currentTimeMillis(),
+                            if (isGroupRoom) messagePerson else null
+                        )
+                    )
+            }
             
             // Create or update conversation shortcut for this room using ConversationsApi
             conversationsApi?.let { api ->
@@ -217,7 +245,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
             
             // Create conversation channel for this room
-            createConversationChannel(notificationData.roomId, notificationData.roomName ?: notificationData.roomId.substringAfterLast(":"))
+            createConversationChannel(notificationData.roomId, notificationData.roomName ?: notificationData.roomId.substringAfterLast(":"), isGroupRoom)
             
             // Use conversation channel for all notifications
             val channelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
@@ -237,7 +265,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             // Create main notification
             val notification = NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(R.drawable.ic_matrix_notification)
+                .setSmallIcon(R.drawable.matrix)
                 .setStyle(messagingStyle)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setContentIntent(createRoomIntent(notificationData))
@@ -248,7 +276,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setGroup(notificationData.roomId) // Group by room
                 .setGroupSummary(false)
                 .setShortcutId(notificationData.roomId) // Link to the room shortcut for per-room settings
-                .setLargeIcon(circularRoomAvatar) // Use circular room avatar as large icon
+                .setLargeIcon(circularRoomAvatar) 
                 .apply {
                     // Add bubble metadata for chat bubbles (Android 11+)
                     if (bubbleMetadata != null) {
@@ -418,13 +446,59 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 val circularBitmap = createCircularBitmap(bitmap)
                 IconCompat.createWithAdaptiveBitmap(circularBitmap) // Use adaptive bitmap for better transparency
             } else {
-                Log.w(TAG, "Failed to load avatar bitmap, using default icon")
-                IconCompat.createWithResource(context, R.drawable.ic_matrix_notification)
+                Log.w(TAG, "Failed to load avatar bitmap, using default adaptive icon")
+                // Create a default adaptive icon instead of resource icon for bubble compatibility
+                createDefaultAdaptiveIcon()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading avatar as icon: $avatarUrl", e)
+            // Create a default adaptive icon instead of resource icon for bubble compatibility
+            createDefaultAdaptiveIcon()
+        }
+    }
+    
+    private fun createDefaultAdaptiveIcon(): IconCompat {
+        return try {
+            // Create a simple default icon using a bitmap instead of resource
+            val defaultBitmap = createDefaultMatrixIcon()
+            IconCompat.createWithAdaptiveBitmap(defaultBitmap)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating default adaptive icon, falling back to resource", e)
+            // Last resort fallback to resource icon
             IconCompat.createWithResource(context, R.drawable.ic_matrix_notification)
         }
+    }
+    
+    private fun createDefaultMatrixIcon(): android.graphics.Bitmap {
+        val size = 64 // 64dp size for the icon
+        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        
+        // Create a simple matrix-style icon
+        val paint = android.graphics.Paint().apply {
+            color = android.graphics.Color.parseColor("#00D4AA") // Matrix green
+            isAntiAlias = true
+        }
+        
+        // Draw a simple "M" shape
+        val path = android.graphics.Path()
+        val margin = size * 0.1f
+        val width = size - 2 * margin
+        val height = size - 2 * margin
+        
+        path.moveTo(margin, margin + height)
+        path.lineTo(margin + width * 0.3f, margin)
+        path.lineTo(margin + width * 0.5f, margin + height * 0.4f)
+        path.lineTo(margin + width * 0.7f, margin)
+        path.lineTo(margin + width, margin + height)
+        path.lineTo(margin + width * 0.8f, margin + height)
+        path.lineTo(margin + width * 0.5f, margin + height * 0.6f)
+        path.lineTo(margin + width * 0.2f, margin + height)
+        path.close()
+        
+        canvas.drawPath(path, paint)
+        
+        return bitmap
     }
     
     /**
