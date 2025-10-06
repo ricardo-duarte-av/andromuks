@@ -10,6 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
@@ -51,6 +52,10 @@ class ChatBubbleActivity : ComponentActivity() {
                         if (extractedRoomId != null) {
                             appViewModel.setPendingBubbleNavigation(extractedRoomId)
                         }
+                    },
+                    onCloseBubble = {
+                        Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble called - moving to background")
+                        moveTaskToBack(true)
                     }
                 )
             }
@@ -79,7 +84,8 @@ class ChatBubbleActivity : ComponentActivity() {
         }
         if (::appViewModel.isInitialized) {
             Log.d("Andromuks", "ChatBubbleActivity: onPause - keepWebSocketOpened: ${appViewModel.keepWebSocketOpened}")
-            appViewModel.onAppBecameInvisible()
+            // Don't call onAppBecameInvisible() in bubble mode to prevent WebSocket shutdown
+            Log.d("Andromuks", "ChatBubbleActivity: onPause - NOT calling onAppBecameInvisible() for bubble")
         }
     }
     
@@ -104,8 +110,18 @@ class ChatBubbleActivity : ComponentActivity() {
     
     
     override fun onBackPressed() {
-        Log.d("Andromuks", "ChatBubbleActivity: Back pressed - moving to background")
-        moveTaskToBack(true)
+        Log.d("Andromuks", "ChatBubbleActivity: Back pressed - closing bubble")
+        
+        // Check if we can pop the navigation stack first
+        if (::appViewModel.isInitialized) {
+            // If we're in the loading screen, close the bubble
+            // If we're in the chat screen, we want to close the bubble too
+            Log.d("Andromuks", "ChatBubbleActivity: Back pressed - closing bubble completely")
+            moveTaskToBack(true)
+        } else {
+            // Fallback to default behavior
+            super.onBackPressed()
+        }
     }
     
     override fun finish() {
@@ -163,7 +179,8 @@ class ChatBubbleActivity : ComponentActivity() {
 @Composable
 fun ChatBubbleNavigation(
     modifier: Modifier,
-    onViewModelCreated: (AppViewModel) -> Unit = {}
+    onViewModelCreated: (AppViewModel) -> Unit = {},
+    onCloseBubble: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val appViewModel: AppViewModel = viewModel()
@@ -172,6 +189,13 @@ fun ChatBubbleNavigation(
     onViewModelCreated(appViewModel)
     
     Log.d("Andromuks", "ChatBubbleNavigation: Starting bubble navigation")
+    
+    // Handle back navigation - if we're at the root, close the bubble
+    LaunchedEffect(navController) {
+        navController.addOnDestinationChangedListener { _, destination, _ ->
+            Log.d("Andromuks", "ChatBubbleNavigation: Navigated to ${destination.route}")
+        }
+    }
     
     NavHost(
         navController = navController,
@@ -182,7 +206,8 @@ fun ChatBubbleNavigation(
             ChatBubbleLoadingScreen(
                 navController = navController, 
                 modifier = modifier, 
-                appViewModel = appViewModel
+                appViewModel = appViewModel,
+                onCloseBubble = onCloseBubble
             ) 
         }
         composable(
@@ -195,7 +220,8 @@ fun ChatBubbleNavigation(
                 roomId = roomId,
                 roomName = roomName,
                 modifier = modifier,
-                appViewModel = appViewModel
+                appViewModel = appViewModel,
+                onCloseBubble = onCloseBubble
             )
         }
     }

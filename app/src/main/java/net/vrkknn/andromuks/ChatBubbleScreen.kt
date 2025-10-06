@@ -63,6 +63,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.ui.graphics.Color
+import androidx.activity.compose.BackHandler
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.SmartMessageText
@@ -74,12 +75,19 @@ import net.vrkknn.andromuks.utils.SmartMessageText
 fun ChatBubbleLoadingScreen(
     navController: NavController,
     modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel()
+    appViewModel: AppViewModel = viewModel(),
+    onCloseBubble: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val token = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", null) }
     val homeserverUrl = remember(sharedPreferences) { sharedPreferences.getString("homeserver_url", null) }
+    
+    // Handle back button press to close the bubble
+    BackHandler {
+        Log.d("Andromuks", "ChatBubbleLoadingScreen: Back button pressed - closing bubble")
+        onCloseBubble()
+    }
     
     LaunchedEffect(Unit) {
         Log.d("Andromuks", "ChatBubbleLoadingScreen: Starting bubble loading")
@@ -140,7 +148,8 @@ fun ChatBubbleScreen(
     roomId: String,
     roomName: String,
     modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel()
+    appViewModel: AppViewModel = viewModel(),
+    onCloseBubble: () -> Unit = {}
 ) {
     // Debug logging for bubble lifecycle
     LaunchedEffect(Unit) {
@@ -148,6 +157,12 @@ fun ChatBubbleScreen(
     }
     
     val context = LocalContext.current
+    
+    // Handle back button press to close the bubble
+    BackHandler {
+        Log.d("Andromuks", "ChatBubbleScreen: Back button pressed - closing bubble")
+        onCloseBubble()
+    }
     
     DisposableEffect(Unit) {
         Log.d("Andromuks", "ChatBubbleScreen: Disposed - roomId: $roomId")

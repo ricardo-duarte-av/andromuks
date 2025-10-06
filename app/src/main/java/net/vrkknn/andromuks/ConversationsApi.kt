@@ -289,73 +289,6 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         }
     }
     
-    /**
-     * Create or update room shortcut (exactly like working Gomuks app)
-     */
-    suspend fun createOrUpdateRoomShortcut(
-        roomId: String,
-        roomName: String,
-        roomAvatarUrl: String?,
-        senderName: String
-    ) {
-        try {
-            val isGroupRoom = roomName != senderName
-            
-            // Create intent for the room with proper matrix: URI
-            val matrixUri = if (realMatrixHomeserverUrl.isNotEmpty()) {
-                val serverHost = Uri.parse(realMatrixHomeserverUrl).host ?: ""
-                "matrix:roomid/${roomId.substring(1)}?via=$serverHost"
-            } else {
-                "matrix:roomid/${roomId.substring(1)}"
-            }
-            Log.d(TAG, "Creating room shortcut with matrix URI: $matrixUri")
-            val roomIntent = Intent(context, MainActivity::class.java).apply {
-                setAction(Intent.ACTION_VIEW)
-                setData(Uri.parse(matrixUri))
-            }
-            
-            // Download room avatar and get first frame as circular bitmap
-            Log.d(TAG, "Creating shortcut for room: $roomName, avatarUrl: $roomAvatarUrl")
-            val circularRoomAvatar = getCircularBitmapFromUrl(roomAvatarUrl)
-            Log.d(TAG, "Circular room avatar result: ${circularRoomAvatar != null}")
-            val shortcutIcon = if (circularRoomAvatar != null) {
-                Log.d(TAG, "Using room avatar for shortcut")
-                IconCompat.createWithBitmap(circularRoomAvatar)
-            } else {
-                Log.d(TAG, "Using fallback icon for shortcut")
-                IconCompat.createWithResource(context, R.drawable.ic_matrix_notification)
-            }
-            
-            // Create shortcut for the room
-            val shortcut = ShortcutInfoCompat.Builder(context, roomId)
-                .setShortLabel(roomName)
-                .setLongLabel(roomName)
-                .setIcon(shortcutIcon)
-                .setIntent(roomIntent)
-                .setCategories(setOf("android.shortcut.conversation"))
-                .setLongLived(true)
-                .apply {
-                    // setIsConversation() is only available on API 30+
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        setIsConversation()
-                    }
-                }
-                .build()
-            
-            // Add or update the shortcut
-            try {
-                // Remove any previous shortcut with the same id (for icon update)
-                ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(roomId))
-                // Add the updated shortcut
-                ShortcutManagerCompat.pushDynamicShortcut(context, shortcut)
-                Log.d(TAG, "Created/updated shortcut for room: $roomName")
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed to create shortcut for room: $roomName", e)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error creating room shortcut", e)
-        }
-    }
     
     /**
      * Remove room shortcut when notifications are dismissed
@@ -455,7 +388,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 Log.d(TAG, "Creating shortcut icon for room: ${shortcut.roomName}, avatarUrl: ${shortcut.roomAvatarUrl}")
                 getCircularBitmapFromUrl(shortcut.roomAvatarUrl)?.let { bitmap ->
                     Log.d(TAG, "Using room avatar for shortcut icon")
-                    Icon.createWithAdaptiveBitmap(bitmap)
+                    Icon.createWithAdaptiveBitmap(bitmap) // Use adaptive bitmap for better transparency
                 } ?: run {
                     Log.d(TAG, "Room avatar is null, using fallback icon")
                     Icon.createWithResource(context, R.drawable.ic_matrix_notification)

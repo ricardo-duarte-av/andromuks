@@ -893,6 +893,7 @@ class AppViewModel : ViewModel() {
         // If keepWebSocketOpened is enabled, don't start shutdown timer
         if (keepWebSocketOpened) {
             android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened is enabled, not starting shutdown timer")
+            android.util.Log.d("Andromuks", "AppViewModel: keepWebSocketOpened value: $keepWebSocketOpened")
             return
         }
         

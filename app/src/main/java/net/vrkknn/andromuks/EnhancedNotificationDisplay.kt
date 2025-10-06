@@ -199,12 +199,20 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Create or update conversation shortcut for this room using ConversationsApi
             conversationsApi?.let { api ->
                 CoroutineScope(Dispatchers.IO).launch {
-                    api.createOrUpdateRoomShortcut(
-                        notificationData.roomId,
-                        notificationData.roomName ?: notificationData.roomId.substringAfterLast(":"),
-                        notificationData.roomAvatarUrl,
-                        notificationData.senderDisplayName ?: notificationData.sender.substringAfterLast(":")
+                    // Create a single room list with this room to update shortcuts
+                    val roomList = listOf(
+                        RoomItem(
+                            id = notificationData.roomId,
+                            name = notificationData.roomName ?: notificationData.roomId.substringAfterLast(":"),
+                            messagePreview = notificationData.body,
+                            messageSender = notificationData.senderDisplayName ?: notificationData.sender.substringAfterLast(":"),
+                            unreadCount = 1,
+                            highlightCount = 0,
+                            avatarUrl = notificationData.roomAvatarUrl,
+                            sortingTimestamp = System.currentTimeMillis()
+                        )
                     )
+                    api.updateConversationShortcuts(roomList)
                 }
             }
             
@@ -408,7 +416,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val bitmap = loadAvatarBitmap(avatarUrl)
             if (bitmap != null) {
                 val circularBitmap = createCircularBitmap(bitmap)
-                IconCompat.createWithAdaptiveBitmap(circularBitmap)
+                IconCompat.createWithAdaptiveBitmap(circularBitmap) // Use adaptive bitmap for better transparency
             } else {
                 Log.w(TAG, "Failed to load avatar bitmap, using default icon")
                 IconCompat.createWithResource(context, R.drawable.ic_matrix_notification)
@@ -423,33 +431,33 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Convert a bitmap to a circular shape
      */
     private fun createCircularBitmap(bitmap: Bitmap): Bitmap {
-        val size = minOf(bitmap.width, bitmap.height)
-        val circularBitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(circularBitmap)
-        
-        val paint = Paint().apply {
-            isAntiAlias = true
+        // Convert hardware bitmap to software bitmap if needed
+        val softwareBitmap = if (bitmap.config == Bitmap.Config.HARDWARE) {
+            Log.d(TAG, "Converting hardware bitmap to software bitmap")
+            bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        } else {
+            bitmap
         }
         
+        val size = Math.min(softwareBitmap.width, softwareBitmap.height)
+        val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val paint = Paint()
         val rect = Rect(0, 0, size, size)
         val rectF = RectF(rect)
-        
-        // Draw circle
-        canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
-        
-        // Set paint to use source bitmap
+        val radius = size / 2f
+        paint.isAntiAlias = true
+        canvas.drawARGB(0, 0, 0, 0)
+        canvas.drawCircle(radius, radius, radius, paint)
         paint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_IN)
+        canvas.drawBitmap(softwareBitmap, null, rect, paint)
         
-        // Scale and draw the bitmap to fit the circle
-        val scaledBitmap = Bitmap.createScaledBitmap(bitmap, size, size, true)
-        canvas.drawBitmap(scaledBitmap, 0f, 0f, paint)
-        
-        // Recycle the scaled bitmap to free memory
-        if (scaledBitmap != bitmap) {
-            scaledBitmap.recycle()
+        // Clean up the software bitmap if we created a copy
+        if (softwareBitmap != bitmap) {
+            softwareBitmap.recycle()
         }
         
-        return circularBitmap
+        return output
     }
     
     /**
