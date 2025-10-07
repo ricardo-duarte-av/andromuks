@@ -841,11 +841,14 @@ fun TimelineEventItem(
         return
     }
     
-    // Calculate read receipts once at the start
-    val readReceipts = if (appViewModel != null) {
-        net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(event.eventId, appViewModel.getReadReceiptsMap())
-    } else {
-        emptyList()
+    // Calculate read receipts and recalculate when receipts are updated
+    // Use updateCounter as a key to trigger recomposition when receipts change
+    val readReceipts = remember(event.eventId, appViewModel?.updateCounter) {
+        if (appViewModel != null) {
+            net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(event.eventId, appViewModel.getReadReceiptsMap())
+        } else {
+            emptyList()
+        }
     }
     
     Row(

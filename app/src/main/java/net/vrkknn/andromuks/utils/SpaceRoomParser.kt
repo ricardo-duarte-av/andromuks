@@ -197,15 +197,13 @@ object SpaceRoomParser {
             }
         }
         
-        // Debug: Log the entire sync JSON if we have rooms with null messageSender
+        // Debug: Log rooms with null messageSender (this is normal for receipt-only syncs)
         val roomsWithNullSender = updatedRooms.filter { it.messageSender == null }
         if (roomsWithNullSender.isNotEmpty()) {
-            Log.w("Andromuks", "SpaceRoomParser: Found ${roomsWithNullSender.size} rooms with null messageSender")
+            Log.d("Andromuks", "SpaceRoomParser: ${roomsWithNullSender.size} rooms in sync with no new messages (may have receipts/state updates only)")
             roomsWithNullSender.forEach { room ->
-                Log.w("Andromuks", "SpaceRoomParser: Room with null sender - ID: ${room.id}, Name: ${room.name}, Preview: '${room.messagePreview}'")
+                Log.d("Andromuks", "SpaceRoomParser: Room without new message - ID: ${room.id}, Name: ${room.name}")
             }
-            Log.w("Andromuks", "SpaceRoomParser: FULL SYNC JSON that caused the issue:")
-            Log.w("Andromuks", "SpaceRoomParser: ${syncJson.toString()}")
         }
         
         Log.d("Andromuks", "SpaceRoomParser: Sync update - updated: ${updatedRooms.size}, removed: ${removedRoomIds.size}")
