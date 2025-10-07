@@ -1024,6 +1024,7 @@ class AppViewModel : ViewModel() {
     private var requestIdCounter = 100
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> userId
+    private val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
     private val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val reactionRequests = mutableMapOf<Int, String>() // requestId -> roomId
@@ -1116,10 +1117,13 @@ class AppViewModel : ViewModel() {
         onRestartWebSocket?.invoke()
     }
 
-    fun requestUserProfile(userId: String) {
+    fun requestUserProfile(userId: String, roomId: String? = null) {
         val ws = webSocket ?: return
         val reqId = requestIdCounter++
         profileRequests[reqId] = userId
+        if (roomId != null) {
+            profileRequestRooms[reqId] = roomId
+        }
         val json = org.json.JSONObject()
         json.put("command", "get_profile")
         json.put("request_id", reqId)
@@ -1127,7 +1131,7 @@ class AppViewModel : ViewModel() {
         data.put("user_id", userId)
         json.put("data", data)
         val payload = json.toString()
-        android.util.Log.d("Andromuks", "AppViewModel: Sending get_profile: $payload")
+        android.util.Log.d("Andromuks", "AppViewModel: Sending get_profile for $userId (roomId=$roomId): $payload")
         ws.send(payload)
     }
     
@@ -1447,6 +1451,58 @@ class AppViewModel : ViewModel() {
         sendWebSocketCommand("send_message", messageRequestId, commandData)
         android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $messageRequestId")
     }
+    
+    fun sendEdit(roomId: String, text: String, originalEvent: net.vrkknn.andromuks.TimelineEvent) {
+        android.util.Log.d("Andromuks", "AppViewModel: sendEdit called with roomId: '$roomId', text: '$text', originalEvent: ${originalEvent.eventId}")
+        
+        val ws = webSocket ?: return
+        val editRequestId = requestIdCounter++
+        
+        // Track this outgoing request
+        messageRequests[editRequestId] = roomId
+        
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "text" to text,
+            "relates_to" to mapOf(
+                "rel_type" to "m.replace",
+                "event_id" to originalEvent.eventId
+            ),
+            "mentions" to mapOf(
+                "user_ids" to emptyList<String>(),
+                "room" to false
+            ),
+            "url_previews" to emptyList<String>()
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with edit data: $commandData")
+        sendWebSocketCommand("send_message", editRequestId, commandData)
+        android.util.Log.d("Andromuks", "AppViewModel: Edit command sent with request_id: $editRequestId")
+    }
+    
+    fun sendDelete(roomId: String, originalEvent: net.vrkknn.andromuks.TimelineEvent, reason: String = "") {
+        android.util.Log.d("Andromuks", "AppViewModel: sendDelete called with roomId: '$roomId', eventId: ${originalEvent.eventId}, reason: '$reason'")
+        
+        val ws = webSocket ?: return
+        val deleteRequestId = requestIdCounter++
+        
+        // Track this outgoing request
+        reactionRequests[deleteRequestId] = roomId
+        
+        val commandData = mutableMapOf(
+            "room_id" to roomId,
+            "event_id" to originalEvent.eventId
+        )
+        
+        // Only add reason if it's not blank
+        if (reason.isNotBlank()) {
+            commandData["reason"] = reason
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: redact_event with data: $commandData")
+        sendWebSocketCommand("redact_event", deleteRequestId, commandData)
+        android.util.Log.d("Andromuks", "AppViewModel: Delete command sent with request_id: $deleteRequestId")
+    }
 
     fun handleResponse(requestId: Int, data: Any) {
         android.util.Log.d("Andromuks", "AppViewModel: handleResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
@@ -1513,13 +1569,21 @@ class AppViewModel : ViewModel() {
     
     private fun handleProfileError(requestId: Int, errorMessage: String) {
         val userId = profileRequests.remove(requestId) ?: return
+        val requestingRoomId = profileRequestRooms.remove(requestId)
         android.util.Log.d("Andromuks", "AppViewModel: Profile not found for $userId: $errorMessage")
         
         // If profile not found, use username part of Matrix ID
         val username = userId.removePrefix("@").substringBefore(":")
         val memberProfile = MemberProfile(username, null)
         
-        // Update member cache for all rooms that might contain this user
+        // If we know which room requested the profile, add it to that room's cache
+        if (requestingRoomId != null) {
+            val memberMap = roomMemberCache.getOrPut(requestingRoomId) { mutableMapOf() }
+            memberMap[userId] = memberProfile
+            android.util.Log.d("Andromuks", "AppViewModel: Added fallback profile for $userId to room $requestingRoomId")
+        }
+        
+        // Also update member cache for all rooms that already contain this user
         roomMemberCache.forEach { (roomId, memberMap) ->
             if (memberMap.containsKey(userId)) {
                 memberMap[userId] = memberProfile
@@ -1533,12 +1597,21 @@ class AppViewModel : ViewModel() {
     
     private fun handleProfileResponse(requestId: Int, data: Any) {
         val userId = profileRequests.remove(requestId) ?: return
+        val requestingRoomId = profileRequestRooms.remove(requestId)
         val obj = data as? JSONObject ?: return
         val avatar = obj.optString("avatar_url")?.takeIf { it.isNotBlank() }
         val display = obj.optString("displayname")?.takeIf { it.isNotBlank() }
         
-        // Update member cache for all rooms that might contain this user
         val memberProfile = MemberProfile(display, avatar)
+        
+        // If we know which room requested the profile, add it to that room's cache
+        if (requestingRoomId != null) {
+            val memberMap = roomMemberCache.getOrPut(requestingRoomId) { mutableMapOf() }
+            memberMap[userId] = memberProfile
+            android.util.Log.d("Andromuks", "AppViewModel: Added profile for $userId to room $requestingRoomId (display=$display)")
+        }
+        
+        // Also update member cache for all rooms that already contain this user
         roomMemberCache.forEach { (roomId, memberMap) ->
             if (memberMap.containsKey(userId)) {
                 memberMap[userId] = memberProfile
@@ -2116,6 +2189,23 @@ class AppViewModel : ViewModel() {
                         android.util.Log.d("Andromuks", "AppViewModel: Updated member cache for $userId: $displayName")
                     }
                 }
+            } else if (event.type == "m.room.redaction") {
+                // Handle redaction events
+                android.util.Log.d("Andromuks", "AppViewModel: Processing redaction event ${event.eventId} from ${event.sender}")
+                
+                // Add redaction event to timeline so findLatestRedactionEvent can find it
+                addNewEventToChain(event)
+                
+                // Request sender profile if missing from cache
+                if (!memberMap.containsKey(event.sender)) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Requesting profile for redaction sender: ${event.sender} in room $roomId")
+                    requestUserProfile(event.sender, roomId)
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: Redaction sender ${event.sender} already in cache: ${memberMap[event.sender]?.displayName}")
+                }
+                
+                // Trigger UI update
+                updateCounter++
             } else if (event.type == "m.room.message" || event.type == "m.room.encrypted") {
                 // Check if this is an edit event (m.replace relationship)
                 val isEditEvent = when {

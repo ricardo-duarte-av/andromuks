@@ -17,12 +17,17 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -382,6 +387,144 @@ fun ReplyPreviewInput(
 }
 
 /**
+ * Edit preview shown above the text input when editing a message.
+ * Displays the original message text and a cancel button.
+ */
+@Composable
+fun EditPreviewInput(
+    event: TimelineEvent,
+    onCancel: () -> Unit
+) {
+    // Get message content - handle both encrypted and non-encrypted messages
+    val content = event.content ?: event.decrypted
+    val body = content?.optString("body", "") ?: ""
+    val msgType = content?.optString("msgtype", "") ?: ""
+    
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
+            .padding(bottom = 4.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
+        shape = RoundedCornerShape(12.dp),
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Edit icon
+            Icon(
+                imageVector = Icons.Default.Edit,
+                contentDescription = "Editing",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            
+            // Message preview
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Edit message",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = when {
+                        msgType == "m.image" -> "📷 Image"
+                        msgType == "m.video" -> "🎥 Video"
+                        msgType == "m.file" -> "📎 File"
+                        body.isBlank() -> "Empty message"
+                        else -> body
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            
+            // Cancel button
+            IconButton(
+                onClick = onCancel,
+                modifier = Modifier.size(24.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Cancel edit",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Delete message dialog with reason input and confirmation buttons.
+ * Shows a dialog above the timeline for confirming message deletion with optional reason.
+ */
+@Composable
+fun DeleteMessageDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit
+) {
+    var reason by remember { mutableStateOf("") }
+    
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "Delete message",
+                style = MaterialTheme.typography.titleMedium
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    text = "Reason (optional):",
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
+                OutlinedTextField(
+                    value = reason,
+                    onValueChange = { reason = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
+                    placeholder = { Text("Enter reason for deletion...") },
+                    maxLines = 4,
+                    shape = RoundedCornerShape(8.dp)
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onConfirm(reason)
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error
+                )
+            ) {
+                Text("Remove")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+/**
  * Message bubble wrapper with popup menu functionality.
  * Provides long press/click to show menu with React, Reply, Edit, Delete options.
  */
@@ -426,10 +569,32 @@ fun MessageBubbleWithMenu(
         
         // Horizontal icon-only menu
         if (showMenu) {
+            // Full-screen transparent overlay to capture outside taps
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Outside tap detected, dismissing menu")
+                                showMenu = false
+                            }
+                        )
+                    }
+            )
+            
             Card(
                 modifier = Modifier
                     .padding(8.dp)
-                    .background(androidx.compose.ui.graphics.Color.Transparent),
+                    .background(androidx.compose.ui.graphics.Color.Transparent)
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                // Consume taps on the menu itself so they don't dismiss it
+                                android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu tap consumed")
+                            }
+                        )
+                    },
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),

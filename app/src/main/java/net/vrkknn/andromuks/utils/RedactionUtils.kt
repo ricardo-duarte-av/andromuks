@@ -35,18 +35,37 @@ object RedactionUtils {
             
             // Look for events that relate to this one (redactions or edits)
             val relatedEvent = timelineEvents.find { event ->
-                val relatesTo = when {
-                    event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")
-                    event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")
-                    else -> null
+                when (event.type) {
+                    "m.room.redaction" -> {
+                        // Redactions use "redacts" field, not "m.relates_to"
+                        // Handle both formats: "redacts" as string or as object with "event_id"
+                        val redactsString = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                        val redactsObject = event.content?.optJSONObject("redacts")?.optString("event_id")?.takeIf { it.isNotBlank() }
+                        
+                        (redactsString == currentEventId) || (redactsObject == currentEventId)
+                    }
+                    "m.room.message" -> {
+                        // Check for edits (m.replace relationship)
+                        val relatesTo = event.content?.optJSONObject("m.relates_to")
+                        val relatesToEventId = relatesTo?.optString("event_id")
+                        val relType = relatesTo?.optString("rel_type")
+                        
+                        (relType == "m.replace") && (relatesToEventId == currentEventId)
+                    }
+                    "m.room.encrypted" -> {
+                        // Check for encrypted edits (m.replace relationship)
+                        if (event.decryptedType == "m.room.message") {
+                            val relatesTo = event.decrypted?.optJSONObject("m.relates_to")
+                            val relatesToEventId = relatesTo?.optString("event_id")
+                            val relType = relatesTo?.optString("rel_type")
+                            
+                            (relType == "m.replace") && (relatesToEventId == currentEventId)
+                        } else {
+                            false
+                        }
+                    }
+                    else -> false
                 }
-                
-                val relatesToEventId = relatesTo?.optString("event_id")
-                val relType = relatesTo?.optString("rel_type")
-                
-                // Check for redactions (m.room.redaction) or edits (m.replace)
-                (event.type == "m.room.redaction" || relType == "m.replace") && 
-                relatesToEventId == currentEventId
             }
             
             if (relatedEvent != null) {
@@ -80,8 +99,15 @@ object RedactionUtils {
     ): TimelineEvent? {
         return timelineEvents
             .filter { event ->
-                event.type == "m.room.redaction" && 
-                event.content?.optJSONObject("redacts")?.optString("event_id") == targetEventId
+                if (event.type != "m.room.redaction") {
+                    false
+                } else {
+                    // Handle both formats: "redacts" as string or as object with "event_id"
+                    val redactsString = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                    val redactsObject = event.content?.optJSONObject("redacts")?.optString("event_id")?.takeIf { it.isNotBlank() }
+                    
+                    (redactsString == targetEventId) || (redactsObject == targetEventId)
+                }
             }
             .maxByOrNull { it.timestamp }
     }

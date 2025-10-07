@@ -59,6 +59,7 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.blur
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.CachePolicy
@@ -76,7 +77,9 @@ import net.vrkknn.andromuks.utils.RichMessageText
 import net.vrkknn.andromuks.utils.MessageTextWithMentions
 import net.vrkknn.andromuks.utils.SmartMessageText
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
+import net.vrkknn.andromuks.utils.EditPreviewInput
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
+import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
@@ -206,6 +209,13 @@ fun RoomTimelineScreen(
 
     // Reply state
     var replyingToEvent by remember { mutableStateOf<TimelineEvent?>(null) }
+    
+    // Edit state
+    var editingEvent by remember { mutableStateOf<TimelineEvent?>(null) }
+    
+    // Delete state
+    var showDeleteDialog by remember { mutableStateOf(false) }
+    var deletingEvent by remember { mutableStateOf<TimelineEvent?>(null) }
     
     // Emoji selection state
     var showEmojiSelection by remember { mutableStateOf(false) }
@@ -402,8 +412,17 @@ fun RoomTimelineScreen(
     
     AndromuksTheme {
         Surface {
+            Box(modifier = modifier.fillMaxSize()) {
             Column(
-                modifier = modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (showDeleteDialog) {
+                            Modifier.blur(10.dp)
+                        } else {
+                            Modifier
+                        }
+                    )
             ) {
                 // 1. Room Header (always visible at the top, below status bar)
                 RoomHeader(
@@ -475,6 +494,11 @@ fun RoomTimelineScreen(
                                             onReact = { event -> 
                                                 reactingToEvent = event
                                                 showEmojiSelection = true
+                                            },
+                                            onEdit = { event -> editingEvent = event },
+                                            onDelete = { event -> 
+                                                deletingEvent = event
+                                                showDeleteDialog = true
                                             }
                                         )
                                     }
@@ -505,6 +529,15 @@ fun RoomTimelineScreen(
                         var draft by remember { mutableStateOf("") }
     var lastTypingTime by remember { mutableStateOf(0L) }
                         
+                        // Pre-fill draft when editing starts
+                        LaunchedEffect(editingEvent) {
+                            if (editingEvent != null) {
+                                val content = editingEvent!!.content ?: editingEvent!!.decrypted
+                                val body = content?.optString("body", "") ?: ""
+                                draft = body
+                            }
+                        }
+                        
                         // Typing detection with debouncing
                         LaunchedEffect(draft) {
                             if (draft.isNotBlank()) {
@@ -530,6 +563,17 @@ fun RoomTimelineScreen(
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Column {
+                                    // Edit preview inside the text input (if editing)
+                                    if (editingEvent != null) {
+                                        EditPreviewInput(
+                                            event = editingEvent!!,
+                                            onCancel = { 
+                                                editingEvent = null
+                                                draft = "" // Clear draft when canceling edit
+                                            }
+                                        )
+                                    }
+                                    
                                     // Reply preview inside the text input (if replying)
                                     if (replyingToEvent != null) {
                                         ReplyPreviewInput(
@@ -565,11 +609,18 @@ fun RoomTimelineScreen(
                             Button(
                                 onClick = { 
                                     if (draft.isNotBlank()) {
-                                        // Send reply if replying to a message, otherwise send regular message
-                                        if (replyingToEvent != null) {
+                                        // Send edit if editing a message
+                                        if (editingEvent != null) {
+                                            appViewModel.sendEdit(roomId, draft, editingEvent!!)
+                                            editingEvent = null // Clear edit state
+                                        }
+                                        // Send reply if replying to a message
+                                        else if (replyingToEvent != null) {
                                             appViewModel.sendReply(roomId, draft, replyingToEvent!!)
                                             replyingToEvent = null // Clear reply state
-                                        } else {
+                                        } 
+                                        // Otherwise send regular message
+                                        else {
                                             appViewModel.sendMessage(roomId, draft)
                                         }
                                         draft = "" // Clear the input after sending
@@ -596,9 +647,7 @@ fun RoomTimelineScreen(
                         }
                     }
             }
-        }
-    }
-    
+            
     // Emoji selection dialog
             if (showEmojiSelection && reactingToEvent != null) {
                 EmojiSelectionDialog(
@@ -616,6 +665,24 @@ fun RoomTimelineScreen(
                     }
                 )
             }
+            
+            // Delete message dialog
+            if (showDeleteDialog && deletingEvent != null) {
+                DeleteMessageDialog(
+                    onDismiss = {
+                        showDeleteDialog = false
+                        deletingEvent = null
+                    },
+                    onConfirm = { reason ->
+                        appViewModel.sendDelete(roomId, deletingEvent!!, reason)
+                        showDeleteDialog = false
+                        deletingEvent = null
+                    }
+                )
+            }
+            }
+        }
+    }
 }
 
 
@@ -640,7 +707,9 @@ fun TimelineEventItem(
     appViewModel: AppViewModel? = null,
     onScrollToMessage: (String) -> Unit = {},
     onReply: (TimelineEvent) -> Unit = {},
-    onReact: (TimelineEvent) -> Unit = {}
+    onReact: (TimelineEvent) -> Unit = {},
+    onEdit: (TimelineEvent) -> Unit = {},
+    onDelete: (TimelineEvent) -> Unit = {}
 ) {
     val context = LocalContext.current
     
@@ -849,6 +918,14 @@ fun TimelineEventItem(
                     val redactionReason = redactionEvent?.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
                     val redactionSender = redactionEvent?.sender
                     
+                    // Request profile if redaction sender is missing from cache
+                    if (isRedacted && redactionSender != null && appViewModel != null) {
+                        if (!userProfileCache.containsKey(redactionSender)) {
+                            android.util.Log.d("Andromuks", "RoomTimelineScreen: Requesting profile for redaction sender: $redactionSender in room ${event.roomId}")
+                            appViewModel.requestUserProfile(redactionSender, event.roomId)
+                        }
+                    }
+                    
                     // Show deletion message if redacted, otherwise show the message content
                     val finalBody = if (isRedacted) {
                         // Create deletion message based on reason and sender using latest redaction
@@ -970,8 +1047,8 @@ fun TimelineEventItem(
                                         event = event,
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
-                                        onEdit = { /* TODO: Implement edit */ },
-                                        onDelete = { /* TODO: Implement delete */ }
+                                        onEdit = { onEdit(event) },
+                                        onDelete = { onDelete(event) }
                                     )
                                 }
                             } else {
@@ -983,8 +1060,8 @@ fun TimelineEventItem(
                                     event = event,
                                     onReply = { onReply(event) },
                                     onReact = { onReact(event) },
-                                    onEdit = { /* TODO: Implement edit */ },
-                                    onDelete = { /* TODO: Implement delete */ }
+                                    onEdit = { onEdit(event) },
+                                    onDelete = { onDelete(event) }
                                 )
                             }
                             
@@ -1079,8 +1156,8 @@ fun TimelineEventItem(
                                     modifier = Modifier.padding(top = 4.dp),
                                     onReply = { onReply(event) },
                                     onReact = { onReact(event) },
-                                    onEdit = { /* TODO: Implement edit */ },
-                                    onDelete = { /* TODO: Implement delete */ }
+                                    onEdit = { onEdit(event) },
+                                    onDelete = { onDelete(event) }
                                 ) {
                                     Column(
                                         modifier = Modifier.padding(12.dp)
@@ -1111,17 +1188,6 @@ fun TimelineEventItem(
                                             roomId = event.roomId,
                                             modifier = Modifier
                                         )
-                                        
-                                        // Show redaction indicators for reply (using our new deletion message function)
-                                        if (isRedacted) {
-                                            Text(
-                                                text = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontStyle = FontStyle.Italic,
-                                                modifier = Modifier.padding(top = 4.dp)
-                                            )
-                                        }
                                     }
                                 }
                             } else {
@@ -1133,8 +1199,8 @@ fun TimelineEventItem(
                                     modifier = Modifier.padding(top = 4.dp),
                                     onReply = { onReply(event) },
                                     onReact = { onReact(event) },
-                                    onEdit = { /* TODO: Implement edit */ },
-                                    onDelete = { /* TODO: Implement delete */ }
+                                    onEdit = { onEdit(event) },
+                                    onDelete = { onDelete(event) }
                                 ) {
                                     SmartMessageText(
                                         body = finalBody,
@@ -1146,17 +1212,6 @@ fun TimelineEventItem(
                                         roomId = event.roomId,
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                     )
-                                    
-                                    // Show redaction indicators (using our new deletion message function)
-                                    if (isRedacted) {
-                                        Text(
-                                            text = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontStyle = FontStyle.Italic,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                                        )
-                                    }
                                 }
                             }
                         }
@@ -1210,6 +1265,14 @@ fun TimelineEventItem(
                         } else null
                         val redactionReason = redactionEvent?.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
                         val redactionSender = redactionEvent?.sender
+                        
+                        // Request profile if redaction sender is missing from cache
+                        if (isRedacted && redactionSender != null && appViewModel != null) {
+                            if (!userProfileCache.containsKey(redactionSender)) {
+                                android.util.Log.d("Andromuks", "RoomTimelineScreen: Requesting profile for encrypted message redaction sender: $redactionSender in room ${event.roomId}")
+                                appViewModel.requestUserProfile(redactionSender, event.roomId)
+                            }
+                        }
                         
                         // Check if this is an edit (m.replace relationship)
                         val isEdit = decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
@@ -1324,8 +1387,8 @@ fun TimelineEventItem(
                                             event = event,
                                             onReply = { onReply(event) },
                                             onReact = { onReact(event) },
-                                            onEdit = { /* TODO: Implement edit */ },
-                                            onDelete = { /* TODO: Implement delete */ }
+                                            onEdit = { onEdit(event) },
+                                            onDelete = { onDelete(event) }
                                         )
                                     }
                                 } else {
@@ -1338,8 +1401,8 @@ fun TimelineEventItem(
                                         event = event,
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
-                                        onEdit = { /* TODO: Implement edit */ },
-                                        onDelete = { /* TODO: Implement delete */ }
+                                        onEdit = { onEdit(event) },
+                                        onDelete = { onDelete(event) }
                                     )
                                 }
                                 
@@ -1393,8 +1456,8 @@ fun TimelineEventItem(
                                         modifier = Modifier.padding(top = 4.dp),
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
-                                        onEdit = { /* TODO: Implement edit */ },
-                                        onDelete = { /* TODO: Implement delete */ }
+                                        onEdit = { onEdit(event) },
+                                        onDelete = { onDelete(event) }
                                     ) {
                                         Text(
                                             text = body,
@@ -1458,8 +1521,8 @@ fun TimelineEventItem(
                                         modifier = Modifier.padding(top = 4.dp),
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
-                                        onEdit = { /* TODO: Implement edit */ },
-                                        onDelete = { /* TODO: Implement delete */ }
+                                        onEdit = { onEdit(event) },
+                                        onDelete = { onDelete(event) }
                                     ) {
                                         Column(
                                             modifier = Modifier.padding(12.dp)
@@ -1480,25 +1543,25 @@ fun TimelineEventItem(
                                             )
                                             
                                             // Reply message content (directly in the outer bubble, no separate bubble)
-                                            SmartMessageText(
-                                                body = finalBody,
-                                                format = format,
-                                                userProfileCache = userProfileCache,
-                                                homeserverUrl = homeserverUrl,
-                                                authToken = authToken,
-                                                appViewModel = appViewModel,
-                                                roomId = event.roomId,
-                                                modifier = Modifier
-                                            )
-                                            
-                                            // Show redaction indicators for encrypted reply
+                                            // For encrypted messages, show deletion message if redacted, otherwise show content
                                             if (isRedacted) {
                                                 Text(
                                                     text = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
-                                                    style = MaterialTheme.typography.labelSmall,
+                                                    style = MaterialTheme.typography.bodyMedium,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     fontStyle = FontStyle.Italic,
-                                                    modifier = Modifier.padding(top = 4.dp)
+                                                    modifier = Modifier
+                                                )
+                                            } else {
+                                                SmartMessageText(
+                                                    body = finalBody,
+                                                    format = format,
+                                                    userProfileCache = userProfileCache,
+                                                    homeserverUrl = homeserverUrl,
+                                                    authToken = authToken,
+                                                    appViewModel = appViewModel,
+                                                    roomId = event.roomId,
+                                                    modifier = Modifier
                                                 )
                                             }
                                         }
@@ -1512,28 +1575,28 @@ fun TimelineEventItem(
                                         modifier = Modifier.padding(top = 4.dp),
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
-                                        onEdit = { /* TODO: Implement edit */ },
-                                        onDelete = { /* TODO: Implement delete */ }
+                                        onEdit = { onEdit(event) },
+                                        onDelete = { onDelete(event) }
                                     ) {
-                                        SmartMessageText(
-                                            body = finalBody,
-                                            format = format,
-                                            userProfileCache = userProfileCache,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            appViewModel = appViewModel,
-                                            roomId = event.roomId,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                        )
-                                        
-                                        // Show redaction indicators for encrypted message
+                                        // For encrypted messages, show deletion message if redacted, otherwise show content
                                         if (isRedacted) {
                                             Text(
                                                 text = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
-                                                style = MaterialTheme.typography.labelSmall,
+                                                style = MaterialTheme.typography.bodyMedium,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 fontStyle = FontStyle.Italic,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                            )
+                                        } else {
+                                            SmartMessageText(
+                                                body = finalBody,
+                                                format = format,
+                                                userProfileCache = userProfileCache,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                appViewModel = appViewModel,
+                                                roomId = event.roomId,
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                             )
                                         }
                                     }
