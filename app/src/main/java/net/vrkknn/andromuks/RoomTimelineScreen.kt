@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,7 +13,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
@@ -22,6 +25,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -47,6 +51,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.SpanStyle
@@ -450,13 +455,13 @@ fun RoomTimelineScreen(
                             .weight(1f)
                             .fillMaxWidth(),
                             state = listState,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                             horizontal = 16.dp,
                             vertical = 8.dp
                             )
                         ) {
-                            items(timelineItems) { item ->
+                            itemsIndexed(timelineItems) { index, item ->
                                 when (item) {
                                     is TimelineItem.DateDivider -> {
                                         DateDivider(item.date)
@@ -465,6 +470,26 @@ fun RoomTimelineScreen(
                                         val event = item.event
                                         Log.d("Andromuks", "RoomTimelineScreen: Processing timeline event: ${event.eventId}, type: ${event.type}, sender: ${event.sender}")
                                         val isMine = myUserId != null && event.sender == myUserId
+                                        
+                                        // Check if this is a consecutive message from the same sender
+                                        // Look at previous item (skip date dividers)
+                                        var previousEvent: TimelineEvent? = null
+                                        var prevIndex = index - 1
+                                        while (prevIndex >= 0 && previousEvent == null) {
+                                            when (val prevItem = timelineItems[prevIndex]) {
+                                                is TimelineItem.Event -> previousEvent = prevItem.event
+                                                is TimelineItem.DateDivider -> break // Date divider breaks grouping
+                                            }
+                                            prevIndex--
+                                        }
+                                        
+                                        // Check if current event has per-message profile (from bridges like Beeper)
+                                        // These should always show avatar/name even if from same Matrix user
+                                        val hasPerMessageProfile = event.content?.has("com.beeper.per_message_profile") == true ||
+                                                                   event.decrypted?.has("com.beeper.per_message_profile") == true
+                                        
+                                        val isConsecutive = !hasPerMessageProfile && previousEvent?.sender == event.sender
+                                        
                                         TimelineEventItem(
                                             event = event,
                                             timelineEvents = timelineEvents,
@@ -473,6 +498,7 @@ fun RoomTimelineScreen(
                                             userProfileCache = appViewModel.getMemberMap(roomId),
                                             isMine = isMine,
                                             myUserId = myUserId,
+                                            isConsecutive = isConsecutive,
                                             appViewModel = appViewModel,
                                             onScrollToMessage = { eventId ->
                                                 // Find the index of the message to scroll to
@@ -694,6 +720,29 @@ fun formatTimestamp(timestamp: Long): String {
     return formatter.format(date)
 }
 
+@Composable
+fun ColumnScope.InlineBubbleTimestamp(
+    timestamp: Long,
+    editedBy: TimelineEvent? = null,
+    isMine: Boolean,
+    isConsecutive: Boolean
+) {
+    // Only show timestamp inside bubble for consecutive messages
+    if (isConsecutive) {
+        Text(
+            text = if (editedBy != null) {
+                "${formatTimestamp(timestamp)} (edited)"
+            } else {
+                formatTimestamp(timestamp)
+            },
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+            fontStyle = FontStyle.Italic,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.padding(top = 2.dp)
+        )
+    }
+}
+
 
 @Composable
 fun TimelineEventItem(
@@ -704,6 +753,7 @@ fun TimelineEventItem(
     userProfileCache: Map<String, MemberProfile>,
     isMine: Boolean,
     myUserId: String?,
+    isConsecutive: Boolean = false,
     appViewModel: AppViewModel? = null,
     onScrollToMessage: (String) -> Unit = {},
     onReply: (TimelineEvent) -> Unit = {},
@@ -801,10 +851,11 @@ fun TimelineEventItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = if (isConsecutive) 0.dp else 4.dp),
         verticalAlignment = Alignment.Top
     ) {
-        if (!actualIsMine) {
+        // Show avatar only for non-consecutive messages
+        if (!actualIsMine && !isConsecutive) {
             AvatarImage(
                 mxcUrl = avatarUrl,
                 homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
@@ -815,39 +866,45 @@ fun TimelineEventItem(
                 displayName = displayName
             )
             Spacer(modifier = Modifier.width(8.dp))
+        } else if (!actualIsMine && isConsecutive) {
+            // Add spacer to maintain alignment for consecutive messages
+            Spacer(modifier = Modifier.width(56.dp)) // 48dp avatar + 8dp spacer
         }
         
         // Event content
         Column(modifier = Modifier.weight(1f)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
-            ) {
-                // Show per-message profile name and bridge sender info
-                val headerText = if ((hasPerMessageProfile || hasEncryptedPerMessageProfile) && bridgeSender != null) {
-                    // Get bridge sender display name for better readability
-                    val bridgeProfile = userProfileCache[bridgeSender]
-                    val bridgeDisplayName = bridgeProfile?.displayName ?: bridgeSender
-                    "${displayName ?: "Unknown"}, sent by ${bridgeDisplayName}"
-                } else {
-                    displayName ?: event.sender
-                }
-                
-                Text(
-                    text = headerText,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (editedBy != null) {
-                        "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
+            // Show name and timestamp header only for non-consecutive messages
+            if (!isConsecutive) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
+                ) {
+                    // Show per-message profile name and bridge sender info
+                    val headerText = if ((hasPerMessageProfile || hasEncryptedPerMessageProfile) && bridgeSender != null) {
+                        // Get bridge sender display name for better readability
+                        val bridgeProfile = userProfileCache[bridgeSender]
+                        val bridgeDisplayName = bridgeProfile?.displayName ?: bridgeSender
+                        "${displayName ?: "Unknown"}, sent by ${bridgeDisplayName}"
                     } else {
-                        formatTimestamp(event.timestamp)
-                    },
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                        displayName ?: event.sender
+                    }
+                    
+                    Text(
+                        text = headerText,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (editedBy != null) {
+                            "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
+                        } else {
+                            formatTimestamp(event.timestamp)
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
             
             when (event.type) {
@@ -1012,6 +1069,9 @@ fun TimelineEventItem(
                                         authToken = authToken,
                                         isMine = actualIsMine,
                                         event = event,
+                                        timestamp = event.timestamp,
+                                        isConsecutive = isConsecutive,
+                                        editedBy = editedBy,
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
                                         onEdit = { onEdit(event) },
@@ -1025,6 +1085,9 @@ fun TimelineEventItem(
                                     authToken = authToken,
                                     isMine = actualIsMine,
                                     event = event,
+                                    timestamp = event.timestamp,
+                                    isConsecutive = isConsecutive,
+                                    editedBy = editedBy,
                                     onReply = { onReply(event) },
                                     onReact = { onReact(event) },
                                     onEdit = { onEdit(event) },
@@ -1134,14 +1197,17 @@ fun TimelineEventItem(
                                     event = event,
                                     bubbleColor = bubbleColor,
                                     bubbleShape = bubbleShape,
-                                    modifier = Modifier.padding(top = 4.dp),
+                                    modifier = Modifier
+                                        .padding(top = 4.dp)
+                                        .widthIn(max = 300.dp),
                                     onReply = { onReply(event) },
                                     onReact = { onReact(event) },
                                     onEdit = { onEdit(event) },
                                     onDelete = { onDelete(event) }
                                 ) {
                                     Column(
-                                        modifier = Modifier.padding(12.dp)
+                                        modifier = Modifier.padding(12.dp),
+                                        horizontalAlignment = if (actualIsMine) Alignment.Start else Alignment.End
                                     ) {
                                         // Reply preview (clickable original message)
                                         ReplyPreview(
@@ -1151,7 +1217,9 @@ fun TimelineEventItem(
                                             homeserverUrl = homeserverUrl,
                                             authToken = authToken,
                                             isMine = actualIsMine,
-                                            modifier = Modifier.padding(bottom = 8.dp),
+                                            modifier = Modifier
+                                                .padding(bottom = 8.dp)
+                                                .align(Alignment.Start),
                                             onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
                                             },
@@ -1167,7 +1235,14 @@ fun TimelineEventItem(
                                             authToken = authToken,
                                             appViewModel = appViewModel,
                                             roomId = event.roomId,
-                                            modifier = Modifier
+                                            modifier = Modifier.align(Alignment.Start)
+                                        )
+                                        
+                                        InlineBubbleTimestamp(
+                                            timestamp = event.timestamp,
+                                            editedBy = editedBy,
+                                            isMine = actualIsMine,
+                                            isConsecutive = isConsecutive
                                         )
                                     }
                                 }
@@ -1177,22 +1252,35 @@ fun TimelineEventItem(
                                     event = event,
                                     bubbleColor = bubbleColor,
                                     bubbleShape = bubbleShape,
-                                    modifier = Modifier.padding(top = 4.dp),
+                                    modifier = Modifier
+                                        .padding(top = 4.dp)
+                                        .widthIn(max = 300.dp),
                                     onReply = { onReply(event) },
                                     onReact = { onReact(event) },
                                     onEdit = { onEdit(event) },
                                     onDelete = { onDelete(event) }
                                 ) {
-                                    SmartMessageText(
-                                        body = finalBody,
-                                        format = format,
-                                        userProfileCache = userProfileCache,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        appViewModel = appViewModel,
-                                        roomId = event.roomId,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                    )
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                        horizontalAlignment = if (actualIsMine) Alignment.Start else Alignment.End
+                                    ) {
+                                        SmartMessageText(
+                                            body = finalBody,
+                                            format = format,
+                                            userProfileCache = userProfileCache,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                            appViewModel = appViewModel,
+                                            roomId = event.roomId,
+                                            modifier = Modifier.align(Alignment.Start)
+                                        )
+                                        InlineBubbleTimestamp(
+                                            timestamp = event.timestamp,
+                                            editedBy = editedBy,
+                                            isMine = actualIsMine,
+                                            isConsecutive = isConsecutive
+                                        )
+                                    }
                                 }
                             }
                             
@@ -1379,6 +1467,9 @@ fun TimelineEventItem(
                                             isMine = actualIsMine,
                                             isEncrypted = true,
                                             event = event,
+                                            timestamp = event.timestamp,
+                                            isConsecutive = isConsecutive,
+                                            editedBy = editedBy,
                                             onReply = { onReply(event) },
                                             onReact = { onReact(event) },
                                             onEdit = { onEdit(event) },
@@ -1393,6 +1484,9 @@ fun TimelineEventItem(
                                         isMine = actualIsMine,
                                         isEncrypted = true,
                                         event = event,
+                                        timestamp = event.timestamp,
+                                        isConsecutive = isConsecutive,
+                                        editedBy = editedBy,
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
                                         onEdit = { onEdit(event) },
@@ -1447,7 +1541,9 @@ fun TimelineEventItem(
                                         event = event,
                                         bubbleColor = bubbleColor,
                                         bubbleShape = bubbleShape,
-                                        modifier = Modifier.padding(top = 4.dp),
+                                        modifier = Modifier
+                                            .padding(top = 4.dp)
+                                            .widthIn(max = 300.dp),
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
                                         onEdit = { onEdit(event) },
@@ -1526,14 +1622,17 @@ fun TimelineEventItem(
                                         event = event,
                                         bubbleColor = bubbleColor,
                                         bubbleShape = bubbleShape,
-                                        modifier = Modifier.padding(top = 4.dp),
+                                        modifier = Modifier
+                                            .padding(top = 4.dp)
+                                            .widthIn(max = 300.dp),
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
                                         onEdit = { onEdit(event) },
                                         onDelete = { onDelete(event) }
                                     ) {
                                         Column(
-                                            modifier = Modifier.padding(12.dp)
+                                            modifier = Modifier.padding(12.dp),
+                                            horizontalAlignment = if (actualIsMine) Alignment.Start else Alignment.End
                                         ) {
                                             // Reply preview (clickable original message)
                                             ReplyPreview(
@@ -1543,7 +1642,9 @@ fun TimelineEventItem(
                                                 homeserverUrl = homeserverUrl,
                                                 authToken = authToken,
                                                 isMine = actualIsMine,
-                                                modifier = Modifier.padding(bottom = 8.dp),
+                                                modifier = Modifier
+                                                    .padding(bottom = 8.dp)
+                                                    .align(Alignment.Start),
                                                 onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
                                                 },
@@ -1558,7 +1659,7 @@ fun TimelineEventItem(
                                                     style = MaterialTheme.typography.bodyMedium,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     fontStyle = FontStyle.Italic,
-                                                    modifier = Modifier
+                                                    modifier = Modifier.align(Alignment.Start)
                                                 )
                                             } else {
                                                 SmartMessageText(
@@ -1569,9 +1670,16 @@ fun TimelineEventItem(
                                                     authToken = authToken,
                                                     appViewModel = appViewModel,
                                                     roomId = event.roomId,
-                                                    modifier = Modifier
+                                                    modifier = Modifier.align(Alignment.Start)
                                                 )
                                             }
+                                            
+                                            InlineBubbleTimestamp(
+                                                timestamp = event.timestamp,
+                                                editedBy = editedBy,
+                                                isMine = actualIsMine,
+                                                isConsecutive = isConsecutive
+                                            )
                                         }
                                     }
                                 } else {
@@ -1580,31 +1688,45 @@ fun TimelineEventItem(
                                         event = event,
                                         bubbleColor = bubbleColor,
                                         bubbleShape = bubbleShape,
-                                        modifier = Modifier.padding(top = 4.dp),
+                                        modifier = Modifier
+                                            .padding(top = 4.dp)
+                                            .widthIn(max = 300.dp),
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
                                         onEdit = { onEdit(event) },
                                         onDelete = { onDelete(event) }
                                     ) {
-                                        // For encrypted messages, show deletion message if redacted, otherwise show content
-                                        if (isRedacted) {
-                                            Text(
-                                                text = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontStyle = FontStyle.Italic,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                            )
-                                        } else {
-                                            SmartMessageText(
-                                                body = finalBody,
-                                                format = format,
-                                                userProfileCache = userProfileCache,
-                                                homeserverUrl = homeserverUrl,
-                                                authToken = authToken,
-                                                appViewModel = appViewModel,
-                                                roomId = event.roomId,
-                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                        Column(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            horizontalAlignment = if (actualIsMine) Alignment.Start else Alignment.End
+                                        ) {
+                                            // For encrypted messages, show deletion message if redacted, otherwise show content
+                                            if (isRedacted) {
+                                                Text(
+                                                    text = net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache),
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    fontStyle = FontStyle.Italic,
+                                                    modifier = Modifier.align(Alignment.Start)
+                                                )
+                                            } else {
+                                                SmartMessageText(
+                                                    body = finalBody,
+                                                    format = format,
+                                                    userProfileCache = userProfileCache,
+                                                    homeserverUrl = homeserverUrl,
+                                                    authToken = authToken,
+                                                    appViewModel = appViewModel,
+                                                    roomId = event.roomId,
+                                                    modifier = Modifier.align(Alignment.Start)
+                                                )
+                                            }
+                                            
+                                            InlineBubbleTimestamp(
+                                                timestamp = event.timestamp,
+                                                editedBy = editedBy,
+                                                isMine = actualIsMine,
+                                                isConsecutive = isConsecutive
                                             )
                                         }
                                     }

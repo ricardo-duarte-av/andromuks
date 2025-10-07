@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -39,8 +41,13 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import net.vrkknn.andromuks.TimelineEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import android.os.Build
@@ -169,6 +176,43 @@ object MediaCache {
 }
 
 /**
+ * Format timestamp for media messages
+ */
+private fun formatMediaTimestamp(timestamp: Long): String {
+    val date = Date(timestamp)
+    val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
+    return formatter.format(date)
+}
+
+/**
+ * Displays timestamp inside media bubble (for consecutive messages)
+ */
+@Composable
+private fun MediaBubbleTimestamp(
+    timestamp: Long,
+    editedBy: TimelineEvent?,
+    isMine: Boolean,
+    isConsecutive: Boolean
+) {
+    if (isConsecutive) {
+        Text(
+            text = if (editedBy != null) {
+                "${formatMediaTimestamp(timestamp)} (edited)"
+            } else {
+                formatMediaTimestamp(timestamp)
+            },
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+            fontStyle = FontStyle.Italic,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier
+                .fillMaxWidth()
+                .wrapContentWidth(if (isMine) Alignment.Start else Alignment.End)
+                .padding(horizontal = 12.dp, vertical = 4.dp)
+        )
+    }
+}
+
+/**
  * Displays a media message (image or video) in a Material3 bubble with proper aspect ratio and styling.
  * 
  * This function renders media content with BlurHash placeholders for images, proper aspect ratio
@@ -191,6 +235,9 @@ fun MediaMessage(
     isEncrypted: Boolean = false,
     modifier: Modifier = Modifier,
     event: TimelineEvent? = null,
+    timestamp: Long? = null,
+    isConsecutive: Boolean = false,
+    editedBy: TimelineEvent? = null,
     onReply: () -> Unit = {},
     onReact: () -> Unit = {},
     onEdit: () -> Unit = {},
@@ -247,6 +294,16 @@ fun MediaMessage(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     )
+                    
+                    // Timestamp (for consecutive messages)
+                    if (timestamp != null) {
+                        MediaBubbleTimestamp(
+                            timestamp = timestamp,
+                            editedBy = editedBy,
+                            isMine = isMine,
+                            isConsecutive = isConsecutive
+                        )
+                    }
                 }
             }
         } else {
@@ -278,6 +335,16 @@ fun MediaMessage(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                     )
+                    
+                    // Timestamp (for consecutive messages)
+                    if (timestamp != null) {
+                        MediaBubbleTimestamp(
+                            timestamp = timestamp,
+                            editedBy = editedBy,
+                            isMine = isMine,
+                            isConsecutive = isConsecutive
+                        )
+                    }
                 }
             }
         }
@@ -301,13 +368,25 @@ fun MediaMessage(
                 onEdit = onEdit,
                 onDelete = onDelete
             ) {
-                MediaContent(
-                    mediaMessage = mediaMessage,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    isEncrypted = isEncrypted,
-                    onImageClick = { showImageViewer = true }
-                )
+                Column {
+                    MediaContent(
+                        mediaMessage = mediaMessage,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        isEncrypted = isEncrypted,
+                        onImageClick = { showImageViewer = true }
+                    )
+                    
+                    // Timestamp (for consecutive messages)
+                    if (timestamp != null) {
+                        MediaBubbleTimestamp(
+                            timestamp = timestamp,
+                            editedBy = editedBy,
+                            isMine = isMine,
+                            isConsecutive = isConsecutive
+                        )
+                    }
+                }
             }
         } else {
             Surface(
@@ -323,13 +402,25 @@ fun MediaMessage(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 tonalElevation = 1.dp
             ) {
-                MediaContent(
-                    mediaMessage = mediaMessage,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    isEncrypted = isEncrypted,
-                    onImageClick = { showImageViewer = true }
-                )
+                Column {
+                    MediaContent(
+                        mediaMessage = mediaMessage,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        isEncrypted = isEncrypted,
+                        onImageClick = { showImageViewer = true }
+                    )
+                    
+                    // Timestamp (for consecutive messages)
+                    if (timestamp != null) {
+                        MediaBubbleTimestamp(
+                            timestamp = timestamp,
+                            editedBy = editedBy,
+                            isMine = isMine,
+                            isConsecutive = isConsecutive
+                        )
+                    }
+                }
             }
         }
     }
