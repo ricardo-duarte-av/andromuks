@@ -2,6 +2,7 @@ package net.vrkknn.andromuks.utils
 
 import android.util.Log
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,14 +14,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,11 +33,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReadReceipt
+import net.vrkknn.andromuks.ui.components.AvatarImage
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -234,6 +229,7 @@ fun InlineReadReceiptAvatars(
             receipts = filteredReceipts,
             userProfileCache = userProfileCache,
             homeserverUrl = homeserverUrl,
+            authToken = authToken,
             onDismiss = { showReceiptDialog = false }
         )
     }
@@ -242,10 +238,8 @@ fun InlineReadReceiptAvatars(
         Log.d("Andromuks", "InlineReadReceiptAvatars: Rendering ${filteredReceipts.size} read receipt avatars")
         Row(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            //modifier = Modifier
-            //    .background(androidx.compose.material3.MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.3f))
-            //    .padding(2.dp)
+            verticalAlignment = Alignment.Top,
+            modifier = Modifier.padding(top = 4.dp) // Align with the top of message bubble (which also has top = 4.dp)
         ) {
             // Show up to 3 avatars, with a "+X" indicator if there are more
             val maxAvatars = 3
@@ -255,93 +249,50 @@ fun InlineReadReceiptAvatars(
             avatarsToShow.forEach { receipt ->
                 val userProfile = userProfileCache[receipt.userId]
                 val avatarUrl = userProfile?.avatarUrl
+                val displayName = userProfile?.displayName
                 
                 Log.d("Andromuks", "InlineReadReceiptAvatars: Rendering avatar for user: ${receipt.userId}")
-                Log.d("Andromuks", "InlineReadReceiptAvatars: userProfile: $userProfile")
-                Log.d("Andromuks", "InlineReadReceiptAvatars: avatarUrl: $avatarUrl")
-                Log.d("Andromuks", "InlineReadReceiptAvatars: userProfileCache keys: ${userProfileCache.keys.joinToString(", ")}")
                 
-                IconButton(
-                    onClick = { 
-                        Log.d("Andromuks", "Read receipt avatar clicked for user: ${receipt.userId}")
-                        showReceiptDialog = true
-                    },
-                    modifier = Modifier.size(24.dp)
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clickable { 
+                            Log.d("Andromuks", "Read receipt avatar clicked for user: ${receipt.userId}")
+                            showReceiptDialog = true
+                        }
                 ) {
-                    if (avatarUrl != null && avatarUrl.isNotEmpty()) {
-                        // Convert MXC URL to HTTP URL if needed
-                        val httpUrl = when {
-                            avatarUrl.startsWith("mxc://") -> {
-                                net.vrkknn.andromuks.utils.AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
-                            }
-                            avatarUrl.startsWith("_gomuks/") -> {
-                                "$homeserverUrl/$avatarUrl"
-                            }
-                            else -> {
-                                avatarUrl
-                            }
-                        }
-                        
-                        Log.d("Andromuks", "InlineReadReceiptAvatars: Loading avatar from URL: $avatarUrl -> $httpUrl")
-                        
-                        if (httpUrl != null) {
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(httpUrl)
-                                    .crossfade(true)
-                                    .build(),
-                            contentDescription = "Avatar for ${userProfile.displayName ?: receipt.userId}",
-                            modifier = Modifier
-                                .size(16.dp)
-                                .clip(CircleShape),
-                            onSuccess = { 
-                                Log.d("Andromuks", "InlineReadReceiptAvatars: Avatar loaded successfully for user: ${receipt.userId}")
-                            },
-                            onError = { state ->
-                                Log.e("Andromuks", "InlineReadReceiptAvatars: Avatar loading failed for user: ${receipt.userId}, error: ${state.result.throwable}")
-                            }
-                        )
-                        } else {
-                            Log.w("Andromuks", "InlineReadReceiptAvatars: Failed to convert avatar URL to HTTP: $avatarUrl")
-                            // Fallback to default avatar icon
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = "Default avatar",
-                                modifier = Modifier
-                                    .size(16.dp)
-                                    .clip(CircleShape),
-                                //tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    } else {
-                        Log.d("Andromuks", "InlineReadReceiptAvatars: Using default avatar for user: ${receipt.userId}")
-                        // Fallback to a default avatar icon
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = "Default avatar",
-                            modifier = Modifier
-                                .size(16.dp)
-                                .clip(CircleShape),
-                            //tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    AvatarImage(
+                        mxcUrl = avatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        fallbackText = (displayName ?: receipt.userId).take(1),
+                        size = 16.dp,
+                        userId = receipt.userId,
+                        displayName = displayName
+                    )
                 }
             }
             
-            // Show "+X" indicator if there are more than maxAvatars
+            // Show "+" indicator if there are more than maxAvatars
             if (remainingCount > 0) {
-                IconButton(
-                    onClick = {
-                        Log.d("Andromuks", "Read receipt +X indicator clicked")
-                        showReceiptDialog = true
-                    },
-                    modifier = Modifier.size(24.dp)
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clickable {
+                            Log.d("Andromuks", "Read receipt + indicator clicked")
+                            showReceiptDialog = true
+                        }
+                        .background(
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreVert,
-                        contentDescription = "+$remainingCount more",
-                        modifier = Modifier.size(16.dp),
-                        //tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    Text(
+                        text = "+",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.Bold
                     )
                 }
             }
@@ -357,6 +308,7 @@ fun ReadReceiptDetailsDialog(
     receipts: List<ReadReceipt>,
     userProfileCache: Map<String, MemberProfile>,
     homeserverUrl: String,
+    authToken: String,
     onDismiss: () -> Unit
 ) {
     Dialog(
@@ -391,7 +343,8 @@ fun ReadReceiptDetailsDialog(
                         ReadReceiptItem(
                             receipt = receipt,
                             userProfile = userProfileCache[receipt.userId],
-                            homeserverUrl = homeserverUrl
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken
                         )
                     }
                 }
@@ -404,47 +357,23 @@ fun ReadReceiptDetailsDialog(
 private fun ReadReceiptItem(
     receipt: ReadReceipt,
     userProfile: MemberProfile?,
-    homeserverUrl: String
+    homeserverUrl: String,
+    authToken: String
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Avatar
-        val avatarUrl = userProfile?.avatarUrl
-        val httpUrl = when {
-            avatarUrl?.startsWith("mxc://") == true -> {
-                AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
-            }
-            avatarUrl?.startsWith("_gomuks/") == true -> {
-                "$homeserverUrl/$avatarUrl"
-            }
-            else -> {
-                avatarUrl
-            }
-        }
-        
-        if (httpUrl != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(httpUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = "Avatar for ${userProfile?.displayName ?: receipt.userId}",
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Default.Person,
-                contentDescription = "Default avatar",
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
+        // Avatar with automatic fallback
+        AvatarImage(
+            mxcUrl = userProfile?.avatarUrl,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            fallbackText = (userProfile?.displayName ?: receipt.userId).take(1),
+            size = 40.dp,
+            userId = receipt.userId,
+            displayName = userProfile?.displayName
+        )
         
         // User info and timestamp
         Column(
