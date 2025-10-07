@@ -266,7 +266,7 @@ fun InlineReadReceiptAvatars(
                         Log.d("Andromuks", "Read receipt avatar clicked for user: ${receipt.userId}")
                         showReceiptDialog = true
                     },
-                    modifier = Modifier.size(32.dp)
+                    modifier = Modifier.size(24.dp)
                 ) {
                     if (avatarUrl != null && avatarUrl.isNotEmpty()) {
                         // Convert MXC URL to HTTP URL if needed
@@ -292,7 +292,7 @@ fun InlineReadReceiptAvatars(
                                     .build(),
                             contentDescription = "Avatar for ${userProfile.displayName ?: receipt.userId}",
                             modifier = Modifier
-                                .size(20.dp)
+                                .size(16.dp)
                                 .clip(CircleShape),
                             onSuccess = { 
                                 Log.d("Andromuks", "InlineReadReceiptAvatars: Avatar loaded successfully for user: ${receipt.userId}")
@@ -308,7 +308,7 @@ fun InlineReadReceiptAvatars(
                                 imageVector = Icons.Default.Person,
                                 contentDescription = "Default avatar",
                                 modifier = Modifier
-                                    .size(20.dp)
+                                    .size(16.dp)
                                     .clip(CircleShape),
                                 //tint = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -320,7 +320,7 @@ fun InlineReadReceiptAvatars(
                             imageVector = Icons.Default.Person,
                             contentDescription = "Default avatar",
                             modifier = Modifier
-                                .size(20.dp)
+                                .size(16.dp)
                                 .clip(CircleShape),
                             //tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )

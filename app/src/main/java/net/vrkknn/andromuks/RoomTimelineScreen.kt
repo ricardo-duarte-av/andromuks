@@ -791,6 +791,13 @@ fun TimelineEventItem(
         return
     }
     
+    // Calculate read receipts once at the start
+    val readReceipts = if (appViewModel != null) {
+        net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(event.eventId, appViewModel.getReadReceiptsMap())
+    } else {
+        emptyList()
+    }
+    
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -816,26 +823,6 @@ fun TimelineEventItem(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
             ) {
-                // For my messages, show read receipts first, then name and time
-                if (actualIsMine && appViewModel != null) {
-                    val receipts = net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(event.eventId, appViewModel.getReadReceiptsMap())
-                    Log.d("Andromuks", "RoomTimelineScreen: My message ${event.eventId} - found ${receipts.size} read receipts")
-                    if (receipts.isNotEmpty()) {
-                        Log.d("Andromuks", "RoomTimelineScreen: Rendering read receipts for my message ${event.eventId}")
-                        InlineReadReceiptAvatars(
-                            receipts = receipts,
-                            userProfileCache = userProfileCache,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            appViewModel = appViewModel,
-                            messageSender = event.sender
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                    } else {
-                        Log.d("Andromuks", "RoomTimelineScreen: No recepts for my message ${event.eventId}")
-                    }
-                }
-                
                 // Show per-message profile name and bridge sender info
                 val headerText = if ((hasPerMessageProfile || hasEncryptedPerMessageProfile) && bridgeSender != null) {
                     // Get bridge sender display name for better readability
@@ -861,26 +848,6 @@ fun TimelineEventItem(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                
-                // For others' messages, show name and time first, then read receipts
-                if (!actualIsMine && appViewModel != null) {
-                    val receipts = net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(event.eventId, appViewModel.getReadReceiptsMap())
-                    Log.d("Andromuks", "RoomTimelineScreen: Other's message ${event.eventId} - found ${receipts.size} read receipts")
-                    if (receipts.isNotEmpty()) {
-                        Log.d("Andromuks", "RoomTimelineScreen: Rendering read receipts for other's message ${event.eventId}")
-                        Spacer(modifier = Modifier.width(8.dp))
-                        InlineReadReceiptAvatars(
-                            receipts = receipts,
-                            userProfileCache = userProfileCache,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            appViewModel = appViewModel,
-                            messageSender = event.sender
-                        )
-                    } else {
-                        Log.d("Andromuks", "RoomTimelineScreen: No recepts for others message ${event.eventId}")
-                    }
-                }
             }
             
             when (event.type) {
@@ -1145,8 +1112,22 @@ fun TimelineEventItem(
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
+                            horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start,
+                            verticalAlignment = Alignment.Top
                         ) {
+                            // For my messages, show read receipts on the left of the bubble
+                            if (actualIsMine && readReceipts.isNotEmpty()) {
+                                InlineReadReceiptAvatars(
+                                    receipts = readReceipts,
+                                    userProfileCache = userProfileCache,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    appViewModel = appViewModel,
+                                    messageSender = event.sender
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            
                             // Display reply with nested structure if this is a reply
                             if (replyInfo != null && originalEvent != null) {
                                 MessageBubbleWithMenu(
@@ -1213,6 +1194,19 @@ fun TimelineEventItem(
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                                     )
                                 }
+                            }
+                            
+                            // For others' messages, show read receipts on the right of the bubble
+                            if (!actualIsMine && readReceipts.isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                InlineReadReceiptAvatars(
+                                    receipts = readReceipts,
+                                    userProfileCache = userProfileCache,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    appViewModel = appViewModel,
+                                    messageSender = event.sender
+                                )
                             }
                         }
                         
@@ -1510,8 +1504,22 @@ fun TimelineEventItem(
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
+                                horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start,
+                                verticalAlignment = Alignment.Top
                             ) {
+                                // For my messages, show read receipts on the left of the bubble
+                                if (actualIsMine && readReceipts.isNotEmpty()) {
+                                    InlineReadReceiptAvatars(
+                                        receipts = readReceipts,
+                                        userProfileCache = userProfileCache,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        appViewModel = appViewModel,
+                                        messageSender = event.sender
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                
                                 // Display encrypted text message with nested reply structure
                                 if (replyInfo != null && originalEvent != null) {
                                     MessageBubbleWithMenu(
@@ -1600,6 +1608,19 @@ fun TimelineEventItem(
                                             )
                                         }
                                     }
+                                }
+                                
+                                // For others' messages, show read receipts on the right of the bubble
+                                if (!actualIsMine && readReceipts.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    InlineReadReceiptAvatars(
+                                        receipts = readReceipts,
+                                        userProfileCache = userProfileCache,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        appViewModel = appViewModel,
+                                        messageSender = event.sender
+                                    )
                                 }
                             }
                             
