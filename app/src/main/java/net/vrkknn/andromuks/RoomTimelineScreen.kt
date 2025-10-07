@@ -411,7 +411,8 @@ fun RoomTimelineScreen(
                     fallbackName = displayRoomName,
                     fallbackAvatarUrl = displayAvatarUrl,
                     homeserverUrl = appViewModel.homeserverUrl,
-                    authToken = appViewModel.authToken
+                    authToken = appViewModel.authToken,
+                    roomId = roomId
                 )
                 
                 // 2. Timeline (compressible, scrollable content)
@@ -733,7 +734,9 @@ fun TimelineEventItem(
                 homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                 authToken = authToken,
                 fallbackText = (displayName ?: event.sender).take(1),
-                size = 48.dp
+                size = 48.dp,
+                userId = event.sender,
+                displayName = displayName
             )
             Spacer(modifier = Modifier.width(8.dp))
         }
@@ -746,7 +749,7 @@ fun TimelineEventItem(
             ) {
                 // For my messages, show read receipts first, then name and time
                 if (actualIsMine && appViewModel != null) {
-                    val receipts = appViewModel.getReadReceipts(event.eventId)
+                    val receipts = net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(event.eventId, appViewModel.getReadReceiptsMap())
                     Log.d("Andromuks", "RoomTimelineScreen: My message ${event.eventId} - found ${receipts.size} read receipts")
                     if (receipts.isNotEmpty()) {
                         Log.d("Andromuks", "RoomTimelineScreen: Rendering read receipts for my message ${event.eventId}")
@@ -792,7 +795,7 @@ fun TimelineEventItem(
                 
                 // For others' messages, show name and time first, then read receipts
                 if (!actualIsMine && appViewModel != null) {
-                    val receipts = appViewModel.getReadReceipts(event.eventId)
+                    val receipts = net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(event.eventId, appViewModel.getReadReceiptsMap())
                     Log.d("Andromuks", "RoomTimelineScreen: Other's message ${event.eventId} - found ${receipts.size} read receipts")
                     if (receipts.isNotEmpty()) {
                         Log.d("Andromuks", "RoomTimelineScreen: Rendering read receipts for other's message ${event.eventId}")
@@ -1593,7 +1596,8 @@ fun RoomHeader(
     fallbackName: String,
     fallbackAvatarUrl: String? = null,
     homeserverUrl: String,
-    authToken: String
+    authToken: String,
+    roomId: String? = null
 ) {
     // Debug logging
     android.util.Log.d("Andromuks", "RoomHeader: roomState = $roomState")
@@ -1618,7 +1622,9 @@ fun RoomHeader(
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
                 fallbackText = roomState?.name ?: fallbackName,
-                size = 48.dp
+                size = 48.dp,
+                userId = roomId ?: roomState?.roomId,
+                displayName = roomState?.name ?: fallbackName
             )
             
             Spacer(modifier = Modifier.width(12.dp))

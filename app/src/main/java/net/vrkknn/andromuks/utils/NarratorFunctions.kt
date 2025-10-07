@@ -52,7 +52,9 @@ fun SystemEventNarrator(
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
                 fallbackText = displayName,
-                size = 20.dp
+                size = 20.dp,
+                userId = event.sender,
+                displayName = displayName
             )
         
         // Narrator text
@@ -162,7 +164,9 @@ fun SystemEventNarrator(
                                 homeserverUrl = homeserverUrl,
                                 authToken = authToken,
                                 fallbackText = invitedDisplayName ?: invitedUserId?.substringAfterLast(":") ?: "?",
-                                size = 16.dp
+                                size = 16.dp,
+                                userId = invitedUserId,
+                                displayName = invitedDisplayName
                             )
                             
                             NarratorText(

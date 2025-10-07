@@ -214,17 +214,24 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    fun getReadReceipts(eventId: String): List<ReadReceipt> {
-        val receipts = ReceiptFunctions.getReadReceipts(eventId, readReceipts)
-        android.util.Log.d("Andromuks", "AppViewModel: getReadReceipts($eventId) -> ${receipts.size} receipts")
-        if (receipts.isEmpty()) {
-            android.util.Log.d("Andromuks", "AppViewModel: Available receipt event IDs: ${readReceipts.keys.joinToString(", ")}")
-        }
-        return receipts
-    }
-    
     fun getPendingInvites(): List<RoomInvite> {
         return pendingInvites.values.toList()
+    }
+    
+    /**
+     * Returns a read-only copy of the read receipts map.
+     * 
+     * This map contains read receipts organized by event ID. Each event ID maps to a list
+     * of ReadReceipt objects representing users who have read the room up to that event.
+     * 
+     * Note: Read receipts represent "User has read the room up to event X", so when a user
+     * reads a newer message, their receipt should only appear on the latest message they've read.
+     * This is handled automatically by the ReceiptFunctions.processReadReceipts() function.
+     * 
+     * @return Map where keys are event IDs and values are lists of read receipts for that event
+     */
+    fun getReadReceiptsMap(): Map<String, List<ReadReceipt>> {
+        return readReceipts.mapValues { it.value.toList() }
     }
     
     fun getCurrentRoomSection(): RoomSection {
@@ -303,27 +310,58 @@ class AppViewModel : ViewModel() {
         authToken = token
     }
     
+    /**
+     * Initializes FCM and related notification components.
+     * 
+     * This function delegates to FCMNotificationManager.initializeComponents() to set up
+     * all FCM-related functionality including push notifications, conversation shortcuts,
+     * and web client push integration.
+     * 
+     * @param context Application context
+     * @param homeserverUrl The Gomuks backend URL (optional, can be empty at initialization)
+     * @param authToken Authentication token for the backend (optional, can be empty at initialization)
+     */
     fun initializeFCM(context: Context, homeserverUrl: String = "", authToken: String = "") {
         appContext = context
-        fcmNotificationManager = FCMNotificationManager(context)
-        conversationsApi = ConversationsApi(context, homeserverUrl, authToken, realMatrixHomeserverUrl)
-        webClientPushIntegration = WebClientPushIntegration(context)
+        val components = FCMNotificationManager.initializeComponents(
+            context = context,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            realMatrixHomeserverUrl = realMatrixHomeserverUrl
+        )
+        fcmNotificationManager = components.fcmNotificationManager
+        conversationsApi = components.conversationsApi
+        webClientPushIntegration = components.webClientPushIntegration
     }
     
+    /**
+     * Registers FCM notifications with the Gomuks backend.
+     * 
+     * This function delegates to FCMNotificationManager.registerNotifications() to initiate
+     * the FCM token registration process. When the token is ready, it triggers the
+     * WebSocket-based registration with the Gomuks backend.
+     */
     fun registerFCMNotifications() {
         fcmNotificationManager?.let { manager ->
-            if (homeserverUrl.isNotBlank() && authToken.isNotBlank() && currentUserId.isNotBlank()) {
-                // Set callback to register with Gomuks backend when FCM token is ready
-                manager.setOnTokenReadyCallback {
+            FCMNotificationManager.registerNotifications(
+                fcmNotificationManager = manager,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                currentUserId = currentUserId,
+                onTokenReady = {
                     android.util.Log.d("Andromuks", "AppViewModel: FCM token ready, registering with Gomuks Backend")
                     registerFCMWithGomuksBackend()
                 }
-                
-                manager.initializeAndRegister(homeserverUrl, currentUserId, authToken)
-            }
+            )
         }
     }
     
+    /**
+     * Unregisters FCM notifications from the backend.
+     * 
+     * This cleans up the FCM registration and removes the device from receiving
+     * push notifications.
+     */
     fun unregisterFCMNotifications() {
         fcmNotificationManager?.unregisterFromBackend()
     }

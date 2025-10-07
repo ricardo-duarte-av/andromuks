@@ -8,11 +8,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
@@ -22,12 +26,14 @@ import android.util.Log
 import coil.compose.AsyncImage
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
+import coil.decode.SvgDecoder
 import coil.ImageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.MediaCache
+import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 
 
 @Composable
@@ -37,54 +43,56 @@ fun AvatarImage(
     authToken: String,
     fallbackText: String,
     modifier: Modifier = Modifier,
-    size: Dp = 48.dp
+    size: Dp = 48.dp,
+    userId: String? = null,
+    displayName: String? = null
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     
-    // Create ImageLoader with GIF support
-    val imageLoader = remember {
-        ImageLoader.Builder(context)
-            .components {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    add(ImageDecoderDecoder.Factory())
-                } else {
-                    add(GifDecoder.Factory())
-                }
-            }
-            .build()
-    }
+    // Use shared ImageLoader singleton with optimized memory cache
+    val imageLoader = remember { ImageLoaderSingleton.get(context) }
     
-    // Check if we have a cached version first
-    val cachedFile = remember(mxcUrl) {
-        if (mxcUrl != null) MediaCache.getCachedFile(context, mxcUrl) else null
-    }
+    // State to hold the final avatar URL (http://, file://, or data: URI)
+    // Use stable key to prevent unnecessary state resets
+    var avatarUrl by remember(mxcUrl, userId) { mutableStateOf<String?>(null) }
     
-    val imageUrl = remember(mxcUrl, cachedFile) {
-        if (mxcUrl.isNullOrBlank()) {
-            null
-        } else if (cachedFile != null) {
-            // Use cached file
-            Log.d("Andromuks", "AvatarImage: Using cached file: ${cachedFile.absolutePath}")
-            cachedFile.absolutePath
+    // Load avatar with fallback support
+    // Only re-execute when mxcUrl or userId changes (not displayName)
+    LaunchedEffect(mxcUrl, userId) {
+        if (userId != null) {
+            // Use new fallback avatar system
+            val url = AvatarUtils.getAvatarUrlWithFallback(
+                context = context,
+                mxcUrl = mxcUrl,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                displayName = displayName,
+                userId = userId
+            )
+            avatarUrl = url
+            Log.d("Andromuks", "AvatarImage: Got avatar URL with fallback: $url")
         } else {
-            // Use HTTP URL
-            val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
-            Log.d("Andromuks", "AvatarImage: Using HTTP URL: $httpUrl")
-            httpUrl
-        }
-    }
-    
-    // Download and cache if not already cached
-    LaunchedEffect(mxcUrl) {
-        if (mxcUrl != null && cachedFile == null) {
-            coroutineScope.launch {
+            // Fallback to old behavior if no userId provided
+            val cachedFile = if (mxcUrl != null) MediaCache.getCachedFile(context, mxcUrl) else null
+            
+            if (cachedFile != null) {
+                avatarUrl = cachedFile.absolutePath
+                Log.d("Andromuks", "AvatarImage: Using cached file: ${cachedFile.absolutePath}")
+            } else if (mxcUrl != null) {
                 val httpUrl = AvatarUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
+                avatarUrl = httpUrl
+                Log.d("Andromuks", "AvatarImage: Using HTTP URL: $httpUrl")
+                
+                // Download and cache in background
                 if (httpUrl != null) {
-                    MediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
-                    // Clean up cache if needed
-                    MediaCache.cleanupCache(context)
+                    coroutineScope.launch {
+                        MediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
+                        MediaCache.cleanupCache(context)
+                    }
                 }
+            } else {
+                avatarUrl = null
             }
         }
     }
@@ -96,12 +104,44 @@ fun AvatarImage(
             .background(MaterialTheme.colorScheme.primaryContainer),
         contentAlignment = Alignment.Center
     ) {
-        if (imageUrl != null) {
+        // Check if this is a data URI SVG fallback - render it directly instead of using AsyncImage
+        if (avatarUrl != null && avatarUrl!!.startsWith("data:image/svg+xml,")) {
+            // This is our generated SVG fallback - render it as colored circle with text
+            val fallbackLetter = if (userId != null) {
+                AvatarUtils.getFallbackCharacter(displayName, userId)
+            } else {
+                fallbackText.take(1).uppercase()
+            }
+            
+            val backgroundColor = if (userId != null) {
+                // Parse color from the data URI or get from userId
+                val colorHex = AvatarUtils.getUserColor(userId)
+                Color(android.graphics.Color.parseColor("#$colorHex"))
+            } else {
+                MaterialTheme.colorScheme.primaryContainer
+            }
+            
+            Box(
+                modifier = Modifier
+                    .size(size)
+                    .clip(CircleShape)
+                    .background(backgroundColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = fallbackLetter,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White
+                )
+            }
+        } else if (avatarUrl != null) {
+            // Regular image URL (http://, file://, etc.) - use AsyncImage
             AsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(imageUrl)
+                    .data(avatarUrl)
                     .apply {
-                        if (cachedFile == null) {
+                        // Only add auth header for HTTP URLs, not for file:// URIs
+                        if (avatarUrl?.startsWith("http") == true) {
                             addHeader("Cookie", "gomuks_auth=$authToken")
                         }
                     }
@@ -115,19 +155,50 @@ fun AvatarImage(
                     .clip(CircleShape),
                 contentScale = ContentScale.Crop,
                 onSuccess = {
-                    Log.d("Andromuks", "✅ AvatarImage: Avatar loaded successfully: $imageUrl")
+                    Log.d("Andromuks", "✅ AvatarImage: Avatar loaded successfully: $avatarUrl")
                 },
                 onError = { state ->
-                    Log.e("Andromuks", "❌ AvatarImage: Avatar load failed: $imageUrl")
+                    Log.e("Andromuks", "❌ AvatarImage: Avatar load failed: $avatarUrl")
                     Log.e("Andromuks", "Error state: $state")
+                    
+                    // If we have userId, generate fallback (will be rendered as colored circle)
+                    if (userId != null) {
+                        coroutineScope.launch {
+                            val svgFallback = AvatarUtils.generateLocalFallbackAvatar(displayName, userId)
+                            avatarUrl = svgFallback
+                            Log.d("Andromuks", "AvatarImage: Generated fallback after error")
+                        }
+                    }
                 }
             )
         } else {
-            Text(
-                text = fallbackText.take(1).uppercase(),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+            // Text fallback when no URL is available
+            val fallbackLetter = if (userId != null) {
+                AvatarUtils.getFallbackCharacter(displayName, userId)
+            } else {
+                fallbackText.take(1).uppercase()
+            }
+            
+            val backgroundColor = if (userId != null) {
+                val colorHex = AvatarUtils.getUserColor(userId)
+                Color(android.graphics.Color.parseColor("#$colorHex"))
+            } else {
+                MaterialTheme.colorScheme.primaryContainer
+            }
+            
+            Box(
+                modifier = Modifier
+                    .size(size)
+                    .clip(CircleShape)
+                    .background(backgroundColor),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = fallbackLetter,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White
+                )
+            }
         }
     }
 }

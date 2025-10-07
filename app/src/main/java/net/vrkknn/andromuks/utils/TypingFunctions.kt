@@ -64,7 +64,9 @@ fun TypingNotificationArea(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         fallbackText = displayName ?: user.substringAfter("@").substringBefore(":"),
-                        modifier = Modifier.size(12.dp) // Mini avatar size
+                        modifier = Modifier.size(12.dp), // Mini avatar size
+                        userId = user,
+                        displayName = displayName
                     )
                     
                     // Add spacing between avatars (except after the last one)

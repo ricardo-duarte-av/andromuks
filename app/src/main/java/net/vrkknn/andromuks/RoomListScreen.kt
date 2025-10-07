@@ -167,7 +167,9 @@ fun RoomListScreen(
                     homeserverUrl = appViewModel.homeserverUrl,
                     authToken = authToken,
                     fallbackText = me?.displayName ?: appViewModel.currentUserId,
-                    size = 40.dp
+                    size = 40.dp,
+                    userId = appViewModel.currentUserId,
+                    displayName = me?.displayName
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
@@ -358,7 +360,9 @@ fun SpaceListItem(
             homeserverUrl = homeserverUrl,
             authToken = authToken,
             fallbackText = space.name,
-            size = 48.dp
+            size = 48.dp,
+            userId = space.id,
+            displayName = space.name
         )
         
         Spacer(modifier = Modifier.width(12.dp))
@@ -451,7 +455,9 @@ fun RoomListItem(
             homeserverUrl = homeserverUrl,
             authToken = authToken,
             fallbackText = room.name,
-            size = 48.dp
+            size = 48.dp,
+            userId = room.id,
+            displayName = room.name
         )
         
         Spacer(modifier = Modifier.width(12.dp))
@@ -552,7 +558,9 @@ fun RoomListItem(
                             homeserverUrl = homeserverUrl,
                             authToken = authToken,
                             fallbackText = senderDisplayName,
-                            size = 20.dp
+                            size = 20.dp,
+                            userId = room.messageSender,
+                            displayName = senderDisplayName
                         )
                         
                         Spacer(modifier = Modifier.width(6.dp))
@@ -871,7 +879,9 @@ fun InviteListItem(
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
                 fallbackText = (invite.roomName ?: invite.roomId).take(1),
-                size = 48.dp
+                size = 48.dp,
+                userId = invite.roomId,
+                displayName = invite.roomName
             )
             
             Spacer(modifier = Modifier.width(12.dp))

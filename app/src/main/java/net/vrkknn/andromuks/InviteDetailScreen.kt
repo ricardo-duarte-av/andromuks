@@ -104,7 +104,9 @@ fun InviteDetailScreen(
                             homeserverUrl = appViewModel.homeserverUrl,
                             authToken = "", // We don't need auth for display
                             fallbackText = (invite.roomName ?: invite.roomId).take(1),
-                            size = 64.dp
+                            size = 64.dp,
+                            userId = invite.roomId,
+                            displayName = invite.roomName
                         )
                         
                         Spacer(modifier = Modifier.width(16.dp))

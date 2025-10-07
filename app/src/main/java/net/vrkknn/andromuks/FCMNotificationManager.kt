@@ -14,6 +14,15 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.io.IOException
 
+/**
+ * Data class to hold all FCM-related components after initialization
+ */
+data class FCMComponents(
+    val fcmNotificationManager: FCMNotificationManager,
+    val conversationsApi: ConversationsApi,
+    val webClientPushIntegration: WebClientPushIntegration
+)
+
 class FCMNotificationManager(private val context: Context) {
     
     companion object {
@@ -24,6 +33,88 @@ class FCMNotificationManager(private val context: Context) {
         private const val KEY_HOMESERVER_URL = "homeserver_url"
         private const val KEY_USER_ID = "user_id"
         private const val KEY_ACCESS_TOKEN = "access_token"
+        
+        /**
+         * Initializes all FCM-related components including notification manager,
+         * conversations API, and web client push integration.
+         * 
+         * This is the main entry point for setting up Firebase Cloud Messaging support
+         * in the application. It creates and configures all necessary components for:
+         * - Receiving push notifications
+         * - Managing conversation shortcuts
+         * - Handling web client push registration
+         * 
+         * @param context Application context
+         * @param homeserverUrl The Gomuks backend URL (e.g., https://webmuks.aguiarvieira.pt)
+         * @param authToken Authentication token for the backend
+         * @param realMatrixHomeserverUrl The actual Matrix homeserver URL (e.g., https://matrix.org)
+         * @return FCMComponents containing initialized instances of all FCM-related components
+         */
+        fun initializeComponents(
+            context: Context,
+            homeserverUrl: String = "",
+            authToken: String = "",
+            realMatrixHomeserverUrl: String = ""
+        ): FCMComponents {
+            android.util.Log.d(TAG, "Initializing FCM components")
+            
+            val fcmNotificationManager = FCMNotificationManager(context)
+            val conversationsApi = ConversationsApi(context, homeserverUrl, authToken, realMatrixHomeserverUrl)
+            val webClientPushIntegration = WebClientPushIntegration(context)
+            
+            android.util.Log.d(TAG, "FCM components initialized successfully")
+            
+            return FCMComponents(
+                fcmNotificationManager = fcmNotificationManager,
+                conversationsApi = conversationsApi,
+                webClientPushIntegration = webClientPushIntegration
+            )
+        }
+        
+        /**
+         * Registers FCM notifications with the backend.
+         * 
+         * This function initiates the FCM token registration process with the Gomuks backend.
+         * It sets up a callback to trigger when the FCM token is ready, which then initiates
+         * the WebSocket-based registration with the backend.
+         * 
+         * Prerequisites:
+         * - homeserverUrl must be set and non-blank
+         * - authToken must be set and non-blank
+         * - currentUserId must be set and non-blank
+         * 
+         * @param fcmNotificationManager The FCM notification manager instance
+         * @param homeserverUrl The Gomuks backend URL
+         * @param authToken Authentication token for the backend
+         * @param currentUserId The current Matrix user ID
+         * @param onTokenReady Callback to invoke when FCM token is ready for Gomuks backend registration
+         */
+        fun registerNotifications(
+            fcmNotificationManager: FCMNotificationManager,
+            homeserverUrl: String,
+            authToken: String,
+            currentUserId: String,
+            onTokenReady: () -> Unit
+        ) {
+            if (homeserverUrl.isBlank() || authToken.isBlank() || currentUserId.isBlank()) {
+                android.util.Log.w(TAG, "Cannot register FCM notifications - missing required parameters")
+                android.util.Log.d(TAG, "homeserverUrl: ${if (homeserverUrl.isBlank()) "BLANK" else "OK"}")
+                android.util.Log.d(TAG, "authToken: ${if (authToken.isBlank()) "BLANK" else "OK"}")
+                android.util.Log.d(TAG, "currentUserId: ${if (currentUserId.isBlank()) "BLANK" else "OK"}")
+                return
+            }
+            
+            android.util.Log.d(TAG, "Registering FCM notifications for user: $currentUserId")
+            
+            // Set callback to register with Gomuks backend when FCM token is ready
+            fcmNotificationManager.setOnTokenReadyCallback {
+                android.util.Log.d(TAG, "FCM token ready, triggering Gomuks Backend registration callback")
+                onTokenReady()
+            }
+            
+            // Initialize and register with FCM
+            fcmNotificationManager.initializeAndRegister(homeserverUrl, currentUserId, authToken)
+        }
     }
     
     // Callback to notify when FCM token is ready for Gomuks backend registration

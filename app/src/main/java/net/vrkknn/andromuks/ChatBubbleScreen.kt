@@ -328,7 +328,9 @@ fun ChatBubbleScreen(
                             homeserverUrl = homeserverUrl,
                             authToken = authToken,
                             fallbackText = displayRoomName,
-                            size = 40.dp
+                            size = 40.dp,
+                            userId = roomId,
+                            displayName = displayRoomName
                         )
                         
                         Spacer(modifier = Modifier.width(12.dp))
@@ -555,7 +557,9 @@ fun ChatBubbleEventItem(
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
                 fallbackText = (displayName ?: event.sender).take(1),
-                size = 40.dp
+                size = 40.dp,
+                userId = event.sender,
+                displayName = displayName
             )
             Spacer(modifier = Modifier.width(8.dp))
         }
