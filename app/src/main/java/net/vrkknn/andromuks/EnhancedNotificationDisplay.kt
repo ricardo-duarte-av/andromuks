@@ -276,8 +276,14 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setGroup(notificationData.roomId) // Group by room
                 .setGroupSummary(false)
                 .setShortcutId(notificationData.roomId) // Link to the room shortcut for per-room settings
-                .setLargeIcon(circularRoomAvatar) 
+                .setLargeIcon(circularRoomAvatar)
                 .apply {
+                    // Store event_id in extras for later retrieval
+                    if (notificationData.eventId != null) {
+                        addExtras(android.os.Bundle().apply {
+                            putString("event_id", notificationData.eventId)
+                        })
+                    }
                     // Add bubble metadata for chat bubbles (Android 11+)
                     if (bubbleMetadata != null) {
                         setBubbleMetadata(bubbleMetadata)
@@ -642,6 +648,173 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             val notificationManager = NotificationManagerCompat.from(context)
             notificationManager.notify("matrix_summary".hashCode(), summaryNotification)
+        }
+    }
+    
+    /**
+     * Updates notification with a sent reply message
+     * This adds the message to the MessagingStyle and re-issues the notification
+     */
+    fun updateNotificationWithReply(roomId: String, replyText: String) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notifID = roomId.hashCode()
+            
+            // Find the existing notification
+            val existingNotification = notificationManager.activeNotifications.firstOrNull { it.id == notifID }
+            if (existingNotification == null) {
+                Log.w(TAG, "No existing notification found for room: $roomId")
+                return
+            }
+            
+            // Extract the existing MessagingStyle
+            val existingStyle = MessagingStyle.extractMessagingStyleFromNotification(existingNotification.notification)
+            if (existingStyle == null) {
+                Log.w(TAG, "Could not extract MessagingStyle from notification for room: $roomId")
+                return
+            }
+            
+            // Extract the event_id from the notification extras
+            val eventId = existingNotification.notification.extras?.getString("event_id")
+            Log.d(TAG, "Extracted event_id from notification: $eventId")
+            
+            // Create a Person for "You" (the current user)
+            val youPerson = Person.Builder()
+                .setName("You")
+                .build()
+            
+            // Add the reply message to the style
+            existingStyle.addMessage(
+                MessagingStyle.Message(
+                    replyText,
+                    System.currentTimeMillis(),
+                    youPerson
+                )
+            )
+            
+            // Get the channel ID from the notification
+            val channelId = "${CONVERSATION_CHANNEL_ID}_${roomId}"
+            
+            // Get shortcut info for the notification
+            val shortcutId = roomId
+            
+            // Rebuild the notification with the updated style
+            val updatedNotification = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(R.drawable.matrix)
+                .setStyle(existingStyle)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setContentIntent(existingNotification.notification.contentIntent)
+                .setAutoCancel(true)
+                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setGroup(roomId)
+                .setGroupSummary(false)
+                .setShortcutId(shortcutId)
+                .setLargeIcon(existingNotification.notification.getLargeIcon()?.let { 
+                    // Convert Icon to Bitmap if possible
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        try {
+                            it.loadDrawable(context)?.let { drawable ->
+                                val bitmap = android.graphics.Bitmap.createBitmap(
+                                    drawable.intrinsicWidth,
+                                    drawable.intrinsicHeight,
+                                    android.graphics.Bitmap.Config.ARGB_8888
+                                )
+                                val canvas = android.graphics.Canvas(bitmap)
+                                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                                drawable.draw(canvas)
+                                bitmap
+                            }
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error loading icon as bitmap", e)
+                            null
+                        }
+                    } else {
+                        null
+                    }
+                })
+                .apply {
+                    // Preserve event_id in extras
+                    if (eventId != null) {
+                        addExtras(android.os.Bundle().apply {
+                            putString("event_id", eventId)
+                        })
+                    }
+                    
+                    // Note: We don't copy bubble metadata because it's tied to the specific Intent
+                    // and recreating it would require the original PendingIntent which we don't have.
+                    // The bubble will work from the original notification creation.
+                    
+                    // Re-create reply and mark read actions for the notification
+                    // We need to recreate them because we can't directly copy Notification.Action to NotificationCompat.Action
+                    val notificationData = NotificationData(
+                        roomId = roomId,
+                        eventId = eventId,  // Use the extracted event_id
+                        sender = "",
+                        senderDisplayName = "",
+                        roomName = "",
+                        body = "",
+                        type = "dm",
+                        avatarUrl = null,
+                        roomAvatarUrl = null,
+                        timestamp = System.currentTimeMillis(),
+                        unreadCount = 0,
+                        image = null
+                    )
+                    addAction(createReplyAction(notificationData))
+                    addAction(createMarkReadAction(notificationData))
+                }
+                .build()
+            
+            // Re-issue the notification with the updated content
+            val notificationManagerCompat = NotificationManagerCompat.from(context)
+            notificationManagerCompat.notify(notifID, updatedNotification)
+            
+            Log.d(TAG, "Updated notification with reply for room: $roomId")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating notification with reply", e)
+        }
+    }
+    
+    /**
+     * Updates notification to mark it as read
+     * This updates the MessagingStyle and ShortcutInfo to clear unread state
+     */
+    fun updateNotificationAsRead(roomId: String) {
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notifID = roomId.hashCode()
+            
+            // Find the existing notification
+            val existingNotification = notificationManager.activeNotifications.firstOrNull { it.id == notifID }
+            if (existingNotification == null) {
+                Log.w(TAG, "No existing notification found for room: $roomId")
+                return
+            }
+            
+            // Extract the existing MessagingStyle
+            var existingStyle = MessagingStyle.extractMessagingStyleFromNotification(existingNotification.notification)
+            if (existingStyle == null) {
+                Log.w(TAG, "Could not extract MessagingStyle from notification for room: $roomId")
+                return
+            }
+            
+            // Extract the event_id from the notification extras
+            val eventId = existingNotification.notification.extras?.getString("event_id")
+            Log.d(TAG, "Extracted event_id from notification for mark read: $eventId")
+            
+            // Update the shortcut's unread count to 0 for Conversations API
+            conversationsApi?.clearUnreadCount(roomId)
+            
+            // Dismiss the notification now that it's been marked as read
+            val notificationManagerCompat = NotificationManagerCompat.from(context)
+            notificationManagerCompat.cancel(notifID)
+            
+            Log.d(TAG, "Dismissed notification and cleared unread count for room: $roomId")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating notification as read", e)
         }
     }
     

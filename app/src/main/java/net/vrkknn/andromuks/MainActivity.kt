@@ -70,7 +70,25 @@ class MainActivity : ComponentActivity() {
                         val messageText = intent.getStringExtra("message_text")
                         if (roomId != null && messageText != null) {
                             Log.d("Andromuks", "MainActivity: Received send message broadcast for room $roomId: $messageText")
-                            appViewModel.sendMessage(roomId, messageText)
+                            appViewModel.sendMessageFromNotification(roomId, messageText) {
+                                Log.d("Andromuks", "MainActivity: Broadcast send message completed")
+                                // Update the notification with the sent message
+                                try {
+                                    val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                                    val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                                    val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                                    
+                                    if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                                        val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
+                                        enhancedNotificationDisplay.updateNotificationWithReply(roomId, messageText)
+                                        Log.d("Andromuks", "MainActivity: Updated notification with reply for room: $roomId")
+                                    } else {
+                                        Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("Andromuks", "MainActivity: Error updating notification with reply", e)
+                                }
+                            }
                         }
                     }
                     "net.vrkknn.andromuks.MARK_READ" -> {
@@ -78,7 +96,25 @@ class MainActivity : ComponentActivity() {
                         val eventId = intent.getStringExtra("event_id")
                         if (roomId != null) {
                             Log.d("Andromuks", "MainActivity: Received mark read broadcast for room $roomId, event: $eventId")
-                            appViewModel.markRoomAsRead(roomId, eventId ?: "")
+                            appViewModel.markRoomAsReadFromNotification(roomId, eventId ?: "") {
+                                Log.d("Andromuks", "MainActivity: Broadcast mark read completed")
+                                // Update the notification to show it's been read
+                                try {
+                                    val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                                    val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                                    val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                                    
+                                    if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                                        val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
+                                        enhancedNotificationDisplay.updateNotificationAsRead(roomId)
+                                        Log.d("Andromuks", "MainActivity: Updated notification as read for room: $roomId")
+                                    } else {
+                                        Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("Andromuks", "MainActivity: Error updating notification as read", e)
+                                }
+                            }
                         }
                     }
                 }
@@ -105,9 +141,27 @@ class MainActivity : ComponentActivity() {
                         Log.d("Andromuks", "MainActivity: Reply data extracted - roomId: $roomId, eventId: $eventId, replyText: '$replyText'")
                         
                         if (roomId != null && replyText != null) {
-                            Log.d("Andromuks", "MainActivity: Calling appViewModel.sendMessage for room: $roomId")
-                            appViewModel.sendMessage(roomId, replyText)
-                            Log.d("Andromuks", "MainActivity: sendMessage call completed")
+                            Log.d("Andromuks", "MainActivity: Calling appViewModel.sendMessageFromNotification for room: $roomId")
+                            appViewModel.sendMessageFromNotification(roomId, replyText) {
+                                Log.d("Andromuks", "MainActivity: Reply message sent successfully")
+                                // Update the notification with the sent message
+                                try {
+                                    val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                                    val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                                    val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                                    
+                                    if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                                        val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
+                                        enhancedNotificationDisplay.updateNotificationWithReply(roomId, replyText)
+                                        Log.d("Andromuks", "MainActivity: Updated notification with reply for room: $roomId")
+                                    } else {
+                                        Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("Andromuks", "MainActivity: Error updating notification with reply", e)
+                                }
+                            }
+                            Log.d("Andromuks", "MainActivity: sendMessageFromNotification call completed")
                         } else {
                             Log.w("Andromuks", "MainActivity: Missing required data - roomId: $roomId, replyText: $replyText")
                         }
@@ -120,13 +174,26 @@ class MainActivity : ComponentActivity() {
                         Log.d("Andromuks", "MainActivity: Mark read data extracted - roomId: $roomId, eventId: '$eventId'")
                         
                         if (roomId != null && eventId != null && eventId.isNotEmpty()) {
-                            Log.d("Andromuks", "MainActivity: Calling appViewModel.markRoomAsRead for room: $roomId, event: $eventId")
-                            appViewModel.markRoomAsRead(roomId, eventId)
-                            
-                            // Dismiss the notification
-                            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
-                            notificationManager.cancel(roomId.hashCode())
-                            Log.d("Andromuks", "MainActivity: Dismissed notification for room: $roomId")
+                            Log.d("Andromuks", "MainActivity: Calling appViewModel.markRoomAsReadFromNotification for room: $roomId, event: $eventId")
+                            appViewModel.markRoomAsReadFromNotification(roomId, eventId) {
+                                Log.d("Andromuks", "MainActivity: Mark read completed successfully")
+                                // Update the notification to show it's been read
+                                try {
+                                    val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                                    val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                                    val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                                    
+                                    if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                                        val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
+                                        enhancedNotificationDisplay.updateNotificationAsRead(roomId)
+                                        Log.d("Andromuks", "MainActivity: Updated notification as read for room: $roomId")
+                                    } else {
+                                        Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("Andromuks", "MainActivity: Error updating notification as read", e)
+                                }
+                            }
                         } else {
                             Log.w("Andromuks", "MainActivity: Missing required data for mark read - roomId: $roomId, eventId: '$eventId'")
                         }

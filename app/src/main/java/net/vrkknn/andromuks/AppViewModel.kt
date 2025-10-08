@@ -122,6 +122,21 @@ class AppViewModel : ViewModel() {
     
     // Web client push integration
     private var webClientPushIntegration: WebClientPushIntegration? = null
+    
+    // Notification action tracking
+    private data class PendingNotificationAction(
+        val type: String, // "send_message" or "mark_read"
+        val roomId: String,
+        val text: String? = null,
+        val eventId: String? = null,
+        val requestId: Int? = null,
+        val onComplete: (() -> Unit)? = null
+    )
+    
+    private val pendingNotificationActions = mutableListOf<PendingNotificationAction>()
+    private var notificationActionInProgress = false
+    private var notificationActionShutdownTimer: Job? = null
+    private val notificationActionCompletionCallbacks = mutableMapOf<Int, () -> Unit>()
 
     var spacesLoaded by mutableStateOf(false)
         private set
@@ -816,12 +831,47 @@ class AppViewModel : ViewModel() {
         // FCM registration with Gomuks Backend will be triggered via callback when token is ready
         // This ensures we don't try to register before the FCM token is available
         
+        // Execute any pending notification actions now that websocket is ready
+        executePendingNotificationActions()
+        
         android.util.Log.d("Andromuks", "AppViewModel: Calling navigation callback (callback is ${if (onNavigateToRoomList != null) "set" else "null"})")
         if (onNavigateToRoomList != null) {
             onNavigateToRoomList?.invoke()
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: Navigation callback not set yet, marking as pending")
             pendingNavigation = true
+        }
+    }
+    
+    /**
+     * Executes any pending notification actions after init_complete
+     */
+    private fun executePendingNotificationActions() {
+        if (pendingNotificationActions.isEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: No pending notification actions to execute")
+            return
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Executing ${pendingNotificationActions.size} pending notification actions")
+        
+        val actionsToExecute = pendingNotificationActions.toList()
+        pendingNotificationActions.clear()
+        
+        actionsToExecute.forEach { action ->
+            when (action.type) {
+                "send_message" -> {
+                    if (action.text != null) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Executing pending send_message for room ${action.roomId}")
+                        sendMessageFromNotification(action.roomId, action.text, action.onComplete)
+                    }
+                }
+                "mark_read" -> {
+                    if (action.eventId != null) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Executing pending mark_read for room ${action.roomId}")
+                        markRoomAsReadFromNotification(action.roomId, action.eventId, action.onComplete)
+                    }
+                }
+            }
         }
     }
     
@@ -955,6 +1005,11 @@ class AppViewModel : ViewModel() {
         // Cancel any pending shutdown
         appInvisibleJob?.cancel()
         appInvisibleJob = null
+        
+        // Cancel notification action shutdown timer
+        notificationActionShutdownTimer?.cancel()
+        notificationActionShutdownTimer = null
+        notificationActionInProgress = false
         
         // If keepWebSocketOpened is enabled, the service should be maintaining the connection
         if (keepWebSocketOpened) {
@@ -1600,6 +1655,141 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with data: $commandData")
         sendWebSocketCommand("send_message", messageRequestId, commandData)
         android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $messageRequestId")
+    }
+    
+    /**
+     * Sends a message from a notification action.
+     * This handles websocket connection state and schedules auto-shutdown if needed.
+     */
+    fun sendMessageFromNotification(roomId: String, text: String, onComplete: (() -> Unit)? = null) {
+        android.util.Log.d("Andromuks", "AppViewModel: sendMessageFromNotification called for room $roomId")
+        
+        // Check websocket state
+        if (webSocket == null || !spacesLoaded) {
+            android.util.Log.d("Andromuks", "AppViewModel: WebSocket not ready, queueing notification action")
+            
+            // Queue the action
+            pendingNotificationActions.add(
+                PendingNotificationAction(
+                    type = "send_message",
+                    roomId = roomId,
+                    text = text,
+                    onComplete = onComplete
+                )
+            )
+            
+            // If app is not visible, reconnect websocket
+            if (!isAppVisible) {
+                android.util.Log.d("Andromuks", "AppViewModel: App not visible, reconnecting websocket for notification action")
+                notificationActionInProgress = true
+                restartWebSocketConnection()
+            }
+            
+            return
+        }
+        
+        // WebSocket is ready, send message
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket ready, sending message from notification")
+        val messageRequestId = requestIdCounter++
+        
+        messageRequests[messageRequestId] = roomId
+        if (onComplete != null) {
+            notificationActionCompletionCallbacks[messageRequestId] = onComplete
+        }
+        
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "text" to text,
+            "mentions" to mapOf(
+                "user_ids" to emptyList<String>(),
+                "room" to false
+            ),
+            "url_previews" to emptyList<String>()
+        )
+        
+        sendWebSocketCommand("send_message", messageRequestId, commandData)
+        
+        // Schedule shutdown if app is not visible
+        if (!isAppVisible) {
+            scheduleNotificationActionShutdown()
+        }
+    }
+    
+    /**
+     * Marks a room as read from a notification action.
+     * This handles websocket connection state and schedules auto-shutdown if needed.
+     */
+    fun markRoomAsReadFromNotification(roomId: String, eventId: String, onComplete: (() -> Unit)? = null) {
+        android.util.Log.d("Andromuks", "AppViewModel: markRoomAsReadFromNotification called for room $roomId")
+        
+        // Check websocket state
+        if (webSocket == null || !spacesLoaded) {
+            android.util.Log.d("Andromuks", "AppViewModel: WebSocket not ready, queueing notification action")
+            
+            // Queue the action
+            pendingNotificationActions.add(
+                PendingNotificationAction(
+                    type = "mark_read",
+                    roomId = roomId,
+                    eventId = eventId,
+                    onComplete = onComplete
+                )
+            )
+            
+            // If app is not visible, reconnect websocket
+            if (!isAppVisible) {
+                android.util.Log.d("Andromuks", "AppViewModel: App not visible, reconnecting websocket for notification action")
+                notificationActionInProgress = true
+                restartWebSocketConnection()
+            }
+            
+            return
+        }
+        
+        // WebSocket is ready, mark as read
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket ready, marking room as read from notification")
+        val markReadRequestId = requestIdCounter++
+        
+        markReadRequests[markReadRequestId] = roomId
+        if (onComplete != null) {
+            notificationActionCompletionCallbacks[markReadRequestId] = onComplete
+        }
+        
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "event_id" to eventId,
+            "receipt_type" to "m.read"
+        )
+        
+        sendWebSocketCommand("mark_read", markReadRequestId, commandData)
+        
+        // Schedule shutdown if app is not visible
+        if (!isAppVisible) {
+            scheduleNotificationActionShutdown()
+        }
+    }
+    
+    /**
+     * Schedules websocket shutdown after 15 seconds for notification actions
+     */
+    private fun scheduleNotificationActionShutdown() {
+        // Cancel any existing timer
+        notificationActionShutdownTimer?.cancel()
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Scheduling notification action shutdown in 15 seconds")
+        
+        notificationActionShutdownTimer = viewModelScope.launch {
+            delay(15_000) // 15 seconds
+            
+            // Only shutdown if app is still not visible
+            if (!isAppVisible && notificationActionInProgress) {
+                android.util.Log.d("Andromuks", "AppViewModel: Shutting down websocket after notification action")
+                notificationActionInProgress = false
+                shutdownWebSocket()
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: Not shutting down - app became visible or action completed")
+            }
+        }
     }
     
     fun sendReaction(roomId: String, eventId: String, emoji: String) {
@@ -2332,6 +2522,9 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleMessageResponse: ${data::class.java.simpleName}")
             }
         }
+        
+        // Invoke completion callback for notification actions
+        notificationActionCompletionCallbacks.remove(requestId)?.invoke()
     }
     
     private fun handleReactionResponse(requestId: Int, data: Any) {
@@ -3274,6 +3467,9 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: Mark read response for room $roomId: $success")
             // Remove the request from pending
             markReadRequests.remove(requestId)
+            
+            // Invoke completion callback for notification actions
+            notificationActionCompletionCallbacks.remove(requestId)?.invoke()
         }
     }
     
