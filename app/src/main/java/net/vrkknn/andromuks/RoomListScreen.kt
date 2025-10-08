@@ -131,14 +131,16 @@ fun RoomListScreen(
         refreshing = refreshing,
         onRefresh = {
             refreshing = true
-            appViewModel.restartWebSocketConnection()
+            // Perform full refresh: reset state and get complete payload
+            appViewModel.performFullRefresh()
         }
     )
     
     // Handle refreshing state reset
-    LaunchedEffect(refreshing) {
-        if (refreshing) {
-            delay(2000)
+    // Wait for spacesLoaded to become true after full refresh
+    LaunchedEffect(appViewModel.spacesLoaded, refreshing) {
+        if (refreshing && appViewModel.spacesLoaded) {
+            delay(500) // Short delay to show the refresh animation
             refreshing = false
         }
     }

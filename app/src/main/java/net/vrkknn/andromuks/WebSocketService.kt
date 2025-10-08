@@ -140,8 +140,22 @@ class WebSocketService : Service() {
         
         Log.d("WebSocketService", "Connecting to WebSocket: $url")
         
+        // Build WebSocket URL with reconnection parameters if available
+        val runId = appViewModel?.getCurrentRunId() ?: ""
+        val lastReceivedId = appViewModel?.getLastReceivedId() ?: 0
+        
+        val finalUrl = if (runId.isNotEmpty() && lastReceivedId != 0) {
+            // Reconnecting with run_id and last_received_id
+            Log.d("WebSocketService", "Reconnecting with run_id: $runId, last_received_id: $lastReceivedId")
+            "$url?run_id=$runId&last_received_id=$lastReceivedId"
+        } else {
+            // First connection
+            Log.d("WebSocketService", "First connection to websocket")
+            url
+        }
+        
         val request = Request.Builder()
-            .url(url)
+            .url(finalUrl)
             .addHeader("Cookie", "gomuks_auth=$token")
             .build()
 
@@ -205,7 +219,25 @@ class WebSocketService : Service() {
             val jsonObject = JSONObject(text)
             val command = jsonObject.optString("command")
             
+            // Track last received request_id for sync_complete messages
+            val receivedReqId = jsonObject.optInt("request_id", 0)
+            if (receivedReqId != 0) {
+                appViewModel?.noteIncomingRequestId(receivedReqId)
+            }
+            
             when (command) {
+                "run_id" -> {
+                    Log.d("WebSocketService", "Processing run_id")
+                    val data = jsonObject.optJSONObject("data")
+                    val runId = data?.optString("run_id", "")
+                    val vapidKey = data?.optString("vapid_key", "")
+                    Log.d("WebSocketService", "Received run_id: $runId, vapid_key: ${vapidKey?.take(20)}...")
+                    appViewModel?.let { viewModel ->
+                        serviceScope.launch(Dispatchers.Main) {
+                            viewModel.handleRunId(runId ?: "", vapidKey ?: "")
+                        }
+                    }
+                }
                 "sync_complete" -> {
                     Log.d("WebSocketService", "Processing sync_complete")
                     // Forward sync data to AppViewModel
@@ -259,13 +291,19 @@ class WebSocketService : Service() {
         val ws = webSocket ?: return
         
         try {
+            val requestId = appViewModel?.getNextRequestId() ?: 0
+            val lastReceivedId = appViewModel?.getLastReceivedId() ?: 0
+            
             val pingData = JSONObject().apply {
                 put("command", "ping")
-                put("request_id", System.currentTimeMillis().toInt())
+                put("request_id", requestId)
+                put("data", JSONObject().apply {
+                    put("last_received_id", lastReceivedId)
+                })
             }
             
             ws.send(pingData.toString())
-            Log.d("WebSocketService", "Ping sent")
+            Log.d("WebSocketService", "Ping sent with request_id: $requestId, last_received_id: $lastReceivedId")
         } catch (e: Exception) {
             Log.e("WebSocketService", "Error sending ping", e)
         }

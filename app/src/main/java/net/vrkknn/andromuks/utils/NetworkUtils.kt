@@ -131,9 +131,23 @@ fun connectToWebsocket(
     Log.d("NetworkUtils", "connectToWebsocket: Initializing...")
 
     val webSocketUrl = trimWebsocketHost(url)
+    
+    // Build WebSocket URL with reconnection parameters if available
+    val runId = appViewModel.getCurrentRunId()
+    val lastReceivedId = appViewModel.getLastReceivedId()
+    
+    val finalWebSocketUrl = if (runId.isNotEmpty() && lastReceivedId != 0) {
+        // Reconnecting with run_id and last_received_id
+        Log.d("NetworkUtils", "Reconnecting with run_id: $runId, last_received_id: $lastReceivedId")
+        "$webSocketUrl?run_id=$runId&last_received_id=$lastReceivedId"
+    } else {
+        // First connection
+        Log.d("NetworkUtils", "First connection to websocket")
+        webSocketUrl
+    }
 
     val request = Request.Builder()
-        .url(webSocketUrl)
+        .url(finalWebSocketUrl)
         .addHeader("Cookie", "gomuks_auth=$token")
         .build()
     
@@ -161,6 +175,15 @@ fun connectToWebsocket(
                 }
                 val command = jsonObject.optString("command")
                 when (command) {
+                    "run_id" -> {
+                        val data = jsonObject.optJSONObject("data")
+                        val runId = data?.optString("run_id", "")
+                        val vapidKey = data?.optString("vapid_key", "")
+                        Log.d("Andromuks", "NetworkUtils: Received run_id: $runId, vapid_key: ${vapidKey?.take(20)}...")
+                        appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                            appViewModel.handleRunId(runId ?: "", vapidKey ?: "")
+                        }
+                    }
                     "sync_complete" -> {
                         Log.d("Andromuks", "NetworkUtils: Processing sync_complete message")
                         appViewModel.viewModelScope.launch(Dispatchers.Main) {

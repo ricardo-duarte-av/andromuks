@@ -200,6 +200,46 @@ class AppViewModel : ViewModel() {
         restartWebSocket()
     }
     
+    /**
+     * Performs a full refresh by resetting all state and reconnecting for a complete payload.
+     * This is triggered by:
+     * 1. User pull-to-refresh gesture
+     * 2. Automatic stale state detection (cached data > 10 minutes old)
+     * 
+     * Steps:
+     * 1. Drop WebSocket connection
+     * 2. Clear all room data
+     * 3. Reset requestIdCounter to 1
+     * 4. Reset last_received_sync_id to 0
+     * 5. Reconnect with run_id but WITHOUT last_received_id (full payload)
+     */
+    fun performFullRefresh() {
+        android.util.Log.d("Andromuks", "AppViewModel: Performing full refresh - resetting state")
+        
+        // 1. Drop WebSocket connection
+        clearWebSocket()
+        
+        // 2. Clear all room data
+        roomMap.clear()
+        allRooms = emptyList()
+        allSpaces = emptyList()
+        spaceList = emptyList()
+        spacesLoaded = false
+        
+        // 3. Reset requestIdCounter to 1
+        requestIdCounter = 1
+        
+        // 4. Reset last_received_sync_id to 0 (keep run_id for reconnection)
+        lastReceivedSyncId = 0
+        lastReceivedRequestId = 0
+        
+        android.util.Log.d("Andromuks", "AppViewModel: State reset complete - run_id preserved: $currentRunId")
+        android.util.Log.d("Andromuks", "AppViewModel: Will reconnect with run_id but no last_received_id (full payload)")
+        
+        // 5. Trigger reconnection (will use run_id but not last_received_id since it's 0)
+        onRestartWebSocket?.invoke()
+    }
+    
     
     // Get current room section based on selected tab
     fun getUnreadCount(): Int {
@@ -664,6 +704,14 @@ class AppViewModel : ViewModel() {
         // Process account_data for recent emojis
         processAccountData(syncJson)
         
+        // Auto-save state periodically (every 10 sync_complete messages)
+        // Only save if keepWebSocketOpened is disabled (otherwise service maintains connection)
+        if (!keepWebSocketOpened && syncMessageCount > 0 && syncMessageCount % 10 == 0) {
+            appContext?.let { context ->
+                saveStateToStorage(context)
+            }
+        }
+        
         val syncResult = SpaceRoomParser.parseSyncUpdate(syncJson, roomMemberCache, this)
         syncMessageCount++
         
@@ -928,11 +976,17 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: App became invisible")
         isAppVisible = false
         
-        // If keepWebSocketOpened is enabled, don't start shutdown timer
+        // If keepWebSocketOpened is enabled, don't save state or start shutdown timer
+        // The foreground service maintains the connection, so no need to persist state
         if (keepWebSocketOpened) {
-            android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened is enabled, not starting shutdown timer")
+            android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened is enabled, not saving state or starting shutdown timer")
             android.util.Log.d("Andromuks", "AppViewModel: keepWebSocketOpened value: $keepWebSocketOpened")
             return
+        }
+        
+        // Save state to storage when app goes to background (only if WebSocket will be closed)
+        appContext?.let { context ->
+            saveStateToStorage(context)
         }
         
         // Cancel any existing shutdown job
@@ -1021,7 +1075,7 @@ class AppViewModel : ViewModel() {
     private val eventChainMap = mutableMapOf<String, EventChainEntry>()
     private val editEventsMap = mutableMapOf<String, TimelineEvent>() // Store edit events separately
     
-    private var requestIdCounter = 100
+    private var requestIdCounter = 1
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> userId
     private val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
@@ -1047,9 +1101,12 @@ class AppViewModel : ViewModel() {
     
     private var webSocket: WebSocket? = null
     private var pingJob: Job? = null
-    private var lastReceivedRequestId: Int = 0
+    private var lastReceivedRequestId: Int = 0 // Tracks ANY incoming request_id (for pong detection)
+    private var lastReceivedSyncId: Int = 0 // Tracks ONLY sync_complete negative request_ids (for reconnection)
     private var lastPingRequestId: Int = 0
     private var pongTimeoutJob: Job? = null
+    private var currentRunId: String = "" // Unique connection ID from gomuks backend
+    private var vapidKey: String = "" // VAPID key for push notifications
 
     fun setWebSocket(webSocket: WebSocket) {
         this.webSocket = webSocket
@@ -1066,7 +1123,14 @@ class AppViewModel : ViewModel() {
 
     fun noteIncomingRequestId(requestId: Int) {
         if (requestId != 0) {
+            // Track ALL incoming request_ids for general purposes (pong detection, etc.)
             lastReceivedRequestId = requestId
+            
+            // Separately track ONLY negative request_ids from sync_complete for reconnection
+            if (requestId < 0) {
+                lastReceivedSyncId = requestId
+                android.util.Log.d("Andromuks", "AppViewModel: Updated lastReceivedSyncId to $requestId (sync_complete)")
+            }
             
             // If this is a pong response to our ping, cancel the timeout
             if (requestId == lastPingRequestId) {
@@ -1076,6 +1140,219 @@ class AppViewModel : ViewModel() {
                 // Trigger timestamp update on pong
                 triggerTimestampUpdate()
             }
+        }
+    }
+    
+    /**
+     * Stores the run_id and vapid_key received from the gomuks backend.
+     * This is used for reconnection to resume from where we left off.
+     */
+    fun handleRunId(runId: String, vapidKey: String) {
+        currentRunId = runId
+        this.vapidKey = vapidKey
+        android.util.Log.d("Andromuks", "AppViewModel: Stored run_id: $runId, vapid_key: ${vapidKey.take(20)}...")
+    }
+    
+    /**
+     * Gets the current run_id for reconnection
+     */
+    fun getCurrentRunId(): String = currentRunId
+    
+    /**
+     * Gets the last received sync_complete request_id for reconnection
+     */
+    fun getLastReceivedId(): Int = lastReceivedSyncId
+    
+    /**
+     * Gets the next request ID for outgoing commands
+     * This should be used by all components that send WebSocket commands
+     */
+    fun getNextRequestId(): Int = requestIdCounter++
+    
+    /**
+     * Saves the current WebSocket state and room data to persistent storage.
+     * This allows the app to resume quickly on restart by loading cached data
+     * and reconnecting with run_id and last_received_id.
+     * 
+     * Note: This is only used when keepWebSocketOpened is disabled. When the WebSocket
+     * is kept open via foreground service, state persistence is not needed.
+     */
+    fun saveStateToStorage(context: android.content.Context) {
+        // Skip saving if keepWebSocketOpened is enabled (service maintains connection)
+        if (keepWebSocketOpened) {
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping state save - WebSocket kept open by service")
+            return
+        }
+        
+        try {
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            
+            // Save WebSocket connection state
+            editor.putString("ws_run_id", currentRunId)
+            editor.putInt("ws_last_received_sync_id", lastReceivedSyncId)
+            editor.putString("ws_vapid_key", vapidKey)
+            
+            // Save room data as JSON
+            val roomsArray = JSONArray()
+            for (room in allRooms) {
+                val roomJson = JSONObject()
+                roomJson.put("id", room.id)
+                roomJson.put("name", room.name)
+                roomJson.put("avatarUrl", room.avatarUrl ?: "")
+                roomJson.put("messagePreview", room.messagePreview ?: "")
+                roomJson.put("messageSender", room.messageSender ?: "")
+                roomJson.put("sortingTimestamp", room.sortingTimestamp ?: 0L)
+                roomJson.put("unreadCount", room.unreadCount ?: 0)
+                roomJson.put("highlightCount", room.highlightCount ?: 0)
+                roomJson.put("isDirectMessage", room.isDirectMessage)
+                roomsArray.put(roomJson)
+            }
+            editor.putString("cached_rooms", roomsArray.toString())
+            
+            // Save timestamp of when state was saved
+            editor.putLong("state_saved_timestamp", System.currentTimeMillis())
+            
+            editor.apply()
+            android.util.Log.d("Andromuks", "AppViewModel: Saved state to storage - run_id: $currentRunId, last_received_sync_id: $lastReceivedSyncId, rooms: ${allRooms.size}")
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to save state to storage", e)
+        }
+    }
+    
+    /**
+     * Loads the previously saved WebSocket state and room data from persistent storage.
+     * Returns true if cached data was loaded, false otherwise.
+     * 
+     * If cached data is older than 10 minutes, it's considered stale and a full refresh
+     * is triggered instead of using the cached data.
+     */
+    fun loadStateFromStorage(context: android.content.Context): Boolean {
+        try {
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+            
+            // Check if we have cached data
+            val savedTimestamp = prefs.getLong("state_saved_timestamp", 0)
+            if (savedTimestamp == 0L) {
+                android.util.Log.d("Andromuks", "AppViewModel: No cached state found")
+                return false
+            }
+            
+            val currentTime = System.currentTimeMillis()
+            val timeSinceLastSave = currentTime - savedTimestamp
+            
+            // Check if data is stale (> 10 minutes old)
+            val staleThreshold = 10 * 60 * 1000L // 10 minutes in milliseconds
+            if (timeSinceLastSave > staleThreshold) {
+                android.util.Log.d("Andromuks", "AppViewModel: Cached state is stale (${timeSinceLastSave / 60000} minutes old)")
+                android.util.Log.d("Andromuks", "AppViewModel: Performing full refresh instead of using stale cache")
+                
+                // Load run_id for reconnection, but don't load rooms or last_received_sync_id
+                val runId = prefs.getString("ws_run_id", "") ?: ""
+                val savedVapidKey = prefs.getString("ws_vapid_key", "") ?: ""
+                
+                if (runId.isNotEmpty()) {
+                    currentRunId = runId
+                    vapidKey = savedVapidKey
+                    android.util.Log.d("Andromuks", "AppViewModel: Preserved run_id for reconnection: $runId")
+                }
+                
+                // Clear stale cache
+                clearCachedState(context)
+                
+                return false // Don't use stale cache
+            }
+            
+            // Check if cached data is not too old (e.g., max 7 days)
+            val maxCacheAge = 7 * 24 * 60 * 60 * 1000L // 7 days in milliseconds
+            if (timeSinceLastSave > maxCacheAge) {
+                android.util.Log.d("Andromuks", "AppViewModel: Cached state is too old (${timeSinceLastSave / 86400000} days), ignoring")
+                return false
+            }
+            
+            // Restore WebSocket connection state
+            val runId = prefs.getString("ws_run_id", "") ?: ""
+            val lastSyncId = prefs.getInt("ws_last_received_sync_id", 0)
+            val savedVapidKey = prefs.getString("ws_vapid_key", "") ?: ""
+            
+            if (runId.isNotEmpty()) {
+                currentRunId = runId
+                lastReceivedSyncId = lastSyncId
+                vapidKey = savedVapidKey
+                android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state - run_id: $runId, last_received_sync_id: $lastSyncId")
+            }
+            
+            // Restore room data
+            val cachedRoomsJson = prefs.getString("cached_rooms", null)
+            if (cachedRoomsJson != null) {
+                val roomsArray = JSONArray(cachedRoomsJson)
+                val cachedRooms = mutableListOf<RoomItem>()
+                
+                for (i in 0 until roomsArray.length()) {
+                    val roomJson = roomsArray.getJSONObject(i)
+                    val room = RoomItem(
+                        id = roomJson.getString("id"),
+                        name = roomJson.getString("name"),
+                        avatarUrl = roomJson.getString("avatarUrl").takeIf { it.isNotBlank() },
+                        messagePreview = roomJson.getString("messagePreview").takeIf { it.isNotBlank() },
+                        messageSender = roomJson.getString("messageSender").takeIf { it.isNotBlank() },
+                        sortingTimestamp = roomJson.getLong("sortingTimestamp").takeIf { it > 0 },
+                        unreadCount = roomJson.getInt("unreadCount").takeIf { it > 0 },
+                        highlightCount = roomJson.getInt("highlightCount").takeIf { it > 0 },
+                        isDirectMessage = roomJson.getBoolean("isDirectMessage")
+                    )
+                    cachedRooms.add(room)
+                }
+                
+                // Update room map and UI
+                roomMap.clear()
+                cachedRooms.forEach { room ->
+                    roomMap[room.id] = room
+                }
+                
+                allRooms = cachedRooms
+                setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = cachedRooms)))
+                
+                android.util.Log.d("Andromuks", "AppViewModel: Restored ${cachedRooms.size} rooms from cache")
+                
+                // Mark spaces as loaded so UI can show cached data
+                spacesLoaded = true
+                
+                return true
+            }
+            
+            return false
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to load state from storage", e)
+            return false
+        }
+    }
+    
+    /**
+     * Clears the cached state from storage.
+     * This should be called on logout or when we want to force a fresh start.
+     */
+    fun clearCachedState(context: android.content.Context) {
+        try {
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            
+            editor.remove("ws_run_id")
+            editor.remove("ws_last_received_sync_id")
+            editor.remove("ws_vapid_key")
+            editor.remove("cached_rooms")
+            editor.remove("state_saved_timestamp")
+            
+            editor.apply()
+            
+            // Also clear in-memory state
+            currentRunId = ""
+            lastReceivedSyncId = 0
+            vapidKey = ""
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Cleared cached state")
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to clear cached state", e)
         }
     }
 
@@ -1092,7 +1369,8 @@ class AppViewModel : ViewModel() {
                 }
                 val reqId = requestIdCounter++
                 lastPingRequestId = reqId
-                val data = mapOf("last_received_id" to lastReceivedRequestId)
+                // Use lastReceivedSyncId (the negative sync_complete request_id) for reconnection tracking
+                val data = mapOf("last_received_id" to lastReceivedSyncId)
                 sendWebSocketCommand("ping", reqId, data)
                 
                 // Start timeout job for this ping
