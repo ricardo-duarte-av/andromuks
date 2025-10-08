@@ -380,5 +380,17 @@ fun AppNavigation(
                 navController = navController
             )
         }
+        composable(
+            route = "room_info/{roomId}",
+            arguments = listOf(navArgument("roomId") { type = NavType.StringType })
+        ) { backStackEntry: NavBackStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+            net.vrkknn.andromuks.utils.RoomInfoScreen(
+                roomId = roomId,
+                navController = navController,
+                appViewModel = appViewModel,
+                modifier = modifier
+            )
+        }
     }
 }

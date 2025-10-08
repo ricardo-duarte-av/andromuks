@@ -85,8 +85,16 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Info
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
@@ -439,18 +447,31 @@ fun RoomListItem(
     homeserverUrl: String,
     authToken: String,
     onRoomClick: (RoomItem) -> Unit,
+    onRoomLongClick: ((RoomItem) -> Unit)? = null,
     timestampUpdateTrigger: Int = 0,
     appViewModel: AppViewModel,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    Row(
+    var showContextMenu by remember { mutableStateOf(false) }
+    
+    // Wrapping box for the entire item
+    Box(
         modifier = modifier
             .fillMaxWidth()
-            .clickable { onRoomClick(room) }
-            .padding(vertical = 12.dp, horizontal = 16.dp),
-        verticalAlignment = Alignment.Top
     ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = { onRoomClick(room) },
+                    onLongClick = { 
+                        showContextMenu = true
+                    }
+                )
+                .padding(vertical = 12.dp, horizontal = 16.dp),
+            verticalAlignment = Alignment.Top
+        ) {
         // Room avatar
         net.vrkknn.andromuks.ui.components.AvatarImage(
             mxcUrl = room.avatarUrl,
@@ -589,6 +610,98 @@ fun RoomListItem(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.padding(top = 2.dp)
                     )
+                }
+            }
+        }
+        }
+        
+        // Context menu dialog with blur effect
+        if (showContextMenu) {
+            Dialog(
+                onDismissRequest = { showContextMenu = false },
+                properties = DialogProperties(
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = true,
+                    usePlatformDefaultWidth = false
+                )
+            ) {
+                // Darkened scrim overlay that simulates blur by dimming background
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f))
+                        .clickable(
+                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                            indication = null
+                        ) { showContextMenu = false },
+                    contentAlignment = Alignment.Center
+                ) {
+                    // Menu card with strong elevation and Material Design styling
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth(0.75f),
+                        shape = RoundedCornerShape(24.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                        ),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = 16.dp
+                        )
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp)
+                        ) {
+                            // Menu header with room name
+                            Text(
+                                text = room.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                            
+                            // Room Info menu item with ripple effect
+                            Surface(
+                                onClick = {
+                                    showContextMenu = false
+                                    onRoomLongClick?.invoke(room)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerHighest
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Info,
+                                        contentDescription = "Room Info",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Text(
+                                        text = "Room Info",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -802,6 +915,10 @@ fun RoomListContent(
                     authToken = authToken,
                     onRoomClick = { 
                         navController.navigate("room_timeline/${room.id}")
+                    },
+                    onRoomLongClick = { selectedRoom ->
+                        // Navigate to room info on long press
+                        navController.navigate("room_info/${selectedRoom.id}")
                     },
                     timestampUpdateTrigger = timestampUpdateTrigger,
                     appViewModel = appViewModel,

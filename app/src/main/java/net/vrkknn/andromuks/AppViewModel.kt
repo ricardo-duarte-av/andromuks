@@ -1147,6 +1147,7 @@ class AppViewModel : ViewModel() {
     private val fcmRegistrationRequests = mutableMapOf<Int, String>() // requestId -> "fcm_registration"
     private val eventRequests = mutableMapOf<Int, (TimelineEvent?) -> Unit>() // requestId -> callback
     private val paginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for pagination)
+    private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     
     // Pagination state
     private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
@@ -1600,6 +1601,47 @@ class AppViewModel : ViewModel() {
         ))
     }
     
+    /**
+     * Requests complete room state including member list
+     * Used by the Room Info screen to display detailed room information
+     */
+    fun requestRoomStateWithMembers(roomId: String, callback: (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit) {
+        android.util.Log.d("Andromuks", "AppViewModel: Requesting room state with members for room: $roomId")
+        
+        // Check if WebSocket is connected
+        if (webSocket == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
+            restartWebSocketConnection()
+            
+            // Wait a bit for reconnection and then retry
+            CoroutineScope(Dispatchers.Main).launch {
+                delay(2000) // Wait 2 seconds for reconnection
+                if (webSocket != null) {
+                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket reconnected, retrying requestRoomStateWithMembers")
+                    requestRoomStateWithMembers(roomId, callback)
+                } else {
+                    android.util.Log.e("Andromuks", "AppViewModel: WebSocket reconnection failed, cannot request room state")
+                    callback(null, "WebSocket not connected")
+                }
+            }
+            return
+        }
+        
+        val stateRequestId = requestIdCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: Generated request_id for get_room_state with members: $stateRequestId")
+        
+        // Store the callback to handle the response
+        roomStateWithMembersRequests[stateRequestId] = callback
+        
+        sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
+            "room_id" to roomId,
+            "include_members" to true,
+            "fetch_members" to false,
+            "refetch" to false
+        ))
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $stateRequestId")
+    }
+    
     fun sendTyping(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Sending typing indicator for room: $roomId")
         val typingRequestId = requestIdCounter++
@@ -2003,6 +2045,8 @@ class AppViewModel : ViewModel() {
         } else if (paginateRequests.containsKey(requestId)) {
             android.util.Log.d("Andromuks", "AppViewModel: Routing pagination response to handleTimelineResponse")
             handleTimelineResponse(requestId, data)
+        } else if (roomStateWithMembersRequests.containsKey(requestId)) {
+            handleRoomStateWithMembersResponse(requestId, data)
         } else if (outgoingRequests.containsKey(requestId)) {
             android.util.Log.d("Andromuks", "AppViewModel: Routing to handleOutgoingRequestResponse")
             handleOutgoingRequestResponse(requestId, data)
@@ -2547,6 +2591,27 @@ class AppViewModel : ViewModel() {
             else -> {
                 android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleReactionResponse: ${data::class.java.simpleName}")
             }
+        }
+    }
+    
+    private fun handleRoomStateWithMembersResponse(requestId: Int, data: Any) {
+        val callback = roomStateWithMembersRequests.remove(requestId) ?: return
+        android.util.Log.d("Andromuks", "AppViewModel: Handling room state with members response for requestId: $requestId")
+        
+        try {
+            // Parse the room state data using the utility function
+            val roomStateInfo = net.vrkknn.andromuks.utils.parseRoomStateResponse(data)
+            
+            if (roomStateInfo != null) {
+                android.util.Log.d("Andromuks", "AppViewModel: Successfully parsed room state with ${roomStateInfo.members.size} members")
+                callback(roomStateInfo, null)
+            } else {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to parse room state response")
+                callback(null, "Failed to parse room state")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Error handling room state with members response", e)
+            callback(null, "Error: ${e.message}")
         }
     }
     

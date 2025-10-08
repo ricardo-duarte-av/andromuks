@@ -485,7 +485,11 @@ fun RoomTimelineScreen(
                     fallbackAvatarUrl = displayAvatarUrl,
                     homeserverUrl = appViewModel.homeserverUrl,
                     authToken = appViewModel.authToken,
-                    roomId = roomId
+                    roomId = roomId,
+                    onHeaderClick = {
+                        // Navigate to room info screen
+                        navController.navigate("room_info/$roomId")
+                    }
                 )
                 
                 // 2. Timeline (compressible, scrollable content)
@@ -2032,7 +2036,8 @@ fun RoomHeader(
     fallbackAvatarUrl: String? = null,
     homeserverUrl: String,
     authToken: String,
-    roomId: String? = null
+    roomId: String? = null,
+    onHeaderClick: () -> Unit = {}
 ) {
     // Debug logging
     android.util.Log.d("Andromuks", "RoomHeader: roomState = $roomState")
@@ -2042,7 +2047,8 @@ fun RoomHeader(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
+            .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
+            .clickable(onClick = onHeaderClick),
         color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
     ) {
         Row(

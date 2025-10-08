@@ -1,0 +1,651 @@
+package net.vrkknn.andromuks.utils
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.ui.components.AvatarImage
+import org.json.JSONObject
+
+/**
+ * Data class to hold complete room state information
+ */
+data class RoomStateInfo(
+    val roomId: String,
+    val name: String?,
+    val topic: String?,
+    val avatarUrl: String?,
+    val canonicalAlias: String?,
+    val altAliases: List<String>,
+    val creator: String?,
+    val roomVersion: String?,
+    val historyVisibility: String?,
+    val joinRule: String?,
+    val members: List<RoomMember>,
+    val powerLevels: PowerLevelsInfo?,
+    val serverAcl: ServerAclInfo?,
+    val parentSpace: String?,
+    val urlPreviewsDisabled: Boolean?
+)
+
+/**
+ * Data class for a room member
+ */
+data class RoomMember(
+    val userId: String,
+    val displayName: String?,
+    val avatarUrl: String?,
+    val membership: String
+)
+
+/**
+ * Data class for power levels information
+ */
+data class PowerLevelsInfo(
+    val users: Map<String, Int>,
+    val usersDefault: Int,
+    val events: Map<String, Int>,
+    val eventsDefault: Int,
+    val stateDefault: Int,
+    val ban: Int,
+    val kick: Int,
+    val redact: Int,
+    val invite: Int
+)
+
+/**
+ * Data class for server ACL information
+ */
+data class ServerAclInfo(
+    val allow: List<String>,
+    val deny: List<String>,
+    val allowIpLiterals: Boolean
+)
+
+/**
+ * Room Info Screen - displays detailed information about a room
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun RoomInfoScreen(
+    roomId: String,
+    navController: NavController,
+    appViewModel: AppViewModel,
+    modifier: Modifier = Modifier
+) {
+    // State to hold the room info
+    var roomStateInfo by remember { mutableStateOf<RoomStateInfo?>(null) }
+    var isLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    
+    // State for dialog visibility
+    var showPowerLevelsDialog by remember { mutableStateOf(false) }
+    var showServerAclDialog by remember { mutableStateOf(false) }
+    
+    // Request room state when the screen is created
+    LaunchedEffect(roomId) {
+        android.util.Log.d("Andromuks", "RoomInfoScreen: Requesting room state for $roomId")
+        appViewModel.requestRoomStateWithMembers(roomId) { stateInfo, error ->
+            isLoading = false
+            if (error != null) {
+                errorMessage = error
+                android.util.Log.e("Andromuks", "RoomInfoScreen: Error loading room state: $error")
+            } else {
+                roomStateInfo = stateInfo
+                android.util.Log.d("Andromuks", "RoomInfoScreen: Loaded room state successfully")
+            }
+        }
+    }
+    
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Room Info") }
+            )
+        }
+    ) { paddingValues ->
+        if (isLoading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator()
+            }
+        } else if (errorMessage != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Error: $errorMessage",
+                    color = MaterialTheme.colorScheme.error
+                )
+            }
+        } else if (roomStateInfo != null) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(paddingValues),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Room ID
+                item {
+                    Text(
+                        text = roomStateInfo!!.roomId,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                // Room Display Name
+                item {
+                    roomStateInfo!!.name?.let { name ->
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.headlineMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+                
+                // Room Avatar
+                item {
+                    Box(
+                        modifier = Modifier.fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AvatarImage(
+                            mxcUrl = roomStateInfo!!.avatarUrl,
+                            homeserverUrl = appViewModel.homeserverUrl,
+                            authToken = appViewModel.authToken,
+                            fallbackText = roomStateInfo!!.name ?: roomId,
+                            size = 120.dp,
+                            userId = roomId,
+                            displayName = roomStateInfo!!.name
+                        )
+                    }
+                }
+                
+                // Canonical Alias
+                item {
+                    roomStateInfo!!.canonicalAlias?.let { alias ->
+                        Column {
+                            Text(
+                                text = "Canonical Alias",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = alias,
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
+                    }
+                }
+                
+                // Room Topic
+                item {
+                    roomStateInfo!!.topic?.let { topic ->
+                        Column {
+                            Text(
+                                text = "Topic",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = topic,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+                
+                // Power Levels Button
+                item {
+                    roomStateInfo!!.powerLevels?.let {
+                        Button(
+                            onClick = { showPowerLevelsDialog = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Show Power Levels")
+                        }
+                    }
+                }
+                
+                // Server ACL Button
+                item {
+                    Button(
+                        onClick = { showServerAclDialog = true },
+                        enabled = roomStateInfo!!.serverAcl != null,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Show Room ACL")
+                    }
+                }
+                
+                // Member List Header
+                item {
+                    Divider()
+                    Text(
+                        text = "Room Members (${roomStateInfo!!.members.size})",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                }
+                
+                // Member List
+                items(roomStateInfo!!.members) { member ->
+                    RoomMemberItem(
+                        member = member,
+                        homeserverUrl = appViewModel.homeserverUrl,
+                        authToken = appViewModel.authToken,
+                        powerLevel = roomStateInfo!!.powerLevels?.users?.get(member.userId)
+                    )
+                }
+            }
+        }
+    }
+    
+    // Power Levels Dialog
+    if (showPowerLevelsDialog && roomStateInfo?.powerLevels != null) {
+        PowerLevelsDialog(
+            powerLevels = roomStateInfo!!.powerLevels!!,
+            onDismiss = { showPowerLevelsDialog = false }
+        )
+    }
+    
+    // Server ACL Dialog
+    if (showServerAclDialog && roomStateInfo?.serverAcl != null) {
+        ServerAclDialog(
+            serverAcl = roomStateInfo!!.serverAcl!!,
+            onDismiss = { showServerAclDialog = false }
+        )
+    }
+}
+
+/**
+ * Composable for a single room member item
+ */
+@Composable
+fun RoomMemberItem(
+    member: RoomMember,
+    homeserverUrl: String,
+    authToken: String,
+    powerLevel: Int?
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        AvatarImage(
+            mxcUrl = member.avatarUrl,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            fallbackText = (member.displayName ?: member.userId).take(1),
+            size = 40.dp,
+            userId = member.userId,
+            displayName = member.displayName
+        )
+        
+        Spacer(modifier = Modifier.width(12.dp))
+        
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = member.displayName ?: member.userId,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = member.userId,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        
+        // Show power level badge if user has special powers
+        if (powerLevel != null && powerLevel > 0) {
+            Surface(
+                color = MaterialTheme.colorScheme.primaryContainer,
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text(
+                    text = "PL: $powerLevel",
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Dialog to display power levels information
+ */
+@Composable
+fun PowerLevelsDialog(
+    powerLevels: PowerLevelsInfo,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Power Levels") },
+        text = {
+            LazyColumn {
+                item {
+                    Text(
+                        text = "Default Levels",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("Users Default: ${powerLevels.usersDefault}")
+                    Text("Events Default: ${powerLevels.eventsDefault}")
+                    Text("State Default: ${powerLevels.stateDefault}")
+                    Text("Ban: ${powerLevels.ban}")
+                    Text("Kick: ${powerLevels.kick}")
+                    Text("Redact: ${powerLevels.redact}")
+                    Text("Invite: ${powerLevels.invite}")
+                    
+                    if (powerLevels.users.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "User Power Levels",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                
+                items(powerLevels.users.entries.toList()) { (userId, level) ->
+                    Text("$userId: $level")
+                }
+                
+                item {
+                    if (powerLevels.events.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Event Power Levels",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+                
+                items(powerLevels.events.entries.toList()) { (eventType, level) ->
+                    Text("$eventType: $level")
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+/**
+ * Dialog to display server ACL information
+ */
+@Composable
+fun ServerAclDialog(
+    serverAcl: ServerAclInfo,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Server ACL") },
+        text = {
+            LazyColumn {
+                item {
+                    Text("Allow IP Literals: ${serverAcl.allowIpLiterals}")
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+                
+                item {
+                    Text(
+                        text = "Allowed Servers (${serverAcl.allow.size})",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                
+                items(serverAcl.allow) { server ->
+                    Text(server, style = MaterialTheme.typography.bodySmall)
+                }
+                
+                item {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Denied Servers (${serverAcl.deny.size})",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+                
+                items(serverAcl.deny) { server ->
+                    Text(server, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+/**
+ * Parse room state response from the server
+ */
+fun parseRoomStateResponse(data: Any): RoomStateInfo? {
+    android.util.Log.d("Andromuks", "parseRoomStateResponse: Parsing room state response")
+    
+    try {
+        val eventsArray = when (data) {
+            is org.json.JSONArray -> data
+            is List<*> -> {
+                // Convert list to JSONArray
+                val jsonArray = org.json.JSONArray()
+                data.forEach { jsonArray.put(it) }
+                jsonArray
+            }
+            else -> {
+                android.util.Log.e("Andromuks", "parseRoomStateResponse: Unexpected data type: ${data.javaClass}")
+                return null
+            }
+        }
+        
+        var roomId = ""
+        var name: String? = null
+        var topic: String? = null
+        var avatarUrl: String? = null
+        var canonicalAlias: String? = null
+        val altAliases = mutableListOf<String>()
+        var creator: String? = null
+        var roomVersion: String? = null
+        var historyVisibility: String? = null
+        var joinRule: String? = null
+        val members = mutableListOf<RoomMember>()
+        var powerLevels: PowerLevelsInfo? = null
+        var serverAcl: ServerAclInfo? = null
+        var parentSpace: String? = null
+        var urlPreviewsDisabled: Boolean? = null
+        
+        for (i in 0 until eventsArray.length()) {
+            val event = eventsArray.optJSONObject(i) ?: continue
+            
+            // Extract room ID from first event
+            if (roomId.isEmpty()) {
+                roomId = event.optString("room_id", "")
+            }
+            
+            val type = event.optString("type", "")
+            val content = event.optJSONObject("content")
+            
+            when (type) {
+                "m.room.name" -> {
+                    name = content?.optString("name")
+                }
+                "m.room.topic" -> {
+                    topic = content?.optString("topic")
+                }
+                "m.room.avatar" -> {
+                    avatarUrl = content?.optString("url")
+                }
+                "m.room.canonical_alias" -> {
+                    canonicalAlias = content?.optString("alias")
+                    val altAliasesArray = content?.optJSONArray("alt_aliases")
+                    if (altAliasesArray != null) {
+                        for (j in 0 until altAliasesArray.length()) {
+                            altAliases.add(altAliasesArray.optString(j))
+                        }
+                    }
+                }
+                "m.room.create" -> {
+                    creator = event.optString("sender")
+                    roomVersion = content?.optString("room_version")
+                }
+                "m.room.history_visibility" -> {
+                    historyVisibility = content?.optString("history_visibility")
+                }
+                "m.room.join_rules" -> {
+                    joinRule = content?.optString("join_rule")
+                }
+                "m.room.member" -> {
+                    val userId = event.optString("state_key", "")
+                    if (userId.isNotEmpty()) {
+                        val displayName = content?.optString("displayname")
+                        val memberAvatarUrl = content?.optString("avatar_url")
+                        val membership = content?.optString("membership", "leave")
+                        
+                        // Only include joined members
+                        if (membership == "join") {
+                            members.add(
+                                RoomMember(
+                                    userId = userId,
+                                    displayName = displayName?.takeIf { it.isNotBlank() },
+                                    avatarUrl = memberAvatarUrl?.takeIf { it.isNotBlank() },
+                                    membership = membership
+                                )
+                            )
+                        }
+                    }
+                }
+                "m.room.power_levels" -> {
+                    val usersObj = content?.optJSONObject("users")
+                    val usersMap = mutableMapOf<String, Int>()
+                    if (usersObj != null) {
+                        val keys = usersObj.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            usersMap[key] = usersObj.optInt(key, 0)
+                        }
+                    }
+                    
+                    val eventsObj = content?.optJSONObject("events")
+                    val eventsMap = mutableMapOf<String, Int>()
+                    if (eventsObj != null) {
+                        val keys = eventsObj.keys()
+                        while (keys.hasNext()) {
+                            val key = keys.next()
+                            eventsMap[key] = eventsObj.optInt(key, 0)
+                        }
+                    }
+                    
+                    powerLevels = PowerLevelsInfo(
+                        users = usersMap,
+                        usersDefault = content?.optInt("users_default", 0) ?: 0,
+                        events = eventsMap,
+                        eventsDefault = content?.optInt("events_default", 0) ?: 0,
+                        stateDefault = content?.optInt("state_default", 50) ?: 50,
+                        ban = content?.optInt("ban", 50) ?: 50,
+                        kick = content?.optInt("kick", 50) ?: 50,
+                        redact = content?.optInt("redact", 50) ?: 50,
+                        invite = content?.optInt("invite", 50) ?: 50
+                    )
+                }
+                "m.room.server_acl" -> {
+                    val allowArray = content?.optJSONArray("allow")
+                    val allow = mutableListOf<String>()
+                    if (allowArray != null) {
+                        for (j in 0 until allowArray.length()) {
+                            allow.add(allowArray.optString(j))
+                        }
+                    }
+                    
+                    val denyArray = content?.optJSONArray("deny")
+                    val deny = mutableListOf<String>()
+                    if (denyArray != null) {
+                        for (j in 0 until denyArray.length()) {
+                            deny.add(denyArray.optString(j))
+                        }
+                    }
+                    
+                    serverAcl = ServerAclInfo(
+                        allow = allow,
+                        deny = deny,
+                        allowIpLiterals = content?.optBoolean("allow_ip_literals", false) ?: false
+                    )
+                }
+                "m.space.parent" -> {
+                    parentSpace = event.optString("state_key")
+                }
+                "org.matrix.room.preview_urls" -> {
+                    urlPreviewsDisabled = content?.optBoolean("disable", false)
+                }
+            }
+        }
+        
+        // Sort members alphabetically by display name
+        members.sortBy { it.displayName?.lowercase() ?: it.userId.lowercase() }
+        
+        return RoomStateInfo(
+            roomId = roomId,
+            name = name,
+            topic = topic,
+            avatarUrl = avatarUrl,
+            canonicalAlias = canonicalAlias,
+            altAliases = altAliases,
+            creator = creator,
+            roomVersion = roomVersion,
+            historyVisibility = historyVisibility,
+            joinRule = joinRule,
+            members = members,
+            powerLevels = powerLevels,
+            serverAcl = serverAcl,
+            parentSpace = parentSpace,
+            urlPreviewsDisabled = urlPreviewsDisabled
+        )
+    } catch (e: Exception) {
+        android.util.Log.e("Andromuks", "parseRoomStateResponse: Error parsing room state", e)
+        return null
+    }
+}
+
