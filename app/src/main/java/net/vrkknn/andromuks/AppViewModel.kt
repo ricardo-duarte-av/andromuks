@@ -2484,7 +2484,7 @@ class AppViewModel : ViewModel() {
                 
                 // Trigger UI update
                 updateCounter++
-            } else if (event.type == "m.room.message" || event.type == "m.room.encrypted") {
+            } else if (event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") {
                 // Check if this is an edit event (m.replace relationship)
                 val isEditEvent = when {
                     event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"

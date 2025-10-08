@@ -86,6 +86,8 @@ import net.vrkknn.andromuks.utils.EditPreviewInput
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
+import net.vrkknn.andromuks.utils.StickerMessage
+import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -95,6 +97,7 @@ import java.util.Date
 import java.util.Locale
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.activity.compose.BackHandler
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -110,6 +113,7 @@ import androidx.compose.foundation.layout.paddingFrom
 import androidx.compose.material3.TextField
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
@@ -250,7 +254,8 @@ fun RoomTimelineScreen(
         "m.room.name",
         "m.room.topic",
         "m.room.avatar",
-        "m.reaction"
+        "m.reaction",
+        "m.sticker"
         // m.room.redaction is intentionally excluded - redaction events should not appear in timeline
     )
     
@@ -304,43 +309,6 @@ fun RoomTimelineScreen(
         
         sorted
     }
-
-    // List state and auto-scroll to bottom when data loads/changes
-    val listState = rememberLazyListState()
-    LaunchedEffect(sortedEvents.size, isLoading) {
-        Log.d("Andromuks", "RoomTimelineScreen: LaunchedEffect - sortedEvents.size: ${sortedEvents.size}, isLoading: $isLoading")
-        if (!isLoading && sortedEvents.isNotEmpty()) {
-            Log.d("Andromuks", "RoomTimelineScreen: Auto-scrolling to bottom")
-            listState.scrollToItem(sortedEvents.lastIndex)
-        }
-    }
-    
-    // Track if we've already triggered pagination for this scroll position
-    var lastPaginationTrigger by remember(sortedEvents.size, roomId) { mutableStateOf(Pair(-1, -1)) }
-    
-    // Monitor scroll position for pagination
-    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
-        Log.d("Andromuks", "RoomTimelineScreen: LaunchedEffect triggered - scroll position changed")
-        Log.d("Andromuks", "RoomTimelineScreen: Scroll position changed - index: ${listState.firstVisibleItemIndex}, offset: ${listState.firstVisibleItemScrollOffset}, isLoading: $isLoading")
-        Log.d("Andromuks", "RoomTimelineScreen: Checking conditions - index==0: ${listState.firstVisibleItemIndex == 0}, offset<10: ${listState.firstVisibleItemScrollOffset < 10}, !isLoading: ${!isLoading}")
-        
-        // Trigger pagination when user scrolls to the top (be more lenient with the offset)
-        if (listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 10 && !isLoading) {
-            val currentPosition = Pair(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset)
-            Log.d("Andromuks", "RoomTimelineScreen: All conditions met! Current position: $currentPosition, last trigger: $lastPaginationTrigger")
-            
-            // Only trigger if we haven't already triggered for this exact position
-            if (currentPosition != lastPaginationTrigger) {
-                Log.d("Andromuks", "RoomTimelineScreen: User scrolled to top, triggering pagination")
-                lastPaginationTrigger = currentPosition
-                appViewModel.loadOlderMessages(roomId)
-            } else {
-                Log.d("Andromuks", "RoomTimelineScreen: Already triggered pagination for this position")
-            }
-        } else {
-            Log.d("Andromuks", "RoomTimelineScreen: Conditions not met for pagination")
-        }
-    }
     
     // Create timeline items with date dividers
     val timelineItems = remember(sortedEvents) {
@@ -364,6 +332,87 @@ fun RoomTimelineScreen(
         }
         
         items
+    }
+
+    // List state and auto-scroll to bottom when data loads/changes
+    val listState = rememberLazyListState()
+    
+    // Track if user is "attached" to the bottom (sticky scroll)
+    var isAttachedToBottom by remember { mutableStateOf(true) }
+    
+    // Track if this is the first load (to avoid animation on initial room open)
+    var isInitialLoad by remember { mutableStateOf(true) }
+    
+    // Monitor scroll position to detect if user is at bottom or has detached
+    LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) {
+        if (sortedEvents.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
+            // Check if we're at the very bottom (last item is visible)
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val isAtBottom = lastVisibleIndex >= timelineItems.lastIndex - 1 // Within last item
+            
+            // Update attachment state based on current position
+            if (isAtBottom && !isAttachedToBottom) {
+                // User scrolled back to bottom, re-attach
+                Log.d("Andromuks", "RoomTimelineScreen: User reached bottom, re-attaching")
+                isAttachedToBottom = true
+            } else if (!isAtBottom && isAttachedToBottom && listState.firstVisibleItemIndex > 0) {
+                // User scrolled up from bottom, detach
+                Log.d("Andromuks", "RoomTimelineScreen: User scrolled up, detaching from bottom")
+                isAttachedToBottom = false
+            }
+        }
+    }
+    
+    // Auto-scroll to bottom only when attached (initial load or new messages while at bottom)
+    LaunchedEffect(sortedEvents.size, isLoading) {
+        Log.d("Andromuks", "RoomTimelineScreen: LaunchedEffect - sortedEvents.size: ${sortedEvents.size}, isLoading: $isLoading, isAttachedToBottom: $isAttachedToBottom, isInitialLoad: $isInitialLoad")
+        
+        if (!isLoading && sortedEvents.isNotEmpty()) {
+            // Always scroll to bottom on initial load, or when attached to bottom
+            if (isAttachedToBottom) {
+                coroutineScope.launch {
+                    if (isInitialLoad) {
+                        // First load: jump to bottom instantly (no animation)
+                        Log.d("Andromuks", "RoomTimelineScreen: Initial load - jumping to bottom instantly")
+                        listState.scrollToItem(timelineItems.lastIndex)
+                        isInitialLoad = false
+                    } else {
+                        // Subsequent updates: animate scroll for smooth new message appearance
+                        Log.d("Andromuks", "RoomTimelineScreen: Auto-scrolling to bottom (attached, animated)")
+                        listState.animateScrollToItem(timelineItems.lastIndex)
+                    }
+                }
+            } else {
+                Log.d("Andromuks", "RoomTimelineScreen: Not auto-scrolling, user is detached from bottom")
+            }
+        }
+    }
+    
+    // Track if we've already triggered pagination for this scroll position
+    var lastPaginationTrigger by remember(sortedEvents.size, roomId) { mutableStateOf(-1) }
+    
+    // Monitor scroll position for pagination - trigger when near the top (within first 20 items)
+    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+        Log.d("Andromuks", "RoomTimelineScreen: LaunchedEffect triggered - scroll position changed")
+        Log.d("Andromuks", "RoomTimelineScreen: Scroll position changed - index: ${listState.firstVisibleItemIndex}, offset: ${listState.firstVisibleItemScrollOffset}, isLoading: $isLoading")
+        Log.d("Andromuks", "RoomTimelineScreen: Checking conditions - index<=20: ${listState.firstVisibleItemIndex <= 20}, !isLoading: ${!isLoading}")
+        
+        // Trigger pagination when user scrolls near the top (within first 20 items)
+        if (listState.firstVisibleItemIndex <= 20 && !isLoading && sortedEvents.isNotEmpty()) {
+            val currentTriggerPoint = listState.firstVisibleItemIndex
+            Log.d("Andromuks", "RoomTimelineScreen: Near top detected! Current index: $currentTriggerPoint, last trigger: $lastPaginationTrigger")
+            
+            // Only trigger if we haven't already triggered for this or earlier position
+            if (currentTriggerPoint != lastPaginationTrigger) {
+                Log.d("Andromuks", "RoomTimelineScreen: User scrolled near top (index: $currentTriggerPoint), triggering pagination")
+                lastPaginationTrigger = currentTriggerPoint
+                appViewModel.loadOlderMessages(roomId)
+            } else {
+                Log.d("Andromuks", "RoomTimelineScreen: Already triggered pagination at this position")
+            }
+        } else {
+            Log.d("Andromuks", "RoomTimelineScreen: Conditions not met for pagination")
+        }
     }
     
     LaunchedEffect(roomId) {
@@ -418,17 +467,17 @@ fun RoomTimelineScreen(
     AndromuksTheme {
         Surface {
             Box(modifier = modifier.fillMaxSize()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .then(
-                        if (showDeleteDialog) {
-                            Modifier.blur(10.dp)
-                        } else {
-                            Modifier
-                        }
-                    )
-            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (showDeleteDialog) {
+                                Modifier.blur(10.dp)
+                            } else {
+                                Modifier
+                            }
+                        )
+                ) {
                 // 1. Room Header (always visible at the top, below status bar)
                 RoomHeader(
                     roomState = appViewModel.currentRoomState,
@@ -672,10 +721,34 @@ fun RoomTimelineScreen(
                             }   
                         }
                     }
-            }
+                }
+                
+                // Floating action button to scroll to bottom (only shown when detached)
+                if (!isAttachedToBottom) {
+                    FloatingActionButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                // Scroll to bottom and re-attach
+                                listState.animateScrollToItem(timelineItems.lastIndex)
+                                isAttachedToBottom = true
+                                Log.d("Andromuks", "RoomTimelineScreen: FAB clicked, scrolling to bottom and re-attaching")
+                            }
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = 80.dp + bottomInset), // Above text input
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.KeyboardArrowDown,
+                            contentDescription = "Scroll to bottom"
+                        )
+                    }
+                }
             
-    // Emoji selection dialog
-            if (showEmojiSelection && reactingToEvent != null) {
+                // Emoji selection dialog
+                if (showEmojiSelection && reactingToEvent != null) {
                 EmojiSelectionDialog(
                     recentEmojis = appViewModel.recentEmojis,
                     homeserverUrl = homeserverUrl,
@@ -1769,12 +1842,165 @@ fun TimelineEventItem(
                                 }
                             }
                         }
+                    } else if (decryptedType == "m.sticker") {
+                        // Handle encrypted stickers
+                        val stickerMessage = extractStickerFromEvent(event)
+                        
+                        if (stickerMessage != null) {
+                            Log.d("Andromuks", "TimelineEventItem: Found encrypted sticker - url=${stickerMessage.url}, body=${stickerMessage.body}, dimensions=${stickerMessage.width}x${stickerMessage.height}")
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start,
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                // For my messages, show read receipts on the left of the bubble
+                                if (actualIsMine && readReceipts.isNotEmpty()) {
+                                    InlineReadReceiptAvatars(
+                                        receipts = readReceipts,
+                                        userProfileCache = userProfileCache,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        appViewModel = appViewModel,
+                                        messageSender = event.sender
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                                
+                                StickerMessage(
+                                    stickerMessage = stickerMessage,
+                                    homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                                    authToken = authToken,
+                                    isMine = actualIsMine,
+                                    isEncrypted = true, // This is an encrypted sticker
+                                    event = event,
+                                    timestamp = event.timestamp,
+                                    isConsecutive = isConsecutive,
+                                    onReply = { onReply(event) },
+                                    onReact = { onReact(event) },
+                                    onEdit = { onEdit(event) },
+                                    onDelete = { onDelete(event) }
+                                )
+                                
+                                // For other users' messages, show read receipts on the right
+                                if (!actualIsMine && readReceipts.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    InlineReadReceiptAvatars(
+                                        receipts = readReceipts,
+                                        userProfileCache = userProfileCache,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        appViewModel = appViewModel,
+                                        messageSender = event.sender
+                                    )
+                                }
+                            }
+                            
+                            // Add reaction badges for encrypted stickers
+                            if (appViewModel != null) {
+                                val reactions = appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                if (reactions.isNotEmpty()) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 4.dp),
+                                        horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
+                                    ) {
+                                        ReactionBadges(
+                                            eventId = event.eventId,
+                                            reactions = reactions,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Log.w("Andromuks", "TimelineEventItem: Failed to extract encrypted sticker data from event ${event.eventId}")
+                        }
                     } else {
                         Text(
                             text = "Encrypted message",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+                "m.sticker" -> {
+                    // Handle unencrypted stickers
+                    val stickerMessage = extractStickerFromEvent(event)
+                    
+                    if (stickerMessage != null) {
+                        Log.d("Andromuks", "TimelineEventItem: Found unencrypted sticker - url=${stickerMessage.url}, body=${stickerMessage.body}, dimensions=${stickerMessage.width}x${stickerMessage.height}")
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start,
+                            verticalAlignment = Alignment.Top
+                        ) {
+                            // For my messages, show read receipts on the left of the bubble
+                            if (actualIsMine && readReceipts.isNotEmpty()) {
+                                InlineReadReceiptAvatars(
+                                    receipts = readReceipts,
+                                    userProfileCache = userProfileCache,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    appViewModel = appViewModel,
+                                    messageSender = event.sender
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            
+                            StickerMessage(
+                                stickerMessage = stickerMessage,
+                                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                                authToken = authToken,
+                                isMine = actualIsMine,
+                                isEncrypted = false,
+                                event = event,
+                                timestamp = event.timestamp,
+                                isConsecutive = isConsecutive,
+                                onReply = { onReply(event) },
+                                onReact = { onReact(event) },
+                                onEdit = { onEdit(event) },
+                                onDelete = { onDelete(event) }
+                            )
+                            
+                            // For other users' messages, show read receipts on the right
+                            if (!actualIsMine && readReceipts.isNotEmpty()) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                InlineReadReceiptAvatars(
+                                    receipts = readReceipts,
+                                    userProfileCache = userProfileCache,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    appViewModel = appViewModel,
+                                    messageSender = event.sender
+                                )
+                            }
+                        }
+                        
+                        // Add reaction badges for stickers
+                        if (appViewModel != null) {
+                            val reactions = appViewModel.messageReactions[event.eventId] ?: emptyList()
+                            if (reactions.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 4.dp),
+                                    horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
+                                ) {
+                                    ReactionBadges(
+                                        eventId = event.eventId,
+                                        reactions = reactions,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Log.w("Andromuks", "TimelineEventItem: Failed to extract sticker data from event ${event.eventId}")
                     }
                 }
                 "m.reaction" -> {
