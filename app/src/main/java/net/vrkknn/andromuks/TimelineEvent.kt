@@ -17,7 +17,8 @@ data class TimelineEvent(
     val decrypted: JSONObject? = null,
     val decryptedType: String? = null,
     val unsigned: JSONObject? = null,
-    val redactedBy: String? = null
+    val redactedBy: String? = null,
+    val localContent: JSONObject? = null
 ) {
     companion object {
         fun fromJson(json: JSONObject): TimelineEvent {
@@ -34,7 +35,8 @@ data class TimelineEvent(
                 decrypted = json.optJSONObject("decrypted"),
                 decryptedType = json.optString("decrypted_type")?.takeIf { it.isNotBlank() },
                 unsigned = json.optJSONObject("unsigned"),
-                redactedBy = json.optString("redacted_by")?.takeIf { it.isNotBlank() }
+                redactedBy = json.optString("redacted_by")?.takeIf { it.isNotBlank() },
+                localContent = json.optJSONObject("local_content")
             )
         }
     }

@@ -100,6 +100,9 @@ fun RoomInfoScreen(
     var showMemberSearch by remember { mutableStateOf(false) }
     var memberSearchQuery by remember { mutableStateOf("") }
     
+    // State for topic expansion
+    var isTopicExpanded by remember { mutableStateOf(false) }
+    
     // Request room state when the screen is created
     LaunchedEffect(roomId) {
         android.util.Log.d("Andromuks", "RoomInfoScreen: Requesting room state for $roomId")
@@ -198,9 +201,13 @@ fun RoomInfoScreen(
                     )
                 }
                 
-                // Room Topic
+                // Room Topic (collapsible)
                 roomStateInfo!!.topic?.let { topic ->
-                    Column {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isTopicExpanded = !isTopicExpanded }
+                    ) {
                         Text(
                             text = "Topic",
                             style = MaterialTheme.typography.labelMedium,
@@ -208,8 +215,19 @@ fun RoomInfoScreen(
                         )
                         Text(
                             text = topic,
-                            style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = if (isTopicExpanded) Int.MAX_VALUE else 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 4.dp)
                         )
+                        if (topic.length > 100 || topic.lines().size > 2) {
+                            Text(
+                                text = if (isTopicExpanded) "Show less" else "Show more",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
                     }
                 }
                 

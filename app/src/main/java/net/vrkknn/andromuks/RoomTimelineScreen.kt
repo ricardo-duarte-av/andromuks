@@ -62,6 +62,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.blur
@@ -88,6 +89,8 @@ import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
 import net.vrkknn.andromuks.utils.StickerMessage
 import net.vrkknn.andromuks.utils.extractStickerFromEvent
+import net.vrkknn.andromuks.utils.HtmlMessageText
+import net.vrkknn.andromuks.utils.supportsHtmlRendering
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -824,6 +827,49 @@ fun ColumnScope.InlineBubbleTimestamp(
 }
 
 
+/**
+ * Smart message text renderer that automatically chooses between HTML and plain text
+ * based on what's available in the event
+ */
+@Composable
+fun AdaptiveMessageText(
+    event: TimelineEvent,
+    body: String,
+    format: String?,
+    userProfileCache: Map<String, MemberProfile>,
+    homeserverUrl: String,
+    authToken: String,
+    appViewModel: AppViewModel?,
+    roomId: String,
+    textColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+    modifier: Modifier = Modifier
+) {
+    // Check if HTML rendering is supported and available
+    if (supportsHtmlRendering(event)) {
+        Log.d("Andromuks", "AdaptiveMessageText: Using HTML rendering for event ${event.eventId}")
+        HtmlMessageText(
+            event = event,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            color = textColor,
+            modifier = modifier
+        )
+    } else {
+        // Fallback to SmartMessageText for plain text or when HTML is not available
+        Log.d("Andromuks", "AdaptiveMessageText: Using SmartMessageText for event ${event.eventId}")
+        SmartMessageText(
+            body = body,
+            format = format,
+            userProfileCache = userProfileCache,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            appViewModel = appViewModel,
+            roomId = roomId,
+            modifier = modifier
+        )
+    }
+}
+
 @Composable
 fun TimelineEventItem(
     event: TimelineEvent,
@@ -1317,7 +1363,8 @@ fun TimelineEventItem(
                                         )
                                         
                                         // Reply message content (directly in the outer bubble, no separate bubble)
-                                        SmartMessageText(
+                                        AdaptiveMessageText(
+                                            event = event,
                                             body = finalBody,
                                             format = format,
                                             userProfileCache = userProfileCache,
@@ -1325,6 +1372,7 @@ fun TimelineEventItem(
                                             authToken = authToken,
                                             appViewModel = appViewModel,
                                             roomId = event.roomId,
+                                            textColor = textColor,
                                             modifier = Modifier.align(Alignment.Start)
                                         )
                                         
@@ -1354,7 +1402,8 @@ fun TimelineEventItem(
                                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                                         horizontalAlignment = if (actualIsMine) Alignment.Start else Alignment.End
                                     ) {
-                                        SmartMessageText(
+                                        AdaptiveMessageText(
+                                            event = event,
                                             body = finalBody,
                                             format = format,
                                             userProfileCache = userProfileCache,
@@ -1362,6 +1411,7 @@ fun TimelineEventItem(
                                             authToken = authToken,
                                             appViewModel = appViewModel,
                                             roomId = event.roomId,
+                                            textColor = textColor,
                                             modifier = Modifier.align(Alignment.Start)
                                         )
                                         InlineBubbleTimestamp(
@@ -1753,7 +1803,8 @@ fun TimelineEventItem(
                                                     modifier = Modifier.align(Alignment.Start)
                                                 )
                                             } else {
-                                                SmartMessageText(
+                                                AdaptiveMessageText(
+                                                    event = event,
                                                     body = finalBody,
                                                     format = format,
                                                     userProfileCache = userProfileCache,
@@ -1761,6 +1812,7 @@ fun TimelineEventItem(
                                                     authToken = authToken,
                                                     appViewModel = appViewModel,
                                                     roomId = event.roomId,
+                                                    textColor = textColor,
                                                     modifier = Modifier.align(Alignment.Start)
                                                 )
                                             }
@@ -1801,7 +1853,8 @@ fun TimelineEventItem(
                                                     modifier = Modifier.align(Alignment.Start)
                                                 )
                                             } else {
-                                                SmartMessageText(
+                                                AdaptiveMessageText(
+                                                    event = event,
                                                     body = finalBody,
                                                     format = format,
                                                     userProfileCache = userProfileCache,
@@ -1809,6 +1862,7 @@ fun TimelineEventItem(
                                                     authToken = authToken,
                                                     appViewModel = appViewModel,
                                                     roomId = event.roomId,
+                                                    textColor = textColor,
                                                     modifier = Modifier.align(Alignment.Start)
                                                 )
                                             }
