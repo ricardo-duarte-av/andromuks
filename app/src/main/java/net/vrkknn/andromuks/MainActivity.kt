@@ -392,5 +392,17 @@ fun AppNavigation(
                 modifier = modifier
             )
         }
+        composable(
+            route = "user_info/{userId}",
+            arguments = listOf(navArgument("userId") { type = NavType.StringType })
+        ) { backStackEntry: NavBackStackEntry ->
+            val userId = backStackEntry.arguments?.getString("userId") ?: ""
+            net.vrkknn.andromuks.utils.UserInfoScreen(
+                userId = userId,
+                navController = navController,
+                appViewModel = appViewModel,
+                modifier = modifier
+            )
+        }
     }
 }

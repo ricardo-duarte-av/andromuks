@@ -578,6 +578,9 @@ fun RoomTimelineScreen(
                                             onDelete = { event -> 
                                                 deletingEvent = event
                                                 showDeleteDialog = true
+                                            },
+                                            onUserClick = { userId ->
+                                                navController.navigate("user_info/${java.net.URLEncoder.encode(userId, "UTF-8")}")
                                             }
                                         )
                                     }
@@ -836,7 +839,8 @@ fun TimelineEventItem(
     onReply: (TimelineEvent) -> Unit = {},
     onReact: (TimelineEvent) -> Unit = {},
     onEdit: (TimelineEvent) -> Unit = {},
-    onDelete: (TimelineEvent) -> Unit = {}
+    onDelete: (TimelineEvent) -> Unit = {},
+    onUserClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     
@@ -936,15 +940,19 @@ fun TimelineEventItem(
     ) {
         // Show avatar only for non-consecutive messages
         if (!actualIsMine && !isConsecutive) {
-            AvatarImage(
-                mxcUrl = avatarUrl,
-                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                authToken = authToken,
-                fallbackText = (displayName ?: event.sender).take(1),
-                size = 48.dp,
-                userId = event.sender,
-                displayName = displayName
-            )
+            Box(
+                modifier = Modifier.clickable { onUserClick(event.sender) }
+            ) {
+                AvatarImage(
+                    mxcUrl = avatarUrl,
+                    homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                    authToken = authToken,
+                    fallbackText = (displayName ?: event.sender).take(1),
+                    size = 48.dp,
+                    userId = event.sender,
+                    displayName = displayName
+                )
+            }
             Spacer(modifier = Modifier.width(8.dp))
         } else if (!actualIsMine && isConsecutive) {
             // Add spacer to maintain alignment for consecutive messages
@@ -972,7 +980,8 @@ fun TimelineEventItem(
                     Text(
                         text = headerText,
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { onUserClick(event.sender) }
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
@@ -1266,7 +1275,8 @@ fun TimelineEventItem(
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
                                     appViewModel = appViewModel,
-                                    messageSender = event.sender
+                                    messageSender = event.sender,
+                                    onUserClick = onUserClick
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
@@ -1373,7 +1383,8 @@ fun TimelineEventItem(
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
                                     appViewModel = appViewModel,
-                                    messageSender = event.sender
+                                    messageSender = event.sender,
+                                    onUserClick = onUserClick
                                 )
                             }
                         }
@@ -1895,7 +1906,8 @@ fun TimelineEventItem(
                                         homeserverUrl = homeserverUrl,
                                         authToken = authToken,
                                         appViewModel = appViewModel,
-                                        messageSender = event.sender
+                                        messageSender = event.sender,
+                                        onUserClick = onUserClick
                                     )
                                 }
                             }
@@ -1950,7 +1962,8 @@ fun TimelineEventItem(
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
                                     appViewModel = appViewModel,
-                                    messageSender = event.sender
+                                    messageSender = event.sender,
+                                    onUserClick = onUserClick
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
                             }

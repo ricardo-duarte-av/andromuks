@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -85,6 +86,7 @@ fun RoomInfoScreen(
     appViewModel: AppViewModel,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     // State to hold the room info
     var roomStateInfo by remember { mutableStateOf<RoomStateInfo?>(null) }
     var isLoading by remember { mutableStateOf(true) }
@@ -316,7 +318,10 @@ fun RoomInfoScreen(
                                     member = member,
                                     homeserverUrl = appViewModel.homeserverUrl,
                                     authToken = appViewModel.authToken,
-                                    powerLevel = roomStateInfo!!.powerLevels?.users?.get(member.userId)
+                                    powerLevel = roomStateInfo!!.powerLevels?.users?.get(member.userId),
+                                    onUserClick = { userId ->
+                                        navController.navigate("user_info/${java.net.URLEncoder.encode(userId, "UTF-8")}")
+                                    }
                                 )
                             }
                         }
@@ -351,11 +356,13 @@ fun RoomMemberItem(
     member: RoomMember,
     homeserverUrl: String,
     authToken: String,
-    powerLevel: Int?
+    powerLevel: Int?,
+    onUserClick: (String) -> Unit = {}
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable { onUserClick(member.userId) }
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

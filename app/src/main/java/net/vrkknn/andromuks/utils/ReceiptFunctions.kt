@@ -211,7 +211,8 @@ fun InlineReadReceiptAvatars(
     homeserverUrl: String,
     authToken: String,
     appViewModel: AppViewModel?,
-    messageSender: String
+    messageSender: String,
+    onUserClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     var showReceiptDialog by remember { mutableStateOf(false) }
@@ -230,7 +231,11 @@ fun InlineReadReceiptAvatars(
             userProfileCache = userProfileCache,
             homeserverUrl = homeserverUrl,
             authToken = authToken,
-            onDismiss = { showReceiptDialog = false }
+            onDismiss = { showReceiptDialog = false },
+            onUserClick = { userId ->
+                showReceiptDialog = false
+                onUserClick(userId)
+            }
         )
     }
     
@@ -309,7 +314,8 @@ fun ReadReceiptDetailsDialog(
     userProfileCache: Map<String, MemberProfile>,
     homeserverUrl: String,
     authToken: String,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onUserClick: (String) -> Unit = {}
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -344,7 +350,8 @@ fun ReadReceiptDetailsDialog(
                             receipt = receipt,
                             userProfile = userProfileCache[receipt.userId],
                             homeserverUrl = homeserverUrl,
-                            authToken = authToken
+                            authToken = authToken,
+                            onUserClick = onUserClick
                         )
                     }
                 }
@@ -358,10 +365,13 @@ private fun ReadReceiptItem(
     receipt: ReadReceipt,
     userProfile: MemberProfile?,
     homeserverUrl: String,
-    authToken: String
+    authToken: String,
+    onUserClick: (String) -> Unit = {}
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onUserClick(receipt.userId) },
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Avatar with automatic fallback
