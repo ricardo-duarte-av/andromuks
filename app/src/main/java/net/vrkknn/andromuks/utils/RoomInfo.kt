@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -16,6 +17,7 @@ import androidx.navigation.NavController
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import org.json.JSONObject
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 /**
  * Data class to hold complete room state information
@@ -92,6 +94,10 @@ fun RoomInfoScreen(
     var showPowerLevelsDialog by remember { mutableStateOf(false) }
     var showServerAclDialog by remember { mutableStateOf(false) }
     
+    // State for member search
+    var showMemberSearch by remember { mutableStateOf(false) }
+    var memberSearchQuery by remember { mutableStateOf("") }
+    
     // Request room state when the screen is created
     LaunchedEffect(roomId) {
         android.util.Log.d("Andromuks", "RoomInfoScreen: Requesting room state for $roomId")
@@ -136,24 +142,25 @@ fun RoomInfoScreen(
                 )
             }
         } else if (roomStateInfo != null) {
-            LazyColumn(
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(paddingValues),
-                contentPadding = PaddingValues(16.dp),
+                    .padding(paddingValues)
+                    .padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Room ID
-                item {
-                    Text(
-                        text = roomStateInfo!!.roomId,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = roomStateInfo!!.roomId,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
                 
-                // Room Display Name
-                item {
+                // Room Display Name and Canonical Alias
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     roomStateInfo!!.name?.let { name ->
                         Text(
                             text = name,
@@ -161,102 +168,159 @@ fun RoomInfoScreen(
                             fontWeight = FontWeight.Bold
                         )
                     }
-                }
-                
-                // Room Avatar
-                item {
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        AvatarImage(
-                            mxcUrl = roomStateInfo!!.avatarUrl,
-                            homeserverUrl = appViewModel.homeserverUrl,
-                            authToken = appViewModel.authToken,
-                            fallbackText = roomStateInfo!!.name ?: roomId,
-                            size = 120.dp,
-                            userId = roomId,
-                            displayName = roomStateInfo!!.name
+                    
+                    // Canonical Alias directly below room name
+                    roomStateInfo!!.canonicalAlias?.let { alias ->
+                        Text(
+                            text = alias,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp)
                         )
                     }
                 }
                 
-                // Canonical Alias
-                item {
-                    roomStateInfo!!.canonicalAlias?.let { alias ->
-                        Column {
-                            Text(
-                                text = "Canonical Alias",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = alias,
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                        }
-                    }
+                // Room Avatar
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    AvatarImage(
+                        mxcUrl = roomStateInfo!!.avatarUrl,
+                        homeserverUrl = appViewModel.homeserverUrl,
+                        authToken = appViewModel.authToken,
+                        fallbackText = roomStateInfo!!.name ?: roomId,
+                        size = 120.dp,
+                        userId = roomId,
+                        displayName = roomStateInfo!!.name
+                    )
                 }
                 
                 // Room Topic
-                item {
-                    roomStateInfo!!.topic?.let { topic ->
-                        Column {
-                            Text(
-                                text = "Topic",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = topic,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
+                roomStateInfo!!.topic?.let { topic ->
+                    Column {
+                        Text(
+                            text = "Topic",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = topic,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
                     }
                 }
                 
-                // Power Levels Button
-                item {
-                    roomStateInfo!!.powerLevels?.let {
+                // Power Levels and ACL Buttons side by side
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Power Levels Button
+                    if (roomStateInfo!!.powerLevels != null) {
                         Button(
                             onClick = { showPowerLevelsDialog = true },
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.weight(1f)
                         ) {
-                            Text("Show Power Levels")
+                            Text("Power Levels")
                         }
                     }
-                }
-                
-                // Server ACL Button
-                item {
+                    
+                    // Server ACL Button
                     Button(
                         onClick = { showServerAclDialog = true },
                         enabled = roomStateInfo!!.serverAcl != null,
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = Modifier.weight(1f)
                     ) {
-                        Text("Show Room ACL")
+                        Text("ACL List")
                     }
                 }
                 
-                // Member List Header
-                item {
+                // Member List Frame with Search - takes remaining space
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Divider()
-                    Text(
-                        text = "Room Members (${roomStateInfo!!.members.size})",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    )
-                }
-                
-                // Member List
-                items(roomStateInfo!!.members) { member ->
-                    RoomMemberItem(
-                        member = member,
-                        homeserverUrl = appViewModel.homeserverUrl,
-                        authToken = appViewModel.authToken,
-                        powerLevel = roomStateInfo!!.powerLevels?.users?.get(member.userId)
-                    )
+                    
+                    // Header with member count and search button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Room Members (${roomStateInfo!!.members.size})",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        
+                        IconButton(onClick = { 
+                            showMemberSearch = !showMemberSearch
+                            if (!showMemberSearch) memberSearchQuery = ""
+                        }) {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = "Search Members",
+                                tint = if (showMemberSearch) MaterialTheme.colorScheme.primary 
+                                       else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
+                    // Search box (shown when search is active)
+                    if (showMemberSearch) {
+                        TextField(
+                            value = memberSearchQuery,
+                            onValueChange = { memberSearchQuery = it },
+                            placeholder = { Text("Search members...") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            colors = TextFieldDefaults.colors(
+                                focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                                unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+                            )
+                        )
+                    }
+                    
+                    // Scrollable member list in a card frame - fills remaining space
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        // Filter members based on search query
+                        val filteredMembers = if (memberSearchQuery.isBlank()) {
+                            roomStateInfo!!.members
+                        } else {
+                            roomStateInfo!!.members.filter { member ->
+                                (member.displayName?.contains(memberSearchQuery, ignoreCase = true) ?: false) ||
+                                member.userId.contains(memberSearchQuery, ignoreCase = true)
+                            }
+                        }
+                        
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            items(filteredMembers) { member ->
+                                RoomMemberItem(
+                                    member = member,
+                                    homeserverUrl = appViewModel.homeserverUrl,
+                                    authToken = appViewModel.authToken,
+                                    powerLevel = roomStateInfo!!.powerLevels?.users?.get(member.userId)
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
