@@ -1887,7 +1887,7 @@ fun TimelineEventItem(
                                     homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                     authToken = authToken,
                                     isMine = actualIsMine,
-                                    isEncrypted = true, // This is an encrypted sticker
+                                    isEncrypted = stickerMessage.hasEncryptedFile, // Use media encryption status
                                     event = event,
                                     timestamp = event.timestamp,
                                     isConsecutive = isConsecutive,
@@ -1973,7 +1973,7 @@ fun TimelineEventItem(
                                 homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                 authToken = authToken,
                                 isMine = actualIsMine,
-                                isEncrypted = false,
+                                isEncrypted = stickerMessage.hasEncryptedFile, // Use media encryption status
                                 event = event,
                                 timestamp = event.timestamp,
                                 isConsecutive = isConsecutive,

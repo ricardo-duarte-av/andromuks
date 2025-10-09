@@ -57,12 +57,14 @@ import androidx.compose.ui.graphics.graphicsLayer
  * @param body Alternative text for the sticker
  * @param width Declared width of the sticker (from info.w)
  * @param height Declared height of the sticker (from info.h)
+ * @param hasEncryptedFile Whether this sticker uses encrypted media (file object) vs plain URL
  */
 data class StickerMessage(
     val url: String,
     val body: String,
     val width: Int,
-    val height: Int
+    val height: Int,
+    val hasEncryptedFile: Boolean = false
 )
 
 /**
@@ -81,7 +83,17 @@ fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
         else -> null
     } ?: return null
     
-    val url = stickerContent.optString("url", "")
+    // Check if sticker uses encrypted media (file object) or plain URL
+    val hasEncryptedFile = stickerContent.has("file")
+    val url = if (hasEncryptedFile) {
+        // Encrypted media: extract URL from file object
+        val fileObj = stickerContent.optJSONObject("file")
+        fileObj?.optString("url", "") ?: ""
+    } else {
+        // Plain media: use direct url field
+        stickerContent.optString("url", "")
+    }
+    
     val body = stickerContent.optString("body", "")
     val info = stickerContent.optJSONObject("info")
     
@@ -98,8 +110,8 @@ fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
         return null
     }
     
-    Log.d("Andromuks", "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${width}x${height}")
-    return StickerMessage(url, body, width, height)
+    Log.d("Andromuks", "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${width}x${height}, hasEncryptedFile=$hasEncryptedFile")
+    return StickerMessage(url, body, width, height, hasEncryptedFile)
 }
 
 /**
@@ -303,9 +315,18 @@ private fun StickerContent(
             }
             
             val imageUrl = remember(stickerMessage.url, isEncrypted, cachedFile) {
-                if (cachedFile != null) {
-                    // Use cached file
+                if (cachedFile != null && cachedFile.exists()) {
+                    // Use raw cached file path (like AvatarImage does)
                     Log.d("Andromuks", "StickerMessage: Using cached file: ${cachedFile.absolutePath}")
+                    Log.d("Andromuks", "StickerMessage: Cached file size: ${cachedFile.length()} bytes, canRead: ${cachedFile.canRead()}, isEncrypted: $isEncrypted")
+                    // Check if file looks like image data (starts with common image magic bytes)
+                    try {
+                        val header = cachedFile.inputStream().use { it.readNBytes(4) }
+                        val headerHex = header.joinToString("") { "%02x".format(it) }
+                        Log.d("Andromuks", "StickerMessage: File header (hex): $headerHex")
+                    } catch (e: Exception) {
+                        Log.e("Andromuks", "StickerMessage: Failed to read file header", e)
+                    }
                     cachedFile.absolutePath
                 } else {
                     // Use HTTP URL
@@ -349,7 +370,8 @@ private fun StickerContent(
                 model = ImageRequest.Builder(context)
                     .data(imageUrl)
                     .apply {
-                        if (cachedFile == null) {
+                        // Only add auth header for HTTP(S) URLs, not for file:// URIs
+                        if (imageUrl?.startsWith("http") == true) {
                             addHeader("Cookie", "gomuks_auth=$authToken")
                         }
                     }
@@ -465,8 +487,18 @@ private fun StickerViewerDialog(
             }
             
             val imageUrl = remember(stickerMessage.url, isEncrypted, cachedFile) {
-                if (cachedFile != null) {
-                    // Use cached file
+                if (cachedFile != null && cachedFile.exists()) {
+                    // Use raw cached file path (like AvatarImage does)
+                    Log.d("Andromuks", "StickerViewer: Using cached file: ${cachedFile.absolutePath}")
+                    Log.d("Andromuks", "StickerViewer: Cached file size: ${cachedFile.length()} bytes, canRead: ${cachedFile.canRead()}")
+                    // Check if file looks like image data (starts with common image magic bytes)
+                    try {
+                        val header = cachedFile.inputStream().use { it.readNBytes(4) }
+                        val headerHex = header.joinToString("") { "%02x".format(it) }
+                        Log.d("Andromuks", "StickerViewer: File header (hex): $headerHex")
+                    } catch (e: Exception) {
+                        Log.e("Andromuks", "StickerViewer: Failed to read file header", e)
+                    }
                     cachedFile.absolutePath
                 } else {
                     // Use HTTP URL
@@ -483,7 +515,8 @@ private fun StickerViewerDialog(
                 model = ImageRequest.Builder(context)
                     .data(imageUrl)
                     .apply {
-                        if (cachedFile == null) {
+                        // Only add auth header for HTTP(S) URLs, not for file:// URIs
+                        if (imageUrl?.startsWith("http") == true) {
                             addHeader("Cookie", "gomuks_auth=$authToken")
                         }
                     }
