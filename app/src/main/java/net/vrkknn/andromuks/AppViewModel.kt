@@ -835,11 +835,18 @@ class AppViewModel : ViewModel() {
         executePendingNotificationActions()
         
         android.util.Log.d("Andromuks", "AppViewModel: Calling navigation callback (callback is ${if (onNavigateToRoomList != null) "set" else "null"})")
-        if (onNavigateToRoomList != null) {
-            onNavigateToRoomList?.invoke()
+        
+        // Only trigger navigation callback once to prevent double navigation
+        if (!navigationCallbackTriggered) {
+            if (onNavigateToRoomList != null) {
+                navigationCallbackTriggered = true
+                onNavigateToRoomList?.invoke()
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: Navigation callback not set yet, marking as pending")
+                pendingNavigation = true
+            }
         } else {
-            android.util.Log.d("Andromuks", "AppViewModel: Navigation callback not set yet, marking as pending")
-            pendingNavigation = true
+            android.util.Log.d("Andromuks", "AppViewModel: Navigation callback already triggered, skipping")
         }
     }
     
@@ -930,6 +937,7 @@ class AppViewModel : ViewModel() {
     // Navigation callback
     var onNavigateToRoomList: (() -> Unit)? = null
     private var pendingNavigation = false
+    private var navigationCallbackTriggered = false // Prevent multiple triggers
     
     // Pending room navigation from shortcuts
     private var pendingRoomNavigation: String? = null
@@ -955,7 +963,14 @@ class AppViewModel : ViewModel() {
         if (pendingNavigation) {
             android.util.Log.d("Andromuks", "AppViewModel: Triggering pending navigation")
             pendingNavigation = false
+            navigationCallbackTriggered = true
             callback()
+        }
+        // If spaces are already loaded (from cached state), DON'T trigger yet
+        // Wait for WebSocket to connect and init_complete to trigger it
+        else if (spacesLoaded && !navigationCallbackTriggered) {
+            android.util.Log.d("Andromuks", "AppViewModel: Spaces already loaded from cache, but waiting for WebSocket connection before navigating")
+            // Don't trigger here - let onInitComplete() or WebSocket connection handle it
         }
     }
     
@@ -1269,11 +1284,19 @@ class AppViewModel : ViewModel() {
             }
             editor.putString("cached_rooms", roomsArray.toString())
             
+            // Save current room ID if a room is open
+            if (currentRoomId.isNotBlank()) {
+                editor.putString("current_room_id", currentRoomId)
+                android.util.Log.d("Andromuks", "AppViewModel: Saving current room ID: $currentRoomId")
+            } else {
+                editor.remove("current_room_id")
+            }
+            
             // Save timestamp of when state was saved
             editor.putLong("state_saved_timestamp", System.currentTimeMillis())
             
             editor.apply()
-            android.util.Log.d("Andromuks", "AppViewModel: Saved state to storage - run_id: $currentRunId, last_received_sync_id: $lastReceivedSyncId, rooms: ${allRooms.size}")
+            android.util.Log.d("Andromuks", "AppViewModel: Saved state to storage - run_id: $currentRunId, last_received_sync_id: $lastReceivedSyncId, rooms: ${allRooms.size}, currentRoom: $currentRoomId")
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to save state to storage", e)
         }
@@ -1374,6 +1397,13 @@ class AppViewModel : ViewModel() {
                 
                 android.util.Log.d("Andromuks", "AppViewModel: Restored ${cachedRooms.size} rooms from cache")
                 
+                // Restore current room ID if a room was open when app went to background
+                val savedRoomId = prefs.getString("current_room_id", null)
+                if (savedRoomId != null && savedRoomId.isNotBlank()) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Restoring navigation to room: $savedRoomId")
+                    setPendingRoomNavigation(savedRoomId)
+                }
+                
                 // Mark spaces as loaded so UI can show cached data
                 spacesLoaded = true
                 
@@ -1400,6 +1430,7 @@ class AppViewModel : ViewModel() {
             editor.remove("ws_last_received_sync_id")
             editor.remove("ws_vapid_key")
             editor.remove("cached_rooms")
+            editor.remove("current_room_id")
             editor.remove("state_saved_timestamp")
             
             editor.apply()
@@ -1408,6 +1439,7 @@ class AppViewModel : ViewModel() {
             currentRunId = ""
             lastReceivedSyncId = 0
             vapidKey = ""
+            navigationCallbackTriggered = false // Reset navigation flag for fresh start
             
             android.util.Log.d("Andromuks", "AppViewModel: Cleared cached state")
         } catch (e: Exception) {

@@ -81,17 +81,20 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     }
                 } else if (pendingRoomId != null) {
                     android.util.Log.d("Andromuks", "AuthCheck: Navigating to pending room: $pendingRoomId")
-                    appViewModel.clearPendingRoomNavigation()
+                    // Don't clear yet - let RoomListScreen handle the pending navigation
                     
                     // Check if the room exists in our room list
                     val roomExists = appViewModel.getRoomById(pendingRoomId) != null
                     android.util.Log.d("Andromuks", "AuthCheck: Room exists check - roomExists: $roomExists, roomId: $pendingRoomId")
                     if (roomExists) {
-                        android.util.Log.d("Andromuks", "AuthCheck: Room exists, navigating to room timeline")
-                        navController.navigate("room_timeline/$pendingRoomId")
+                        android.util.Log.d("Andromuks", "AuthCheck: Room exists, navigating to room_list first (pending room will auto-navigate)")
+                        // Navigate to room_list first to establish proper back stack
+                        // RoomListScreen will detect pending navigation and auto-navigate to room
+                        navController.navigate("room_list")
                     } else {
                         android.util.Log.w("Andromuks", "AuthCheck: Room $pendingRoomId not found in room list, showing toast and going to room list")
                         // Show toast and navigate to room list
+                        appViewModel.clearPendingRoomNavigation()
                         android.widget.Toast.makeText(context, "Room $pendingRoomId not found. Please try again later.", android.widget.Toast.LENGTH_LONG).show()
                         navController.navigate("room_list")
                     }

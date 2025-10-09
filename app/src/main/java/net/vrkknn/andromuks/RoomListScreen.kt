@@ -129,6 +129,17 @@ fun RoomListScreen(
         (context as? ComponentActivity)?.moveTaskToBack(true)
     }
     
+    // Check for pending room navigation (e.g., from app resume with saved room)
+    LaunchedEffect(Unit) {
+        val pendingRoomId = appViewModel.getPendingRoomNavigation()
+        if (pendingRoomId != null) {
+            android.util.Log.d("Andromuks", "RoomListScreen: Detected pending room navigation to: $pendingRoomId")
+            appViewModel.clearPendingRoomNavigation()
+            // Navigate to the pending room
+            navController.navigate("room_timeline/$pendingRoomId")
+        }
+    }
+    
     // Get timestamp update counter from AppViewModel
     val timestampUpdateTrigger = appViewModel.timestampUpdateCounter
     
