@@ -88,6 +88,13 @@ import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
 import net.vrkknn.andromuks.utils.StickerMessage
+import net.vrkknn.andromuks.utils.MediaPreviewDialog
+import net.vrkknn.andromuks.utils.UploadingDialog
+import net.vrkknn.andromuks.utils.MediaUploadUtils
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
@@ -101,7 +108,11 @@ import java.util.Locale
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.AttachFile
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.platform.LocalContext
@@ -232,6 +243,21 @@ fun RoomTimelineScreen(
     // Emoji selection state
     var showEmojiSelection by remember { mutableStateOf(false) }
     var reactingToEvent by remember { mutableStateOf<TimelineEvent?>(null) }
+    
+    // Media picker state
+    var selectedMediaUri by remember { mutableStateOf<Uri?>(null) }
+    var showMediaPreview by remember { mutableStateOf(false) }
+    var isUploading by remember { mutableStateOf(false) }
+    
+    // Media picker launcher
+    val mediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            selectedMediaUri = it
+            showMediaPreview = true
+        }
+    }
 
     // Build user profile cache from m.room.member events
     val userProfileCache = remember(timelineEvents) {
@@ -349,16 +375,21 @@ fun RoomTimelineScreen(
     // Monitor scroll position to detect if user is at bottom or has detached
     LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) {
         if (sortedEvents.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
+            // Check if Load More button is present (affects index calculations)
+            val hasLoadMoreButton = appViewModel.hasMoreMessages
+            val buttonOffset = if (hasLoadMoreButton) 1 else 0
+            
             // Check if we're at the very bottom (last item is visible)
             val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            val isAtBottom = lastVisibleIndex >= timelineItems.lastIndex - 1 // Within last item
+            val lastTimelineItemIndex = timelineItems.lastIndex + buttonOffset
+            val isAtBottom = lastVisibleIndex >= lastTimelineItemIndex - 1 // Within last item
             
             // Update attachment state based on current position
             if (isAtBottom && !isAttachedToBottom) {
                 // User scrolled back to bottom, re-attach
                 Log.d("Andromuks", "RoomTimelineScreen: User reached bottom, re-attaching")
                 isAttachedToBottom = true
-            } else if (!isAtBottom && isAttachedToBottom && listState.firstVisibleItemIndex > 0) {
+            } else if (!isAtBottom && isAttachedToBottom && listState.firstVisibleItemIndex > buttonOffset) {
                 // User scrolled up from bottom, detach
                 Log.d("Andromuks", "RoomTimelineScreen: User scrolled up, detaching from bottom")
                 isAttachedToBottom = false
@@ -366,63 +397,77 @@ fun RoomTimelineScreen(
         }
     }
     
+    // Track loading more state
+    var isLoadingMore by remember { mutableStateOf(false) }
+    var previousItemCount by remember { mutableStateOf(timelineItems.size) }
+    var hasLoadedInitialBatch by remember { mutableStateOf(false) }
+    
     // Auto-scroll to bottom only when attached (initial load or new messages while at bottom)
-    LaunchedEffect(sortedEvents.size, isLoading) {
-        Log.d("Andromuks", "RoomTimelineScreen: LaunchedEffect - sortedEvents.size: ${sortedEvents.size}, isLoading: $isLoading, isAttachedToBottom: $isAttachedToBottom, isInitialLoad: $isInitialLoad")
+    LaunchedEffect(timelineItems.size, isLoading) {
+        Log.d("Andromuks", "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isAttachedToBottom: $isAttachedToBottom, isInitialLoad: $isInitialLoad")
         
-        if (!isLoading && sortedEvents.isNotEmpty()) {
+        if (!isLoading && timelineItems.isNotEmpty()) {
+            // Check if Load More button is present (affects index calculations)
+            val hasLoadMoreButton = appViewModel.hasMoreMessages
+            val buttonOffset = if (hasLoadMoreButton) 1 else 0
+            
+            // Check if this is the completion of a "Load More" action
+            if (isLoadingMore && previousItemCount < timelineItems.size) {
+                // Load More completed - keep scroll position stable
+                val itemsAdded = timelineItems.size - previousItemCount
+                Log.d("Andromuks", "RoomTimelineScreen: Load More completed. Items added: $itemsAdded, hasLoadMoreButton: $hasLoadMoreButton")
+                
+                // Scroll to maintain view position
+                // Account for the Load More button if present (at index 0)
+                // After loading, we want to be positioned at the items that were just added
+                coroutineScope.launch {
+                    // Scroll to maintain view at top of what was previously visible
+                    listState.scrollToItem(buttonOffset + itemsAdded)
+                }
+                
+                isLoadingMore = false
+            }
             // Always scroll to bottom on initial load, or when attached to bottom
-            if (isAttachedToBottom) {
+            else if (isAttachedToBottom) {
                 coroutineScope.launch {
                     if (isInitialLoad) {
                         // First load: jump to bottom instantly (no animation)
-                        Log.d("Andromuks", "RoomTimelineScreen: Initial load - jumping to bottom instantly")
-                        listState.scrollToItem(timelineItems.lastIndex)
+                        // Account for Load More button if present
+                        Log.d("Andromuks", "RoomTimelineScreen: Initial load - jumping to bottom instantly, hasLoadMoreButton: $hasLoadMoreButton")
+                        listState.scrollToItem(timelineItems.lastIndex + buttonOffset)
                         isInitialLoad = false
+                        hasLoadedInitialBatch = true
                     } else {
                         // Subsequent updates: animate scroll for smooth new message appearance
                         Log.d("Andromuks", "RoomTimelineScreen: Auto-scrolling to bottom (attached, animated)")
-                        listState.animateScrollToItem(timelineItems.lastIndex)
+                        listState.animateScrollToItem(timelineItems.lastIndex + buttonOffset)
                     }
                 }
             } else {
                 Log.d("Andromuks", "RoomTimelineScreen: Not auto-scrolling, user is detached from bottom")
             }
-        }
-    }
-    
-    // Track if we've already triggered pagination for this scroll position
-    var lastPaginationTrigger by remember(sortedEvents.size, roomId) { mutableStateOf(-1) }
-    
-    // Monitor scroll position for pagination - trigger when near the top (within first 20 items)
-    LaunchedEffect(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
-        Log.d("Andromuks", "RoomTimelineScreen: LaunchedEffect triggered - scroll position changed")
-        Log.d("Andromuks", "RoomTimelineScreen: Scroll position changed - index: ${listState.firstVisibleItemIndex}, offset: ${listState.firstVisibleItemScrollOffset}, isLoading: $isLoading")
-        Log.d("Andromuks", "RoomTimelineScreen: Checking conditions - index<=20: ${listState.firstVisibleItemIndex <= 20}, !isLoading: ${!isLoading}")
-        
-        // Trigger pagination when user scrolls near the top (within first 20 items)
-        if (listState.firstVisibleItemIndex <= 20 && !isLoading && sortedEvents.isNotEmpty()) {
-            val currentTriggerPoint = listState.firstVisibleItemIndex
-            Log.d("Andromuks", "RoomTimelineScreen: Near top detected! Current index: $currentTriggerPoint, last trigger: $lastPaginationTrigger")
             
-            // Only trigger if we haven't already triggered for this or earlier position
-            if (currentTriggerPoint != lastPaginationTrigger) {
-                Log.d("Andromuks", "RoomTimelineScreen: User scrolled near top (index: $currentTriggerPoint), triggering pagination")
-                lastPaginationTrigger = currentTriggerPoint
-                appViewModel.loadOlderMessages(roomId)
-            } else {
-                Log.d("Andromuks", "RoomTimelineScreen: Already triggered pagination at this position")
-            }
-        } else {
-            Log.d("Andromuks", "RoomTimelineScreen: Conditions not met for pagination")
+            previousItemCount = timelineItems.size
         }
     }
     
     LaunchedEffect(roomId) {
         Log.d("Andromuks", "RoomTimelineScreen: Loading timeline for room: $roomId")
+        // Reset state for new room
+        isLoadingMore = false
+        hasLoadedInitialBatch = false
         // Request room state first, then timeline
         appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId)
+    }
+    
+    // After initial batch loads, automatically load second batch in background
+    LaunchedEffect(hasLoadedInitialBatch) {
+        if (hasLoadedInitialBatch && sortedEvents.isNotEmpty()) {
+            Log.d("Andromuks", "RoomTimelineScreen: Initial batch loaded, automatically loading second batch")
+            kotlinx.coroutines.delay(500) // Small delay to let UI settle
+            appViewModel.loadOlderMessages(roomId)
+        }
     }
     
     // Validate and request missing user profiles when timeline events change
@@ -510,14 +555,48 @@ fun RoomTimelineScreen(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth(),
-                            state = listState,
+                        state = listState,
                         verticalArrangement = Arrangement.spacedBy(4.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
                             horizontal = 16.dp,
                             vertical = 8.dp
-                            )
-                        ) {
-                            itemsIndexed(timelineItems) { index, item ->
+                        )
+                    ) {
+                        // Load More button at the top - only show if there are more messages
+                        if (appViewModel.hasMoreMessages) {
+                            item(key = "load_more_button") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (isLoadingMore) {
+                                        // Show loading indicator
+                                        androidx.compose.material3.CircularProgressIndicator(
+                                            modifier = Modifier.size(32.dp)
+                                        )
+                                    } else {
+                                        // Show "Load More" button
+                                        Button(
+                                            onClick = {
+                                                Log.d("Andromuks", "RoomTimelineScreen: Load More button clicked")
+                                                isLoadingMore = true
+                                                appViewModel.loadOlderMessages(roomId)
+                                            },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                            )
+                                        ) {
+                                            Text("Load More")
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        itemsIndexed(timelineItems) { index, item ->
                                 when (item) {
                                     is TimelineItem.DateDivider -> {
                                         DateDivider(item.date)
@@ -640,6 +719,31 @@ fun RoomTimelineScreen(
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // Attach button in its own frame
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                tonalElevation = 1.dp,
+                                modifier = Modifier
+                                    .width(48.dp)
+                                    .height(56.dp)
+                            ) {
+                                IconButton(
+                                    onClick = {
+                                        mediaPickerLauncher.launch("image/*")
+                                    },
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.AttachFile,
+                                        contentDescription = "Attach media",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.width(8.dp))
+                            
                             // Pill-shaped text input with optional reply preview inside
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
@@ -739,7 +843,9 @@ fun RoomTimelineScreen(
                         onClick = {
                             coroutineScope.launch {
                                 // Scroll to bottom and re-attach
-                                listState.animateScrollToItem(timelineItems.lastIndex)
+                                // Account for Load More button if present
+                                val buttonOffset = if (appViewModel.hasMoreMessages) 1 else 0
+                                listState.animateScrollToItem(timelineItems.lastIndex + buttonOffset)
                                 isAttachedToBottom = true
                                 Log.d("Andromuks", "RoomTimelineScreen: FAB clicked, scrolling to bottom and re-attaching")
                             }
@@ -773,6 +879,76 @@ fun RoomTimelineScreen(
                         reactingToEvent = null
                     }
                 )
+            }
+            
+            // Media preview dialog
+            if (showMediaPreview && selectedMediaUri != null) {
+                MediaPreviewDialog(
+                    uri = selectedMediaUri!!,
+                    onDismiss = {
+                        showMediaPreview = false
+                        selectedMediaUri = null
+                    },
+                    onSend = { caption ->
+                        showMediaPreview = false
+                        isUploading = true
+                        
+                        // Upload and send media in a coroutine
+                        CoroutineScope(Dispatchers.Main).launch {
+                            try {
+                                // Get room encryption status from current room state
+                                val isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false
+                                Log.d("Andromuks", "RoomTimelineScreen: Uploading media, room encrypted: $isRoomEncrypted")
+                                
+                                val uploadResult = withContext(Dispatchers.IO) {
+                                    MediaUploadUtils.uploadMedia(
+                                        context = context,
+                                        uri = selectedMediaUri!!,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        isEncrypted = isRoomEncrypted
+                                    )
+                                }
+                                
+                                if (uploadResult != null) {
+                                    // Get filename from URI
+                                    var filename = "image.jpg"
+                                    context.contentResolver.query(selectedMediaUri!!, null, null, null, null)?.use { cursor ->
+                                        val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                                        if (nameIndex != -1 && cursor.moveToFirst()) {
+                                            filename = cursor.getString(nameIndex)
+                                        }
+                                    }
+                                    
+                                    appViewModel.sendMediaMessage(
+                                        roomId = roomId,
+                                        mxcUrl = uploadResult.mxcUrl,
+                                        filename = filename,
+                                        mimeType = uploadResult.mimeType,
+                                        width = uploadResult.width,
+                                        height = uploadResult.height,
+                                        size = uploadResult.size,
+                                        blurHash = uploadResult.blurHash,
+                                        caption = caption
+                                    )
+                                    Log.d("Andromuks", "RoomTimelineScreen: Media message sent successfully")
+                                } else {
+                                    Log.e("Andromuks", "RoomTimelineScreen: Failed to upload media")
+                                }
+                            } catch (e: Exception) {
+                                Log.e("Andromuks", "RoomTimelineScreen: Error uploading media", e)
+                            } finally {
+                                isUploading = false
+                                selectedMediaUri = null
+                            }
+                        }
+                    }
+                )
+            }
+            
+            // Uploading dialog
+            if (isUploading) {
+                UploadingDialog()
             }
             
             // Delete message dialog
@@ -1149,11 +1325,17 @@ fun TimelineEventItem(
                             return // Exit early for redacted media messages
                         }
                         
-                        val url = content?.optString("url", "") ?: ""
+                        // Check if media is encrypted (has file object) or unencrypted (has url field)
+                        val fileObj = content?.optJSONObject("file")
+                        val hasEncryptedFile = fileObj != null
+                        val directUrl = content?.optString("url", "") ?: ""
+                        val fileUrl = fileObj?.optString("url", "") ?: ""
+                        val url = directUrl.takeIf { it.isNotBlank() } ?: fileUrl
+                        
                         val filename = content?.optString("filename", "") ?: ""
                         val info = content?.optJSONObject("info")
                         
-                        Log.d("Andromuks", "TimelineEventItem: Media data - url=$url, filename=$filename, info=${info != null}")
+                        Log.d("Andromuks", "TimelineEventItem: Media data - url=$url, filename=$filename, info=${info != null}, hasEncryptedFile=$hasEncryptedFile")
                         
                         if (url.isNotBlank() && info != null) {
                             val width = info.optInt("w", 0)
@@ -1203,6 +1385,7 @@ fun TimelineEventItem(
                                         homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                         authToken = authToken,
                                         isMine = actualIsMine,
+                                        isEncrypted = hasEncryptedFile,
                                         event = event,
                                         timestamp = event.timestamp,
                                         isConsecutive = isConsecutive,
@@ -1219,6 +1402,7 @@ fun TimelineEventItem(
                                     homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                     authToken = authToken,
                                     isMine = actualIsMine,
+                                    isEncrypted = hasEncryptedFile,
                                     event = event,
                                     timestamp = event.timestamp,
                                     isConsecutive = isConsecutive,
@@ -1546,12 +1730,14 @@ fun TimelineEventItem(
                             }
                             
                             // For encrypted messages, URL might be in file.url
-                            val directUrl = decrypted?.optString("url", "") ?: ""
+                            // Check if media is encrypted (has file object) or just the event is encrypted (has url field)
                             val fileObj = decrypted?.optJSONObject("file")
+                            val hasEncryptedFile = fileObj != null
+                            val directUrl = decrypted?.optString("url", "") ?: ""
                             val fileUrl = fileObj?.optString("url", "") ?: ""
                             val url = directUrl.takeIf { it.isNotBlank() } ?: fileUrl
                             
-                            Log.d("Andromuks", "TimelineEventItem: URL extraction - directUrl='$directUrl', fileObj=${fileObj != null}, fileUrl='$fileUrl', finalUrl='$url'")
+                            Log.d("Andromuks", "TimelineEventItem: URL extraction - directUrl='$directUrl', fileObj=${fileObj != null}, fileUrl='$fileUrl', finalUrl='$url', hasEncryptedFile=$hasEncryptedFile")
                             
                             val filename = decrypted?.optString("filename", "") ?: ""
                             val info = decrypted?.optJSONObject("info")
@@ -1606,7 +1792,7 @@ fun TimelineEventItem(
                                             homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                             authToken = authToken,
                                             isMine = actualIsMine,
-                                            isEncrypted = true,
+                                            isEncrypted = hasEncryptedFile,
                                             event = event,
                                             timestamp = event.timestamp,
                                             isConsecutive = isConsecutive,
@@ -1623,7 +1809,7 @@ fun TimelineEventItem(
                                         homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                         authToken = authToken,
                                         isMine = actualIsMine,
-                                        isEncrypted = true,
+                                        isEncrypted = hasEncryptedFile,
                                         event = event,
                                         timestamp = event.timestamp,
                                         isConsecutive = isConsecutive,

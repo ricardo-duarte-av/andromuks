@@ -61,7 +61,8 @@ data class RoomState(
     val name: String?,
     val canonicalAlias: String?,
     val topic: String?,
-    val avatarUrl: String?
+    val avatarUrl: String?,
+    val isEncrypted: Boolean = false
 )
 
 @Immutable

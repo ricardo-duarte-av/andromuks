@@ -1170,7 +1170,7 @@ class AppViewModel : ViewModel() {
     // Pagination state
     private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
     private var isPaginating: Boolean = false // Prevent multiple pagination requests
-    private var hasMoreMessages: Boolean = true // Whether there are more messages to load
+    var hasMoreMessages by mutableStateOf(true) // Whether there are more messages to load
     
     
     private var webSocket: WebSocket? = null
@@ -1603,6 +1603,9 @@ class AppViewModel : ViewModel() {
             roomMemberCache[roomId] = mutableMapOf()
         }
         
+        // Request room state (including encryption status)
+        requestRoomState(roomId)
+        
         // Send get_room_state command with include_members = true
         val stateRequestId = requestIdCounter++
         timelineRequests[stateRequestId] = roomId
@@ -2023,6 +2026,59 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with edit data: $commandData")
         sendWebSocketCommand("send_message", editRequestId, commandData)
         android.util.Log.d("Andromuks", "AppViewModel: Edit command sent with request_id: $editRequestId")
+    }
+    
+    fun sendMediaMessage(
+        roomId: String,
+        mxcUrl: String,
+        filename: String,
+        mimeType: String,
+        width: Int,
+        height: Int,
+        size: Long,
+        blurHash: String,
+        caption: String = "",
+        msgType: String = "m.image"
+    ) {
+        android.util.Log.d("Andromuks", "AppViewModel: sendMediaMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl'")
+        
+        val ws = webSocket ?: return
+        val messageRequestId = requestIdCounter++
+        
+        // Track this outgoing request
+        messageRequests[messageRequestId] = roomId
+        
+        // Use caption if provided, otherwise use filename
+        val body = caption.ifBlank { filename }
+        
+        val baseContent = mapOf(
+            "msgtype" to msgType,
+            "body" to body,
+            "url" to mxcUrl,
+            "info" to mapOf(
+                "mimetype" to mimeType,
+                "xyz.amorgan.blurhash" to blurHash,
+                "w" to width,
+                "h" to height,
+                "size" to size
+            ),
+            "filename" to filename
+        )
+        
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "base_content" to baseContent,
+            "text" to "",
+            "mentions" to mapOf(
+                "user_ids" to emptyList<String>(),
+                "room" to false
+            ),
+            "url_previews" to emptyList<String>()
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with media data: $commandData")
+        sendWebSocketCommand("send_message", messageRequestId, commandData)
+        android.util.Log.d("Andromuks", "AppViewModel: Media message command sent with request_id: $messageRequestId")
     }
     
     fun sendDelete(roomId: String, originalEvent: net.vrkknn.andromuks.TimelineEvent, reason: String = "") {
@@ -2537,6 +2593,7 @@ class AppViewModel : ViewModel() {
         var canonicalAlias: String? = null
         var topic: String? = null
         var avatarUrl: String? = null
+        var isEncrypted = false
         
         android.util.Log.d("Andromuks", "AppViewModel: Parsing room state for room: $roomId, events count: ${events.length()}")
         
@@ -2576,6 +2633,14 @@ class AppViewModel : ViewModel() {
                         avatarUrl = content?.optString("url")?.takeIf { it.isNotBlank() }
                         android.util.Log.d("Andromuks", "AppViewModel: Found avatar URL: $avatarUrl")
                     }
+                    "m.room.encryption" -> {
+                        // Check if the room is encrypted (presence of m.room.encryption event)
+                        val algorithm = content?.optString("algorithm")?.takeIf { it.isNotBlank() }
+                        if (algorithm != null) {
+                            isEncrypted = true
+                            android.util.Log.d("Andromuks", "AppViewModel: Room is encrypted with algorithm: $algorithm")
+                        }
+                    }
                 }
             }
         }
@@ -2586,14 +2651,15 @@ class AppViewModel : ViewModel() {
             name = name,
             canonicalAlias = canonicalAlias,
             topic = topic,
-            avatarUrl = avatarUrl
+            avatarUrl = avatarUrl,
+            isEncrypted = isEncrypted
         )
         
         // Update current room state
         currentRoomState = roomState
         updateCounter++
         
-        android.util.Log.d("Andromuks", "AppViewModel: Parsed room state - Name: $name, Alias: $canonicalAlias, Topic: $topic, Avatar: $avatarUrl")
+        android.util.Log.d("Andromuks", "AppViewModel: Parsed room state - Name: $name, Alias: $canonicalAlias, Topic: $topic, Avatar: $avatarUrl, Encrypted: $isEncrypted")
     }
     
     private fun handleMessageResponse(requestId: Int, data: Any) {
