@@ -1,12 +1,21 @@
 package net.vrkknn.andromuks.utils
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.AnnotatedString
@@ -17,7 +26,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.TimelineEventItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
 
 @Composable
@@ -253,6 +264,30 @@ fun SystemEventNarrator(
                     }
                 )
             }
+            "m.room.pinned_events" -> {
+                val pinnedArray = content?.optJSONArray("pinned")
+                val pinnedEventId = pinnedArray?.optString(0)
+                if (pinnedEventId != null) {
+                    PinnedEventNarration(
+                        displayName = displayName,
+                        avatarUrl = avatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        pinnedEventId = pinnedEventId,
+                        appViewModel = appViewModel,
+                        roomId = roomId
+                    )
+                } else {
+                    NarratorText(
+                        text = buildAnnotatedString {
+                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                append(displayName)
+                            }
+                            append(" pinned an event")
+                        }
+                    )
+                }
+            }
             else -> {
                 NarratorText(
                     text = buildAnnotatedString {
@@ -304,4 +339,99 @@ private fun formatTimestamp(timestamp: Long): String {
     val date = java.util.Date(timestamp)
     val formatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
     return formatter.format(date)
+}
+
+@Composable
+private fun PinnedEventNarration(
+    displayName: String,
+    avatarUrl: String?,
+    homeserverUrl: String,
+    authToken: String,
+    pinnedEventId: String,
+    appViewModel: AppViewModel?,
+    roomId: String
+) {
+    var showDialog by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var event by remember { mutableStateOf<TimelineEvent?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        NarratorText(
+            text = buildAnnotatedString {
+                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                    append(displayName)
+                }
+                append(" pinned an event: ")
+            }
+        )
+
+        Text(
+            text = pinnedEventId,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.clickable {
+                if (event == null && !isLoading && appViewModel != null) {
+                    isLoading = true
+                    errorMessage = null
+                    appViewModel.getEvent(roomId, pinnedEventId) { fetchedEvent ->
+                        event = fetchedEvent
+                        if (fetchedEvent == null) {
+                            errorMessage = "Unable to load event (404)."
+                        }
+                        isLoading = false
+                        showDialog = true
+                    }
+                } else {
+                    showDialog = true
+                }
+            }
+        )
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showDialog = false
+            },
+            title = { Text("Pinned Event") },
+            text = {
+                when {
+                    isLoading -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                    errorMessage != null -> {
+                        Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
+                    }
+                    event != null -> {
+                        TimelineEventItem(
+                            event = event!!,
+                            timelineEvents = listOf(event!!),
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            userProfileCache = appViewModel?.getMemberMap(roomId) ?: emptyMap(),
+                            isMine = false,
+                            myUserId = appViewModel?.currentUserId
+                        )
+                    }
+                    else -> {
+                        Text("Event data not available.")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
 }

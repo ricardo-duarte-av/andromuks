@@ -1160,7 +1160,7 @@ class AppViewModel : ViewModel() {
     private val leaveRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val outgoingRequests = mutableMapOf<Int, String>() // requestId -> roomId (for all outgoing requests)
     private val fcmRegistrationRequests = mutableMapOf<Int, String>() // requestId -> "fcm_registration"
-    private val eventRequests = mutableMapOf<Int, (TimelineEvent?) -> Unit>() // requestId -> callback
+    private val eventRequests = mutableMapOf<Int, Pair<String, (TimelineEvent?) -> Unit>>() // requestId -> (roomId, callback)
     private val paginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for pagination)
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     private val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
@@ -2171,6 +2171,10 @@ class AppViewModel : ViewModel() {
         } else if (outgoingRequests.containsKey(requestId)) {
             android.util.Log.w("Andromuks", "AppViewModel: Outgoing request error for requestId=$requestId: $errorMessage")
             outgoingRequests.remove(requestId)
+        } else if (eventRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Event request error for requestId=$requestId: $errorMessage")
+            val (_, callback) = eventRequests.remove(requestId) ?: return
+            callback(null)
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
@@ -2730,7 +2734,8 @@ class AppViewModel : ViewModel() {
     }
     
     private fun handleEventResponse(requestId: Int, data: Any) {
-        val callback = eventRequests.remove(requestId) ?: return
+        val requestInfo = eventRequests.remove(requestId) ?: return
+        val (roomId, callback) = requestInfo
         android.util.Log.d("Andromuks", "AppViewModel: Handling event response for requestId: $requestId")
         
         when (data) {
@@ -3724,7 +3729,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Generated request_id for get_event: $eventRequestId")
         
         // Store the callback to handle the response
-        eventRequests[eventRequestId] = callback
+        eventRequests[eventRequestId] = roomId to callback
         
         val commandData = mapOf(
             "room_id" to roomId,

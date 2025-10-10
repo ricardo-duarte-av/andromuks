@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,6 +15,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.AppViewModel
+import net.vrkknn.andromuks.MemberProfile
+import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.TimelineEventItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import org.json.JSONObject
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,6 +32,7 @@ data class RoomStateInfo(
     val avatarUrl: String?,
     val canonicalAlias: String?,
     val altAliases: List<String>,
+    val pinnedEventIds: List<String>,
     val creator: String?,
     val roomVersion: String?,
     val historyVisibility: String?,
@@ -91,6 +94,10 @@ fun RoomInfoScreen(
     var roomStateInfo by remember { mutableStateOf<RoomStateInfo?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var pinnedEvents by remember { mutableStateOf<List<PinnedEventItem>>(emptyList()) }
+    var isPinnedLoading by remember { mutableStateOf(false) }
+    var pinnedError by remember { mutableStateOf<String?>(null) }
+    var showPinnedDialog by remember { mutableStateOf(false) }
     
     // State for dialog visibility
     var showPowerLevelsDialog by remember { mutableStateOf(false) }
@@ -118,6 +125,10 @@ fun RoomInfoScreen(
         }
     }
     
+    val memberMap = remember(roomStateInfo?.roomId, roomStateInfo?.members) {
+        appViewModel.getMemberMap(roomId)
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -254,6 +265,37 @@ fun RoomInfoScreen(
                     ) {
                         Text("ACL List")
                     }
+
+                    // Pinned Events Button
+                    Button(
+                        onClick = {
+                            val pinnedIds = roomStateInfo!!.pinnedEventIds
+                            if (pinnedIds.isNotEmpty()) {
+                                pinnedEvents = emptyList()
+                                isPinnedLoading = true
+                                pinnedError = null
+                                showPinnedDialog = true
+                                loadPinnedEvents(
+                                    pinnedIds = pinnedIds,
+                                    roomId = roomId,
+                                    appViewModel = appViewModel,
+                                    onResult = { events, error ->
+                                        pinnedEvents = events
+                                        pinnedError = error
+                                        isPinnedLoading = false
+                                    }
+                                )
+                            } else {
+                                pinnedEvents = emptyList()
+                                pinnedError = null
+                                showPinnedDialog = true
+                            }
+                        },
+                        enabled = roomStateInfo!!.pinnedEventIds.isNotEmpty(),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Pinned")
+                    }
                 }
                 
                 // Member List Frame with Search - takes remaining space
@@ -363,6 +405,172 @@ fun RoomInfoScreen(
             serverAcl = roomStateInfo!!.serverAcl!!,
             onDismiss = { showServerAclDialog = false }
         )
+    }
+
+    // Pinned Events Dialog
+    if (showPinnedDialog) {
+        PinnedEventsDialog(
+            isLoading = isPinnedLoading,
+            errorMessage = pinnedError,
+            pinnedEvents = pinnedEvents,
+            homeserverUrl = appViewModel.homeserverUrl,
+            authToken = appViewModel.authToken,
+            memberMap = memberMap,
+            myUserId = appViewModel.currentUserId,
+            onDismiss = {
+                pinnedEvents = emptyList()
+                pinnedError = null
+                isPinnedLoading = false
+                showPinnedDialog = false
+            }
+        )
+    }
+}
+
+data class PinnedEventItem(
+    val eventId: String,
+    val timelineEvent: net.vrkknn.andromuks.TimelineEvent?
+)
+
+private fun loadPinnedEvents(
+    pinnedIds: List<String>,
+    roomId: String,
+    appViewModel: AppViewModel,
+    onResult: (List<PinnedEventItem>, String?) -> Unit
+) {
+    if (pinnedIds.isEmpty()) {
+        onResult(emptyList(), null)
+        return
+    }
+
+    val results = mutableListOf<PinnedEventItem>()
+    var remaining = pinnedIds.size
+    var errorMessage: String? = null
+
+    pinnedIds.forEach { eventId ->
+        appViewModel.getEvent(roomId, eventId) { timelineEvent ->
+            synchronized(results) {
+                results.add(PinnedEventItem(eventId, timelineEvent))
+                remaining -= 1
+                if (timelineEvent == null) {
+                    errorMessage = errorMessage ?: "Some events could not be loaded"
+                }
+
+                if (remaining == 0) {
+                    // Preserve original order based on pinnedIds list
+                    val ordered = pinnedIds.map { id ->
+                        results.find { it.eventId == id } ?: PinnedEventItem(id, null)
+                    }
+                    onResult(ordered, errorMessage)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PinnedEventsDialog(
+    isLoading: Boolean,
+    errorMessage: String?,
+    pinnedEvents: List<PinnedEventItem>,
+    homeserverUrl: String,
+    authToken: String,
+    memberMap: Map<String, MemberProfile>,
+    myUserId: String?,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Pinned Events") },
+        text = {
+            when {
+                isLoading -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                }
+                errorMessage != null && pinnedEvents.isEmpty() -> {
+                    Text(
+                        text = errorMessage,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                pinnedEvents.isEmpty() -> {
+                    Text("No pinned events found.")
+                }
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 400.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(pinnedEvents) { pinnedItem ->
+                            PinnedEventItemView(
+                                pinnedItem = pinnedItem,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                memberMap = memberMap,
+                                myUserId = myUserId
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Close")
+            }
+        }
+    )
+}
+
+@Composable
+private fun PinnedEventItemView(
+    pinnedItem: PinnedEventItem,
+    homeserverUrl: String,
+    authToken: String,
+    memberMap: Map<String, MemberProfile>,
+    myUserId: String?
+) {
+    val event = pinnedItem.timelineEvent
+
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = RoundedCornerShape(12.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = event?.eventId ?: pinnedItem.eventId,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            if (event == null) {
+                Text(
+                    text = "Event data is not available (404)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                TimelineEventItem(
+                    event = event,
+                    timelineEvents = listOf(event),
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    userProfileCache = memberMap,
+                    isMine = myUserId != null && event.sender == myUserId,
+                    myUserId = myUserId
+                )
+            }
+        }
     }
 }
 
@@ -577,6 +785,7 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
         var avatarUrl: String? = null
         var canonicalAlias: String? = null
         val altAliases = mutableListOf<String>()
+        val pinnedEventIds = mutableListOf<String>()
         var creator: String? = null
         var roomVersion: String? = null
         var historyVisibility: String? = null
@@ -614,6 +823,18 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
                     if (altAliasesArray != null) {
                         for (j in 0 until altAliasesArray.length()) {
                             altAliases.add(altAliasesArray.optString(j))
+                        }
+                    }
+                }
+                "m.room.pinned_events" -> {
+                    pinnedEventIds.clear()
+                    val pinnedArray = content?.optJSONArray("pinned")
+                    if (pinnedArray != null) {
+                        for (j in 0 until pinnedArray.length()) {
+                            val eventId = pinnedArray.optString(j)
+                            if (!eventId.isNullOrBlank()) {
+                                pinnedEventIds.add(eventId)
+                            }
                         }
                     }
                 }
@@ -722,6 +943,7 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
             avatarUrl = avatarUrl,
             canonicalAlias = canonicalAlias,
             altAliases = altAliases,
+            pinnedEventIds = pinnedEventIds,
             creator = creator,
             roomVersion = roomVersion,
             historyVisibility = historyVisibility,

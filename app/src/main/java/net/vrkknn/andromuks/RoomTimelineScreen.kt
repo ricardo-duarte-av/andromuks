@@ -283,6 +283,7 @@ fun RoomTimelineScreen(
         "m.room.name",
         "m.room.topic",
         "m.room.avatar",
+        "m.room.pinned_events",
         "m.reaction",
         "m.sticker"
         // m.room.redaction is intentionally excluded - redaction events should not appear in timeline
@@ -1113,7 +1114,7 @@ fun TimelineEventItem(
     }
     
     // Check if this is a narrator event (system event)
-    val isNarratorEvent = event.type in setOf("m.room.member", "m.room.name", "m.room.topic", "m.room.avatar")
+    val isNarratorEvent = event.type in setOf("m.room.member", "m.room.name", "m.room.topic", "m.room.avatar", "m.room.pinned_events")
     
     // Check if this message is being edited by another event (moved to function start)
     val editedBy = timelineEvents.find { 

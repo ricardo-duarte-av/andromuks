@@ -41,6 +41,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.ui.text.TextLayoutResult
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.CachePolicy
@@ -475,8 +476,8 @@ object HtmlRenderer {
                     val imageId = "img_${inlineImages.size}"
                     inlineImages[imageId] = InlineImageData(src, alt, height)
                     
-                    // Add placeholder for the image
-                    appendInlineContent(imageId, alt)
+                    // Add placeholder for the image. Use zero-width space so no fallback text is shown
+                    appendInlineContent(imageId, "\u200B")
                 } else {
                     // Fallback to alt text
                     append(alt)
@@ -577,22 +578,31 @@ fun extractSanitizedHtml(event: TimelineEvent): String? {
  * Check if event supports HTML rendering
  */
 fun supportsHtmlRendering(event: TimelineEvent): Boolean {
-    val content = event.content ?: event.decrypted ?: return false
-    
-    // Check if format is org.matrix.custom.html
-    val format = content.optString("format", "")
-    if (format != "org.matrix.custom.html") {
+    // If we already have sanitized HTML (from was_plaintext events), use it regardless of format/msgtype
+    if (extractSanitizedHtml(event) != null) {
+        return true
+    }
+
+    val content = when {
+        event.decrypted != null -> event.decrypted
+        event.content != null -> event.content
+        else -> return false
+    }
+
+    // Otherwise fall back to formatted_body rules
+    if (content.optString("format", "") != "org.matrix.custom.html") {
         return false
     }
-    
-    // Check if msgtype is supported
+
     val msgType = content.optString("msgtype", "")
     val supportedTypes = setOf(
-        "m.text", "m.emote", "m.notice", 
+        "m.text", "m.emote", "m.notice",
         "m.image", "m.file", "m.audio", "m.video"
     )
-    
-    return msgType in supportedTypes && extractSanitizedHtml(event) != null
+
+    val hasFormattedBody = !content.optString("formatted_body", null).isNullOrBlank()
+
+    return msgType in supportedTypes && hasFormattedBody
 }
 
 /**
@@ -607,12 +617,18 @@ fun HtmlMessageText(
     color: Color = Color.Unspecified
 ) {
     val context = LocalContext.current
-    val sanitizedHtml = remember(event) { extractSanitizedHtml(event) }
+    val sanitizedHtml = remember(event) {
+        extractSanitizedHtml(event) ?: run {
+            val formattedBody = event.decrypted?.optString("formatted_body")?.takeIf { it.isNotBlank() }
+                ?: event.content?.optString("formatted_body")?.takeIf { it.isNotBlank() }
+            formattedBody?.let { decodeHtmlEntities(it) }
+        }
+    }
     
     if (sanitizedHtml == null) {
         // Fallback to plain text body
         val content = event.content ?: event.decrypted
-        val body = content?.optString("body", "") ?: ""
+        val body = content?.optString("body", "")?.let { decodeHtmlEntities(it) } ?: ""
         Text(
             text = body,
             modifier = modifier,
@@ -672,17 +688,17 @@ fun HtmlMessageText(
     if (annotatedString.text.isEmpty()) {
         // Fallback if rendering failed
         val content = event.content ?: event.decrypted
-        val body = content?.optString("body", "") ?: ""
+        val body = content?.optString("body", "")?.let { decodeHtmlEntities(it) } ?: ""
         Text(
             text = body,
             modifier = modifier,
             color = color
         )
     } else {
-        // Use BasicText with proper click detection for URL support
-        var textLayoutResult by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+        // Use Text with proper click detection for URL support
+        var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
         
-        androidx.compose.foundation.text.BasicText(
+        Text(
             text = annotatedString,
             modifier = modifier.pointerInput(Unit) {
                 detectTapGestures { tapOffset ->
