@@ -93,7 +93,14 @@ fun ImageEmoji(
                 android.util.Log.d("Andromuks", "ImageEmoji: Successfully loaded emoji for $mxcUrl")
             },
             onError = { state ->
-                android.util.Log.e("Andromuks", "ImageEmoji: Error loading emoji from $mxcUrl", state.result.throwable)
+                if (state is coil.request.ErrorResult) {
+                    CacheUtils.handleImageLoadError(
+                        imageUrl = httpUrl,
+                        throwable = state.throwable,
+                        imageLoader = imageLoader,
+                        context = "Emoji"
+                    )
+                }
             }
         )
     } else {

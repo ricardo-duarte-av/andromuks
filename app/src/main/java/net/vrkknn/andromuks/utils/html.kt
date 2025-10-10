@@ -18,6 +18,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -34,6 +37,10 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import android.content.Intent
+import android.net.Uri
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import coil.request.CachePolicy
@@ -494,12 +501,76 @@ data class InlineImageData(
 )
 
 /**
+ * Decode HTML entities in a string
+ */
+fun decodeHtmlEntities(html: String): String {
+    var result = html
+    
+    // Decode numeric character references (&#xxx; and &#xHH;)
+    result = result.replace(Regex("&#(\\d+);")) { matchResult ->
+        val code = matchResult.groupValues[1].toIntOrNull()
+        if (code != null) {
+            code.toChar().toString()
+        } else {
+            matchResult.value
+        }
+    }
+    
+    result = result.replace(Regex("&#[xX]([0-9a-fA-F]+);")) { matchResult ->
+        val code = matchResult.groupValues[1].toIntOrNull(16)
+        if (code != null) {
+            code.toChar().toString()
+        } else {
+            matchResult.value
+        }
+    }
+    
+    // Decode named character entities (most common ones)
+    val namedEntities = mapOf(
+        "&quot;" to "\"",
+        "&quot" to "\"",   // Also without semicolon
+        "&apos;" to "'",
+        "&apos" to "'",    // Also without semicolon
+        "&amp;" to "&",
+        "&amp" to "&",     // Also without semicolon
+        "&lt;" to "<",
+        "&lt" to "<",      // Also without semicolon
+        "&gt;" to ">",
+        "&gt" to ">",      // Also without semicolon
+        "&nbsp;" to " ",
+        "&nbsp" to " ",    // Also without semicolon
+        "&copy;" to "©",
+        "&copy" to "©",    // Also without semicolon
+        "&reg;" to "®",
+        "&reg" to "®",     // Also without semicolon
+        "&euro;" to "€",
+        "&euro" to "€",    // Also without semicolon
+        "&pound;" to "£",
+        "&pound" to "£",   // Also without semicolon
+        "&yen;" to "¥",
+        "&yen" to "¥",     // Also without semicolon
+        "&cent;" to "¢",
+        "&cent" to "¢"     // Also without semicolon
+    )
+    
+    // Sort by length (longest first) to avoid partial replacements
+    namedEntities.entries.sortedByDescending { it.key.length }.forEach { (entity, char) ->
+        result = result.replace(entity, char)
+    }
+    
+    return result
+}
+
+/**
  * Extract sanitized HTML from a timeline event
  */
 fun extractSanitizedHtml(event: TimelineEvent): String? {
     // Check if event has local_content with sanitized_html
     // local_content is a top-level field in the event JSON, parsed into TimelineEvent.localContent
-    return event.localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
+    val sanitizedHtml = event.localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
+    
+    // Decode HTML entities before returning
+    return sanitizedHtml?.let { decodeHtmlEntities(it) }
 }
 
 /**
@@ -535,6 +606,7 @@ fun HtmlMessageText(
     modifier: Modifier = Modifier,
     color: Color = Color.Unspecified
 ) {
+    val context = LocalContext.current
     val sanitizedHtml = remember(event) { extractSanitizedHtml(event) }
     
     if (sanitizedHtml == null) {
@@ -607,10 +679,38 @@ fun HtmlMessageText(
             color = color
         )
     } else {
-        Text(
+        // Use BasicText with proper click detection for URL support
+        var textLayoutResult by remember { mutableStateOf<androidx.compose.ui.text.TextLayoutResult?>(null) }
+        
+        androidx.compose.foundation.text.BasicText(
             text = annotatedString,
-            modifier = modifier,
-            inlineContent = inlineContentMap
+            modifier = modifier.pointerInput(Unit) {
+                detectTapGestures { tapOffset ->
+                    textLayoutResult?.let { layoutResult ->
+                        // Get the character offset at the tap position
+                        val offset = layoutResult.getOffsetForPosition(tapOffset)
+                        
+                        // Check if the tapped position has a URL annotation
+                        annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                            .firstOrNull()?.let { annotation ->
+                                val url = annotation.item
+                                // Open URL in browser
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                    context.startActivity(intent)
+                                    Log.d("Andromuks", "Opening URL: $url")
+                                } catch (e: Exception) {
+                                    Log.e("Andromuks", "Failed to open URL: $url", e)
+                                }
+                            }
+                    }
+                }
+            },
+            style = MaterialTheme.typography.bodyMedium.copy(color = color),
+            inlineContent = inlineContentMap,
+            onTextLayout = { layoutResult ->
+                textLayoutResult = layoutResult
+            }
         )
     }
 }
@@ -710,7 +810,17 @@ private fun InlineImage(
                 .build(),
             imageLoader = imageLoader,
             contentDescription = alt,
-            modifier = Modifier.size(height.dp)
+            modifier = Modifier.size(height.dp),
+            onError = { state ->
+                if (state is coil.request.ErrorResult) {
+                    CacheUtils.handleImageLoadError(
+                        imageUrl = imageUrl,
+                        throwable = state.throwable,
+                        imageLoader = imageLoader,
+                        context = "HTML Image"
+                    )
+                }
+            }
         )
     } else {
         // Fallback to alt text

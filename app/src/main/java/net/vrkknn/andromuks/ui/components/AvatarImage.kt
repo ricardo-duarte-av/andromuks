@@ -158,15 +158,22 @@ fun AvatarImage(
                     Log.d("Andromuks", "✅ AvatarImage: Avatar loaded successfully: $avatarUrl")
                 },
                 onError = { state ->
-                    Log.e("Andromuks", "❌ AvatarImage: Avatar load failed: $avatarUrl")
-                    Log.e("Andromuks", "Error state: $state")
-                    
-                    // If we have userId, generate fallback (will be rendered as colored circle)
-                    if (userId != null) {
-                        coroutineScope.launch {
-                            val svgFallback = AvatarUtils.generateLocalFallbackAvatar(displayName, userId)
-                            avatarUrl = svgFallback
-                            Log.d("Andromuks", "AvatarImage: Generated fallback after error")
+                    if (state is coil.request.ErrorResult) {
+                        // Handle cache invalidation for permanent errors
+                        net.vrkknn.andromuks.utils.CacheUtils.handleImageLoadError(
+                            imageUrl = avatarUrl ?: "",
+                            throwable = state.throwable,
+                            imageLoader = imageLoader,
+                            context = "Avatar"
+                        )
+                        
+                        // If we have userId, generate fallback (will be rendered as colored circle)
+                        if (userId != null) {
+                            coroutineScope.launch {
+                                val svgFallback = AvatarUtils.generateLocalFallbackAvatar(displayName, userId)
+                                avatarUrl = svgFallback
+                                Log.d("Andromuks", "AvatarImage: Generated fallback after error")
+                            }
                         }
                     }
                 }

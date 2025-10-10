@@ -57,6 +57,8 @@ import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReplyInfo
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.RedactionUtils
+import net.vrkknn.andromuks.utils.HtmlMessageText
+import net.vrkknn.andromuks.utils.supportsHtmlRendering
 
 /**
  * Displays a reply preview showing the original message being replied to.
@@ -161,15 +163,25 @@ fun ReplyPreview(
                         modifier = Modifier.padding(bottom = 2.dp)
                     )
                     
-                    // Original message content
-                    Text(
-                        text = originalBody,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9
-                    )
+                    // Original message content - use HTML if available
+                    if (latestOriginalEvent != null && supportsHtmlRendering(latestOriginalEvent)) {
+                        HtmlMessageText(
+                            event = latestOriginalEvent,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                        )
+                    } else {
+                        Text(
+                            text = originalBody,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9
+                        )
+                    }
                 }
             }
         }

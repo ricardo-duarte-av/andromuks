@@ -587,11 +587,13 @@ private fun MediaContent(
                             Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
                         },
                         onError = { state ->
-                            Log.e("Andromuks", "❌ Image load failed: $imageUrl")
-                            Log.e("Andromuks", "Error state: $state")
                             if (state is coil.request.ErrorResult) {
-                                Log.e("Andromuks", "Error result: ${state.throwable}")
-                                Log.e("Andromuks", "Error message: ${state.throwable.message}")
+                                CacheUtils.handleImageLoadError(
+                                    imageUrl = imageUrl,
+                                    throwable = state.throwable,
+                                    imageLoader = imageLoader,
+                                    context = "Media"
+                                )
                             }
                         },
                         onLoading = { state ->
@@ -755,8 +757,14 @@ private fun ImageViewerDialog(
                     Log.d("Andromuks", "✅ ImageViewer: Image loaded successfully: $imageUrl")
                 },
                 onError = { state ->
-                    Log.e("Andromuks", "❌ ImageViewer: Image load failed: $imageUrl")
-                    Log.e("Andromuks", "Error state: $state")
+                    if (state is coil.request.ErrorResult) {
+                        CacheUtils.handleImageLoadError(
+                            imageUrl = imageUrl,
+                            throwable = state.throwable,
+                            imageLoader = imageLoader,
+                            context = "ImageViewer"
+                        )
+                    }
                 }
             )
         }

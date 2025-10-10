@@ -143,7 +143,14 @@ fun ImageReaction(
                 android.util.Log.d("Andromuks", "ImageReaction: Successfully loaded image for $mxcUrl")
             },
             onError = { state ->
-                android.util.Log.e("Andromuks", "ImageReaction: Error loading image from $mxcUrl", state.result.throwable)
+                if (state is coil.request.ErrorResult) {
+                    CacheUtils.handleImageLoadError(
+                        imageUrl = httpUrl,
+                        throwable = state.throwable,
+                        imageLoader = imageLoader,
+                        context = "Reaction"
+                    )
+                }
             }
         )
     } else {
