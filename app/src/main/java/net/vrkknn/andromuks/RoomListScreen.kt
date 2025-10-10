@@ -2,6 +2,21 @@ package net.vrkknn.andromuks
 
 import android.util.Log
 import android.view.Surface
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -9,35 +24,28 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.LazyItemScope
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.AnimationSpec
-import androidx.compose.animation.core.spring
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -58,6 +66,7 @@ import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -110,7 +119,26 @@ fun RoomListScreen(
     
     // Force recomposition by observing the update counter
     val updateCounter = appViewModel.updateCounter
-    val currentSection = appViewModel.getCurrentRoomSection()
+    var currentSection by remember { mutableStateOf(appViewModel.getCurrentRoomSection()) }
+    var previousSectionType by remember { mutableStateOf(currentSection.type) }
+    var lastTabDirection by remember { mutableStateOf(0) }
+
+    LaunchedEffect(updateCounter) {
+        val newSection = appViewModel.getCurrentRoomSection()
+        if (newSection.type != currentSection.type) {
+            val oldIndex = RoomSectionType.values().indexOf(previousSectionType)
+            val newIndex = RoomSectionType.values().indexOf(newSection.type)
+            lastTabDirection = when {
+                newIndex > oldIndex -> 1
+                newIndex < oldIndex -> -1
+                else -> 0
+            }
+            previousSectionType = currentSection.type
+            currentSection = newSection
+        } else {
+            currentSection = newSection
+        }
+    }
     android.util.Log.d("Andromuks", "RoomListScreen: currentSection = ${currentSection.type}, updateCounter = $updateCounter")
     
     android.util.Log.d("Andromuks", "RoomListScreen: currentSection.type = ${currentSection.type}, rooms.size = ${currentSection.rooms.size}, spaces.size = ${currentSection.spaces.size}")
@@ -273,60 +301,89 @@ fun RoomListScreen(
                     .weight(1f)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
+                    .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             ) {
-                // Main content area with tabs
-                when (currentSection.type) {
-                    RoomSectionType.HOME -> {
-                        RoomListContent(
-                            rooms = currentSection.rooms,
-                            searchQuery = searchQuery,
-                            appViewModel = appViewModel,
-                            authToken = authToken,
-                            navController = navController,
-                            timestampUpdateTrigger = timestampUpdateTrigger
-                        )
-                    }
-                    RoomSectionType.SPACES -> {
-                        if (appViewModel.currentSpaceId != null) {
-                            // Show rooms within the selected space
+                AnimatedContent(
+                    targetState = currentSection,
+                    transitionSpec = {
+                        val direction = lastTabDirection
+                        val enter = if (direction >= 0) {
+                            slideInHorizontally(
+                                initialOffsetX = { it },
+                                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
+                            )
+                        } else {
+                            slideInHorizontally(
+                                initialOffsetX = { -it },
+                                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
+                            )
+                        }
+                        val exit = if (direction >= 0) {
+                            slideOutHorizontally(
+                                targetOffsetX = { -it },
+                                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
+                            )
+                        } else {
+                            slideOutHorizontally(
+                                targetOffsetX = { it },
+                                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
+                            )
+                        }
+                        enter togetherWith exit
+                    },
+                    label = "SectionTransition"
+                ) { targetSection ->
+                    when (targetSection.type) {
+                        RoomSectionType.HOME -> {
                             RoomListContent(
-                                rooms = currentSection.rooms,
+                                rooms = targetSection.rooms,
                                 searchQuery = searchQuery,
                                 appViewModel = appViewModel,
                                 authToken = authToken,
                                 navController = navController,
                                 timestampUpdateTrigger = timestampUpdateTrigger
                             )
-                        } else {
-                            // Show list of spaces
-                            SpacesListContent(
-                                spaces = currentSection.spaces,
+                        }
+                        RoomSectionType.SPACES -> {
+                            if (appViewModel.currentSpaceId != null) {
+                                RoomListContent(
+                                    rooms = targetSection.rooms,
+                                    searchQuery = searchQuery,
+                                    appViewModel = appViewModel,
+                                    authToken = authToken,
+                                    navController = navController,
+                                    timestampUpdateTrigger = timestampUpdateTrigger
+                                )
+                            } else {
+                                SpacesListContent(
+                                    spaces = targetSection.spaces,
+                                    searchQuery = searchQuery,
+                                    appViewModel = appViewModel,
+                                    authToken = authToken,
+                                    navController = navController
+                                )
+                            }
+                        }
+                        RoomSectionType.DIRECT_CHATS -> {
+                            RoomListContent(
+                                rooms = targetSection.rooms,
                                 searchQuery = searchQuery,
                                 appViewModel = appViewModel,
                                 authToken = authToken,
-                                navController = navController
+                                navController = navController,
+                                timestampUpdateTrigger = timestampUpdateTrigger
                             )
                         }
-                    }
-                    RoomSectionType.DIRECT_CHATS -> {
-                        RoomListContent(
-                            rooms = currentSection.rooms,
-                            searchQuery = searchQuery,
-                            appViewModel = appViewModel,
-                            authToken = authToken,
-                            navController = navController,
-                            timestampUpdateTrigger = timestampUpdateTrigger
-                        )
-                    }
-                    RoomSectionType.UNREAD -> {
-                        RoomListContent(
-                            rooms = currentSection.rooms,
-                            searchQuery = searchQuery,
-                            appViewModel = appViewModel,
-                            authToken = authToken,
-                            navController = navController,
-                            timestampUpdateTrigger = timestampUpdateTrigger
-                        )
+                        RoomSectionType.UNREAD -> {
+                            RoomListContent(
+                                rooms = targetSection.rooms,
+                                searchQuery = searchQuery,
+                                appViewModel = appViewModel,
+                                authToken = authToken,
+                                navController = navController,
+                                timestampUpdateTrigger = timestampUpdateTrigger
+                            )
+                        }
                     }
                 }
             }
@@ -756,21 +813,27 @@ fun TabBar(
                 icon = Icons.Filled.Home,
                 label = "Home",
                 isSelected = currentSection.type == RoomSectionType.HOME,
-                onClick = { onSectionSelected(RoomSectionType.HOME) }
+                onClick = {
+                    onSectionSelected(RoomSectionType.HOME)
+                }
             )
             
             TabButton(
                 icon = Icons.Filled.Place,
                 label = "Spaces",
                 isSelected = currentSection.type == RoomSectionType.SPACES,
-                onClick = { onSectionSelected(RoomSectionType.SPACES) }
+                onClick = {
+                    onSectionSelected(RoomSectionType.SPACES)
+                }
             )
             
             TabButton(
                 icon = Icons.Filled.Person,
                 label = "Direct",
                 isSelected = currentSection.type == RoomSectionType.DIRECT_CHATS,
-                onClick = { onSectionSelected(RoomSectionType.DIRECT_CHATS) },
+                onClick = {
+                    onSectionSelected(RoomSectionType.DIRECT_CHATS)
+                },
                 badgeCount = if (currentSection.type == RoomSectionType.DIRECT_CHATS) currentSection.unreadCount else 0
             )
             
@@ -778,7 +841,9 @@ fun TabBar(
                 icon = Icons.Filled.Notifications,
                 label = "Unread",
                 isSelected = currentSection.type == RoomSectionType.UNREAD,
-                onClick = { onSectionSelected(RoomSectionType.UNREAD) },
+                onClick = {
+                    onSectionSelected(RoomSectionType.UNREAD)
+                },
                 badgeCount = appViewModel.getUnreadCount()
             )
         }

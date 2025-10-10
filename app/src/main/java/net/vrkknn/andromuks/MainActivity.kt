@@ -11,6 +11,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -329,6 +336,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 fun AppNavigation(
     modifier: Modifier,
@@ -347,10 +355,52 @@ fun AppNavigation(
     ) {
         composable("login") { LoginScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
         composable("auth_check") { AuthCheckScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
-        composable("room_list") { RoomListScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
+        composable(
+            route = "room_list",
+            exitTransition = {
+                if (targetState.destination.route == "room_timeline/{roomId}") {
+                    slideOutHorizontally(
+                        targetOffsetX = { -it },
+                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                    )
+                } else {
+                    null
+                }
+            },
+            popEnterTransition = {
+                if (initialState.destination.route == "room_timeline/{roomId}") {
+                    slideInHorizontally(
+                        initialOffsetX = { -it },
+                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                    )
+                } else {
+                    null
+                }
+            }
+        ) { RoomListScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
         composable(
             route = "room_timeline/{roomId}",
-            arguments = listOf(navArgument("roomId") { type = NavType.StringType })
+            arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
+            enterTransition = {
+                if (initialState.destination.route == "room_list") {
+                    slideInHorizontally(
+                        initialOffsetX = { it },
+                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                    )
+                } else {
+                    null
+                }
+            },
+            popExitTransition = {
+                if (targetState.destination.route == "room_list") {
+                    slideOutHorizontally(
+                        targetOffsetX = { it },
+                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                    )
+                } else {
+                    null
+                }
+            }
         ) { backStackEntry: NavBackStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
             val roomName = appViewModel.getRoomById(roomId)?.name ?: ""
@@ -382,7 +432,27 @@ fun AppNavigation(
         }
         composable(
             route = "room_info/{roomId}",
-            arguments = listOf(navArgument("roomId") { type = NavType.StringType })
+            arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
+            enterTransition = {
+                if (initialState.destination.route == "room_timeline/{roomId}") {
+                    slideInVertically(
+                        initialOffsetY = { -it },
+                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                    )
+                } else {
+                    null
+                }
+            },
+            popExitTransition = {
+                if (targetState.destination.route == "room_timeline/{roomId}") {
+                    slideOutVertically(
+                        targetOffsetY = { -it },
+                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                    )
+                } else {
+                    null
+                }
+            }
         ) { backStackEntry: NavBackStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
             net.vrkknn.andromuks.utils.RoomInfoScreen(
