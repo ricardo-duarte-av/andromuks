@@ -121,14 +121,14 @@ fun RoomListScreen(
     val updateCounter = appViewModel.updateCounter
     var currentSection by remember { mutableStateOf(appViewModel.getCurrentRoomSection()) }
     var previousSectionType by remember { mutableStateOf(currentSection.type) }
-    var lastTabDirection by remember { mutableStateOf(0) }
+    var sectionAnimationDirection by remember { mutableStateOf(0) }
 
     LaunchedEffect(updateCounter) {
         val newSection = appViewModel.getCurrentRoomSection()
         if (newSection.type != currentSection.type) {
             val oldIndex = RoomSectionType.values().indexOf(previousSectionType)
             val newIndex = RoomSectionType.values().indexOf(newSection.type)
-            lastTabDirection = when {
+            sectionAnimationDirection = when {
                 newIndex > oldIndex -> 1
                 newIndex < oldIndex -> -1
                 else -> 0
@@ -136,6 +136,7 @@ fun RoomListScreen(
             previousSectionType = currentSection.type
             currentSection = newSection
         } else {
+            sectionAnimationDirection = 0
             currentSection = newSection
         }
     }
@@ -304,35 +305,39 @@ fun RoomListScreen(
                     .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             ) {
                 AnimatedContent(
-                    targetState = currentSection,
+                    targetState = sectionAnimationDirection to currentSection,
                     transitionSpec = {
-                        val direction = lastTabDirection
-                        val enter = if (direction >= 0) {
+                        val direction = targetState.first
+                        val enter = if (direction > 0) {
                             slideInHorizontally(
                                 initialOffsetX = { it },
                                 animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
                             )
-                        } else {
+                        } else if (direction < 0) {
                             slideInHorizontally(
                                 initialOffsetX = { -it },
                                 animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
                             )
+                        } else {
+                            fadeIn(animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing))
                         }
-                        val exit = if (direction >= 0) {
+                        val exit = if (direction > 0) {
                             slideOutHorizontally(
                                 targetOffsetX = { -it },
                                 animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
                             )
-                        } else {
+                        } else if (direction < 0) {
                             slideOutHorizontally(
                                 targetOffsetX = { it },
                                 animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
                             )
+                        } else {
+                            fadeOut(animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing))
                         }
                         enter togetherWith exit
                     },
                     label = "SectionTransition"
-                ) { targetSection ->
+                ) { (_, targetSection) ->
                     when (targetSection.type) {
                         RoomSectionType.HOME -> {
                             RoomListContent(
