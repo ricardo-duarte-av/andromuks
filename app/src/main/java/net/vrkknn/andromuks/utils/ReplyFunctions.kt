@@ -92,7 +92,8 @@ fun ReplyPreview(
     isMine: Boolean,
     modifier: Modifier = Modifier,
     onOriginalMessageClick: () -> Unit = {},
-    timelineEvents: List<TimelineEvent> = emptyList() // Added to find redaction events
+    timelineEvents: List<TimelineEvent> = emptyList(),
+    onMatrixUserClick: (String) -> Unit = {}
 ) {
     // Resolve the event chain to get the latest version of the original message
     val latestOriginalEvent = originalEvent?.let { event ->
@@ -170,7 +171,8 @@ fun ReplyPreview(
                             homeserverUrl = homeserverUrl,
                             authToken = authToken,
                             color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier
+                            modifier = Modifier,
+                            onMatrixUserClick = onMatrixUserClick
                         )
                     } else {
                         Text(
@@ -238,7 +240,8 @@ fun ReplyPreviewInput(
     userProfileCache: Map<String, MemberProfile>,
     onCancel: () -> Unit,
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
-    roomId: String? = null
+    roomId: String? = null,
+    onMatrixUserClick: (String) -> Unit = {}
 ) {
     val profile = userProfileCache[event.sender]
     var displayName = profile?.displayName ?: event.sender

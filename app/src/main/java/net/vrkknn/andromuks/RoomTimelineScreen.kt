@@ -1019,7 +1019,9 @@ fun AdaptiveMessageText(
     appViewModel: AppViewModel?,
     roomId: String,
     textColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onUserClick: (String) -> Unit = {},
+    onMatrixUserClick: (String) -> Unit = onUserClick
 ) {
     // Check if HTML rendering is supported and available
     if (supportsHtmlRendering(event)) {
@@ -1029,7 +1031,8 @@ fun AdaptiveMessageText(
             homeserverUrl = homeserverUrl,
             authToken = authToken,
             color = textColor,
-            modifier = modifier
+            modifier = modifier,
+            onMatrixUserClick = onMatrixUserClick
         )
     } else {
         // Fallback to SmartMessageText for plain text or when HTML is not available
@@ -1379,7 +1382,8 @@ fun TimelineEventItem(
                                         onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
                                         },
-                                        timelineEvents = timelineEvents
+                                        timelineEvents = timelineEvents,
+                                        onMatrixUserClick = onUserClick
                                     )
                                     MediaMessage(
                                         mediaMessage = mediaMessage,
@@ -1544,7 +1548,8 @@ fun TimelineEventItem(
                                             onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
                                             },
-                                            timelineEvents = timelineEvents
+                                            timelineEvents = timelineEvents,
+                                            onMatrixUserClick = onUserClick
                                         )
                                         
                                         // Reply message content (directly in the outer bubble, no separate bubble)
@@ -1558,7 +1563,9 @@ fun TimelineEventItem(
                                             appViewModel = appViewModel,
                                             roomId = event.roomId,
                                             textColor = textColor,
-                                            modifier = Modifier.align(Alignment.Start)
+                                            modifier = Modifier.align(Alignment.Start),
+                                            onUserClick = onUserClick,
+                                            onMatrixUserClick = onUserClick
                                         )
                                         
                                         InlineBubbleTimestamp(
@@ -1597,7 +1604,9 @@ fun TimelineEventItem(
                                             appViewModel = appViewModel,
                                             roomId = event.roomId,
                                             textColor = textColor,
-                                            modifier = Modifier.align(Alignment.Start)
+                                            modifier = Modifier.align(Alignment.Start),
+                                            onUserClick = onUserClick,
+                                            onMatrixUserClick = onUserClick
                                         )
                                         InlineBubbleTimestamp(
                                             timestamp = event.timestamp,
@@ -1786,7 +1795,8 @@ fun TimelineEventItem(
                                             onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
                                             },
-                                            timelineEvents = timelineEvents
+                                            timelineEvents = timelineEvents,
+                                            onMatrixUserClick = onUserClick
                                         )
                                         MediaMessage(
                                             mediaMessage = mediaMessage,
@@ -1976,7 +1986,8 @@ fun TimelineEventItem(
                                                 onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
                                                 },
-                                                timelineEvents = timelineEvents
+                                                timelineEvents = timelineEvents,
+                                                onMatrixUserClick = onUserClick
                                             )
                                             
                                             // Reply message content (directly in the outer bubble, no separate bubble)
@@ -2000,7 +2011,9 @@ fun TimelineEventItem(
                                                     appViewModel = appViewModel,
                                                     roomId = event.roomId,
                                                     textColor = textColor,
-                                                    modifier = Modifier.align(Alignment.Start)
+                                                    modifier = Modifier.align(Alignment.Start),
+                                                    onUserClick = onUserClick,
+                                                    onMatrixUserClick = onUserClick
                                                 )
                                             }
                                             
@@ -2050,7 +2063,9 @@ fun TimelineEventItem(
                                                     appViewModel = appViewModel,
                                                     roomId = event.roomId,
                                                     textColor = textColor,
-                                                    modifier = Modifier.align(Alignment.Start)
+                                                    modifier = Modifier.align(Alignment.Start),
+                                                    onUserClick = onUserClick,
+                                                    onMatrixUserClick = onUserClick
                                                 )
                                             }
                                             

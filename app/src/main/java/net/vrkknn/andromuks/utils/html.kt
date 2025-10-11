@@ -1,9 +1,14 @@
 package net.vrkknn.andromuks.utils
 
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.util.Log
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,49 +16,53 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.ui.input.pointer.pointerInput
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.ui.text.TextLayoutResult
-import coil.compose.AsyncImage
-import coil.request.ImageRequest
-import coil.request.CachePolicy
 import coil.ImageLoader
+import coil.compose.AsyncImage
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
-import android.os.Build
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberCoroutineScope
+import coil.request.CachePolicy
+import coil.request.ImageRequest
+import java.net.URLDecoder
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.TimelineEvent
-import org.json.JSONObject
+import net.vrkknn.andromuks.utils.CacheUtils
+import net.vrkknn.andromuks.utils.MediaCache
+import net.vrkknn.andromuks.utils.MediaUtils
+
+private val matrixUserRegex = Regex("matrix:(?:/+)?(?:u|user)/(@?.+)")
 
 /**
  * Allowed HTML tags according to Matrix spec for safe rendering
@@ -257,242 +266,6 @@ object HtmlParser {
 }
 
 /**
- * Renderer for converting HtmlNodes to Compose AnnotatedString
- */
-object HtmlRenderer {
-    /**
-     * Convert parsed HTML nodes to an AnnotatedString with inline content for images
-     */
-    fun render(
-        nodes: List<HtmlNode>,
-        baseStyle: SpanStyle = SpanStyle(),
-        inlineImages: MutableMap<String, InlineImageData> = mutableMapOf()
-    ): AnnotatedString {
-        return buildAnnotatedString {
-            nodes.forEach { node ->
-                renderNode(node, baseStyle, inlineImages)
-            }
-        }
-    }
-    
-    private fun AnnotatedString.Builder.renderNode(
-        node: HtmlNode,
-        baseStyle: SpanStyle,
-        inlineImages: MutableMap<String, InlineImageData>
-    ) {
-        when (node) {
-            is HtmlNode.Text -> {
-                withStyle(baseStyle) {
-                    append(node.content)
-                }
-            }
-            is HtmlNode.LineBreak -> {
-                append("\n")
-            }
-            is HtmlNode.Tag -> {
-                renderTag(node, baseStyle, inlineImages)
-            }
-        }
-    }
-    
-    private fun AnnotatedString.Builder.renderTag(
-        tag: HtmlNode.Tag,
-        baseStyle: SpanStyle,
-        inlineImages: MutableMap<String, InlineImageData>
-    ) {
-        // Skip rendering tags with display: none style (more robust checking)
-        val styleAttr = tag.attributes["style"] ?: ""
-        if (styleAttr.contains("display") && 
-            (styleAttr.contains("none") || styleAttr.contains(": none"))) {
-            // Skip this entire tag and all its children
-            Log.d("Andromuks", "HtmlRenderer: Skipping tag '${tag.name}' with display:none style")
-            return
-        }
-        
-        when (tag.name) {
-            // Text styling
-            "strong", "b" -> {
-                val style = baseStyle.copy(fontWeight = FontWeight.Bold)
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-            }
-            "em", "i" -> {
-                val style = baseStyle.copy(fontStyle = FontStyle.Italic)
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-            }
-            "u" -> {
-                val style = baseStyle.copy(textDecoration = TextDecoration.Underline)
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-            }
-            "s", "del" -> {
-                val style = baseStyle.copy(textDecoration = TextDecoration.LineThrough)
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-            }
-            "code" -> {
-                val style = baseStyle.copy(
-                    fontFamily = FontFamily.Monospace,
-                    background = Color.Gray.copy(alpha = 0.2f)
-                )
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-            }
-            "sup" -> {
-                val style = baseStyle.copy(fontSize = baseStyle.fontSize.times(0.7f))
-                // TODO: Add superscript baseline shift when available
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-            }
-            "sub" -> {
-                val style = baseStyle.copy(fontSize = baseStyle.fontSize.times(0.7f))
-                // TODO: Add subscript baseline shift when available
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-            }
-            
-            // Headings
-            "h1" -> {
-                append("\n")
-                val style = baseStyle.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 28.sp
-                )
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-                append("\n")
-            }
-            "h2" -> {
-                append("\n")
-                val style = baseStyle.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 24.sp
-                )
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-                append("\n")
-            }
-            "h3" -> {
-                append("\n")
-                val style = baseStyle.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
-                )
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-                append("\n")
-            }
-            "h4" -> {
-                append("\n")
-                val style = baseStyle.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
-                )
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-                append("\n")
-            }
-            "h5" -> {
-                append("\n")
-                val style = baseStyle.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-                append("\n")
-            }
-            "h6" -> {
-                append("\n")
-                val style = baseStyle.copy(
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
-                )
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-                append("\n")
-            }
-            
-            // Links
-            "a" -> {
-                val href = tag.attributes["href"] ?: ""
-                val style = baseStyle.copy(
-                    color = Color.Blue,
-                    textDecoration = TextDecoration.Underline
-                )
-                pushStringAnnotation(tag = "URL", annotation = href)
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-                pop()
-            }
-            
-            // Block elements
-            "p", "div" -> {
-                if (length > 0) {
-                    append("\n")
-                }
-                tag.children.forEach { renderNode(it, baseStyle, inlineImages) }
-                append("\n")
-            }
-            "blockquote" -> {
-                append("\n> ")
-                tag.children.forEach { renderNode(it, baseStyle, inlineImages) }
-                append("\n")
-            }
-            "pre" -> {
-                append("\n")
-                val style = baseStyle.copy(
-                    fontFamily = FontFamily.Monospace,
-                    background = Color.Gray.copy(alpha = 0.2f)
-                )
-                tag.children.forEach { renderNode(it, style, inlineImages) }
-                append("\n")
-            }
-            
-            // Lists
-            "ul" -> {
-                append("\n")
-                tag.children.forEach { child ->
-                    if (child is HtmlNode.Tag && child.name == "li") {
-                        append("• ")
-                        child.children.forEach { renderNode(it, baseStyle, inlineImages) }
-                        append("\n")
-                    }
-                }
-            }
-            "ol" -> {
-                append("\n")
-                var index = 1
-                tag.children.forEach { child ->
-                    if (child is HtmlNode.Tag && child.name == "li") {
-                        append("$index. ")
-                        child.children.forEach { renderNode(it, baseStyle, inlineImages) }
-                        append("\n")
-                        index++
-                    }
-                }
-            }
-            
-            // Line break elements
-            "br" -> append("\n")
-            "hr" -> append("\n─────────────\n")
-            
-            // Images (inline)
-            "img" -> {
-                val src = tag.attributes["src"] ?: tag.attributes["data-mxc"] ?: ""
-                val alt = tag.attributes["alt"] ?: tag.attributes["title"] ?: ""
-                val heightStr = tag.attributes["height"] ?: "32"
-                val height = heightStr.toIntOrNull() ?: 32
-                
-                if (src.isNotEmpty()) {
-                    // Generate unique ID for this inline image
-                    val imageId = "img_${inlineImages.size}"
-                    inlineImages[imageId] = InlineImageData(src, alt, height)
-                    
-                    // Add placeholder for the image. Use zero-width space so no fallback text is shown
-                    appendInlineContent(imageId, "\u200B")
-                } else {
-                    // Fallback to alt text
-                    append(alt)
-                }
-            }
-            
-            // Fallback for other tags - just render children
-            else -> {
-                tag.children.forEach { renderNode(it, baseStyle, inlineImages) }
-            }
-        }
-    }
-}
-
-/**
  * Data class for inline images
  */
 data class InlineImageData(
@@ -500,6 +273,196 @@ data class InlineImageData(
     val alt: String,
     val height: Int
 )
+
+data class InlineMatrixUserChip(
+    val userId: String,
+    val displayText: String,
+    val avatarUrl: String? = null
+)
+
+private fun extractMatrixUserId(href: String): String? {
+    val trimmed = href.trim()
+    if (trimmed.startsWith("https://matrix.to/#/")) {
+        val encoded = trimmed.removePrefix("https://matrix.to/#/")
+        val decoded = runCatching { URLDecoder.decode(encoded, Charsets.UTF_8.name()) }.getOrNull()
+        return decoded?.takeIf { it.startsWith("@") }
+    }
+    if (trimmed.startsWith("matrix:")) {
+        val match = matrixUserRegex.find(trimmed)
+        val raw = match?.groupValues?.getOrNull(1) ?: return null
+        val decoded = runCatching { URLDecoder.decode(raw.removePrefix("@"), Charsets.UTF_8.name()) }.getOrNull() ?: raw.removePrefix("@")
+        return "@${decoded}"
+    }
+    return null
+}
+
+private fun AnnotatedString.Builder.appendHtmlNode(
+    node: HtmlNode,
+    baseStyle: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData>,
+    inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
+) {
+    when (node) {
+        is HtmlNode.Text -> withStyle(baseStyle) { append(node.content) }
+        is HtmlNode.LineBreak -> append("\n")
+        is HtmlNode.Tag -> appendHtmlTag(node, baseStyle, inlineImages, inlineMatrixUsers)
+    }
+}
+
+private fun AnnotatedString.Builder.appendHtmlTag(
+    tag: HtmlNode.Tag,
+    baseStyle: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData>,
+    inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
+) {
+    val styleAttr = tag.attributes["style"]?.lowercase() ?: ""
+    if (styleAttr.contains("display") && styleAttr.contains("none")) {
+        return
+    }
+
+    when (tag.name) {
+        "strong", "b" -> appendStyledChildren(tag, baseStyle.copy(fontWeight = FontWeight.Bold), inlineImages, inlineMatrixUsers)
+        "em", "i" -> appendStyledChildren(tag, baseStyle.copy(fontStyle = FontStyle.Italic), inlineImages, inlineMatrixUsers)
+        "u" -> {
+            val newStyle = baseStyle.copy(textDecoration = (baseStyle.textDecoration ?: TextDecoration.None) + TextDecoration.Underline)
+            appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers)
+        }
+        "s", "del" -> {
+            val newStyle = baseStyle.copy(textDecoration = (baseStyle.textDecoration ?: TextDecoration.None) + TextDecoration.LineThrough)
+            appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers)
+        }
+        "code" -> appendStyledChildren(tag, baseStyle.copy(fontFamily = FontFamily.Monospace), inlineImages, inlineMatrixUsers)
+        "span" -> appendStyledChildren(tag, baseStyle, inlineImages, inlineMatrixUsers)
+        "br" -> append("\n")
+        "p", "div" -> appendBlock(tag, baseStyle, inlineImages, inlineMatrixUsers)
+        "blockquote" -> appendBlockQuote(tag, baseStyle, inlineImages, inlineMatrixUsers)
+        "ul" -> appendUnorderedList(tag, baseStyle, inlineImages, inlineMatrixUsers)
+        "ol" -> appendOrderedList(tag, baseStyle, inlineImages, inlineMatrixUsers)
+        "a" -> appendAnchor(tag, baseStyle, inlineImages, inlineMatrixUsers)
+        "img" -> appendImage(tag, inlineImages)
+        else -> tag.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers) }
+    }
+}
+
+private fun AnnotatedString.Builder.appendStyledChildren(
+    tag: HtmlNode.Tag,
+    style: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData>,
+    inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
+) {
+    tag.children.forEach { appendHtmlNode(it, style, inlineImages, inlineMatrixUsers) }
+}
+
+private fun AnnotatedString.Builder.appendBlock(
+    tag: HtmlNode.Tag,
+    baseStyle: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData>,
+    inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
+) {
+    if (length > 0 && !endsWithNewline()) append("\n")
+    tag.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers) }
+    append("\n")
+}
+
+private fun AnnotatedString.Builder.endsWithNewline(): Boolean {
+    if (length == 0) return false
+    return this.toAnnotatedString().text.last() == '\n'
+}
+
+private fun AnnotatedString.Builder.appendBlockQuote(
+    tag: HtmlNode.Tag,
+    baseStyle: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData>,
+    inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
+) {
+    append("\n")
+    append("> ")
+    tag.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers) }
+    append("\n")
+}
+
+private fun AnnotatedString.Builder.appendUnorderedList(
+    tag: HtmlNode.Tag,
+    baseStyle: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData>,
+    inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
+) {
+    append("\n")
+    tag.children.forEach { child ->
+        if (child is HtmlNode.Tag && child.name == "li") {
+            append("• ")
+            child.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers) }
+            append("\n")
+        }
+    }
+}
+
+private fun AnnotatedString.Builder.appendOrderedList(
+    tag: HtmlNode.Tag,
+    baseStyle: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData>,
+    inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
+) {
+    append("\n")
+    var index = 1
+    tag.children.forEach { child ->
+        if (child is HtmlNode.Tag && child.name == "li") {
+            append("${index}. ")
+            child.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers) }
+            append("\n")
+            index++
+        }
+    }
+}
+
+private fun AnnotatedString.Builder.appendAnchor(
+    tag: HtmlNode.Tag,
+    baseStyle: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData>,
+    inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
+) {
+    val href = tag.attributes["href"] ?: ""
+    val matrixUser = extractMatrixUserId(href)
+    if (matrixUser != null) {
+        val textBuilder = StringBuilder()
+        tag.children.forEach { collectPlainText(it, textBuilder) }
+        val displayText = textBuilder.toString().ifBlank { matrixUser }
+        val id = "matrix_user_${inlineMatrixUsers.size}"
+        inlineMatrixUsers[id] = InlineMatrixUserChip(matrixUser, displayText)
+        pushStringAnnotation("MATRIX_USER", matrixUser)
+        appendInlineContent(id, displayText)
+        pop()
+    } else {
+        val linkStyle = baseStyle.copy(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
+        pushStringAnnotation("URL", href)
+        tag.children.forEach { appendHtmlNode(it, linkStyle, inlineImages, inlineMatrixUsers) }
+        pop()
+    }
+}
+
+private fun AnnotatedString.Builder.appendImage(
+    tag: HtmlNode.Tag,
+    inlineImages: MutableMap<String, InlineImageData>
+) {
+    val src = tag.attributes["src"] ?: tag.attributes["data-mxc"] ?: ""
+    val alt = tag.attributes["alt"] ?: tag.attributes["title"] ?: ""
+    val height = tag.attributes["height"]?.toIntOrNull() ?: 32
+    if (src.isNotBlank()) {
+        val id = "inline_img_${inlineImages.size}"
+        inlineImages[id] = InlineImageData(src, alt, height)
+        appendInlineContent(id, "\u200B")
+    } else {
+        append(alt)
+    }
+}
+
+private fun collectPlainText(node: HtmlNode, builder: StringBuilder) {
+    when (node) {
+        is HtmlNode.Text -> builder.append(node.content)
+        is HtmlNode.LineBreak -> builder.append(' ')
+        is HtmlNode.Tag -> node.children.forEach { collectPlainText(it, builder) }
+    }
+}
 
 /**
  * Decode HTML entities in a string
@@ -579,7 +542,8 @@ fun extractSanitizedHtml(event: TimelineEvent): String? {
  */
 fun supportsHtmlRendering(event: TimelineEvent): Boolean {
     // If we already have sanitized HTML (from was_plaintext events), use it regardless of format/msgtype
-    if (extractSanitizedHtml(event) != null) {
+    val sanitized = extractSanitizedHtml(event)
+    if (sanitized != null) {
         return true
     }
 
@@ -614,11 +578,13 @@ fun HtmlMessageText(
     homeserverUrl: String,
     authToken: String,
     modifier: Modifier = Modifier,
-    color: Color = Color.Unspecified
+    color: Color = Color.Unspecified,
+    onMatrixUserClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val sanitizedHtml = remember(event) {
-        extractSanitizedHtml(event) ?: run {
+        val sanitized = extractSanitizedHtml(event)
+        sanitized ?: run {
             val formattedBody = event.decrypted?.optString("formatted_body")?.takeIf { it.isNotBlank() }
                 ?: event.content?.optString("formatted_body")?.takeIf { it.isNotBlank() }
             formattedBody?.let { decodeHtmlEntities(it) }
@@ -649,31 +615,31 @@ fun HtmlMessageText(
     
     // Render to AnnotatedString with inline images
     val inlineImages = remember { mutableMapOf<String, InlineImageData>() }
+    val inlineMatrixUsers = remember { mutableMapOf<String, InlineMatrixUserChip>() }
     val annotatedString = remember(nodes) {
         try {
             inlineImages.clear()
-            HtmlRenderer.render(
-                nodes, 
-                SpanStyle(color = color),
-                inlineImages
-            )
+            inlineMatrixUsers.clear()
+            buildAnnotatedString {
+                nodes.forEach { appendHtmlNode(it, SpanStyle(color = color), inlineImages, inlineMatrixUsers) }
+            }
         } catch (e: Exception) {
             Log.e("Andromuks", "HtmlMessageText: Failed to render HTML", e)
             AnnotatedString("")
         }
     }
     
-    // Create inline content map for images
-    val inlineContentMap = remember(inlineImages) {
-        inlineImages.mapValues { (_, imageData) ->
-            InlineTextContent(
+    // Create inline content map for images and matrix user chips
+    val inlineContentMap = remember(inlineImages, inlineMatrixUsers, onMatrixUserClick) {
+        val map = mutableMapOf<String, InlineTextContent>()
+        inlineImages.forEach { (id, imageData) ->
+            map[id] = InlineTextContent(
                 Placeholder(
                     width = imageData.height.sp,
                     height = imageData.height.sp,
                     placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
                 )
             ) {
-                // Render the inline image
                 InlineImage(
                     src = imageData.src,
                     alt = imageData.alt,
@@ -683,6 +649,35 @@ fun HtmlMessageText(
                 )
             }
         }
+        inlineMatrixUsers.forEach { (id, chip) ->
+            val estimatedWidth = (chip.displayText.length * 9 + 32).coerceAtLeast(48)
+            map[id] = InlineTextContent(
+                Placeholder(
+                    width = estimatedWidth.sp,
+                    height = 28.sp,
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+                )
+            ) {
+                Surface(
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .clickable { onMatrixUserClick(chip.userId) }
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = chip.displayText,
+                            style = MaterialTheme.typography.labelLarge
+                        )
+                    }
+                }
+            }
+        }
+        map
     }
     
     if (annotatedString.text.isEmpty()) {
@@ -706,17 +701,52 @@ fun HtmlMessageText(
                         // Get the character offset at the tap position
                         val offset = layoutResult.getOffsetForPosition(tapOffset)
                         
+                        // Matrix user annotations take precedence
+                        annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset)
+                            .firstOrNull()?.let { annotation ->
+                                onMatrixUserClick(annotation.item)
+                                return@detectTapGestures
+                            }
+
                         // Check if the tapped position has a URL annotation
                         annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
                             .firstOrNull()?.let { annotation ->
                                 val url = annotation.item
-                                // Open URL in browser
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                    context.startActivity(intent)
-                                    Log.d("Andromuks", "Opening URL: $url")
-                                } catch (e: Exception) {
-                                    Log.e("Andromuks", "Failed to open URL: $url", e)
+                                when {
+                                    url.startsWith("matrix:u/") -> {
+                                        val rawId = url.removePrefix("matrix:u/")
+                                        val userId = if (rawId.startsWith("@")) rawId else "@${rawId}"
+                                        Log.d("Andromuks", "HtmlMessageText: matrix:u link tapped for $userId")
+                                        onMatrixUserClick(userId)
+                                    }
+                                    url.startsWith("https://matrix.to/#/") -> {
+                                        val encodedPart = url.removePrefix("https://matrix.to/#/")
+                                        val userId = runCatching { URLDecoder.decode(encodedPart, Charsets.UTF_8.name()) }
+                                            .getOrDefault(encodedPart)
+                                        if (userId.startsWith("@")) {
+                                            Log.d("Andromuks", "HtmlMessageText: matrix.to link tapped for $userId")
+                                            onMatrixUserClick(userId)
+                                        } else {
+                                            // Fallback to opening in browser for non-user matrix.to links
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                context.startActivity(intent)
+                                                Log.d("Andromuks", "Opening URL: $url")
+                                            } catch (e: Exception) {
+                                                Log.e("Andromuks", "Failed to open URL: $url", e)
+                                            }
+                                        }
+                                    }
+                                    else -> {
+                                        // Open URL in browser
+                                        try {
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                            context.startActivity(intent)
+                                            Log.d("Andromuks", "Opening URL: $url")
+                                        } catch (e: Exception) {
+                                            Log.e("Andromuks", "Failed to open URL: $url", e)
+                                        }
+                                    }
                                 }
                             }
                     }
