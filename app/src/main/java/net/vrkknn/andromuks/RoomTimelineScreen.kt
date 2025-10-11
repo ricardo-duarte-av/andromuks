@@ -536,6 +536,37 @@ fun RoomTimelineScreen(
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     // Choose IME if present, otherwise navigation bar padding
     val bottomInset = if (imeBottom > 0.dp) imeBottom else navBarBottom
+    
+    // Track when keyboard opens to maintain scroll position at bottom
+    var wasAtBottomBeforeKeyboard by remember { mutableStateOf(true) }
+    
+    // Smoothly animate scroll to bottom when keyboard opens
+    LaunchedEffect(imeBottom) {
+        // When IME (keyboard) height changes
+        if (timelineItems.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
+            val isKeyboardOpening = imeBottom > 0.dp
+            
+            // If keyboard is opening and user was at bottom, maintain bottom position
+            if (isKeyboardOpening && wasAtBottomBeforeKeyboard) {
+                // Animate scroll to ensure last item is fully visible as keyboard opens
+                val hasLoadMoreButton = appViewModel.hasMoreMessages
+                val buttonOffset = if (hasLoadMoreButton) 1 else 0
+                val lastIndex = timelineItems.lastIndex + buttonOffset
+                
+                if (lastIndex >= 0) {
+                    // Use animateScrollToItem for smooth scrolling that matches keyboard animation
+                    listState.animateScrollToItem(lastIndex, scrollOffset = 0)
+                    isAttachedToBottom = true // Re-attach to bottom
+                    Log.d("Andromuks", "RoomTimelineScreen: IME opened (${imeBottom}), animating to bottom")
+                }
+            }
+            
+            // Update tracked state when keyboard closes
+            if (!isKeyboardOpening) {
+                wasAtBottomBeforeKeyboard = isAttachedToBottom
+            }
+        }
+    }
 
     AndromuksTheme {
         Surface {
@@ -543,7 +574,6 @@ fun RoomTimelineScreen(
                 Column(
                     modifier =
                         Modifier.fillMaxSize()
-                            .imePadding()
                             .then(
                                 if (showDeleteDialog) {
                                     Modifier.blur(10.dp)
@@ -551,7 +581,6 @@ fun RoomTimelineScreen(
                                     Modifier
                                 }
                             )
-                            .padding(bottom = bottomInset)
                 ) {
                     // 1. Room Header (always visible at the top, below status bar)
                     RoomHeader(
@@ -585,7 +614,7 @@ fun RoomTimelineScreen(
                                     start = 16.dp,
                                     end = 16.dp,
                                     top = 8.dp,
-                                    bottom = bottomInset + 72.dp
+                                    bottom = 8.dp
                                 )
                         ) {
                             // Load More button at the top - only show if there are more messages
@@ -722,28 +751,25 @@ fun RoomTimelineScreen(
                             }
                         }
                     }
-                }
+                    
+                    // 3. Typing notification area (stacks naturally above text box)
+                    TypingNotificationArea(
+                        typingUsers = appViewModel.typingUsers,
+                        roomId = roomId,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        userProfileCache = appViewModel.getMemberMap(roomId)
+                    )
 
-                // Typing notification area (exclusive space above text box)
-                TypingNotificationArea(
-                    typingUsers = appViewModel.typingUsers,
-                    roomId = roomId,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    userProfileCache = appViewModel.getMemberMap(roomId),
-                    modifier = Modifier.align(Alignment.BottomCenter) // Add this
-                )
-
-                // 3. Text box (always at the bottom, above keyboard/nav bar)
-                Surface(
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 0.dp,
-                    modifier =
-                        Modifier.fillMaxWidth()
-                            .align(Alignment.BottomCenter) // Add this
-                            .navigationBarsPadding()
-                            .imePadding()
-                ) {
+                    // 4. Text box (always at the bottom, above keyboard/nav bar)
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
+                        modifier =
+                            Modifier.fillMaxWidth()
+                                .navigationBarsPadding()
+                                .imePadding()
+                    ) {
                     var draft by remember { mutableStateOf("") }
                     var lastTypingTime by remember { mutableStateOf(0L) }
 
@@ -892,8 +918,10 @@ fun RoomTimelineScreen(
                         }
                     }
                 }
-
+                }
+                
                 // Floating action button to scroll to bottom (only shown when detached)
+                // Keep this in the Box so it can overlay the content
                 if (!isAttachedToBottom) {
                     FloatingActionButton(
                         onClick = {
@@ -915,8 +943,10 @@ fun RoomTimelineScreen(
                             Modifier.align(Alignment.BottomEnd)
                                 .padding(
                                     end = 16.dp,
-                                    bottom = 80.dp + bottomInset
-                                ), // Above text input
+                                    bottom = 16.dp
+                                )
+                                .navigationBarsPadding()
+                                .imePadding(), // Above text input and keyboard
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                     ) {
