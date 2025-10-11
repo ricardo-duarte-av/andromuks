@@ -38,7 +38,8 @@ fun TypingNotificationArea(
     roomId: String,
     homeserverUrl: String,
     authToken: String,
-    userProfileCache: Map<String, MemberProfile>
+    userProfileCache: Map<String, MemberProfile>,
+    modifier: Modifier = Modifier
 ) {
     // Always reserve space for typing area
     Box(

@@ -128,9 +128,13 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 
 /**
  * Sealed class for timeline items (events and date dividers)
@@ -359,8 +363,7 @@ fun RoomTimelineScreen(
             
             // Add the event
             items.add(TimelineItem.Event(event))
-        }
-        
+        }      
         items
     }
 
@@ -372,6 +375,14 @@ fun RoomTimelineScreen(
     
     // Track if this is the first load (to avoid animation on initial room open)
     var isInitialLoad by remember { mutableStateOf(true) }
+    
+    // Track loading more state
+    var isLoadingMore by remember { mutableStateOf(false) }
+    var previousItemCount by remember { mutableStateOf(timelineItems.size) }
+    var hasLoadedInitialBatch by remember { mutableStateOf(false) }
+    var hasInitialSnapCompleted by remember { mutableStateOf(false) }
+    var lastKnownTimelineEventId by remember { mutableStateOf<String?>(null) }
+    var hasCompletedInitialLayout by remember { mutableStateOf(false) }
     
     // Monitor scroll position to detect if user is at bottom or has detached
     LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) {
@@ -385,11 +396,18 @@ fun RoomTimelineScreen(
             val lastTimelineItemIndex = timelineItems.lastIndex + buttonOffset
             val isAtBottom = lastVisibleIndex >= lastTimelineItemIndex - 1 // Within last item
             
+            if (!hasCompletedInitialLayout) {
+                hasCompletedInitialLayout = true
+            }
+            
             // Update attachment state based on current position
             if (isAtBottom && !isAttachedToBottom) {
                 // User scrolled back to bottom, re-attach
                 Log.d("Andromuks", "RoomTimelineScreen: User reached bottom, re-attaching")
                 isAttachedToBottom = true
+                if (!hasInitialSnapCompleted) {
+                    hasInitialSnapCompleted = true
+                }
             } else if (!isAtBottom && isAttachedToBottom && listState.firstVisibleItemIndex > buttonOffset) {
                 // User scrolled up from bottom, detach
                 Log.d("Andromuks", "RoomTimelineScreen: User scrolled up, detaching from bottom")
@@ -398,58 +416,54 @@ fun RoomTimelineScreen(
         }
     }
     
-    // Track loading more state
-    var isLoadingMore by remember { mutableStateOf(false) }
-    var previousItemCount by remember { mutableStateOf(timelineItems.size) }
-    var hasLoadedInitialBatch by remember { mutableStateOf(false) }
-    
     // Auto-scroll to bottom only when attached (initial load or new messages while at bottom)
     LaunchedEffect(timelineItems.size, isLoading) {
-        Log.d("Andromuks", "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isAttachedToBottom: $isAttachedToBottom, isInitialLoad: $isInitialLoad")
-        
-        if (!isLoading && timelineItems.isNotEmpty()) {
-            // Check if Load More button is present (affects index calculations)
-            val hasLoadMoreButton = appViewModel.hasMoreMessages
-            val buttonOffset = if (hasLoadMoreButton) 1 else 0
-            
-            // Check if this is the completion of a "Load More" action
-            if (isLoadingMore && previousItemCount < timelineItems.size) {
-                // Load More completed - keep scroll position stable
-                val itemsAdded = timelineItems.size - previousItemCount
-                Log.d("Andromuks", "RoomTimelineScreen: Load More completed. Items added: $itemsAdded, hasLoadMoreButton: $hasLoadMoreButton")
-                
-                // Scroll to maintain view position
-                // Account for the Load More button if present (at index 0)
-                // After loading, we want to be positioned at the items that were just added
-                coroutineScope.launch {
-                    // Scroll to maintain view at top of what was previously visible
-                    listState.scrollToItem(buttonOffset + itemsAdded)
-                }
-                
-                isLoadingMore = false
-            }
-            // Always scroll to bottom on initial load, or when attached to bottom
-            else if (isAttachedToBottom) {
-                coroutineScope.launch {
-                    if (isInitialLoad) {
-                        // First load: jump to bottom instantly (no animation)
-                        // Account for Load More button if present
-                        Log.d("Andromuks", "RoomTimelineScreen: Initial load - jumping to bottom instantly, hasLoadMoreButton: $hasLoadMoreButton")
-                        listState.scrollToItem(timelineItems.lastIndex + buttonOffset)
-                        isInitialLoad = false
-                        hasLoadedInitialBatch = true
-                    } else {
-                        // Subsequent updates: animate scroll for smooth new message appearance
-                        Log.d("Andromuks", "RoomTimelineScreen: Auto-scrolling to bottom (attached, animated)")
-                        listState.animateScrollToItem(timelineItems.lastIndex + buttonOffset)
-                    }
-                }
-            } else {
-                Log.d("Andromuks", "RoomTimelineScreen: Not auto-scrolling, user is detached from bottom")
-            }
-            
-            previousItemCount = timelineItems.size
+        Log.d("Andromuks", "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, hasInitialSnapCompleted: $hasInitialSnapCompleted")
+
+        if (isLoading || timelineItems.isEmpty()) {
+            return@LaunchedEffect
         }
+
+        val hasLoadMoreButton = appViewModel.hasMoreMessages
+        val buttonOffset = if (hasLoadMoreButton) 1 else 0
+        val lastEventId = (timelineItems.lastOrNull() as? TimelineItem.Event)?.event?.eventId
+
+        if (!hasInitialSnapCompleted) {
+            coroutineScope.launch {
+                listState.scrollToItem(timelineItems.lastIndex + buttonOffset)
+                hasInitialSnapCompleted = true
+                hasLoadedInitialBatch = true
+                isAttachedToBottom = true
+                previousItemCount = timelineItems.size
+                lastKnownTimelineEventId = lastEventId
+            }
+            return@LaunchedEffect
+        }
+
+        val hasNewItems = previousItemCount < timelineItems.size
+
+        if (isLoadingMore && hasNewItems) {
+            coroutineScope.launch {
+                listState.scrollToItem(buttonOffset + (timelineItems.size - previousItemCount))
+            }
+            isLoadingMore = false
+            previousItemCount = timelineItems.size
+            lastKnownTimelineEventId = lastEventId
+            return@LaunchedEffect
+        }
+
+        if (hasNewItems && isAttachedToBottom && lastEventId != null && lastEventId != lastKnownTimelineEventId) {
+            coroutineScope.launch {
+                listState.animateScrollToItem(timelineItems.lastIndex + buttonOffset)
+            }
+            lastKnownTimelineEventId = lastEventId
+        }
+
+        if (hasNewItems && lastEventId != null) {
+            lastKnownTimelineEventId = lastEventId
+        }
+
+        previousItemCount = timelineItems.size
     }
     
     LaunchedEffect(roomId) {
@@ -457,19 +471,22 @@ fun RoomTimelineScreen(
         // Reset state for new room
         isLoadingMore = false
         hasLoadedInitialBatch = false
+        isAttachedToBottom = true
+        isInitialLoad = true
+        hasInitialSnapCompleted = false
         // Request room state first, then timeline
         appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId)
     }
     
     // After initial batch loads, automatically load second batch in background
-    LaunchedEffect(hasLoadedInitialBatch) {
-        if (hasLoadedInitialBatch && sortedEvents.isNotEmpty()) {
-            Log.d("Andromuks", "RoomTimelineScreen: Initial batch loaded, automatically loading second batch")
-            kotlinx.coroutines.delay(500) // Small delay to let UI settle
-            appViewModel.loadOlderMessages(roomId)
-        }
-    }
+    //LaunchedEffect(hasLoadedInitialBatch) {
+    //    if (hasLoadedInitialBatch && sortedEvents.isNotEmpty()) {
+    //        Log.d("Andromuks", "RoomTimelineScreen: Initial batch loaded, automatically loading second batch")
+    //        kotlinx.coroutines.delay(500) // Small delay to let UI settle
+    //        appViewModel.loadOlderMessages(roomId)
+    //    }
+    //}
     
     // Validate and request missing user profiles when timeline events change
     // This ensures all users in the timeline have complete profile data (display name, avatar)
@@ -519,6 +536,7 @@ fun RoomTimelineScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
+                        .imePadding()
                         .then(
                             if (showDeleteDialog) {
                                 Modifier.blur(10.dp)
@@ -526,78 +544,81 @@ fun RoomTimelineScreen(
                                 Modifier
                             }
                         )
+                        .padding(bottom = bottomInset)
                 ) {
-                // 1. Room Header (always visible at the top, below status bar)
-                RoomHeader(
-                    roomState = appViewModel.currentRoomState,
-                    fallbackName = displayRoomName,
-                    fallbackAvatarUrl = displayAvatarUrl,
-                    homeserverUrl = appViewModel.homeserverUrl,
-                    authToken = appViewModel.authToken,
-                    roomId = roomId,
-                    onHeaderClick = {
-                        // Navigate to room info screen
-                        navController.navigate("room_info/$roomId")
-                    }
-                )
+                    // 1. Room Header (always visible at the top, below status bar)
+                    RoomHeader(
+                        roomState = appViewModel.currentRoomState,
+                        fallbackName = displayRoomName,
+                        fallbackAvatarUrl = displayAvatarUrl,
+                        homeserverUrl = appViewModel.homeserverUrl,
+                        authToken = appViewModel.authToken,
+                        roomId = roomId,
+                        onHeaderClick = {
+                            // Navigate to room info screen
+                            navController.navigate("room_info/$roomId")
+                        }
+                    )
                 
-                // 2. Timeline (compressible, scrollable content)
-                if (isLoading) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("Loading timeline...")
-                    }
-                } else {
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        state = listState,
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                            horizontal = 16.dp,
-                            vertical = 8.dp
-                        )
-                    ) {
-                        // Load More button at the top - only show if there are more messages
-                        if (appViewModel.hasMoreMessages) {
-                            item(key = "load_more_button") {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 8.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (isLoadingMore) {
-                                        // Show loading indicator
-                                        androidx.compose.material3.CircularProgressIndicator(
-                                            modifier = Modifier.size(32.dp)
-                                        )
-                                    } else {
-                                        // Show "Load More" button
-                                        Button(
-                                            onClick = {
-                                                Log.d("Andromuks", "RoomTimelineScreen: Load More button clicked")
-                                                isLoadingMore = true
-                                                appViewModel.loadOlderMessages(roomId)
-                                            },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                    // 2. Timeline (compressible, scrollable content)
+                    if (isLoading) {
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Loading timeline...")
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth(),
+                            state = listState,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = 8.dp,
+                                bottom = bottomInset + 72.dp
+                            )
+                        ) {
+                            // Load More button at the top - only show if there are more messages
+                            if (appViewModel.hasMoreMessages) {
+                                item(key = "load_more_button") {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (isLoadingMore) {
+                                            // Show loading indicator
+                                            androidx.compose.material3.CircularProgressIndicator(
+                                                modifier = Modifier.size(32.dp)
                                             )
-                                        ) {
-                                            Text("Load More")
+                                        } else {
+                                            // Show "Load More" button
+                                            Button(
+                                                onClick = {
+                                                    Log.d("Andromuks", "RoomTimelineScreen: Load More button clicked")
+                                                    isLoadingMore = true
+                                                    appViewModel.loadOlderMessages(roomId)
+                                                },
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                                )
+                                            ) {
+                                                Text("Load More")
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
                         
-                        itemsIndexed(timelineItems) { index, item ->
+                            itemsIndexed(timelineItems) { index, item ->
                                 when (item) {
                                     is TimelineItem.DateDivider -> {
                                         DateDivider(item.date)
@@ -670,175 +691,177 @@ fun RoomTimelineScreen(
                                 }
                             }
                         }
+                    }
                 }
             
                 
-                // Typing notification area (exclusive space above text box)
-                TypingNotificationArea(
-                    typingUsers = appViewModel.typingUsers,
-                    roomId = roomId,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    userProfileCache = appViewModel.getMemberMap(roomId)
-                )
-                
-                // 3. Text box (always at the bottom, above keyboard/nav bar)
-                    Surface(
-                        color = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                        //.imePadding() // ensures it's above the keyboard
-                        .padding(bottom = bottomInset)
-                    ) {
-                        var draft by remember { mutableStateOf("") }
-    var lastTypingTime by remember { mutableStateOf(0L) }
+            // Typing notification area (exclusive space above text box)
+            TypingNotificationArea(
+                typingUsers = appViewModel.typingUsers,
+                roomId = roomId,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                userProfileCache = appViewModel.getMemberMap(roomId),
+                modifier = Modifier.align(Alignment.BottomCenter) // Add this
+            )
+            
+            // 3. Text box (always at the bottom, above keyboard/nav bar)
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 0.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter) // Add this
+                        .navigationBarsPadding()
+                        .imePadding()
+                ) {
+                    var draft by remember { mutableStateOf("") }
+                    var lastTypingTime by remember { mutableStateOf(0L) }
                         
-                        // Pre-fill draft when editing starts
-                        LaunchedEffect(editingEvent) {
-                            if (editingEvent != null) {
-                                val content = editingEvent!!.content ?: editingEvent!!.decrypted
-                                val body = content?.optString("body", "") ?: ""
-                                draft = body
-                            }
-                        }
-                        
-                        // Typing detection with debouncing
-                        LaunchedEffect(draft) {
-                            if (draft.isNotBlank()) {
-                                val currentTime = System.currentTimeMillis()
-                                if (currentTime - lastTypingTime > 1000) { // Send typing every 1 second
-                                    appViewModel.sendTyping(roomId)
-                                    lastTypingTime = currentTime
-                                }
-                            }
-                        }
-                        
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Attach button in its own frame
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                shape = RoundedCornerShape(16.dp),
-                                tonalElevation = 1.dp,
-                                modifier = Modifier
-                                    .width(48.dp)
-                                    .height(56.dp)
-                            ) {
-                                IconButton(
-                                    onClick = {
-                                        mediaPickerLauncher.launch("image/*")
-                                    },
-                                    modifier = Modifier.fillMaxSize()
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.AttachFile,
-                                        contentDescription = "Attach media",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                            }
-                            
-                            Spacer(modifier = Modifier.width(8.dp))
-                            
-                            // Pill-shaped text input with optional reply preview inside
-                            Surface(
-                                color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
-                                shape = RoundedCornerShape(16.dp), // Rounded rectangle that works both as pill and expanded
-                                tonalElevation = 1.dp,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Column {
-                                    // Edit preview inside the text input (if editing)
-                                    if (editingEvent != null) {
-                                        EditPreviewInput(
-                                            event = editingEvent!!,
-                                            onCancel = { 
-                                                editingEvent = null
-                                                draft = "" // Clear draft when canceling edit
-                                            }
-                                        )
-                                    }
-                                    
-                                    // Reply preview inside the text input (if replying)
-                                    if (replyingToEvent != null) {
-                                        ReplyPreviewInput(
-                                            event = replyingToEvent!!,
-                                            userProfileCache = userProfileCache.mapValues { (_, pair) ->
-                                                MemberProfile(pair.first, pair.second)
-                                            },
-                                            onCancel = { replyingToEvent = null },
-                                            appViewModel = appViewModel,
-                                            roomId = roomId
-                                        )
-                                    }
-                                    
-                                    // Text input field
-                                    TextField(
-                                        value = draft,
-                                        onValueChange = { draft = it },
-                                        placeholder = { Text("Type a message...") },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(56.dp),
-                                        singleLine = true,
-                                        colors = androidx.compose.material3.TextFieldDefaults.colors(
-                                            focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                                            unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
-                                            disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
-                                        )
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            // Circular send button
-                            Button(
-                                onClick = { 
-                                    if (draft.isNotBlank()) {
-                                        // Send edit if editing a message
-                                        if (editingEvent != null) {
-                                            appViewModel.sendEdit(roomId, draft, editingEvent!!)
-                                            editingEvent = null // Clear edit state
-                                        }
-                                        // Send reply if replying to a message
-                                        else if (replyingToEvent != null) {
-                                            appViewModel.sendReply(roomId, draft, replyingToEvent!!)
-                                            replyingToEvent = null // Clear reply state
-                                        } 
-                                        // Otherwise send regular message
-                                        else {
-                                            appViewModel.sendMessage(roomId, draft)
-                                        }
-                                        draft = "" // Clear the input after sending
-                                    }
-                                },
-                                enabled = draft.isNotBlank(),
-                                shape = CircleShape, // Perfect circle
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (draft.isNotBlank()) MaterialTheme.colorScheme.primary 
-                                                   else MaterialTheme.colorScheme.surfaceVariant
-                                ),
-                                modifier = Modifier
-                                    .size(56.dp), // Same height as pill
-                                contentPadding = PaddingValues(0.dp) // No padding for perfect circle
-                            ) {
-                                @Suppress("DEPRECATION")
-                                Icon(
-                                    imageVector = Icons.Filled.Send,
-                                    contentDescription = "Send",
-                                    tint = if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary 
-                                          else MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }   
+                    // Pre-fill draft when editing starts
+                    LaunchedEffect(editingEvent) {
+                        if (editingEvent != null) {
+                            val content = editingEvent!!.content ?: editingEvent!!.decrypted
+                            val body = content?.optString("body", "") ?: ""
+                            draft = body
                         }
                     }
+                        
+                    // Typing detection with debouncing
+                    LaunchedEffect(draft) {
+                        if (draft.isNotBlank()) {
+                            val currentTime = System.currentTimeMillis()
+                            if (currentTime - lastTypingTime > 1000) { // Send typing every 1 second
+                                appViewModel.sendTyping(roomId)
+                                lastTypingTime = currentTime
+                            }
+                        }
+                    }
+                        
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Attach button in its own frame
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            tonalElevation = 1.dp,
+                            modifier = Modifier
+                                .width(48.dp)
+                                .height(56.dp)
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    mediaPickerLauncher.launch("image/*")
+                                },
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AttachFile,
+                                    contentDescription = "Attach media",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+                            
+                        Spacer(modifier = Modifier.width(8.dp))
+                        
+                        // Pill-shaped text input with optional reply preview inside
+                        Surface(
+                            color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                            shape = RoundedCornerShape(16.dp), // Rounded rectangle that works both as pill and expanded
+                            tonalElevation = 1.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Column {
+                                // Edit preview inside the text input (if editing)
+                                if (editingEvent != null) {
+                                    EditPreviewInput(
+                                        event = editingEvent!!,
+                                        onCancel = { 
+                                            editingEvent = null
+                                            draft = "" // Clear draft when canceling edit
+                                        }
+                                    )
+                                }
+                                
+                                // Reply preview inside the text input (if replying)
+                                if (replyingToEvent != null) {
+                                    ReplyPreviewInput(
+                                        event = replyingToEvent!!,
+                                        userProfileCache = userProfileCache.mapValues { (_, pair) ->
+                                            MemberProfile(pair.first, pair.second)
+                                        },
+                                        onCancel = { replyingToEvent = null },
+                                        appViewModel = appViewModel,
+                                        roomId = roomId
+                                    )
+                                }
+                                    
+                                // Text input field
+                                TextField(
+                                    value = draft,
+                                    onValueChange = { draft = it },
+                                    placeholder = { Text("Type a message...") },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp),
+                                    singleLine = true,
+                                    colors = androidx.compose.material3.TextFieldDefaults.colors(
+                                        focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                                        unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
+                                        disabledIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+                                    )
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        // Circular send button
+                        Button(
+                            onClick = { 
+                                if (draft.isNotBlank()) {
+                                    // Send edit if editing a message
+                                    if (editingEvent != null) {
+                                        appViewModel.sendEdit(roomId, draft, editingEvent!!)
+                                        editingEvent = null // Clear edit state
+                                    }
+                                    // Send reply if replying to a message
+                                    else if (replyingToEvent != null) {
+                                        appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                        replyingToEvent = null // Clear reply state
+                                    } 
+                                    // Otherwise send regular message
+                                    else {
+                                        appViewModel.sendMessage(roomId, draft)
+                                    }
+                                    draft = "" // Clear the input after sending
+                                }
+                            },
+                            enabled = draft.isNotBlank(),
+                            shape = CircleShape, // Perfect circle
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (draft.isNotBlank()) MaterialTheme.colorScheme.primary 
+                                                else MaterialTheme.colorScheme.surfaceVariant
+                            ),
+                            modifier = Modifier
+                                .size(56.dp), // Same height as pill
+                            contentPadding = PaddingValues(0.dp) // No padding for perfect circle
+                        ) {
+                            @Suppress("DEPRECATION")
+                            Icon(
+                                imageVector = Icons.Filled.Send,
+                                contentDescription = "Send",
+                                tint = if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary 
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }   
+                    }
                 }
-                
-                // Floating action button to scroll to bottom (only shown when detached)
+
+                    // Floating action button to scroll to bottom (only shown when detached)
                 if (!isAttachedToBottom) {
                     FloatingActionButton(
                         onClick = {
@@ -862,115 +885,11 @@ fun RoomTimelineScreen(
                             contentDescription = "Scroll to bottom"
                         )
                     }
-                }
-            
-                // Emoji selection dialog
-                if (showEmojiSelection && reactingToEvent != null) {
-                EmojiSelectionDialog(
-                    recentEmojis = appViewModel.recentEmojis,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    onEmojiSelected = { emoji ->
-                        appViewModel.sendReaction(roomId, reactingToEvent!!.eventId, emoji)
-                        showEmojiSelection = false
-                        reactingToEvent = null
-                    },
-                    onDismiss = {
-                        showEmojiSelection = false
-                        reactingToEvent = null
-                    }
-                )
-            }
-            
-            // Media preview dialog
-            if (showMediaPreview && selectedMediaUri != null) {
-                MediaPreviewDialog(
-                    uri = selectedMediaUri!!,
-                    onDismiss = {
-                        showMediaPreview = false
-                        selectedMediaUri = null
-                    },
-                    onSend = { caption ->
-                        showMediaPreview = false
-                        isUploading = true
-                        
-                        // Upload and send media in a coroutine
-                        CoroutineScope(Dispatchers.Main).launch {
-                            try {
-                                // Get room encryption status from current room state
-                                val isRoomEncrypted = appViewModel.currentRoomState?.isEncrypted ?: false
-                                Log.d("Andromuks", "RoomTimelineScreen: Uploading media, room encrypted: $isRoomEncrypted")
-                                
-                                val uploadResult = withContext(Dispatchers.IO) {
-                                    MediaUploadUtils.uploadMedia(
-                                        context = context,
-                                        uri = selectedMediaUri!!,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        isEncrypted = isRoomEncrypted
-                                    )
-                                }
-                                
-                                if (uploadResult != null) {
-                                    // Get filename from URI
-                                    var filename = "image.jpg"
-                                    context.contentResolver.query(selectedMediaUri!!, null, null, null, null)?.use { cursor ->
-                                        val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                                        if (nameIndex != -1 && cursor.moveToFirst()) {
-                                            filename = cursor.getString(nameIndex)
-                                        }
-                                    }
-                                    
-                                    appViewModel.sendMediaMessage(
-                                        roomId = roomId,
-                                        mxcUrl = uploadResult.mxcUrl,
-                                        filename = filename,
-                                        mimeType = uploadResult.mimeType,
-                                        width = uploadResult.width,
-                                        height = uploadResult.height,
-                                        size = uploadResult.size,
-                                        blurHash = uploadResult.blurHash,
-                                        caption = caption
-                                    )
-                                    Log.d("Andromuks", "RoomTimelineScreen: Media message sent successfully")
-                                } else {
-                                    Log.e("Andromuks", "RoomTimelineScreen: Failed to upload media")
-                                }
-                            } catch (e: Exception) {
-                                Log.e("Andromuks", "RoomTimelineScreen: Error uploading media", e)
-                            } finally {
-                                isUploading = false
-                                selectedMediaUri = null
-                            }
-                        }
-                    }
-                )
-            }
-            
-            // Uploading dialog
-            if (isUploading) {
-                UploadingDialog()
-            }
-            
-            // Delete message dialog
-            if (showDeleteDialog && deletingEvent != null) {
-                DeleteMessageDialog(
-                    onDismiss = {
-                        showDeleteDialog = false
-                        deletingEvent = null
-                    },
-                    onConfirm = { reason ->
-                        appViewModel.sendDelete(roomId, deletingEvent!!, reason)
-                        showDeleteDialog = false
-                        deletingEvent = null
-                    }
-                )
-            }
+                } 
             }
         }
     }
 }
-
 
 
 

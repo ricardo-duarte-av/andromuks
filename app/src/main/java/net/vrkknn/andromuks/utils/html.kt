@@ -34,14 +34,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -427,10 +428,13 @@ private fun AnnotatedString.Builder.appendAnchor(
         val textBuilder = StringBuilder()
         tag.children.forEach { collectPlainText(it, textBuilder) }
         val displayText = textBuilder.toString().ifBlank { matrixUser }
-        val id = "matrix_user_${inlineMatrixUsers.size}"
-        inlineMatrixUsers[id] = InlineMatrixUserChip(matrixUser, displayText)
+        val chipId = "matrix_user_${inlineMatrixUsers.size}"
+        inlineMatrixUsers[chipId] = InlineMatrixUserChip(matrixUser, displayText)
+        if (length > 0 && !endsWithWhitespace()) {
+            append(" ")
+        }
         pushStringAnnotation("MATRIX_USER", matrixUser)
-        appendInlineContent(id, displayText)
+        appendInlineContent(chipId, displayText)
         pop()
     } else {
         val linkStyle = baseStyle.copy(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
@@ -616,21 +620,24 @@ fun HtmlMessageText(
     // Render to AnnotatedString with inline images
     val inlineImages = remember { mutableMapOf<String, InlineImageData>() }
     val inlineMatrixUsers = remember { mutableMapOf<String, InlineMatrixUserChip>() }
-    val annotatedString = remember(nodes) {
+    val annotatedString = remember(nodes, color) {
         try {
             inlineImages.clear()
             inlineMatrixUsers.clear()
             buildAnnotatedString {
-                nodes.forEach { appendHtmlNode(it, SpanStyle(color = color), inlineImages, inlineMatrixUsers) }
+                nodes.forEach {
+                    appendHtmlNode(it, SpanStyle(color = color), inlineImages, inlineMatrixUsers)
+                }
             }
         } catch (e: Exception) {
             Log.e("Andromuks", "HtmlMessageText: Failed to render HTML", e)
             AnnotatedString("")
         }
     }
-    
-    // Create inline content map for images and matrix user chips
-    val inlineContentMap = remember(inlineImages, inlineMatrixUsers, onMatrixUserClick) {
+    val density = LocalDensity.current
+    val chipTextStyle = MaterialTheme.typography.labelLarge
+    val textMeasurer = rememberTextMeasurer()
+    val inlineContentMap = remember(annotatedString, inlineImages.toMap(), inlineMatrixUsers.toMap(), onMatrixUserClick, density, chipTextStyle, textMeasurer) {
         val map = mutableMapOf<String, InlineTextContent>()
         inlineImages.forEach { (id, imageData) ->
             map[id] = InlineTextContent(
@@ -650,11 +657,17 @@ fun HtmlMessageText(
             }
         }
         inlineMatrixUsers.forEach { (id, chip) ->
-            val estimatedWidth = (chip.displayText.length * 9 + 32).coerceAtLeast(48)
+            val textLayout = textMeasurer.measure(
+                text = AnnotatedString(chip.displayText),
+                style = chipTextStyle
+            )
+            val textWidthDp = with(density) { textLayout.size.width.toDp() }
+            val widthSp = with(density) { (textWidthDp + 28.dp).value.sp }
+            val heightSp = with(density) { 28.dp.value.sp }
             map[id] = InlineTextContent(
                 Placeholder(
-                    width = estimatedWidth.sp,
-                    height = 28.sp,
+                    width = widthSp,
+                    height = heightSp,
                     placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
                 )
             ) {
@@ -671,7 +684,7 @@ fun HtmlMessageText(
                     ) {
                         Text(
                             text = chip.displayText,
-                            style = MaterialTheme.typography.labelLarge
+                            style = chipTextStyle
                         )
                     }
                 }
@@ -872,5 +885,10 @@ private fun InlineImage(
         // Fallback to alt text
         Text(text = alt, fontSize = (height * 0.6).sp)
     }
+}
+
+private fun AnnotatedString.Builder.endsWithWhitespace(): Boolean {
+    if (length == 0) return false
+    return toString().last().isWhitespace()
 }
 
