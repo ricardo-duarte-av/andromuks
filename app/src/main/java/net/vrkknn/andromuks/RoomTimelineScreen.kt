@@ -609,7 +609,6 @@ fun RoomTimelineScreen(
                         LazyColumn(
                             modifier = Modifier.weight(1f).fillMaxWidth(),
                             state = listState,
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
                             contentPadding =
                                 androidx.compose.foundation.layout.PaddingValues(
                                     start = 16.dp,
@@ -1199,7 +1198,7 @@ fun TimelineEventItem(
         }
 
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = if (isConsecutive) 0.dp else 4.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         verticalAlignment = Alignment.Top
     ) {
         // Show avatar only for non-consecutive messages
@@ -1627,7 +1626,7 @@ fun TimelineEventItem(
                                     event = event,
                                     bubbleColor = bubbleColor,
                                     bubbleShape = bubbleShape,
-                                    modifier = Modifier.padding(top = 4.dp).widthIn(max = 300.dp),
+                                    modifier = Modifier.widthIn(max = 300.dp),
                                     isMine = actualIsMine,
                                     myUserId = myUserId,
                                     powerLevels = appViewModel?.currentRoomState?.powerLevels,
@@ -1695,7 +1694,7 @@ fun TimelineEventItem(
                                     event = event,
                                     bubbleColor = bubbleColor,
                                     bubbleShape = bubbleShape,
-                                    modifier = Modifier.padding(top = 4.dp).widthIn(max = 300.dp),
+                                    modifier = Modifier.widthIn(max = 300.dp),
                                     isMine = actualIsMine,
                                     myUserId = myUserId,
                                     powerLevels = appViewModel?.currentRoomState?.powerLevels,
@@ -2060,8 +2059,7 @@ fun TimelineEventItem(
                                         event = event,
                                         bubbleColor = bubbleColor,
                                         bubbleShape = bubbleShape,
-                                        modifier =
-                                            Modifier.padding(top = 4.dp).widthIn(max = 300.dp),
+                                        modifier = Modifier.widthIn(max = 300.dp),
                                         isMine = actualIsMine,
                                         myUserId = myUserId,
                                         powerLevels = appViewModel?.currentRoomState?.powerLevels,
@@ -2154,8 +2152,7 @@ fun TimelineEventItem(
                                         event = event,
                                         bubbleColor = bubbleColor,
                                         bubbleShape = bubbleShape,
-                                        modifier =
-                                            Modifier.padding(top = 4.dp).widthIn(max = 300.dp),
+                                        modifier = Modifier.widthIn(max = 300.dp),
                                         isMine = actualIsMine,
                                         myUserId = myUserId,
                                         powerLevels = appViewModel?.currentRoomState?.powerLevels,
@@ -2242,8 +2239,7 @@ fun TimelineEventItem(
                                         event = event,
                                         bubbleColor = bubbleColor,
                                         bubbleShape = bubbleShape,
-                                        modifier =
-                                            Modifier.padding(top = 4.dp).widthIn(max = 300.dp),
+                                        modifier = Modifier.widthIn(max = 300.dp),
                                         isMine = actualIsMine,
                                         myUserId = myUserId,
                                         powerLevels = appViewModel?.currentRoomState?.powerLevels,
