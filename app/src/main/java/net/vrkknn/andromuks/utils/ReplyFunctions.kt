@@ -33,11 +33,17 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.ui.window.Popup
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.unit.toIntRect
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -554,6 +560,9 @@ fun MessageBubbleWithMenu(
     bubbleColor: androidx.compose.ui.graphics.Color,
     bubbleShape: androidx.compose.foundation.shape.RoundedCornerShape,
     modifier: Modifier = Modifier,
+    isMine: Boolean = false,
+    myUserId: String? = null,
+    powerLevels: net.vrkknn.andromuks.PowerLevelsInfo? = null,
     onReply: () -> Unit,
     onReact: () -> Unit,
     onEdit: () -> Unit,
@@ -561,11 +570,43 @@ fun MessageBubbleWithMenu(
     content: @Composable RowScope.() -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    var bubbleBounds by remember { mutableStateOf(Rect.Zero) }
     val hapticFeedback = LocalHapticFeedback.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    
+    // Calculate power level permissions
+    val myPowerLevel = if (myUserId != null && powerLevels != null) {
+        powerLevels.users[myUserId] ?: powerLevels.usersDefault
+    } else {
+        0
+    }
+    val senderPowerLevel = if (powerLevels != null) {
+        powerLevels.users[event.sender] ?: powerLevels.usersDefault
+    } else {
+        0
+    }
+    val redactPowerLevel = powerLevels?.redact ?: 50
+    
+    // Determine which buttons to show
+    val canEdit = isMine // Only allow editing our own messages
+    val canDelete = if (isMine) {
+        // For our own messages, check if we have redact permission
+        myPowerLevel >= redactPowerLevel
+    } else {
+        // For others' messages, check if our power level is above theirs AND we have redact permission
+        myPowerLevel > senderPowerLevel && myPowerLevel >= redactPowerLevel
+    }
+    
+    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, senderPL=$senderPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")
     
     Box {
         Surface(
             modifier = modifier
+                .onGloballyPositioned { layoutCoordinates ->
+                    // Capture the bubble's position on screen
+                    bubbleBounds = layoutCoordinates.boundsInWindow()
+                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Bubble bounds: $bubbleBounds")
+                }
                 .pointerInput(showMenu) {
                     detectTapGestures(
                         onLongPress = { 
@@ -600,95 +641,124 @@ fun MessageBubbleWithMenu(
                     dismissOnClickOutside = true
                 )
             ) {
-                // Fullscreen transparent scrim to capture outside taps
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(androidx.compose.ui.graphics.Color.Transparent)
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = {
-                                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Scrim tapped, dismissing menu")
-                                    showMenu = false
+                Box(modifier = Modifier.fillMaxSize()) {
+                    // Fullscreen transparent scrim to capture outside taps
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(androidx.compose.ui.graphics.Color.Transparent)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = {
+                                        android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Scrim tapped, dismissing menu")
+                                        showMenu = false
+                                    }
+                                )
+                            }
+                    )
+                    
+                    // Card with menu buttons positioned above bubble
+                    Card(
+                        modifier = Modifier
+                            .offset {
+                                with(density) {
+                                    // Calculate menu position relative to bubble
+                                    val menuWidth = 200.dp.toPx() // Approximate menu width
+                                    val menuHeight = 50.dp.toPx() // Approximate menu height
+                                    val bubbleCenterX = bubbleBounds.left + (bubbleBounds.width / 2)
+                                    val menuX = bubbleCenterX - (menuWidth / 2)
+                                    val menuY = bubbleBounds.top - menuHeight - 8.dp.toPx()
+                                    
+                                    // Clamp to keep menu on screen (left edge only)
+                                    val clampedX = menuX.coerceAtLeast(8.dp.toPx())
+                                    val clampedY = menuY.coerceAtLeast(8.dp.toPx())
+                                    
+                                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu position: x=$clampedX, y=$clampedY")
+                                    
+                                    IntOffset(
+                                        x = clampedX.toInt(),
+                                        y = clampedY.toInt()
+                                    )
                                 }
-                            )
+                            },
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                        shape = RoundedCornerShape(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            // React button
+                            IconButton(
+                                onClick = {
+                                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: React clicked")
+                                    showMenu = false
+                                    onReact()
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.TagFaces,
+                                    contentDescription = "React",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            
+                            // Reply button
+                            IconButton(
+                                onClick = {
+                                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Reply clicked")
+                                    showMenu = false
+                                    onReply()
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Reply,
+                                    contentDescription = "Reply",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            
+                            // Edit button (only show for our own messages)
+                            if (canEdit) {
+                                IconButton(
+                                    onClick = {
+                                        android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit clicked")
+                                        showMenu = false
+                                        onEdit()
+                                    },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            
+                            // Delete button (only show if we have permission)
+                            if (canDelete) {
+                                IconButton(
+                                    onClick = {
+                                        android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Delete clicked")
+                                        showMenu = false
+                                        onDelete()
+                                    },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete",
+                                        tint = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
                         }
-                )
-            }
-            
-            Card(
-                modifier = Modifier
-                    .padding(8.dp)
-                    .zIndex(20f) // Above the popup scrim
-                    .background(androidx.compose.ui.graphics.Color.Transparent),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    // React button
-                    IconButton(
-                        onClick = {
-                            showMenu = false
-                            onReact()
-                        },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.TagFaces,
-                            contentDescription = "React",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    
-                    // Reply button
-                    IconButton(
-                        onClick = {
-                            showMenu = false
-                            onReply()
-                        },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Reply,
-                            contentDescription = "Reply",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    
-                    // Edit button
-                    IconButton(
-                        onClick = {
-                            showMenu = false
-                            onEdit()
-                        },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Edit,
-                            contentDescription = "Edit",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    
-                    // Delete button
-                    IconButton(
-                        onClick = {
-                            showMenu = false
-                            onDelete()
-                        },
-                        modifier = Modifier.size(40.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.error
-                        )
                     }
                 }
             }

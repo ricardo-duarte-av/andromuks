@@ -78,6 +78,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EditPreviewInput
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.InlineReadReceiptAvatars
@@ -956,6 +957,22 @@ fun RoomTimelineScreen(
                         )
                     }
                 }
+                
+                // Delete confirmation dialog (with optional reason)
+                if (showDeleteDialog && deletingEvent != null) {
+                    DeleteMessageDialog(
+                        onDismiss = {
+                            showDeleteDialog = false
+                            deletingEvent = null
+                        },
+                        onConfirm = { reason ->
+                            // Send delete request with optional reason
+                            appViewModel.sendDelete(roomId, deletingEvent!!, reason)
+                            showDeleteDialog = false
+                            deletingEvent = null
+                        }
+                    )
+                }
             }
         }
     }
@@ -1605,6 +1622,9 @@ fun TimelineEventItem(
                                     bubbleColor = bubbleColor,
                                     bubbleShape = bubbleShape,
                                     modifier = Modifier.padding(top = 4.dp).widthIn(max = 300.dp),
+                                    isMine = actualIsMine,
+                                    myUserId = myUserId,
+                                    powerLevels = appViewModel?.currentRoomState?.powerLevels,
                                     onReply = { onReply(event) },
                                     onReact = { onReact(event) },
                                     onEdit = { onEdit(event) },
@@ -1670,6 +1690,9 @@ fun TimelineEventItem(
                                     bubbleColor = bubbleColor,
                                     bubbleShape = bubbleShape,
                                     modifier = Modifier.padding(top = 4.dp).widthIn(max = 300.dp),
+                                    isMine = actualIsMine,
+                                    myUserId = myUserId,
+                                    powerLevels = appViewModel?.currentRoomState?.powerLevels,
                                     onReply = { onReply(event) },
                                     onReact = { onReact(event) },
                                     onEdit = { onEdit(event) },
@@ -2033,6 +2056,9 @@ fun TimelineEventItem(
                                         bubbleShape = bubbleShape,
                                         modifier =
                                             Modifier.padding(top = 4.dp).widthIn(max = 300.dp),
+                                        isMine = actualIsMine,
+                                        myUserId = myUserId,
+                                        powerLevels = appViewModel?.currentRoomState?.powerLevels,
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
                                         onEdit = { onEdit(event) },
@@ -2124,6 +2150,9 @@ fun TimelineEventItem(
                                         bubbleShape = bubbleShape,
                                         modifier =
                                             Modifier.padding(top = 4.dp).widthIn(max = 300.dp),
+                                        isMine = actualIsMine,
+                                        myUserId = myUserId,
+                                        powerLevels = appViewModel?.currentRoomState?.powerLevels,
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
                                         onEdit = { onEdit(event) },
@@ -2209,6 +2238,9 @@ fun TimelineEventItem(
                                         bubbleShape = bubbleShape,
                                         modifier =
                                             Modifier.padding(top = 4.dp).widthIn(max = 300.dp),
+                                        isMine = actualIsMine,
+                                        myUserId = myUserId,
+                                        powerLevels = appViewModel?.currentRoomState?.powerLevels,
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
                                         onEdit = { onEdit(event) },

@@ -2598,6 +2598,7 @@ class AppViewModel : ViewModel() {
         var topic: String? = null
         var avatarUrl: String? = null
         var isEncrypted = false
+        var powerLevels: PowerLevelsInfo? = null
         
         android.util.Log.d("Andromuks", "AppViewModel: Parsing room state for room: $roomId, events count: ${events.length()}")
         
@@ -2645,6 +2646,23 @@ class AppViewModel : ViewModel() {
                             android.util.Log.d("Andromuks", "AppViewModel: Room is encrypted with algorithm: $algorithm")
                         }
                     }
+                    "m.room.power_levels" -> {
+                        // Parse power levels
+                        val usersObj = content?.optJSONObject("users")
+                        val usersMap = mutableMapOf<String, Int>()
+                        usersObj?.keys()?.forEach { userId ->
+                            usersMap[userId] = usersObj.optInt(userId, 0)
+                        }
+                        val usersDefault = content?.optInt("users_default", 0) ?: 0
+                        val redact = content?.optInt("redact", 50) ?: 50
+                        
+                        powerLevels = PowerLevelsInfo(
+                            users = usersMap,
+                            usersDefault = usersDefault,
+                            redact = redact
+                        )
+                        android.util.Log.d("Andromuks", "AppViewModel: Found power levels - users: ${usersMap.size}, usersDefault: $usersDefault, redact: $redact")
+                    }
                 }
             }
         }
@@ -2656,7 +2674,8 @@ class AppViewModel : ViewModel() {
             canonicalAlias = canonicalAlias,
             topic = topic,
             avatarUrl = avatarUrl,
-            isEncrypted = isEncrypted
+            isEncrypted = isEncrypted,
+            powerLevels = powerLevels
         )
         
         // Update current room state
@@ -2784,7 +2803,8 @@ class AppViewModel : ViewModel() {
                                 name = name,
                                 canonicalAlias = canonicalAlias,
                                 topic = topic,
-                                avatarUrl = avatarUrl
+                                avatarUrl = avatarUrl,
+                                powerLevels = currentRoomState?.powerLevels // Preserve existing power levels
                             )
                             currentRoomState = roomState
                             android.util.Log.d("Andromuks", "AppViewModel: Updated room state from sync: $roomState")

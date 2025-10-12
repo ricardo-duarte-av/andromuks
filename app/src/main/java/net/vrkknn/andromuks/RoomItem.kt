@@ -62,7 +62,16 @@ data class RoomState(
     val canonicalAlias: String?,
     val topic: String?,
     val avatarUrl: String?,
-    val isEncrypted: Boolean = false
+    val isEncrypted: Boolean = false,
+    val powerLevels: PowerLevelsInfo? = null
+)
+
+/** Power levels information for a room */
+@Immutable
+data class PowerLevelsInfo(
+    val users: Map<String, Int>,
+    val usersDefault: Int,
+    val redact: Int
 )
 
 @Immutable
