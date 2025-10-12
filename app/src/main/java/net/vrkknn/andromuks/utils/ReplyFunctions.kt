@@ -11,6 +11,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
@@ -36,6 +37,8 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -44,6 +47,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -562,7 +566,7 @@ fun MessageBubbleWithMenu(
     Box {
         Surface(
             modifier = modifier
-                .pointerInput(Unit) {
+                .pointerInput(showMenu) {
                     detectTapGestures(
                         onLongPress = { 
                             android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Long press detected")
@@ -571,7 +575,7 @@ fun MessageBubbleWithMenu(
                         },
                         onTap = {
                             android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Regular tap detected")
-                            // Don't do anything on regular tap - let other click handlers work
+                            // Let other click handlers work (e.g., HtmlMessageText links)
                         }
                     )
                 },
@@ -582,34 +586,41 @@ fun MessageBubbleWithMenu(
             Row(content = content)
         }
         
-        // Horizontal icon-only menu
+        // Horizontal icon-only menu with fullscreen scrim overlay
         if (showMenu) {
-            // Full-screen transparent overlay to capture outside taps
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = {
-                                android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Outside tap detected, dismissing menu")
-                                showMenu = false
-                            }
-                        )
-                    }
-            )
+            // Use Popup to create a fullscreen overlay independent of parent layout
+            Popup(
+                onDismissRequest = {
+                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Popup dismissed")
+                    showMenu = false
+                },
+                properties = PopupProperties(
+                    focusable = true, // Makes it dismissible and captures back button
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = true
+                )
+            ) {
+                // Fullscreen transparent scrim to capture outside taps
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(androidx.compose.ui.graphics.Color.Transparent)
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = {
+                                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Scrim tapped, dismissing menu")
+                                    showMenu = false
+                                }
+                            )
+                        }
+                )
+            }
             
             Card(
                 modifier = Modifier
                     .padding(8.dp)
-                    .background(androidx.compose.ui.graphics.Color.Transparent)
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = {
-                                // Consume taps on the menu itself so they don't dismiss it
-                                android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu tap consumed")
-                            }
-                        )
-                    },
+                    .zIndex(20f) // Above the popup scrim
+                    .background(androidx.compose.ui.graphics.Color.Transparent),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),

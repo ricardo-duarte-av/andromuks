@@ -6,7 +6,8 @@ import android.os.Build
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -32,15 +33,17 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.Placeholder
 import androidx.compose.ui.text.PlaceholderVerticalAlign
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontFamily
@@ -703,66 +706,110 @@ fun HtmlMessageText(
             color = color
         )
     } else {
-        // Use Text with proper click detection for URL support
+        // Use Text with custom gesture handling that only consumes taps on interactive elements
         var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
         
         Text(
             text = annotatedString,
-            modifier = modifier.pointerInput(Unit) {
-                detectTapGestures { tapOffset ->
-                    textLayoutResult?.let { layoutResult ->
-                        // Get the character offset at the tap position
-                        val offset = layoutResult.getOffsetForPosition(tapOffset)
-                        
-                        // Matrix user annotations take precedence
-                        annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset)
-                            .firstOrNull()?.let { annotation ->
-                                onMatrixUserClick(annotation.item)
-                                return@detectTapGestures
+            modifier = modifier.pointerInput(annotatedString) {
+                awaitEachGesture {
+                    // Wait for a down event (finger touches screen)
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val downTime = System.currentTimeMillis()
+                    val downPosition = down.position
+                    
+                    // Wait for all pointer changes until release
+                    var up: PointerInputChange? = null
+                    var wasMoved = false
+                    
+                    do {
+                        val event = awaitPointerEvent()
+                        event.changes.forEach { change ->
+                            if (change.pressed) {
+                                // Check if finger moved significantly (more than touch slop)
+                                val xDiff = kotlin.math.abs(change.position.x - downPosition.x)
+                                val yDiff = kotlin.math.abs(change.position.y - downPosition.y)
+                                if (xDiff > 10 || yDiff > 10) {
+                                    wasMoved = true
+                                }
+                            } else {
+                                // Finger lifted
+                                up = change
                             }
-
-                        // Check if the tapped position has a URL annotation
-                        annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
-                            .firstOrNull()?.let { annotation ->
-                                val url = annotation.item
-                                when {
-                                    url.startsWith("matrix:u/") -> {
-                                        val rawId = url.removePrefix("matrix:u/")
-                                        val userId = if (rawId.startsWith("@")) rawId else "@${rawId}"
-                                        Log.d("Andromuks", "HtmlMessageText: matrix:u link tapped for $userId")
-                                        onMatrixUserClick(userId)
+                        }
+                    } while (up == null && event.changes.any { it.pressed })
+                    
+                    // Check if this was a tap (short duration, no movement)
+                    val upTime = System.currentTimeMillis()
+                    val duration = upTime - downTime
+                    val isTap = !wasMoved && duration < 500 // Less than 500ms = tap, not long press
+                    
+                    if (isTap && up != null) {
+                        // This is a tap, check if it's on an interactive element
+                        textLayoutResult?.let { layoutResult ->
+                            val offset = layoutResult.getOffsetForPosition(downPosition)
+                            
+                            // Check if tap is on a Matrix user pill or URL
+                            val hasMatrixUser = annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset).isNotEmpty()
+                            val hasUrl = annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset).isNotEmpty()
+                            
+                            if (hasMatrixUser || hasUrl) {
+                                // Consume the event since we're handling it
+                                up.consume()
+                                
+                                // Matrix user annotations take precedence
+                                annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset)
+                                    .firstOrNull()?.let { annotation ->
+                                        onMatrixUserClick(annotation.item)
+                                        return@awaitEachGesture
                                     }
-                                    url.startsWith("https://matrix.to/#/") -> {
-                                        val encodedPart = url.removePrefix("https://matrix.to/#/")
-                                        val userId = runCatching { URLDecoder.decode(encodedPart, Charsets.UTF_8.name()) }
-                                            .getOrDefault(encodedPart)
-                                        if (userId.startsWith("@")) {
-                                            Log.d("Andromuks", "HtmlMessageText: matrix.to link tapped for $userId")
-                                            onMatrixUserClick(userId)
-                                        } else {
-                                            // Fallback to opening in browser for non-user matrix.to links
-                                            try {
-                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                                context.startActivity(intent)
-                                                Log.d("Andromuks", "Opening URL: $url")
-                                            } catch (e: Exception) {
-                                                Log.e("Andromuks", "Failed to open URL: $url", e)
+
+                                // Check if the tapped position has a URL annotation
+                                annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                                    .firstOrNull()?.let { annotation ->
+                                        val url = annotation.item
+                                        when {
+                                            url.startsWith("matrix:u/") -> {
+                                                val rawId = url.removePrefix("matrix:u/")
+                                                val userId = if (rawId.startsWith("@")) rawId else "@${rawId}"
+                                                Log.d("Andromuks", "HtmlMessageText: matrix:u link tapped for $userId")
+                                                onMatrixUserClick(userId)
+                                            }
+                                            url.startsWith("https://matrix.to/#/") -> {
+                                                val encodedPart = url.removePrefix("https://matrix.to/#/")
+                                                val userId = runCatching { URLDecoder.decode(encodedPart, Charsets.UTF_8.name()) }
+                                                    .getOrDefault(encodedPart)
+                                                if (userId.startsWith("@")) {
+                                                    Log.d("Andromuks", "HtmlMessageText: matrix.to link tapped for $userId")
+                                                    onMatrixUserClick(userId)
+                                                } else {
+                                                    // Fallback to opening in browser for non-user matrix.to links
+                                                    try {
+                                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                        context.startActivity(intent)
+                                                        Log.d("Andromuks", "Opening URL: $url")
+                                                    } catch (e: Exception) {
+                                                        Log.e("Andromuks", "Failed to open URL: $url", e)
+                                                    }
+                                                }
+                                            }
+                                            else -> {
+                                                // Open URL in browser
+                                                try {
+                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                    context.startActivity(intent)
+                                                    Log.d("Andromuks", "Opening URL: $url")
+                                                } catch (e: Exception) {
+                                                    Log.e("Andromuks", "Failed to open URL: $url", e)
+                                                }
                                             }
                                         }
                                     }
-                                    else -> {
-                                        // Open URL in browser
-                                        try {
-                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                            context.startActivity(intent)
-                                            Log.d("Andromuks", "Opening URL: $url")
-                                        } catch (e: Exception) {
-                                            Log.e("Andromuks", "Failed to open URL: $url", e)
-                                        }
-                                    }
-                                }
                             }
+                            // If not on an interactive element, don't consume - let parent handle it
+                        }
                     }
+                    // If it's a long press or other gesture, don't consume - let parent handle it
                 }
             },
             style = MaterialTheme.typography.bodyMedium.copy(color = color),
