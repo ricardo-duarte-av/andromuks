@@ -1612,8 +1612,7 @@ fun TimelineEventItem(
                                 ) {
                                     Column(
                                         modifier = Modifier.padding(8.dp),
-                                        horizontalAlignment =
-                                            if (actualIsMine) Alignment.Start else Alignment.End
+                                        horizontalAlignment = Alignment.Start
                                     ) {
                                         // Reply preview (clickable original message)
                                         ReplyPreview(
@@ -2132,8 +2131,7 @@ fun TimelineEventItem(
                                     ) {
                                         Column(
                                             modifier = Modifier.padding(8.dp),
-                                            horizontalAlignment =
-                                                if (actualIsMine) Alignment.Start else Alignment.End
+                                            horizontalAlignment = Alignment.Start
                                         ) {
                                             // Reply preview (clickable original message)
                                             ReplyPreview(
