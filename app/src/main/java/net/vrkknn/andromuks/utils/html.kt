@@ -433,12 +433,11 @@ private fun AnnotatedString.Builder.appendAnchor(
         val displayText = textBuilder.toString().ifBlank { matrixUser }
         val chipId = "matrix_user_${inlineMatrixUsers.size}"
         inlineMatrixUsers[chipId] = InlineMatrixUserChip(matrixUser, displayText)
-        if (length > 0 && !endsWithWhitespace()) {
-            append(" ")
-        }
         pushStringAnnotation("MATRIX_USER", matrixUser)
         appendInlineContent(chipId, displayText)
         pop()
+        // Add space after the user mention
+        append(" ")
     } else {
         val linkStyle = baseStyle.copy(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
         pushStringAnnotation("URL", href)
@@ -640,20 +639,30 @@ fun HtmlMessageText(
     val density = LocalDensity.current
     val chipTextStyle = MaterialTheme.typography.labelLarge
     val textMeasurer = rememberTextMeasurer()
-    val inlineContentMap = remember(annotatedString, inlineImages.toMap(), inlineMatrixUsers.toMap(), onMatrixUserClick, density, chipTextStyle, textMeasurer) {
+    val primaryColor = MaterialTheme.colorScheme.primary
+    
+    // Calculate text line height to limit inline image height
+    val textLineHeight = remember(textMeasurer, density) {
+        val sampleLayout = textMeasurer.measure(text = AnnotatedString("Ag"))
+        with(density) { sampleLayout.size.height.toDp().value.toInt() }
+    }
+    
+    val inlineContentMap = remember(annotatedString, inlineImages.toMap(), inlineMatrixUsers.toMap(), onMatrixUserClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor) {
         val map = mutableMapOf<String, InlineTextContent>()
         inlineImages.forEach { (id, imageData) ->
+            // Limit image height to text line height
+            val maxHeight = minOf(imageData.height, textLineHeight)
             map[id] = InlineTextContent(
                 Placeholder(
-                    width = imageData.height.sp,
-                    height = imageData.height.sp,
+                    width = maxHeight.sp,
+                    height = maxHeight.sp,
                     placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
                 )
             ) {
                 InlineImage(
                     src = imageData.src,
                     alt = imageData.alt,
-                    height = imageData.height,
+                    height = maxHeight,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken
                 )
@@ -662,11 +671,11 @@ fun HtmlMessageText(
         inlineMatrixUsers.forEach { (id, chip) ->
             val textLayout = textMeasurer.measure(
                 text = AnnotatedString(chip.displayText),
-                style = chipTextStyle
+                style = chipTextStyle.copy(color = primaryColor)
             )
             val textWidthDp = with(density) { textLayout.size.width.toDp() }
-            val widthSp = with(density) { (textWidthDp + 28.dp).value.sp }
-            val heightSp = with(density) { 28.dp.value.sp }
+            val widthSp = with(density) { textWidthDp.value.sp }
+            val heightSp = with(density) { textLayout.size.height.toDp().value.sp }
             map[id] = InlineTextContent(
                 Placeholder(
                     width = widthSp,
@@ -674,23 +683,12 @@ fun HtmlMessageText(
                     placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
                 )
             ) {
-                Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                    shape = RoundedCornerShape(16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .clickable { onMatrixUserClick(chip.userId) }
-                            .padding(horizontal = 12.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = chip.displayText,
-                            style = chipTextStyle
-                        )
-                    }
-                }
+                Text(
+                    text = chip.displayText,
+                    style = chipTextStyle,
+                    color = primaryColor,
+                    modifier = Modifier.clickable { onMatrixUserClick(chip.userId) }
+                )
             }
         }
         map
