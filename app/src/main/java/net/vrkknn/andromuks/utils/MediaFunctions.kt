@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -185,6 +187,22 @@ private fun formatMediaTimestamp(timestamp: Long): String {
 }
 
 /**
+ * Format video duration from milliseconds to MM:SS or HH:MM:SS format
+ */
+private fun formatDuration(durationMs: Int): String {
+    val seconds = durationMs / 1000
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    val secs = seconds % 60
+    
+    return if (hours > 0) {
+        String.format("%d:%02d:%02d", hours, minutes, secs)
+    } else {
+        String.format("%d:%02d", minutes, secs)
+    }
+}
+
+/**
  * Displays timestamp inside media bubble (for consecutive messages)
  */
 @Composable
@@ -244,6 +262,7 @@ fun MediaMessage(
     onDelete: () -> Unit = {}
 ) {
     var showImageViewer by remember { mutableStateOf(false) }
+    var showVideoPlayer by remember { mutableStateOf(false) }
     
     // Show image viewer dialog when image is tapped
     if (showImageViewer && mediaMessage.msgType == "m.image") {
@@ -253,6 +272,17 @@ fun MediaMessage(
             authToken = authToken,
             isEncrypted = isEncrypted,
             onDismiss = { showImageViewer = false }
+        )
+    }
+    
+    // Show video player dialog when video is tapped
+    if (showVideoPlayer && mediaMessage.msgType == "m.video") {
+        VideoPlayerDialog(
+            mediaMessage = mediaMessage,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            isEncrypted = isEncrypted,
+            onDismiss = { showVideoPlayer = false }
         )
     }
     // Check if there's a caption to determine layout strategy
@@ -284,7 +314,13 @@ fun MediaMessage(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         isEncrypted = isEncrypted,
-                        onImageClick = { showImageViewer = true }
+                        onImageClick = { 
+                            if (mediaMessage.msgType == "m.video") {
+                                showVideoPlayer = true
+                            } else {
+                                showImageViewer = true
+                            }
+                        }
                     )
                     
                     // Caption text below the image, inside the same bubble
@@ -325,7 +361,13 @@ fun MediaMessage(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         isEncrypted = isEncrypted,
-                        onImageClick = { showImageViewer = true }
+                        onImageClick = { 
+                            if (mediaMessage.msgType == "m.video") {
+                                showVideoPlayer = true
+                            } else {
+                                showImageViewer = true
+                            }
+                        }
                     )
                     
                     // Caption text below the image, inside the same bubble
@@ -374,7 +416,13 @@ fun MediaMessage(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         isEncrypted = isEncrypted,
-                        onImageClick = { showImageViewer = true }
+                        onImageClick = { 
+                            if (mediaMessage.msgType == "m.video") {
+                                showVideoPlayer = true
+                            } else {
+                                showImageViewer = true
+                            }
+                        }
                     )
                     
                     // Timestamp (for consecutive messages)
@@ -408,7 +456,13 @@ fun MediaMessage(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         isEncrypted = isEncrypted,
-                        onImageClick = { showImageViewer = true }
+                        onImageClick = { 
+                            if (mediaMessage.msgType == "m.video") {
+                                showVideoPlayer = true
+                            } else {
+                                showImageViewer = true
+                            }
+                        }
                     )
                     
                     // Timestamp (for consecutive messages)
@@ -600,33 +654,111 @@ private fun MediaContent(
                             Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
                         }
                     )
-                } else {
-                    // Video placeholder
+                } else if (mediaMessage.msgType == "m.video") {
+                    // Video thumbnail with play button overlay
                     Box(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = "🎥",
-                                style = MaterialTheme.typography.headlineMedium
+                        // Check if video has a thumbnail
+                        val thumbnailUrl = mediaMessage.info.thumbnailUrl
+                        
+                        if (thumbnailUrl != null) {
+                            // Render video thumbnail
+                            val thumbnailHttpUrl = MediaUtils.mxcToHttpUrl(thumbnailUrl, homeserverUrl)
+                            
+                            val thumbnailBlurHashPainter = remember(mediaMessage.info.thumbnailBlurHash) {
+                                mediaMessage.info.thumbnailBlurHash?.let { blurHash ->
+                                    val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
+                                    if (bitmap != null) {
+                                        BitmapPainter(bitmap.asImageBitmap())
+                                    } else {
+                                        BitmapPainter(
+                                            BlurHashUtils.createPlaceholderBitmap(
+                                                32, 32,
+                                                androidx.compose.ui.graphics.Color.Gray
+                                            )
+                                        )
+                                    }
+                                } ?: BitmapPainter(
+                                    BlurHashUtils.createPlaceholderBitmap(
+                                        32, 32,
+                                        androidx.compose.ui.graphics.Color.Gray
+                                    )
+                                )
+                            }
+                            
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(thumbnailHttpUrl)
+                                    .addHeader("Cookie", "gomuks_auth=$authToken")
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .build(),
+                                imageLoader = imageLoader,
+                                contentDescription = "Video thumbnail: ${mediaMessage.filename}",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onTap = { onImageClick() }
+                                        )
+                                    },
+                                placeholder = thumbnailBlurHashPainter,
+                                error = thumbnailBlurHashPainter,
+                                onSuccess = { 
+                                    Log.d("Andromuks", "✅ Video thumbnail loaded: $thumbnailHttpUrl")
+                                },
+                                onError = { state ->
+                                    if (state is coil.request.ErrorResult) {
+                                        CacheUtils.handleImageLoadError(
+                                            imageUrl = thumbnailHttpUrl ?: "",
+                                            throwable = state.throwable,
+                                            imageLoader = imageLoader,
+                                            context = "VideoThumbnail"
+                                        )
+                                    }
+                                }
                             )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = mediaMessage.filename,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                            
+                            // Duration badge in bottom-right corner
+                            mediaMessage.info.duration?.let { durationMs ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(8.dp),
+                                    contentAlignment = Alignment.BottomEnd
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = Color.Black.copy(alpha = 0.7f)
+                                    ) {
+                                        Text(
+                                            text = formatDuration(durationMs),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color.White,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            // Fallback: No thumbnail available, show placeholder
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
                                 Text(
-                                    text = "${mediaMessage.info.width}×${mediaMessage.info.height}",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = "🎥",
+                                    style = MaterialTheme.typography.headlineMedium
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = mediaMessage.filename,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
@@ -767,6 +899,139 @@ private fun ImageViewerDialog(
                     }
                 }
             )
+        }
+    }
+}
+
+/**
+ * Fullscreen video player dialog with ExoPlayer.
+ * 
+ * This dialog provides a fullscreen video playback experience with:
+ * - ExoPlayer for smooth video playback
+ * - Standard player controls (play/pause, seek, etc.)
+ * - Close button and back gesture support
+ * - Authentication handling for video URLs
+ * 
+ * @param mediaMessage MediaMessage object containing the video to play
+ * @param homeserverUrl Base URL of the Matrix homeserver for MXC URL conversion
+ * @param authToken Authentication token for accessing video
+ * @param isEncrypted Whether this is encrypted video (adds ?encrypted=true to URL)
+ * @param onDismiss Callback when the dialog should be dismissed
+ */
+@Composable
+fun VideoPlayerDialog(
+    mediaMessage: MediaMessage,
+    homeserverUrl: String,
+    authToken: String,
+    isEncrypted: Boolean,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+        ) {
+            // Video player container
+            val context = LocalContext.current
+            
+            // Convert MXC URL to HTTP URL
+            val videoHttpUrl = remember(mediaMessage.url, isEncrypted) {
+                val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+                if (isEncrypted) {
+                    "$httpUrl?encrypted=true"
+                } else {
+                    httpUrl ?: ""
+                }
+            }
+            
+            // ExoPlayer instance
+            val exoPlayer = remember {
+                androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
+                    // Create MediaItem with authentication headers
+                    val mediaItem = androidx.media3.common.MediaItem.Builder()
+                        .setUri(videoHttpUrl)
+                        .build()
+                    
+                    setMediaItem(mediaItem)
+                    prepare()
+                    playWhenReady = true
+                }
+            }
+            
+            // Dispose player when dialog is dismissed
+            androidx.compose.runtime.DisposableEffect(Unit) {
+                onDispose {
+                    exoPlayer.release()
+                }
+            }
+            
+            // Player view
+            androidx.compose.ui.viewinterop.AndroidView(
+                factory = { ctx ->
+                    androidx.media3.ui.PlayerView(ctx).apply {
+                        player = exoPlayer
+                        useController = true
+                        controllerShowTimeoutMs = 3000
+                        controllerHideOnTouch = true
+                        
+                        // Set custom request headers for authentication
+                        // Note: ExoPlayer with DataSource.Factory for custom headers
+                        val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+                            .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
+                        
+                        val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(ctx)
+                            .setDataSourceFactory(dataSourceFactory)
+                        
+                        // Recreate player with custom data source
+                        exoPlayer.stop()
+                        val newPlayer = androidx.media3.exoplayer.ExoPlayer.Builder(ctx)
+                            .setMediaSourceFactory(mediaSourceFactory)
+                            .build()
+                            .apply {
+                                val mediaItem = androidx.media3.common.MediaItem.fromUri(videoHttpUrl)
+                                setMediaItem(mediaItem)
+                                prepare()
+                                playWhenReady = true
+                            }
+                        
+                        player = newPlayer
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+            
+            // Close button overlay (top-right corner)
+            IconButton(
+                onClick = onDismiss,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(16.dp)
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color.Black.copy(alpha = 0.6f),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Text(
+                            text = "✕",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
         }
     }
 }

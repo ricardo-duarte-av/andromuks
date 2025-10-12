@@ -98,6 +98,10 @@ dependencies {
     // BlurHash - using local implementation
     // implementation("com.github.woltapp:blurhashkt:1.0.0")
     
+    // ExoPlayer for video playback
+    implementation("androidx.media3:media3-exoplayer:1.2.1")
+    implementation("androidx.media3:media3-ui:1.2.1")
+    
     // Firebase Cloud Messaging
     implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
     implementation("com.google.firebase:firebase-messaging-ktx")

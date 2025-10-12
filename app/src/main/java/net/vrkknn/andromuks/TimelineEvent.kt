@@ -90,7 +90,12 @@ data class MediaInfo(
     val height: Int,
     val size: Long,
     val mimeType: String,
-    val blurHash: String?
+    val blurHash: String?,
+    val thumbnailUrl: String? = null,
+    val thumbnailBlurHash: String? = null,
+    val thumbnailWidth: Int? = null,
+    val thumbnailHeight: Int? = null,
+    val duration: Int? = null // Video duration in milliseconds
 )
 
 @Immutable

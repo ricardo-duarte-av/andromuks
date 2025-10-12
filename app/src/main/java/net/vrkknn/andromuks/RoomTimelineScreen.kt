@@ -1433,7 +1433,33 @@ fun TimelineEventItem(
                             val blurHash =
                                 info.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
 
-                            val caption = if (body != filename && body.isNotBlank()) body else null
+                            // Extract thumbnail info for videos
+                            val thumbnailUrl = if (msgType == "m.video") {
+                                info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+                            } else null
+                            
+                            val thumbnailInfo = if (msgType == "m.video") {
+                                info.optJSONObject("thumbnail_info")
+                            } else null
+                            
+                            val thumbnailBlurHash = thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+                            val thumbnailWidth = thumbnailInfo?.optInt("w", 0)
+                            val thumbnailHeight = thumbnailInfo?.optInt("h", 0)
+                            val duration = if (msgType == "m.video") {
+                                info.optInt("duration", 0).takeIf { it > 0 }
+                            } else null
+
+                            // Extract caption: use sanitized_html if available, otherwise body (only if different from filename)
+                            val caption = if (body != filename && body.isNotBlank()) {
+                                val localContent = event.localContent
+                                val sanitizedHtml = localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
+                                // Use sanitized_html if available and different from filename, otherwise use body
+                                if (sanitizedHtml != null && sanitizedHtml != filename) {
+                                    sanitizedHtml
+                                } else {
+                                    body
+                                }
+                            } else null
 
                             val mediaInfo =
                                 MediaInfo(
@@ -1441,7 +1467,12 @@ fun TimelineEventItem(
                                     height = height,
                                     size = size,
                                     mimeType = mimeType,
-                                    blurHash = blurHash
+                                    blurHash = blurHash,
+                                    thumbnailUrl = thumbnailUrl,
+                                    thumbnailBlurHash = thumbnailBlurHash,
+                                    thumbnailWidth = thumbnailWidth,
+                                    thumbnailHeight = thumbnailHeight,
+                                    duration = duration
                                 )
 
                             val mediaMessage =
@@ -1926,8 +1957,33 @@ fun TimelineEventItem(
                                         it.isNotBlank()
                                     }
 
-                                val caption =
-                                    if (body != filename && body.isNotBlank()) body else null
+                                // Extract thumbnail info for encrypted videos
+                                val thumbnailUrl = if (msgType == "m.video") {
+                                    info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+                                } else null
+                                
+                                val thumbnailInfo = if (msgType == "m.video") {
+                                    info.optJSONObject("thumbnail_info")
+                                } else null
+                                
+                                val thumbnailBlurHash = thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+                                val thumbnailWidth = thumbnailInfo?.optInt("w", 0)
+                                val thumbnailHeight = thumbnailInfo?.optInt("h", 0)
+                                val duration = if (msgType == "m.video") {
+                                    info.optInt("duration", 0).takeIf { it > 0 }
+                                } else null
+
+                                // Extract caption: use sanitized_html if available, otherwise body (only if different from filename)
+                                val caption = if (body != filename && body.isNotBlank()) {
+                                    val localContent = event.localContent
+                                    val sanitizedHtml = localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
+                                    // Use sanitized_html if available and different from filename, otherwise use body
+                                    if (sanitizedHtml != null && sanitizedHtml != filename) {
+                                        sanitizedHtml
+                                    } else {
+                                        body
+                                    }
+                                } else null
 
                                 val mediaInfo =
                                     MediaInfo(
@@ -1935,7 +1991,12 @@ fun TimelineEventItem(
                                         height = height,
                                         size = size,
                                         mimeType = mimeType,
-                                        blurHash = blurHash
+                                        blurHash = blurHash,
+                                        thumbnailUrl = thumbnailUrl,
+                                        thumbnailBlurHash = thumbnailBlurHash,
+                                        thumbnailWidth = thumbnailWidth,
+                                        thumbnailHeight = thumbnailHeight,
+                                        duration = duration
                                     )
 
                                 val mediaMessage =
