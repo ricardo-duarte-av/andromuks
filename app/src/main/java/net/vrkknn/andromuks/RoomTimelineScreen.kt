@@ -1188,7 +1188,7 @@ fun TimelineEventItem(
                     homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                     authToken = authToken,
                     fallbackText = (displayName ?: event.sender).take(1),
-                    size = 48.dp,
+                    size = 24.dp,
                     userId = event.sender,
                     displayName = displayName
                 )
@@ -1196,7 +1196,7 @@ fun TimelineEventItem(
             Spacer(modifier = Modifier.width(8.dp))
         } else if (!actualIsMine && isConsecutive) {
             // Add spacer to maintain alignment for consecutive messages
-            Spacer(modifier = Modifier.width(56.dp)) // 48dp avatar + 8dp spacer
+            Spacer(modifier = Modifier.width(32.dp)) // 24dp avatar + 8dp spacer
         }
 
         // Event content
@@ -2517,7 +2517,7 @@ fun RoomHeader(
         color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // Room avatar
@@ -2558,18 +2558,6 @@ fun RoomHeader(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = if (aliasOrId != null) 2.dp else 0.dp)
                 )
-
-                // Room topic (if available)
-                roomState?.topic?.let { topic ->
-                    Text(
-                        text = topic,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
             }
         }
     }
