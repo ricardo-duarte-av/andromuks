@@ -3186,17 +3186,11 @@ class AppViewModel : ViewModel() {
         // Process all events in the chain
         for ((eventId, entry) in eventChainMap) {
             if (entry.ourBubble != null) {
-                // Skip redaction events - they shouldn't appear as bubbles
-                if (entry.ourBubble?.type == "m.room.redaction") {
-                    android.util.Log.d("Andromuks", "AppViewModel: Skipping redaction event ${eventId} from timeline bubbles")
-                    continue
-                }
-                
                 // This is a regular event with a bubble
-                android.util.Log.d("Andromuks", "AppViewModel: Processing event ${eventId} with replacedBy: ${entry.replacedBy}")
+                android.util.Log.d("Andromuks", "AppViewModel: Processing event ${eventId} (type: ${entry.ourBubble?.type}) with replacedBy: ${entry.replacedBy}")
                 val finalEvent = getFinalEventForBubble(entry)
                 timelineEvents.add(finalEvent)
-                android.util.Log.d("Andromuks", "AppViewModel: Added bubble for ${eventId} with final content from ${entry.replacedBy ?: eventId}")
+                android.util.Log.d("Andromuks", "AppViewModel: Added event for ${eventId} with final content from ${entry.replacedBy ?: eventId}")
             }
         }
         

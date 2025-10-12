@@ -1026,8 +1026,11 @@ fun AdaptiveMessageText(
     onUserClick: (String) -> Unit = {},
     onMatrixUserClick: (String) -> Unit = onUserClick
 ) {
-    // Check if HTML rendering is supported and available
-    if (supportsHtmlRendering(event)) {
+    // For redacted messages, always use plain text to show the deletion message
+    val isRedacted = event.redactedBy != null
+    
+    // Check if HTML rendering is supported and available (and not redacted)
+    if (!isRedacted && supportsHtmlRendering(event)) {
         Log.d("Andromuks", "AdaptiveMessageText: Using HTML rendering for event ${event.eventId}")
         HtmlMessageText(
             event = event,
@@ -1038,16 +1041,19 @@ fun AdaptiveMessageText(
             onMatrixUserClick = onMatrixUserClick
         )
     } else {
-        // Fallback to SmartMessageText for plain text or when HTML is not available
-        Log.d("Andromuks", "AdaptiveMessageText: Using SmartMessageText for event ${event.eventId}")
-        SmartMessageText(
-            body = body,
-            format = format,
-            userProfileCache = userProfileCache,
-            homeserverUrl = homeserverUrl,
-            authToken = authToken,
-            appViewModel = appViewModel,
-            roomId = roomId,
+        // Fallback to plain text for redacted messages or when HTML is not available
+        if (isRedacted) {
+            Log.d("Andromuks", "AdaptiveMessageText: Using plain text for redacted event ${event.eventId}")
+        } else {
+            Log.d("Andromuks", "AdaptiveMessageText: Using SmartMessageText for event ${event.eventId}")
+        }
+        
+        // Show deletion message (in body parameter) or regular text
+        Text(
+            text = body,
+            style = MaterialTheme.typography.bodyMedium,
+            color = textColor,
+            fontStyle = if (isRedacted) FontStyle.Italic else FontStyle.Normal,
             modifier = modifier
         )
     }

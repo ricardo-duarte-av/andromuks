@@ -587,6 +587,12 @@ fun HtmlMessageText(
     color: Color = Color.Unspecified,
     onMatrixUserClick: (String) -> Unit = {}
 ) {
+    // Don't render HTML for redacted messages
+    // The parent composable should handle showing the deletion message
+    if (event.redactedBy != null) {
+        return
+    }
+    
     val context = LocalContext.current
     val sanitizedHtml = remember(event) {
         val sanitized = extractSanitizedHtml(event)
