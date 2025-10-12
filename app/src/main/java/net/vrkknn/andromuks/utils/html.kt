@@ -943,3 +943,157 @@ private fun AnnotatedString.Builder.endsWithWhitespace(): Boolean {
     return toString().last().isWhitespace()
 }
 
+/**
+ * Convert HTML message to styled SpannedString for Android notifications
+ * This provides basic HTML formatting support in notification text
+ */
+fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
+    return try {
+        // Decode HTML entities first
+        val decoded = decodeHtmlEntities(htmlContent)
+        
+        // Parse HTML into nodes
+        val nodes = HtmlParser.parse(decoded)
+        
+        // Convert to SpannableStringBuilder with styles
+        val builder = android.text.SpannableStringBuilder()
+        
+        fun appendNodeToSpannable(node: HtmlNode) {
+            when (node) {
+                is HtmlNode.Text -> builder.append(node.content)
+                is HtmlNode.LineBreak -> builder.append("\n")
+                is HtmlNode.Tag -> {
+                    val startIndex = builder.length
+                    
+                    when (node.name) {
+                        "strong", "b" -> {
+                            node.children.forEach { appendNodeToSpannable(it) }
+                            builder.setSpan(
+                                android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                                startIndex,
+                                builder.length,
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                        }
+                        "em", "i" -> {
+                            node.children.forEach { appendNodeToSpannable(it) }
+                            builder.setSpan(
+                                android.text.style.StyleSpan(android.graphics.Typeface.ITALIC),
+                                startIndex,
+                                builder.length,
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                        }
+                        "u" -> {
+                            node.children.forEach { appendNodeToSpannable(it) }
+                            builder.setSpan(
+                                android.text.style.UnderlineSpan(),
+                                startIndex,
+                                builder.length,
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                        }
+                        "s", "del" -> {
+                            node.children.forEach { appendNodeToSpannable(it) }
+                            builder.setSpan(
+                                android.text.style.StrikethroughSpan(),
+                                startIndex,
+                                builder.length,
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                        }
+                        "code" -> {
+                            node.children.forEach { appendNodeToSpannable(it) }
+                            builder.setSpan(
+                                android.text.style.TypefaceSpan("monospace"),
+                                startIndex,
+                                builder.length,
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                        }
+                        "br" -> builder.append("\n")
+                        "p", "div" -> {
+                            if (builder.isNotEmpty() && !builder.toString().endsWith("\n")) builder.append("\n")
+                            node.children.forEach { appendNodeToSpannable(it) }
+                            builder.append("\n")
+                        }
+                        "blockquote" -> {
+                            builder.append("\n> ")
+                            node.children.forEach { appendNodeToSpannable(it) }
+                            builder.append("\n")
+                        }
+                        "ul" -> {
+                            builder.append("\n")
+                            node.children.forEach { child ->
+                                if (child is HtmlNode.Tag && child.name == "li") {
+                                    builder.append("• ")
+                                    child.children.forEach { appendNodeToSpannable(it) }
+                                    builder.append("\n")
+                                }
+                            }
+                        }
+                        "ol" -> {
+                            builder.append("\n")
+                            var index = 1
+                            node.children.forEach { child ->
+                                if (child is HtmlNode.Tag && child.name == "li") {
+                                    builder.append("${index}. ")
+                                    child.children.forEach { appendNodeToSpannable(it) }
+                                    builder.append("\n")
+                                    index++
+                                }
+                            }
+                        }
+                        "a" -> {
+                            val href = node.attributes["href"] ?: ""
+                            node.children.forEach { appendNodeToSpannable(it) }
+                            if (href.isNotEmpty()) {
+                                builder.setSpan(
+                                    android.text.style.URLSpan(href),
+                                    startIndex,
+                                    builder.length,
+                                    android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                                )
+                            }
+                        }
+                        "img" -> {
+                            // For images in notifications, show alt text or a placeholder
+                            val alt = node.attributes["alt"] ?: node.attributes["title"] ?: "[Image]"
+                            builder.append(alt)
+                        }
+                        else -> {
+                            // For unsupported tags, just append children
+                            node.children.forEach { appendNodeToSpannable(it) }
+                        }
+                    }
+                }
+            }
+        }
+        
+        nodes.forEach { appendNodeToSpannable(it) }
+        
+        // Clean up multiple consecutive newlines
+        var result = builder.toString()
+        while (result.contains("\n\n\n")) {
+            result = result.replace("\n\n\n", "\n\n")
+        }
+        result = result.trim()
+        
+        // Return as SpannedString with preserved spans
+        android.text.SpannableString(result).also { spanned ->
+            builder.getSpans(0, builder.length, Any::class.java).forEach { span ->
+                val spanStart = builder.getSpanStart(span)
+                val spanEnd = builder.getSpanEnd(span)
+                val spanFlags = builder.getSpanFlags(span)
+                if (spanStart < result.length && spanEnd <= result.length) {
+                    spanned.setSpan(span, spanStart, spanEnd, spanFlags)
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Log.e("Andromuks", "htmlToNotificationText: Error converting HTML to notification text", e)
+        // Fallback to plain text
+        android.text.SpannableString(htmlContent)
+    }
+}
+

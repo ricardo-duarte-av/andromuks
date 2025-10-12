@@ -11,6 +11,7 @@ data class NotificationData(
     val senderDisplayName: String?,
     val roomName: String?,
     val body: String,
+    val htmlBody: String? = null,
     val type: String?,
     val avatarUrl: String?,
     val roomAvatarUrl: String?,
@@ -34,6 +35,7 @@ class NotificationDataParser {
                 val eventId = data["event_id"]
                 val sender = data["sender"] ?: return null
                 val body = data["body"] ?: data["text"] ?: ""
+                val htmlBody = data["html"]
                 
                 // Parse JSON fields if present
                 val senderDisplayName = data["sender_display_name"]
@@ -63,6 +65,7 @@ class NotificationDataParser {
                     senderDisplayName = senderDisplayName,
                     roomName = roomName,
                     body = body,
+                    htmlBody = htmlBody,
                     type = type,
                     avatarUrl = avatarUrl,
                     roomAvatarUrl = roomAvatarUrl,

@@ -29,6 +29,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.MediaCache
+import net.vrkknn.andromuks.utils.htmlToNotificationText
 import java.io.IOException
 import java.net.URL
 
@@ -167,19 +168,30 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 loadAvatarAsIcon(it) 
             } ?: IconCompat.createWithResource(context, R.drawable.ic_matrix_notification)
             
-            // Load room avatar for large icon
+            // Load room avatar bitmap for large icon
             val roomAvatarBitmap = notificationData.roomAvatarUrl?.let { 
                 loadAvatarBitmap(it) 
             }
             val circularRoomAvatar = roomAvatarBitmap?.let { createCircularBitmap(it) }
             
-            // Create conversation person (use room avatar for conversation, sender avatar for message)
+            // Load sender avatar bitmap
+            val senderAvatarBitmap = notificationData.avatarUrl?.let {
+                loadAvatarBitmap(it)
+            }
+            val circularSenderAvatar = senderAvatarBitmap?.let { createCircularBitmap(it) }
+
+            val me = Person.Builder()
+                .setName(localDisplayName)
+                .setKey("self")
+                .build()
+            
+            // Create conversation person WITHOUT icon (for MessagingStyle, we want individual message icons, not conversation icon)
             val conversationPerson = Person.Builder()
                 .setKey(notificationData.roomId)
                 .setName(notificationData.roomName ?: notificationData.roomId.substringAfterLast(":"))
-                .setIcon(roomAvatarIcon)
                 .build()
             
+            // Create message person WITH sender avatar icon for individual messages
             val messagePerson = Person.Builder()
                 .setKey(notificationData.sender)
                 .setName(notificationData.senderDisplayName ?: notificationData.sender.substringAfterLast(":"))
@@ -201,12 +213,24 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 null
             }
             
+            // Process message body - use HTML if available, otherwise fall back to plain text
+            val messageBody = if (!notificationData.htmlBody.isNullOrEmpty()) {
+                try {
+                    htmlToNotificationText(notificationData.htmlBody)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error converting HTML to notification text, falling back to plain text", e)
+                    notificationData.body
+                }
+            } else {
+                notificationData.body
+            }
+            
             val messagingStyle = if (hasImage && imageBitmap != null) {
                 // Create BigPictureStyle for image notifications
                 NotificationCompat.BigPictureStyle()
                     .bigPicture(imageBitmap)
                     .setBigContentTitle(if (isGroupRoom) notificationData.roomName else notificationData.senderDisplayName)
-                    .setSummaryText(notificationData.body)
+                    .setSummaryText(messageBody)
             } else {
                 // Create MessagingStyle for text notifications
                 (systemNotificationManager.activeNotifications.lastOrNull { it.id == notifID }?.let {
@@ -217,7 +241,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     )
                     .addMessage(
                         MessagingStyle.Message(
-                            notificationData.body,
+                            messageBody,
                             notificationData.timestamp ?: System.currentTimeMillis(),
                             if (isGroupRoom) messagePerson else null
                         )
@@ -263,9 +287,18 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 }.build()
             } else null
             
+            // Determine which icon to use for large icon
+            // For DMs: Use sender avatar
+            // For groups: Use room avatar if available, otherwise app icon
+            val largeIconBitmap = when {
+                !isGroupRoom && circularSenderAvatar != null -> circularSenderAvatar
+                isGroupRoom && circularRoomAvatar != null -> circularRoomAvatar
+                else -> null // Will use app icon by default
+            }
+            
             // Create main notification
             val notification = NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(R.drawable.matrix)
+                .setSmallIcon(R.drawable.matrix) // Minimized icon in status bar
                 .setStyle(messagingStyle)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setContentIntent(createRoomIntent(notificationData))
@@ -276,8 +309,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setGroup(notificationData.roomId) // Group by room
                 .setGroupSummary(false)
                 .setShortcutId(notificationData.roomId) // Link to the room shortcut for per-room settings
-                .setLargeIcon(circularRoomAvatar)
                 .apply {
+                    // Set large icon (shown on left when expanded)
+                    // For groups: room avatar. For DMs: sender avatar
+                    if (largeIconBitmap != null) {
+                        setLargeIcon(largeIconBitmap)
+                    }
+                    
                     // Store event_id in extras for later retrieval
                     if (notificationData.eventId != null) {
                         addExtras(android.os.Bundle().apply {
@@ -362,8 +400,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             .setLabel("Reply")
             .build()
         
-        val replyIntent = Intent("net.vrkknn.andromuks.ACTION_REPLY").apply {
-            setPackage(context.packageName)
+        val replyIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+            action = NotificationActionReceiver.ACTION_REPLY
             putExtra("room_id", data.roomId)
             putExtra("event_id", data.eventId)
         }
@@ -396,8 +434,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     private fun createMarkReadAction(data: NotificationData): NotificationCompat.Action {
         Log.d(TAG, "createMarkReadAction: Creating mark read action for room: ${data.roomId}, event: ${data.eventId}")
         
-        val markReadIntent = Intent("net.vrkknn.andromuks.ACTION_MARK_READ").apply {
-            setPackage(context.packageName)
+        val markReadIntent = Intent(context, NotificationActionReceiver::class.java).apply {
+            action = NotificationActionReceiver.ACTION_MARK_READ
             putExtra("room_id", data.roomId)
             putExtra("event_id", data.eventId)
         }

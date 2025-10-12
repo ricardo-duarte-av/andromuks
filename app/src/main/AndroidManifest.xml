@@ -75,6 +75,17 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Notification Action Receiver -->
+        <receiver
+            android:name=".NotificationActionReceiver"
+            android:exported="false"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="net.vrkknn.andromuks.ACTION_REPLY" />
+                <action android:name="net.vrkknn.andromuks.ACTION_MARK_READ" />
+            </intent-filter>
+        </receiver>
+
 
         <!-- Default notification icon -->
         <meta-data

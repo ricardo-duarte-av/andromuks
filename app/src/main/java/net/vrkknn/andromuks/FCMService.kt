@@ -196,6 +196,7 @@ class FCMService : FirebaseMessagingService() {
                 val eventId = message.optString("event_id", "")
                 val roomName = message.optString("room_name", roomId)
                 val text = message.optString("text", "New message")
+                val htmlText = message.optString("html", null)
                 val timestamp = message.optLong("timestamp", System.currentTimeMillis())
                 val sound = message.optBoolean("sound", true)
                 
@@ -229,6 +230,7 @@ class FCMService : FirebaseMessagingService() {
                     senderDisplayName = senderDisplayName,
                     roomName = roomName,
                     body = text,
+                    htmlBody = htmlText,
                     type = if (isDirectMessage) "dm" else "group",
                     avatarUrl = avatarUrl,
                     roomAvatarUrl = roomAvatarUrl,

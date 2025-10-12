@@ -233,6 +233,58 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         
+        // Handle notification actions from NotificationActionReceiver
+        when (intent.action) {
+            "net.vrkknn.andromuks.INTERNAL_REPLY" -> {
+                val roomId = intent.getStringExtra("room_id")
+                val replyText = intent.getStringExtra("reply_text")
+                Log.d("Andromuks", "MainActivity: INTERNAL_REPLY - roomId: $roomId, replyText: $replyText")
+                
+                if (roomId != null && replyText != null && ::appViewModel.isInitialized) {
+                    appViewModel.sendMessageFromNotification(roomId, replyText) {
+                        Log.d("Andromuks", "MainActivity: Internal reply completed")
+                        // Update notification
+                        try {
+                            val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                            val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                            val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                            
+                            if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                                val enhancedNotificationDisplay = EnhancedNotificationDisplay(this, homeserverUrl, authToken)
+                                enhancedNotificationDisplay.updateNotificationWithReply(roomId, replyText)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("Andromuks", "MainActivity: Error updating notification with reply", e)
+                        }
+                    }
+                }
+            }
+            "net.vrkknn.andromuks.INTERNAL_MARK_READ" -> {
+                val roomId = intent.getStringExtra("room_id")
+                val eventId = intent.getStringExtra("event_id")
+                Log.d("Andromuks", "MainActivity: INTERNAL_MARK_READ - roomId: $roomId, eventId: $eventId")
+                
+                if (roomId != null && ::appViewModel.isInitialized) {
+                    appViewModel.markRoomAsReadFromNotification(roomId, eventId ?: "") {
+                        Log.d("Andromuks", "MainActivity: Internal mark read completed")
+                        // Update notification
+                        try {
+                            val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                            val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                            val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                            
+                            if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                                val enhancedNotificationDisplay = EnhancedNotificationDisplay(this, homeserverUrl, authToken)
+                                enhancedNotificationDisplay.updateNotificationAsRead(roomId)
+                            }
+                        } catch (e: Exception) {
+                            Log.e("Andromuks", "MainActivity: Error updating notification as read", e)
+                        }
+                    }
+                }
+            }
+        }
+        
         // Handle room navigation from notification clicks or matrix: URIs
         val roomId = intent.getStringExtra("room_id")
         val matrixUri = intent.data
