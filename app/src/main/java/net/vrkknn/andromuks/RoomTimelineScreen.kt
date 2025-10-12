@@ -968,7 +968,7 @@ fun formatTimestamp(timestamp: Long): String {
 }
 
 @Composable
-fun ColumnScope.InlineBubbleTimestamp(
+fun InlineBubbleTimestamp(
     timestamp: Long,
     editedBy: TimelineEvent? = null,
     isMine: Boolean,
@@ -979,14 +979,13 @@ fun ColumnScope.InlineBubbleTimestamp(
         Text(
             text =
                 if (editedBy != null) {
-                    "${formatTimestamp(timestamp)} (edited)"
+                    " ${formatTimestamp(timestamp)} (edited)"
                 } else {
-                    formatTimestamp(timestamp)
+                    " ${formatTimestamp(timestamp)}"
                 },
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
             fontStyle = FontStyle.Italic,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            modifier = Modifier.padding(top = 2.dp)
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
         )
     }
 }
@@ -1342,17 +1341,17 @@ fun TimelineEventItem(
                             val bubbleShape =
                                 if (actualIsMine) {
                                     RoundedCornerShape(
-                                        topStart = 16.dp,
+                                        topStart = 12.dp,
                                         topEnd = 2.dp,
-                                        bottomEnd = 16.dp,
-                                        bottomStart = 16.dp
+                                        bottomEnd = 12.dp,
+                                        bottomStart = 12.dp
                                     )
                                 } else {
                                     RoundedCornerShape(
                                         topStart = 2.dp,
-                                        topEnd = 16.dp,
-                                        bottomEnd = 16.dp,
-                                        bottomStart = 16.dp
+                                        topEnd = 12.dp,
+                                        bottomEnd = 12.dp,
+                                        bottomStart = 12.dp
                                     )
                                 }
 
@@ -1381,7 +1380,7 @@ fun TimelineEventItem(
                                         fontStyle =
                                             FontStyle.Italic, // Make deletion messages italic
                                         modifier =
-                                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                            Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                     )
                                 }
                             }
@@ -1513,16 +1512,16 @@ fun TimelineEventItem(
                             val bubbleShape =
                                 if (actualIsMine) {
                                     RoundedCornerShape(
-                                        topStart = 16.dp,
+                                        topStart = 12.dp,
                                         topEnd = 2.dp,
                                         bottomEnd = 8.dp,
-                                        bottomStart = 16.dp
+                                        bottomStart = 12.dp
                                     )
                                 } else {
                                     RoundedCornerShape(
                                         topStart = 2.dp,
-                                        topEnd = 16.dp,
-                                        bottomEnd = 16.dp,
+                                        topEnd = 12.dp,
+                                        bottomEnd = 12.dp,
                                         bottomStart = 8.dp
                                     )
                                 }
@@ -1549,7 +1548,7 @@ fun TimelineEventItem(
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = textColor,
                                         modifier =
-                                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                            Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                     )
                                 }
                             }
@@ -1559,17 +1558,17 @@ fun TimelineEventItem(
                         val bubbleShape =
                             if (actualIsMine) {
                                 RoundedCornerShape(
-                                    topStart = 16.dp,
+                                    topStart = 12.dp,
                                     topEnd = 2.dp,
-                                    bottomEnd = 16.dp,
-                                    bottomStart = 16.dp
+                                    bottomEnd = 12.dp,
+                                    bottomStart = 12.dp
                                 )
                             } else {
                                 RoundedCornerShape(
                                     topStart = 2.dp,
-                                    topEnd = 16.dp,
-                                    bottomEnd = 16.dp,
-                                    bottomStart = 16.dp
+                                    topEnd = 12.dp,
+                                    bottomEnd = 12.dp,
+                                    bottomStart = 12.dp
                                 )
                             }
                         val bubbleColor =
@@ -1612,7 +1611,7 @@ fun TimelineEventItem(
                                     onDelete = { onDelete(event) }
                                 ) {
                                     Column(
-                                        modifier = Modifier.padding(12.dp),
+                                        modifier = Modifier.padding(8.dp),
                                         horizontalAlignment =
                                             if (actualIsMine) Alignment.Start else Alignment.End
                                     ) {
@@ -1634,29 +1633,35 @@ fun TimelineEventItem(
                                             onMatrixUserClick = onUserClick
                                         )
 
-                                        // Reply message content (directly in the outer bubble, no
-                                        // separate bubble)
-                                        AdaptiveMessageText(
-                                            event = event,
-                                            body = finalBody,
-                                            format = format,
-                                            userProfileCache = userProfileCache,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            appViewModel = appViewModel,
-                                            roomId = event.roomId,
-                                            textColor = textColor,
-                                            modifier = Modifier.align(Alignment.Start),
-                                            onUserClick = onUserClick,
-                                            onMatrixUserClick = onUserClick
-                                        )
-
-                                        InlineBubbleTimestamp(
-                                            timestamp = event.timestamp,
-                                            editedBy = editedBy,
-                                            isMine = actualIsMine,
-                                            isConsecutive = isConsecutive
-                                        )
+                                        // Reply message content with inline timestamp
+                                        Box {
+                                            // Text with extra padding at the end for timestamp
+                                            AdaptiveMessageText(
+                                                event = event,
+                                                body = finalBody,
+                                                format = format,
+                                                userProfileCache = userProfileCache,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                appViewModel = appViewModel,
+                                                roomId = event.roomId,
+                                                textColor = textColor,
+                                                modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
+                                                onUserClick = onUserClick,
+                                                onMatrixUserClick = onUserClick
+                                            )
+                                            // Timestamp positioned at bottom-end
+                                            Box(
+                                                modifier = Modifier.align(Alignment.BottomEnd)
+                                            ) {
+                                                InlineBubbleTimestamp(
+                                                    timestamp = event.timestamp,
+                                                    editedBy = editedBy,
+                                                    isMine = actualIsMine,
+                                                    isConsecutive = isConsecutive
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             } else {
@@ -1671,12 +1676,10 @@ fun TimelineEventItem(
                                     onEdit = { onEdit(event) },
                                     onDelete = { onDelete(event) }
                                 ) {
-                                    Column(
-                                        modifier =
-                                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                        horizontalAlignment =
-                                            if (actualIsMine) Alignment.Start else Alignment.End
+                                    Box(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                     ) {
+                                        // Text with extra padding at the end for timestamp
                                         AdaptiveMessageText(
                                             event = event,
                                             body = finalBody,
@@ -1687,16 +1690,21 @@ fun TimelineEventItem(
                                             appViewModel = appViewModel,
                                             roomId = event.roomId,
                                             textColor = textColor,
-                                            modifier = Modifier.align(Alignment.Start),
+                                            modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
                                             onUserClick = onUserClick,
                                             onMatrixUserClick = onUserClick
                                         )
-                                        InlineBubbleTimestamp(
-                                            timestamp = event.timestamp,
-                                            editedBy = editedBy,
-                                            isMine = actualIsMine,
-                                            isConsecutive = isConsecutive
-                                        )
+                                        // Timestamp positioned at bottom-end
+                                        Box(
+                                            modifier = Modifier.align(Alignment.BottomEnd)
+                                        ) {
+                                            InlineBubbleTimestamp(
+                                                timestamp = event.timestamp,
+                                                editedBy = editedBy,
+                                                isMine = actualIsMine,
+                                                isConsecutive = isConsecutive
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1995,16 +2003,16 @@ fun TimelineEventItem(
                                 val bubbleShape =
                                     if (actualIsMine) {
                                         RoundedCornerShape(
-                                            topStart = 16.dp,
+                                            topStart = 12.dp,
                                             topEnd = 2.dp,
                                             bottomEnd = 8.dp,
-                                            bottomStart = 16.dp
+                                            bottomStart = 12.dp
                                         )
                                     } else {
                                         RoundedCornerShape(
                                             topStart = 2.dp,
-                                            topEnd = 16.dp,
-                                            bottomEnd = 16.dp,
+                                            topEnd = 12.dp,
+                                            bottomEnd = 12.dp,
                                             bottomStart = 8.dp
                                         )
                                     }
@@ -2037,8 +2045,8 @@ fun TimelineEventItem(
                                             color = textColor,
                                             modifier =
                                                 Modifier.padding(
-                                                    horizontal = 12.dp,
-                                                    vertical = 8.dp
+                                                    horizontal = 8.dp,
+                                                    vertical = 6.dp
                                                 )
                                         )
                                     }
@@ -2070,16 +2078,16 @@ fun TimelineEventItem(
                             val bubbleShape =
                                 if (actualIsMine) {
                                     RoundedCornerShape(
-                                        topStart = 16.dp,
+                                        topStart = 12.dp,
                                         topEnd = 2.dp,
                                         bottomEnd = 8.dp,
-                                        bottomStart = 16.dp
+                                        bottomStart = 12.dp
                                     )
                                 } else {
                                     RoundedCornerShape(
                                         topStart = 2.dp,
-                                        topEnd = 16.dp,
-                                        bottomEnd = 16.dp,
+                                        topEnd = 12.dp,
+                                        bottomEnd = 12.dp,
                                         bottomStart = 8.dp
                                     )
                                 }
@@ -2123,7 +2131,7 @@ fun TimelineEventItem(
                                         onDelete = { onDelete(event) }
                                     ) {
                                         Column(
-                                            modifier = Modifier.padding(12.dp),
+                                            modifier = Modifier.padding(8.dp),
                                             horizontalAlignment =
                                                 if (actualIsMine) Alignment.Start else Alignment.End
                                         ) {
@@ -2145,49 +2153,54 @@ fun TimelineEventItem(
                                                 onMatrixUserClick = onUserClick
                                             )
 
-                                            // Reply message content (directly in the outer bubble,
-                                            // no separate bubble)
-                                            // For encrypted messages, show deletion message if
-                                            // redacted, otherwise show content
-                                            if (isRedacted) {
-                                                Text(
-                                                    text =
-                                                        net.vrkknn.andromuks.utils.RedactionUtils
-                                                            .createDeletionMessage(
-                                                                redactionSender,
-                                                                redactionReason,
-                                                                redactionEvent?.timestamp,
-                                                                userProfileCache
-                                                            ),
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color =
-                                                        MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    fontStyle = FontStyle.Italic,
-                                                    modifier = Modifier.align(Alignment.Start)
-                                                )
-                                            } else {
-                                                AdaptiveMessageText(
-                                                    event = event,
-                                                    body = finalBody,
-                                                    format = format,
-                                                    userProfileCache = userProfileCache,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    appViewModel = appViewModel,
-                                                    roomId = event.roomId,
-                                                    textColor = textColor,
-                                                    modifier = Modifier.align(Alignment.Start),
-                                                    onUserClick = onUserClick,
-                                                    onMatrixUserClick = onUserClick
-                                                )
+                                            // Reply message content with inline timestamp
+                                            Box {
+                                                // For encrypted messages, show deletion message if
+                                                // redacted, otherwise show content
+                                                if (isRedacted) {
+                                                    Text(
+                                                        text =
+                                                            net.vrkknn.andromuks.utils.RedactionUtils
+                                                                .createDeletionMessage(
+                                                                    redactionSender,
+                                                                    redactionReason,
+                                                                    redactionEvent?.timestamp,
+                                                                    userProfileCache
+                                                                ),
+                                                        style = MaterialTheme.typography.bodyMedium,
+                                                        color =
+                                                            MaterialTheme.colorScheme.onSurfaceVariant,
+                                                        fontStyle = FontStyle.Italic,
+                                                        modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier
+                                                    )
+                                                } else {
+                                                    AdaptiveMessageText(
+                                                        event = event,
+                                                        body = finalBody,
+                                                        format = format,
+                                                        userProfileCache = userProfileCache,
+                                                        homeserverUrl = homeserverUrl,
+                                                        authToken = authToken,
+                                                        appViewModel = appViewModel,
+                                                        roomId = event.roomId,
+                                                        textColor = textColor,
+                                                        modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
+                                                        onUserClick = onUserClick,
+                                                        onMatrixUserClick = onUserClick
+                                                    )
+                                                }
+                                                // Timestamp positioned at bottom-end
+                                                Box(
+                                                    modifier = Modifier.align(Alignment.BottomEnd)
+                                                ) {
+                                                    InlineBubbleTimestamp(
+                                                        timestamp = event.timestamp,
+                                                        editedBy = editedBy,
+                                                        isMine = actualIsMine,
+                                                        isConsecutive = isConsecutive
+                                                    )
+                                                }
                                             }
-
-                                            InlineBubbleTimestamp(
-                                                timestamp = event.timestamp,
-                                                editedBy = editedBy,
-                                                isMine = actualIsMine,
-                                                isConsecutive = isConsecutive
-                                            )
                                         }
                                     }
                                 } else {
@@ -2203,14 +2216,8 @@ fun TimelineEventItem(
                                         onEdit = { onEdit(event) },
                                         onDelete = { onDelete(event) }
                                     ) {
-                                        Column(
-                                            modifier =
-                                                Modifier.padding(
-                                                    horizontal = 12.dp,
-                                                    vertical = 8.dp
-                                                ),
-                                            horizontalAlignment =
-                                                if (actualIsMine) Alignment.Start else Alignment.End
+                                        Box(
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                         ) {
                                             // For encrypted messages, show deletion message if
                                             // redacted, otherwise show content
@@ -2228,7 +2235,7 @@ fun TimelineEventItem(
                                                     color =
                                                         MaterialTheme.colorScheme.onSurfaceVariant,
                                                     fontStyle = FontStyle.Italic,
-                                                    modifier = Modifier.align(Alignment.Start)
+                                                    modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier
                                                 )
                                             } else {
                                                 AdaptiveMessageText(
@@ -2241,18 +2248,22 @@ fun TimelineEventItem(
                                                     appViewModel = appViewModel,
                                                     roomId = event.roomId,
                                                     textColor = textColor,
-                                                    modifier = Modifier.align(Alignment.Start),
+                                                    modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
                                                     onUserClick = onUserClick,
                                                     onMatrixUserClick = onUserClick
                                                 )
                                             }
-
-                                            InlineBubbleTimestamp(
-                                                timestamp = event.timestamp,
-                                                editedBy = editedBy,
-                                                isMine = actualIsMine,
-                                                isConsecutive = isConsecutive
-                                            )
+                                            // Timestamp positioned at bottom-end
+                                            Box(
+                                                modifier = Modifier.align(Alignment.BottomEnd)
+                                            ) {
+                                                InlineBubbleTimestamp(
+                                                    timestamp = event.timestamp,
+                                                    editedBy = editedBy,
+                                                    isMine = actualIsMine,
+                                                    isConsecutive = isConsecutive
+                                                )
+                                            }
                                         }
                                     }
                                 }

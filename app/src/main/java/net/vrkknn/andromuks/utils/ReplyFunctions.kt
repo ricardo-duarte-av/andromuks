@@ -141,7 +141,7 @@ fun ReplyPreview(
         tonalElevation = 2.dp
     ) {
         Column(
-            modifier = Modifier.padding(8.dp)
+            modifier = Modifier.padding(4.dp)
         ) {
             // Nested bubble for original message (clickable) - optimized spacing
             Surface(
@@ -157,7 +157,7 @@ fun ReplyPreview(
                 tonalElevation = 1.dp
             ) {
                 Column(
-                    modifier = Modifier.padding(8.dp)
+                    modifier = Modifier.padding(6.dp)
                 ) {
                     // Sender name
                     Text(
