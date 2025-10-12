@@ -138,16 +138,16 @@ object ReceiptFunctions {
         eventId: String,
         readReceiptsMap: Map<String, List<ReadReceipt>>
     ): List<ReadReceipt> {
-        Log.d("Andromuks", "ReceiptFunctions: getReadReceipts called for eventId: $eventId")
-        Log.d("Andromuks", "ReceiptFunctions: readReceiptsMap contains ${readReceiptsMap.size} events")
-        Log.d("ReceiptFunctions", "ReceiptFunctions: Available event IDs: ${readReceiptsMap.keys.joinToString(", ")}")
+        //Log.d("Andromuks", "ReceiptFunctions: getReadReceipts called for eventId: $eventId")
+        //Log.d("Andromuks", "ReceiptFunctions: readReceiptsMap contains ${readReceiptsMap.size} events")
+        //Log.d("ReceiptFunctions", "ReceiptFunctions: Available event IDs: ${readReceiptsMap.keys.joinToString(", ")}")
         
         val receipts = readReceiptsMap[eventId] ?: emptyList()
-        Log.d("Andromuks", "ReceiptFunctions: getReadReceipts($eventId) -> ${receipts.size} receipts")
+        //Log.d("Andromuks", "ReceiptFunctions: getReadReceipts($eventId) -> ${receipts.size} receipts")
         
-        if (receipts.isEmpty()) {
-            Log.d("Andromuks", "ReceiptFunctions: Available receipt event IDs: ${readReceiptsMap.keys.joinToString(", ")}")
-        }
+        //if (receipts.isEmpty()) {
+        //    Log.d("Andromuks", "ReceiptFunctions: Available receipt event IDs: ${readReceiptsMap.keys.joinToString(", ")}")
+        //}
         
         return receipts
     }

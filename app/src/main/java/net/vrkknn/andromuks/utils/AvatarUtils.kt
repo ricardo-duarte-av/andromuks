@@ -143,7 +143,7 @@ object AvatarUtils {
         }
         
         if (cachedFile != null) {
-            Log.d("Andromuks", "AvatarUtils: Using cached file for $mxcUrl")
+            //Log.d("Andromuks", "AvatarUtils: Using cached file for $mxcUrl")
             return cachedFile.absolutePath
         }
         
@@ -160,7 +160,7 @@ object AvatarUtils {
             
             when (val result = imageLoader.execute(request)) {
                 is SuccessResult -> {
-                    Log.d("Andromuks", "AvatarUtils: Successfully loaded avatar from $httpUrl")
+                    //Log.d("Andromuks", "AvatarUtils: Successfully loaded avatar from $httpUrl")
                     // Download and cache for future use
                     if (mxcUrl != null) {
                         MediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)

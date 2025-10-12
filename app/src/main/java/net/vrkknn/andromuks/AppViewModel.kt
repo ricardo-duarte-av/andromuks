@@ -2865,11 +2865,36 @@ class AppViewModel : ViewModel() {
                     }
                 }
             } else if (event.type == "m.room.redaction") {
-                // Handle redaction events
-                android.util.Log.d("Andromuks", "AppViewModel: Processing redaction event ${event.eventId} from ${event.sender}")
+                // Handle redaction events (live sync path)
+                android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processing redaction event ${event.eventId} from ${event.sender}")
                 
                 // Add redaction event to timeline so findLatestRedactionEvent can find it
                 addNewEventToChain(event)
+                
+                // Extract the event ID being redacted
+                val redactsEventId = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                
+                if (redactsEventId != null) {
+                    android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Redaction targets event: $redactsEventId")
+                    
+                    // Find and update the original message in the timeline
+                    val currentEvents = timelineEvents.toMutableList()
+                    val originalIndex = currentEvents.indexOfFirst { it.eventId == redactsEventId }
+                    
+                    if (originalIndex >= 0) {
+                        val originalEvent = currentEvents[originalIndex]
+                        // Create a copy with redactedBy set
+                        val redactedEvent = originalEvent.copy(redactedBy = event.eventId)
+                        currentEvents[originalIndex] = redactedEvent
+                        timelineEvents = currentEvents
+                        
+                        android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Marked event $redactsEventId as redacted by ${event.eventId}")
+                    } else {
+                        android.util.Log.w("Andromuks", "AppViewModel: [LIVE SYNC] Could not find event $redactsEventId to mark as redacted (might be in paginated history)")
+                    }
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: [LIVE SYNC] Redaction event has no 'redacts' field")
+                }
                 
                 // Request sender profile if missing from cache
                 if (!memberMap.containsKey(event.sender)) {
@@ -3161,11 +3186,41 @@ class AppViewModel : ViewModel() {
         // Process all events in the chain
         for ((eventId, entry) in eventChainMap) {
             if (entry.ourBubble != null) {
+                // Skip redaction events - they shouldn't appear as bubbles
+                if (entry.ourBubble?.type == "m.room.redaction") {
+                    android.util.Log.d("Andromuks", "AppViewModel: Skipping redaction event ${eventId} from timeline bubbles")
+                    continue
+                }
+                
                 // This is a regular event with a bubble
                 android.util.Log.d("Andromuks", "AppViewModel: Processing event ${eventId} with replacedBy: ${entry.replacedBy}")
                 val finalEvent = getFinalEventForBubble(entry)
                 timelineEvents.add(finalEvent)
                 android.util.Log.d("Andromuks", "AppViewModel: Added bubble for ${eventId} with final content from ${entry.replacedBy ?: eventId}")
+            }
+        }
+        
+        // Process redactions - mark events as redacted
+        android.util.Log.d("Andromuks", "AppViewModel: Processing redactions from eventChainMap")
+        for ((eventId, entry) in eventChainMap) {
+            val redactionEvent = entry.ourBubble
+            if (redactionEvent != null && redactionEvent.type == "m.room.redaction") {
+                val redactsEventId = redactionEvent.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                
+                if (redactsEventId != null) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Found redaction ${redactionEvent.eventId} targeting $redactsEventId")
+                    
+                    // Find and mark the target event as redacted
+                    val targetIndex = timelineEvents.indexOfFirst { it.eventId == redactsEventId }
+                    if (targetIndex >= 0) {
+                        val targetEvent = timelineEvents[targetIndex]
+                        val redactedEvent = targetEvent.copy(redactedBy = redactionEvent.eventId)
+                        timelineEvents[targetIndex] = redactedEvent
+                        android.util.Log.d("Andromuks", "AppViewModel: Marked event $redactsEventId as redacted by ${redactionEvent.eventId}")
+                    } else {
+                        android.util.Log.w("Andromuks", "AppViewModel: Could not find target event $redactsEventId for redaction")
+                    }
+                }
             }
         }
         
@@ -3180,11 +3235,35 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: mergePaginationEvents called with ${newEvents.size} new events")
         android.util.Log.d("Andromuks", "AppViewModel: Current timeline has ${timelineEvents.size} events")
         
-        // Add new events to existing timeline
-        val currentEvents = timelineEvents.toMutableList()
-        currentEvents.addAll(newEvents)
+        // Separate redactions from regular events
+        val redactionEvents = newEvents.filter { it.type == "m.room.redaction" }
+        val regularEvents = newEvents.filter { it.type != "m.room.redaction" }
         
-        android.util.Log.d("Andromuks", "AppViewModel: Combined timeline has ${currentEvents.size} events before sorting")
+        // Add regular events to existing timeline
+        val currentEvents = timelineEvents.toMutableList()
+        currentEvents.addAll(regularEvents)
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Combined timeline has ${currentEvents.size} events before sorting (${redactionEvents.size} redactions to process)")
+        
+        // Process redactions from paginated events
+        for (redactionEvent in redactionEvents) {
+            val redactsEventId = redactionEvent.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+            
+            if (redactsEventId != null) {
+                android.util.Log.d("Andromuks", "AppViewModel: Pagination redaction ${redactionEvent.eventId} targets $redactsEventId")
+                
+                // Find and mark the target event as redacted
+                val targetIndex = currentEvents.indexOfFirst { it.eventId == redactsEventId }
+                if (targetIndex >= 0) {
+                    val targetEvent = currentEvents[targetIndex]
+                    val redactedEvent = targetEvent.copy(redactedBy = redactionEvent.eventId)
+                    currentEvents[targetIndex] = redactedEvent
+                    android.util.Log.d("Andromuks", "AppViewModel: Marked paginated event $redactsEventId as redacted by ${redactionEvent.eventId}")
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: Could not find target event $redactsEventId for pagination redaction")
+                }
+            }
+        }
         
         // Sort chronologically by timestamp
         this.timelineEvents = currentEvents.sortedBy { it.timestamp }
@@ -3715,7 +3794,7 @@ class AppViewModel : ViewModel() {
         json.put("request_id", requestId)
         json.put("data", org.json.JSONObject(data))
         val jsonString = json.toString()
-        android.util.Log.d("Andromuks", "AppViewModel: Sending command: $jsonString")
+        //android.util.Log.d("Andromuks", "AppViewModel: Sending command: $jsonString")
         ws.send(jsonString)
     }
     

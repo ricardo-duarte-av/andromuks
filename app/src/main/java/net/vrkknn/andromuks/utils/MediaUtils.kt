@@ -45,7 +45,7 @@ object MediaUtils {
                 httpUrl.lowercase()
             }
             
-            Log.d("Andromuks", "MediaUtils: Converted MXC URL: $mxcUrl -> $sanitizedUrl")
+            //Log.d("Andromuks", "MediaUtils: Converted MXC URL: $mxcUrl -> $sanitizedUrl")
             return sanitizedUrl
             
         } catch (e: Exception) {
@@ -97,7 +97,7 @@ object MediaUtils {
                 httpUrl.lowercase()
             }
             
-            Log.d("Andromuks", "MediaUtils: Converted MXC URL to thumbnail: $mxcUrl -> $sanitizedUrl")
+            //Log.d("Andromuks", "MediaUtils: Converted MXC URL to thumbnail: $mxcUrl -> $sanitizedUrl")
             return sanitizedUrl
             
         } catch (e: Exception) {

@@ -165,7 +165,7 @@ fun connectToWebsocket(
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            Log.d("Andromuks", "NetworkUtils: WebSocket TextMessage: $text")
+            //Log.d("Andromuks", "NetworkUtils: WebSocket TextMessage: $text")
             val jsonObject = try { JSONObject(text) } catch (e: Exception) { null }
             if (jsonObject != null) {
                 // Track last received request_id for ping purposes
