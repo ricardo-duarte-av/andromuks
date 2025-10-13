@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Media cache directory for avatar content URIs -->
+    <cache-path name="media_cache" path="media_cache/" />
+</paths>
+

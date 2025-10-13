@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontStyle
 import androidx.navigation.NavController
@@ -384,13 +386,25 @@ fun ChatBubbleScreen(
                             .weight(1f)
                             .fillMaxWidth(),
                         state = listState,
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(
                             horizontal = 16.dp,
                             vertical = 8.dp
                         )
                     ) {
-                        items(sortedEvents) { event ->
+                        itemsIndexed(sortedEvents) { index, event ->
+                            // Check if this is a consecutive message from the same sender
+                            val previousEvent = if (index > 0) sortedEvents[index - 1] else null
+                            
+                            // Check if current event has per-message profile (from bridges like Beeper)
+                            // These should always show avatar/name even if from same Matrix user
+                            val hasPerMessageProfile =
+                                event.content?.has("com.beeper.per_message_profile") == true ||
+                                event.decrypted?.has("com.beeper.per_message_profile") == true
+                            
+                            val isConsecutive =
+                                !hasPerMessageProfile &&
+                                previousEvent?.sender == event.sender
+                            
                             ChatBubbleEventItem(
                                 event = event,
                                 timelineEvents = timelineEvents,
@@ -399,6 +413,7 @@ fun ChatBubbleScreen(
                                 userProfileCache = appViewModel.getMemberMap(roomId),
                                 isMine = myUserId != null && event.sender == myUserId,
                                 myUserId = myUserId,
+                                isConsecutive = isConsecutive,
                                 appViewModel = appViewModel
                             )
                         }
@@ -487,6 +502,26 @@ private fun formatChatBubbleTimestamp(timestamp: Long): String {
 }
 
 /**
+ * Inline timestamp displayed inside bubble for consecutive messages
+ */
+@Composable
+fun InlineBubbleTimestamp(
+    timestamp: Long,
+    isMine: Boolean,
+    isConsecutive: Boolean
+) {
+    // Only show timestamp inside bubble for consecutive messages
+    if (isConsecutive) {
+        Text(
+            text = " ${formatChatBubbleTimestamp(timestamp)}",
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+            fontStyle = FontStyle.Italic,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+        )
+    }
+}
+
+/**
  * Simplified event item for chat bubbles
  */
 @Composable
@@ -498,6 +533,7 @@ fun ChatBubbleEventItem(
     userProfileCache: Map<String, MemberProfile>,
     isMine: Boolean,
     myUserId: String?,
+    isConsecutive: Boolean = false,
     appViewModel: AppViewModel? = null
 ) {
     val context = LocalContext.current
@@ -548,26 +584,30 @@ fun ChatBubbleEventItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 2.dp),
         verticalAlignment = Alignment.Top
     ) {
-        if (!actualIsMine) {
+        // Show avatar only for non-consecutive messages
+        if (!actualIsMine && !isConsecutive) {
             AvatarImage(
                 mxcUrl = avatarUrl,
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
                 fallbackText = (displayName ?: event.sender).take(1),
-                size = 40.dp,
+                size = 24.dp,
                 userId = event.sender,
                 displayName = displayName
             )
             Spacer(modifier = Modifier.width(8.dp))
+        } else if (!actualIsMine && isConsecutive) {
+            // Add spacer to maintain alignment for consecutive messages
+            Spacer(modifier = Modifier.width(32.dp)) // 24dp avatar + 8dp spacer
         }
         
         // Event content
         Column(modifier = Modifier.weight(1f)) {
-            // Sender name and timestamp
-            if (!actualIsMine) {
+            // Show sender name and timestamp only for non-consecutive messages
+            if (!actualIsMine && !isConsecutive) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Start
@@ -694,7 +734,7 @@ fun ChatBubbleEventItem(
                                         text = finalBody,
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                     )
                                 }
                             }
@@ -729,16 +769,31 @@ fun ChatBubbleEventItem(
                                 tonalElevation = 2.dp,
                                 modifier = Modifier.padding(top = 4.dp)
                             ) {
-                                SmartMessageText(
-                                    body = finalBody,
-                                    format = format,
-                                    userProfileCache = userProfileCache,
-                                    homeserverUrl = homeserverUrl,
-                                    authToken = authToken,
-                                    appViewModel = appViewModel,
-                                    roomId = event.roomId,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                )
+                                Box(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    // Text with extra padding at the end for timestamp (if consecutive)
+                                    SmartMessageText(
+                                        body = finalBody,
+                                        format = format,
+                                        userProfileCache = userProfileCache,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        appViewModel = appViewModel,
+                                        roomId = event.roomId,
+                                        modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier
+                                    )
+                                    // Timestamp positioned at bottom-end for consecutive messages
+                                    Box(
+                                        modifier = Modifier.align(Alignment.BottomEnd)
+                                    ) {
+                                        InlineBubbleTimestamp(
+                                            timestamp = event.timestamp,
+                                            isMine = actualIsMine,
+                                            isConsecutive = isConsecutive
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -857,7 +912,7 @@ fun ChatBubbleEventItem(
                                             text = finalBody,
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                         )
                                     }
                                 }
@@ -891,16 +946,31 @@ fun ChatBubbleEventItem(
                                     tonalElevation = 2.dp,
                                     modifier = Modifier.padding(top = 4.dp)
                                 ) {
-                                    SmartMessageText(
-                                        body = finalBody,
-                                        format = format,
-                                        userProfileCache = userProfileCache,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        appViewModel = appViewModel,
-                                        roomId = event.roomId,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                                    )
+                                    Box(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                    ) {
+                                        // Text with extra padding at the end for timestamp (if consecutive)
+                                        SmartMessageText(
+                                            body = finalBody,
+                                            format = format,
+                                            userProfileCache = userProfileCache,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                            appViewModel = appViewModel,
+                                            roomId = event.roomId,
+                                            modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier
+                                        )
+                                        // Timestamp positioned at bottom-end for consecutive messages
+                                        Box(
+                                            modifier = Modifier.align(Alignment.BottomEnd)
+                                        ) {
+                                            InlineBubbleTimestamp(
+                                                timestamp = event.timestamp,
+                                                isMine = actualIsMine,
+                                                isConsecutive = isConsecutive
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

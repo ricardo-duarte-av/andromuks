@@ -86,6 +86,16 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- FileProvider for content:// URIs (used for bubble icons) -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="pt.aguiarvieira.andromuks.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- Default notification icon -->
         <meta-data

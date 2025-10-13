@@ -13,6 +13,7 @@ import android.os.Build
 import android.util.Log
 import androidx.annotation.RequiresApi
 import androidx.core.app.Person as CorePerson
+import androidx.core.content.FileProvider
 import androidx.core.content.pm.ShortcutInfoCompat
 import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
@@ -386,12 +387,51 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         val icon = if (shortcut.roomAvatarUrl != null) {
             try {
                 Log.d(TAG, "Creating shortcut icon for room: ${shortcut.roomName}, avatarUrl: ${shortcut.roomAvatarUrl}")
-                getCircularBitmapFromUrl(shortcut.roomAvatarUrl)?.let { bitmap ->
-                    Log.d(TAG, "Using room avatar for shortcut icon")
-                    Icon.createWithAdaptiveBitmap(bitmap) // Use adaptive bitmap for better transparency
-                } ?: run {
-                    Log.d(TAG, "Room avatar is null, using fallback icon")
-                    Icon.createWithResource(context, R.drawable.matrix)
+                
+                // First, ensure avatar is in cache
+                val cachedFile = MediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
+                
+                if (cachedFile != null) {
+                    // Try to create content:// URI from cached file for better bubble support
+                    try {
+                        val contentUri = FileProvider.getUriForFile(
+                            context,
+                            "pt.aguiarvieira.andromuks.fileprovider",
+                            cachedFile
+                        )
+                        Log.d(TAG, "Created content URI for shortcut icon: $contentUri")
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                            Icon.createWithAdaptiveBitmapContentUri(contentUri)
+                        } else {
+                            // Android 10 and below - fall back to bitmap
+                            val bitmap = getCircularBitmapFromUrl(shortcut.roomAvatarUrl)
+                            if (bitmap != null) {
+                                Icon.createWithAdaptiveBitmap(bitmap)
+                            } else {
+                                Icon.createWithResource(context, R.drawable.matrix)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not create content URI for shortcut, falling back to bitmap", e)
+                        // Fall back to bitmap approach
+                        getCircularBitmapFromUrl(shortcut.roomAvatarUrl)?.let { bitmap ->
+                            Log.d(TAG, "Using bitmap for shortcut icon")
+                            Icon.createWithAdaptiveBitmap(bitmap)
+                        } ?: run {
+                            Log.d(TAG, "Failed to create bitmap, using fallback icon")
+                            Icon.createWithResource(context, R.drawable.matrix)
+                        }
+                    }
+                } else {
+                    // Need to download avatar first
+                    Log.d(TAG, "Avatar not in cache, downloading...")
+                    getCircularBitmapFromUrl(shortcut.roomAvatarUrl)?.let { bitmap ->
+                        Log.d(TAG, "Using downloaded bitmap for shortcut icon")
+                        Icon.createWithAdaptiveBitmap(bitmap)
+                    } ?: run {
+                        Log.d(TAG, "Download failed, using fallback icon")
+                        Icon.createWithResource(context, R.drawable.matrix)
+                    }
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading avatar for shortcut", e)

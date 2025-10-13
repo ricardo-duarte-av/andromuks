@@ -31,6 +31,7 @@ import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.htmlToNotificationText
+import androidx.core.content.FileProvider
 import java.io.IOException
 import java.net.URL
 
@@ -342,7 +343,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     roomAvatarIcon
                 ).apply {
                     setAutoExpandBubble(true) // Auto-expand the bubble
-                    setSuppressNotification(true) // Suppress the notification when bubble is active
+                    setSuppressNotification(false) // Suppress the notification when bubble is active
                     // Set desired height for the bubble (optional)
                     setDesiredHeight(600) // 600dp height for the bubble
                 }.build()
@@ -549,22 +550,41 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     }
     
     /**
-     * Load avatar as IconCompat (synchronous version that loads the actual avatar)
+     * Load avatar as IconCompat using content:// URI for better bubble support
+     * Falls back to bitmap-based icon if ContentUri creation fails
      */
     private suspend fun loadAvatarAsIcon(avatarUrl: String): IconCompat? {
         return try {
+            // First, ensure avatar is in cache
+            val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+            
+            if (cachedFile != null) {
+                // Create content:// URI from cached file for better bubble support
+                try {
+                    val contentUri = FileProvider.getUriForFile(
+                        context,
+                        "pt.aguiarvieira.andromuks.fileprovider",
+                        cachedFile
+                    )
+                    Log.d(TAG, "Created content URI for avatar: $contentUri")
+                    return IconCompat.createWithAdaptiveBitmapContentUri(contentUri)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not create content URI, falling back to bitmap", e)
+                    // Fall through to bitmap approach
+                }
+            }
+            
+            // Fallback: download and use bitmap-based icon
             val bitmap = loadAvatarBitmap(avatarUrl)
             if (bitmap != null) {
                 val circularBitmap = createCircularBitmap(bitmap)
-                IconCompat.createWithAdaptiveBitmap(circularBitmap) // Use adaptive bitmap for better transparency
+                IconCompat.createWithAdaptiveBitmap(circularBitmap)
             } else {
                 Log.w(TAG, "Failed to load avatar bitmap, using default adaptive icon")
-                // Create a default adaptive icon instead of resource icon for bubble compatibility
                 createDefaultAdaptiveIcon()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading avatar as icon: $avatarUrl", e)
-            // Create a default adaptive icon instead of resource icon for bubble compatibility
             createDefaultAdaptiveIcon()
         }
     }
