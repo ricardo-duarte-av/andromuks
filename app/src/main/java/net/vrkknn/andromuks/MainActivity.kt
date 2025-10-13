@@ -69,12 +69,15 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun registerNotificationBroadcastReceiver() {
+        Log.d("Andromuks", "MainActivity: Registering notification broadcast receiver")
         notificationBroadcastReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
+                Log.d("Andromuks", "MainActivity: Broadcast receiver got intent: ${intent?.action}")
                 when (intent?.action) {
                     "net.vrkknn.andromuks.SEND_MESSAGE" -> {
                         val roomId = intent.getStringExtra("room_id")
                         val messageText = intent.getStringExtra("message_text")
+                        Log.d("Andromuks", "MainActivity: SEND_MESSAGE broadcast - roomId: $roomId, messageText: $messageText")
                         if (roomId != null && messageText != null) {
                             Log.d("Andromuks", "MainActivity: Received send message broadcast for room $roomId: $messageText")
                             appViewModel.sendMessageFromNotification(roomId, messageText) {
@@ -96,11 +99,14 @@ class MainActivity : ComponentActivity() {
                                     Log.e("Andromuks", "MainActivity: Error updating notification with reply", e)
                                 }
                             }
+                        } else {
+                            Log.w("Andromuks", "MainActivity: SEND_MESSAGE broadcast missing data - roomId: $roomId, messageText: $messageText")
                         }
                     }
                     "net.vrkknn.andromuks.MARK_READ" -> {
                         val roomId = intent.getStringExtra("room_id")
                         val eventId = intent.getStringExtra("event_id")
+                        Log.d("Andromuks", "MainActivity: MARK_READ broadcast - roomId: $roomId, eventId: $eventId")
                         if (roomId != null) {
                             Log.d("Andromuks", "MainActivity: Received mark read broadcast for room $roomId, event: $eventId")
                             appViewModel.markRoomAsReadFromNotification(roomId, eventId ?: "") {
@@ -122,7 +128,12 @@ class MainActivity : ComponentActivity() {
                                     Log.e("Andromuks", "MainActivity: Error updating notification as read", e)
                                 }
                             }
+                        } else {
+                            Log.w("Andromuks", "MainActivity: MARK_READ broadcast missing roomId")
                         }
+                    }
+                    else -> {
+                        Log.w("Andromuks", "MainActivity: Unknown broadcast action: ${intent?.action}")
                     }
                 }
             }
@@ -133,6 +144,7 @@ class MainActivity : ComponentActivity() {
             addAction("net.vrkknn.andromuks.MARK_READ")
         }
         registerReceiver(notificationBroadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        Log.d("Andromuks", "MainActivity: Notification broadcast receiver registered successfully")
     }
     
     private fun registerNotificationActionReceiver() {

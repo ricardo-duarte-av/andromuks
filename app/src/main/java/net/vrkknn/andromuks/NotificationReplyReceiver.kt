@@ -24,20 +24,39 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         
         Log.d(TAG, "Reply - roomId: $roomId, replyText: $replyText")
         
-        if (roomId != null && replyText != null) {
-            // Send broadcast to MainActivity
-            val broadcastIntent = Intent("net.vrkknn.andromuks.SEND_MESSAGE").apply {
-                putExtra("room_id", roomId)
-                putExtra("message_text", replyText)
-            }
-            context.sendBroadcast(broadcastIntent)
-            Log.d(TAG, "Sent reply broadcast to MainActivity")
+        if (roomId == null) {
+            Log.e(TAG, "roomId is null, cannot send reply")
+            return
         }
+        
+        if (replyText == null) {
+            Log.e(TAG, "replyText is null, cannot send reply")
+            return
+        }
+        
+        // Send broadcast to MainActivity with explicit package
+        val broadcastIntent = Intent("net.vrkknn.andromuks.SEND_MESSAGE").apply {
+            setPackage(context.packageName)
+            putExtra("room_id", roomId)
+            putExtra("message_text", replyText)
+        }
+        context.sendBroadcast(broadcastIntent)
+        Log.d(TAG, "Sent reply broadcast to package: ${context.packageName} - roomId: $roomId, text: $replyText")
     }
     
     private fun getReplyText(intent: Intent): String? {
+        Log.d(TAG, "getReplyText called")
         val remoteInputResults = RemoteInput.getResultsFromIntent(intent)
-        return remoteInputResults?.getCharSequence("key_reply_text")?.toString()
+        Log.d(TAG, "RemoteInput results: $remoteInputResults")
+        
+        if (remoteInputResults == null) {
+            Log.e(TAG, "RemoteInput results is null")
+            return null
+        }
+        
+        val replyText = remoteInputResults.getCharSequence("key_reply_text")?.toString()
+        Log.d(TAG, "Extracted reply text: '$replyText'")
+        return replyText
     }
 }
 

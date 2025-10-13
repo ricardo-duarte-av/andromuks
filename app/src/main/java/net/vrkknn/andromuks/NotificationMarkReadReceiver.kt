@@ -25,13 +25,14 @@ class NotificationMarkReadReceiver : BroadcastReceiver() {
         Log.d(TAG, "Mark read - roomId: $roomId, eventId: $eventId")
         
         if (roomId != null) {
-            // Send broadcast to MainActivity (will handle if running)
+            // Send broadcast to MainActivity with explicit package
             val broadcastIntent = Intent("net.vrkknn.andromuks.MARK_READ").apply {
+                setPackage(context.packageName)
                 putExtra("room_id", roomId)
                 putExtra("event_id", eventId ?: "")
             }
             context.sendBroadcast(broadcastIntent)
-            Log.d(TAG, "Sent mark read broadcast to MainActivity")
+            Log.d(TAG, "Sent mark read broadcast to package: ${context.packageName}")
             
             // Dismiss the notification immediately for instant feedback
             try {
