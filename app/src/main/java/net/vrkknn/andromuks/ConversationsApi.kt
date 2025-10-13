@@ -305,6 +305,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     
     /**
      * Update conversation shortcuts based on recent rooms
+     * Returns immediately for non-blocking calls
      */
     fun updateConversationShortcuts(rooms: List<RoomItem>) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
@@ -315,6 +316,25 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     updateShortcuts(shortcuts)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating conversation shortcuts", e)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Update conversation shortcuts synchronously - waits for completion
+     * Used when we need the shortcut to exist before showing notification
+     */
+    suspend fun updateConversationShortcutsSync(rooms: List<RoomItem>) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            Log.d(TAG, "updateConversationShortcutsSync called with ${rooms.size} rooms")
+            withContext(Dispatchers.IO) {
+                try {
+                    val shortcuts = createShortcutsFromRooms(rooms)
+                    updateShortcuts(shortcuts)
+                    Log.d(TAG, "Synchronous shortcut update completed")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error updating conversation shortcuts synchronously", e)
                 }
             }
         }
@@ -344,19 +364,75 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     
     /**
      * Update shortcuts in the system
+     * Intelligently merges with existing shortcuts to preserve good icons
      */
     @RequiresApi(Build.VERSION_CODES.N_MR1)
     private suspend fun updateShortcuts(shortcuts: List<ConversationShortcut>) {
         withContext(Dispatchers.Main) {
             try {
                 val shortcutManager = context.getSystemService(ShortcutManager::class.java)
+                val existingShortcuts = shortcutManager.dynamicShortcuts
                 
-                val shortcutInfos = shortcuts.map { shortcut ->
-                    createShortcutInfo(shortcut)
+                Log.d(TAG, "Updating shortcuts - new: ${shortcuts.size}, existing: ${existingShortcuts.size}")
+                Log.d(TAG, "Existing shortcut IDs: ${existingShortcuts.map { it.id }}")
+                
+                val newShortcutInfos = mutableListOf<ShortcutInfo>()
+                
+                for (shortcut in shortcuts) {
+                    Log.d(TAG, "Processing shortcut - roomId: '${shortcut.roomId}', roomName: '${shortcut.roomName}'")
+                    
+                    // Check if shortcut already exists
+                    val existingShortcut = existingShortcuts.firstOrNull { it.id == shortcut.roomId }
+                    
+                    if (existingShortcut != null) {
+                        Log.d(TAG, "Found existing shortcut for room: ${shortcut.roomName}")
+                        
+                        // Check if avatar is now in cache (might have been downloaded)
+                        val avatarInCache = shortcut.roomAvatarUrl?.let { url ->
+                            val cached = MediaCache.getCachedFile(context, url) != null
+                            Log.d(TAG, "  Avatar URL: $url")
+                            Log.d(TAG, "  Avatar in cache: $cached")
+                            cached
+                        } ?: false
+                        
+                        // Check if existing shortcut was created from notification (likely has good icon)
+                        // We can detect this by checking if the shortcut is recent (< 5 minutes old)
+                        val isRecentShortcut = try {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                                val lastChange = existingShortcut.lastChangedTimestamp
+                                val ageMs = System.currentTimeMillis() - lastChange
+                                val ageSec = ageMs / 1000
+                                val isRecent = ageMs < 300_000 // Less than 5 minutes old
+                                Log.d(TAG, "  Shortcut age: ${ageSec}s (recent: $isRecent)")
+                                isRecent
+                            } else {
+                                Log.d(TAG, "  Android < 11, can't check shortcut age")
+                                false
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "  Error checking shortcut age: $e")
+                            false
+                        }
+                        
+                        if (isRecentShortcut || avatarInCache) {
+                            // Keep existing shortcut if it's recent OR avatar is cached
+                            // Recent shortcuts from notifications have good ContentUri icons
+                            Log.d(TAG, "  → PRESERVING existing shortcut (recent: $isRecentShortcut, cached: $avatarInCache)")
+                            newShortcutInfos.add(existingShortcut)
+                        } else {
+                            // Recreate shortcut to potentially get better icon
+                            Log.d(TAG, "  → RECREATING shortcut (will download avatar if needed)")
+                            newShortcutInfos.add(createShortcutInfo(shortcut))
+                        }
+                    } else {
+                        // New shortcut - create it
+                        Log.d(TAG, "Creating new shortcut: ${shortcut.roomName}")
+                        newShortcutInfos.add(createShortcutInfo(shortcut))
+                    }
                 }
                 
-                shortcutManager.dynamicShortcuts = shortcutInfos
-                Log.d(TAG, "Updated ${shortcutInfos.size} conversation shortcuts")
+                shortcutManager.dynamicShortcuts = newShortcutInfos
+                Log.d(TAG, "Updated ${newShortcutInfos.size} conversation shortcuts (preserved existing good icons)")
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error updating shortcuts", e)
@@ -386,59 +462,35 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         
         val icon = if (shortcut.roomAvatarUrl != null) {
             try {
-                Log.d(TAG, "Creating shortcut icon for room: ${shortcut.roomName}, avatarUrl: ${shortcut.roomAvatarUrl}")
+                Log.d(TAG, "Creating shortcut icon for room: ${shortcut.roomName}")
                 
-                // First, ensure avatar is in cache
+                // Only use cached avatar - don't download to avoid blocking
                 val cachedFile = MediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
                 
-                if (cachedFile != null) {
-                    // Try to create content:// URI from cached file for better bubble support
-                    try {
-                        val contentUri = FileProvider.getUriForFile(
-                            context,
-                            "pt.aguiarvieira.andromuks.fileprovider",
-                            cachedFile
-                        )
-                        Log.d(TAG, "Created content URI for shortcut icon: $contentUri")
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                            Icon.createWithAdaptiveBitmapContentUri(contentUri)
+                if (cachedFile != null && cachedFile.exists()) {
+                    Log.d(TAG, "✓ Using cached avatar for shortcut")
+                    // Create circular bitmap from cached file
+                    val bitmap = BitmapFactory.decodeFile(cachedFile.absolutePath)
+                    if (bitmap != null) {
+                        val circularBitmap = getCircularBitmap(bitmap)
+                        if (circularBitmap != null) {
+                            Icon.createWithAdaptiveBitmap(circularBitmap)
                         } else {
-                            // Android 10 and below - fall back to bitmap
-                            val bitmap = getCircularBitmapFromUrl(shortcut.roomAvatarUrl)
-                            if (bitmap != null) {
-                                Icon.createWithAdaptiveBitmap(bitmap)
-                            } else {
-                                Icon.createWithResource(context, R.drawable.matrix)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Could not create content URI for shortcut, falling back to bitmap", e)
-                        // Fall back to bitmap approach
-                        getCircularBitmapFromUrl(shortcut.roomAvatarUrl)?.let { bitmap ->
-                            Log.d(TAG, "Using bitmap for shortcut icon")
-                            Icon.createWithAdaptiveBitmap(bitmap)
-                        } ?: run {
-                            Log.d(TAG, "Failed to create bitmap, using fallback icon")
                             Icon.createWithResource(context, R.drawable.matrix)
                         }
-                    }
-                } else {
-                    // Need to download avatar first
-                    Log.d(TAG, "Avatar not in cache, downloading...")
-                    getCircularBitmapFromUrl(shortcut.roomAvatarUrl)?.let { bitmap ->
-                        Log.d(TAG, "Using downloaded bitmap for shortcut icon")
-                        Icon.createWithAdaptiveBitmap(bitmap)
-                    } ?: run {
-                        Log.d(TAG, "Download failed, using fallback icon")
+                    } else {
                         Icon.createWithResource(context, R.drawable.matrix)
                     }
+                } else {
+                    Log.d(TAG, "✗ Avatar not in cache, using fallback (will update later)")
+                    Icon.createWithResource(context, R.drawable.matrix)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error loading avatar for shortcut", e)
+                Log.e(TAG, "✗ Error loading avatar for shortcut", e)
                 Icon.createWithResource(context, R.drawable.matrix)
             }
         } else {
-            Log.d(TAG, "No room avatar URL, using fallback icon")
+            Log.d(TAG, "No room avatar URL provided, using fallback icon")
             Icon.createWithResource(context, R.drawable.matrix)
         }
         

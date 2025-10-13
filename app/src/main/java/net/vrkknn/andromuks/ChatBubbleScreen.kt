@@ -68,7 +68,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.activity.compose.BackHandler
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.MediaMessage
-import net.vrkknn.andromuks.utils.SmartMessageText
+import net.vrkknn.andromuks.utils.HtmlMessageText
+import net.vrkknn.andromuks.utils.supportsHtmlRendering
 
 /**
  * Loading screen for chat bubbles - handles authentication and navigation
@@ -773,7 +774,8 @@ fun ChatBubbleEventItem(
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                 ) {
                                     // Text with extra padding at the end for timestamp (if consecutive)
-                                    SmartMessageText(
+                                    AdaptiveMessageText(
+                                        event = event,
                                         body = finalBody,
                                         format = format,
                                         userProfileCache = userProfileCache,
@@ -781,6 +783,7 @@ fun ChatBubbleEventItem(
                                         authToken = authToken,
                                         appViewModel = appViewModel,
                                         roomId = event.roomId,
+                                        textColor = if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier
                                     )
                                     // Timestamp positioned at bottom-end for consecutive messages
@@ -950,7 +953,8 @@ fun ChatBubbleEventItem(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                     ) {
                                         // Text with extra padding at the end for timestamp (if consecutive)
-                                        SmartMessageText(
+                                        AdaptiveMessageText(
+                                            event = event,
                                             body = finalBody,
                                             format = format,
                                             userProfileCache = userProfileCache,
@@ -958,6 +962,7 @@ fun ChatBubbleEventItem(
                                             authToken = authToken,
                                             appViewModel = appViewModel,
                                             roomId = event.roomId,
+                                            textColor = if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
                                             modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier
                                         )
                                         // Timestamp positioned at bottom-end for consecutive messages

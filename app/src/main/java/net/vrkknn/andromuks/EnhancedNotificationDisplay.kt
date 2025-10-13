@@ -301,10 +301,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             messagingStyle.addMessage(message)
             
-            // Create or update conversation shortcut for this room using ConversationsApi
+            // Create or update conversation shortcut SYNCHRONOUSLY before showing notification
+            // This ensures the shortcut exists with proper icon before bubble is created
             val shortcutInfo = conversationsApi?.let { api ->
-                CoroutineScope(Dispatchers.IO).launch {
-                    // Create a single room list with this room to update shortcuts
+                try {
                     val roomList = listOf(
                         RoomItem(
                             id = notificationData.roomId,
@@ -317,15 +317,25 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                             sortingTimestamp = System.currentTimeMillis()
                         )
                     )
+                    
+                    // Update shortcuts asynchronously (non-blocking)
                     api.updateConversationShortcuts(roomList)
-                }
-                
-                // Get the shortcut for this room
-                try {
-                    ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
+                    
+                    Log.d(TAG, "Shortcuts update started for: ${notificationData.roomId}")
+                    
+                    // Try to get existing shortcut (may not exist yet)
+                    val existingShortcut = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
                         .firstOrNull { it.id == notificationData.roomId }
+                    
+                    if (existingShortcut != null) {
+                        Log.d(TAG, "Found existing shortcut: ${existingShortcut.shortLabel}")
+                        existingShortcut
+                    } else {
+                        Log.d(TAG, "No existing shortcut yet, will be created asynchronously")
+                        null
+                    }
                 } catch (e: Exception) {
-                    Log.w(TAG, "Could not get shortcut info", e)
+                    Log.e(TAG, "Error creating/getting shortcut info", e)
                     null
                 }
             }
@@ -338,12 +348,38 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             // Create bubble metadata for chat bubbles (Android 11+)
             val bubbleMetadata = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val bubbleIntent = createBubbleIntent(notificationData)
+                
+                // Grant persistent URI permission for the bubble icon if it's a content URI
+                if (roomAvatarIcon is IconCompat) {
+                    try {
+                        val uri = roomAvatarIcon.uri
+                        if (uri != null && uri.scheme == "content") {
+                            Log.d(TAG, "Granting persistent URI read permission for bubble icon: $uri")
+                            // Grant persistent permission so URI stays valid
+                            context.grantUriPermission(
+                                context.packageName,
+                                uri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                            )
+                            // Take persistable permission
+                            context.contentResolver.takePersistableUriPermission(
+                                uri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                            Log.d(TAG, "Persistent URI permission granted and taken")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not grant persistent URI permission for bubble icon", e)
+                    }
+                }
+                
                 BubbleMetadata.Builder(
-                    createBubbleIntent(notificationData),
+                    bubbleIntent,
                     roomAvatarIcon
                 ).apply {
                     setAutoExpandBubble(true) // Auto-expand the bubble
-                    setSuppressNotification(false) // Suppress the notification when bubble is active
+                    setSuppressNotification(false) // Don't suppress the notification when bubble is active
                     // Set desired height for the bubble (optional)
                     setDesiredHeight(600) // 600dp height for the bubble
                 }.build()
@@ -442,7 +478,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             putExtra("room_id", notificationData.roomId)
             flags = Intent.FLAG_ACTIVITY_NEW_DOCUMENT or
                     Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
-                    Intent.FLAG_ACTIVITY_RETAIN_IN_RECENTS
+                    Intent.FLAG_ACTIVITY_RETAIN_IN_RECENTS or
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION // Grant permission to read content URIs
         }
         
         return PendingIntent.getActivity(
@@ -555,29 +592,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     private suspend fun loadAvatarAsIcon(avatarUrl: String): IconCompat? {
         return try {
-            // First, ensure avatar is in cache
-            val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
-            
-            if (cachedFile != null) {
-                // Create content:// URI from cached file for better bubble support
-                try {
-                    val contentUri = FileProvider.getUriForFile(
-                        context,
-                        "pt.aguiarvieira.andromuks.fileprovider",
-                        cachedFile
-                    )
-                    Log.d(TAG, "Created content URI for avatar: $contentUri")
-                    return IconCompat.createWithAdaptiveBitmapContentUri(contentUri)
-                } catch (e: Exception) {
-                    Log.w(TAG, "Could not create content URI, falling back to bitmap", e)
-                    // Fall through to bitmap approach
-                }
-            }
-            
-            // Fallback: download and use bitmap-based icon
+            // Load bitmap (from cache or download)
             val bitmap = loadAvatarBitmap(avatarUrl)
+            
             if (bitmap != null) {
+                // Make it circular and use directly as adaptive bitmap
                 val circularBitmap = createCircularBitmap(bitmap)
+                Log.d(TAG, "Created circular bitmap icon for avatar")
                 IconCompat.createWithAdaptiveBitmap(circularBitmap)
             } else {
                 Log.w(TAG, "Failed to load avatar bitmap, using default adaptive icon")
