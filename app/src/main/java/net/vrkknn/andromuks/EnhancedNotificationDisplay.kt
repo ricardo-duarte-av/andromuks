@@ -319,9 +319,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     )
                     
                     // Update shortcuts asynchronously (non-blocking)
+                    Log.d(TAG, "━━━ TIMING: Triggering async shortcut update NOW ━━━")
                     api.updateConversationShortcuts(roomList)
                     
-                    Log.d(TAG, "Shortcuts update started for: ${notificationData.roomId}")
+                    Log.d(TAG, "Shortcuts update triggered (async) for: ${notificationData.roomId}")
                     
                     // Try to get existing shortcut (may not exist yet)
                     val existingShortcut = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
@@ -351,23 +352,32 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 val bubbleIntent = createBubbleIntent(notificationData)
                 
                 // Grant persistent URI permission for the bubble icon if it's a content URI
+                // (Skip for bitmap-based icons which is what we use now)
                 if (roomAvatarIcon is IconCompat) {
                     try {
-                        val uri = roomAvatarIcon.uri
-                        if (uri != null && uri.scheme == "content") {
-                            Log.d(TAG, "Granting persistent URI read permission for bubble icon: $uri")
-                            // Grant persistent permission so URI stays valid
-                            context.grantUriPermission(
-                                context.packageName,
-                                uri,
-                                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-                            )
-                            // Take persistable permission
-                            context.contentResolver.takePersistableUriPermission(
-                                uri,
-                                Intent.FLAG_GRANT_READ_URI_PERMISSION
-                            )
-                            Log.d(TAG, "Persistent URI permission granted and taken")
+                        // Check if this is a URI-based icon (not bitmap)
+                        // IconCompat.getUri() throws if icon type is BITMAP/BITMAP_MASKABLE
+                        val iconType = roomAvatarIcon.type
+                        if (iconType == androidx.core.graphics.drawable.IconCompat.TYPE_URI ||
+                            iconType == androidx.core.graphics.drawable.IconCompat.TYPE_URI_ADAPTIVE_BITMAP) {
+                            val uri = roomAvatarIcon.uri
+                            if (uri != null && uri.scheme == "content") {
+                                Log.d(TAG, "Granting persistent URI read permission for bubble icon: $uri")
+                                // Grant persistent permission so URI stays valid
+                                context.grantUriPermission(
+                                    context.packageName,
+                                    uri,
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
+                                )
+                                // Take persistable permission
+                                context.contentResolver.takePersistableUriPermission(
+                                    uri,
+                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                )
+                                Log.d(TAG, "Persistent URI permission granted and taken")
+                            }
+                        } else {
+                            Log.d(TAG, "Bubble icon is bitmap-based (not ContentUri), no URI permissions needed")
                         }
                     } catch (e: Exception) {
                         Log.w(TAG, "Could not grant persistent URI permission for bubble icon", e)
@@ -592,20 +602,24 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     private suspend fun loadAvatarAsIcon(avatarUrl: String): IconCompat? {
         return try {
+            Log.d(TAG, "━━━ loadAvatarAsIcon called ━━━")
+            Log.d(TAG, "  Avatar URL: $avatarUrl")
+            
             // Load bitmap (from cache or download)
             val bitmap = loadAvatarBitmap(avatarUrl)
+            Log.d(TAG, "  Bitmap loaded: ${bitmap != null}")
             
             if (bitmap != null) {
                 // Make it circular and use directly as adaptive bitmap
                 val circularBitmap = createCircularBitmap(bitmap)
-                Log.d(TAG, "Created circular bitmap icon for avatar")
+                Log.d(TAG, "  ✓✓✓ SUCCESS: Created circular bitmap icon for notification Person")
                 IconCompat.createWithAdaptiveBitmap(circularBitmap)
             } else {
-                Log.w(TAG, "Failed to load avatar bitmap, using default adaptive icon")
+                Log.w(TAG, "  ✗✗✗ FAILED: loadAvatarBitmap returned null, using default icon")
                 createDefaultAdaptiveIcon()
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error loading avatar as icon: $avatarUrl", e)
+            Log.e(TAG, "  ✗✗✗ EXCEPTION: Error loading avatar as icon: $avatarUrl", e)
             createDefaultAdaptiveIcon()
         }
     }
