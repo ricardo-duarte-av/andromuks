@@ -95,7 +95,8 @@ data class MediaInfo(
     val thumbnailBlurHash: String? = null,
     val thumbnailWidth: Int? = null,
     val thumbnailHeight: Int? = null,
-    val duration: Int? = null // Video duration in milliseconds
+    val duration: Int? = null, // Video duration in milliseconds
+    val thumbnailIsEncrypted: Boolean = false // Whether thumbnail is encrypted (from thumbnail_file vs thumbnail_url)
 )
 
 @Immutable

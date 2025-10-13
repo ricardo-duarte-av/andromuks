@@ -98,7 +98,12 @@ class FCMService : FirebaseMessagingService() {
             }
             
             // Debug: Log key and payload info
-            val encryptedPayload = remoteMessage.data.getValue("payload")
+            val encryptedPayload = remoteMessage.data["payload"]
+            if (encryptedPayload == null) {
+                Log.e(TAG, "No 'payload' field in FCM data: ${remoteMessage.data.keys}")
+                return
+            }
+            
             Log.d(TAG, "Using push encryption key of size: ${pushEncKey.size} bytes")
             Log.d(TAG, "Key (first 8 bytes): ${pushEncKey.take(8).joinToString { "%02x".format(it) }}")
             Log.d(TAG, "Encrypted payload length: ${encryptedPayload.length}")

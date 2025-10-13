@@ -80,6 +80,7 @@ import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EditPreviewInput
+import net.vrkknn.andromuks.utils.EmojiSelectionDialog
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.InlineReadReceiptAvatars
 import net.vrkknn.andromuks.utils.MediaMessage
@@ -972,6 +973,25 @@ fun RoomTimelineScreen(
                         }
                     )
                 }
+                
+                // Emoji selection dialog for reactions
+                if (showEmojiSelection && reactingToEvent != null) {
+                    EmojiSelectionDialog(
+                        recentEmojis = appViewModel.recentEmojis,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onEmojiSelected = { emoji ->
+                            // Send reaction
+                            appViewModel.sendReaction(roomId, reactingToEvent!!.eventId, emoji)
+                            showEmojiSelection = false
+                            reactingToEvent = null
+                        },
+                        onDismiss = {
+                            showEmojiSelection = false
+                            reactingToEvent = null
+                        }
+                    )
+                }
             }
         }
     }
@@ -1434,8 +1454,18 @@ fun TimelineEventItem(
                                 info.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
 
                             // Extract thumbnail info for videos
+                            // Check for both encrypted (thumbnail_file) and unencrypted (thumbnail_url) thumbnails
+                            var thumbnailIsEncrypted = false
                             val thumbnailUrl = if (msgType == "m.video") {
-                                info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+                                val thumbnailFile = info.optJSONObject("thumbnail_file")
+                                if (thumbnailFile != null) {
+                                    // Encrypted thumbnail
+                                    thumbnailIsEncrypted = true
+                                    thumbnailFile.optString("url", "")?.takeIf { it.isNotBlank() }
+                                } else {
+                                    // Unencrypted thumbnail
+                                    info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+                                }
                             } else null
                             
                             val thumbnailInfo = if (msgType == "m.video") {
@@ -1472,7 +1502,8 @@ fun TimelineEventItem(
                                     thumbnailBlurHash = thumbnailBlurHash,
                                     thumbnailWidth = thumbnailWidth,
                                     thumbnailHeight = thumbnailHeight,
-                                    duration = duration
+                                    duration = duration,
+                                    thumbnailIsEncrypted = thumbnailIsEncrypted
                                 )
 
                             val mediaMessage =
@@ -1958,8 +1989,18 @@ fun TimelineEventItem(
                                     }
 
                                 // Extract thumbnail info for encrypted videos
+                                // For encrypted media, thumbnail is in thumbnail_file.url, not thumbnail_url
+                                var thumbnailIsEncrypted = false
                                 val thumbnailUrl = if (msgType == "m.video") {
-                                    info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+                                    val thumbnailFile = info.optJSONObject("thumbnail_file")
+                                    if (thumbnailFile != null) {
+                                        // Encrypted thumbnail
+                                        thumbnailIsEncrypted = true
+                                        thumbnailFile.optString("url", "")?.takeIf { it.isNotBlank() }
+                                    } else {
+                                        // Unencrypted thumbnail (fallback, though unlikely for encrypted messages)
+                                        info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+                                    }
                                 } else null
                                 
                                 val thumbnailInfo = if (msgType == "m.video") {
@@ -1996,7 +2037,8 @@ fun TimelineEventItem(
                                         thumbnailBlurHash = thumbnailBlurHash,
                                         thumbnailWidth = thumbnailWidth,
                                         thumbnailHeight = thumbnailHeight,
-                                        duration = duration
+                                        duration = duration,
+                                        thumbnailIsEncrypted = thumbnailIsEncrypted
                                     )
 
                                 val mediaMessage =

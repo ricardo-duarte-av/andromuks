@@ -666,6 +666,11 @@ private fun MediaContent(
                         if (thumbnailUrl != null) {
                             // Render video thumbnail
                             val thumbnailHttpUrl = MediaUtils.mxcToHttpUrl(thumbnailUrl, homeserverUrl)
+                            val thumbnailFinalUrl = if (mediaMessage.info.thumbnailIsEncrypted && thumbnailHttpUrl != null) {
+                                "$thumbnailHttpUrl?encrypted=true"
+                            } else {
+                                thumbnailHttpUrl
+                            }
                             
                             val thumbnailBlurHashPainter = remember(mediaMessage.info.thumbnailBlurHash) {
                                 mediaMessage.info.thumbnailBlurHash?.let { blurHash ->
@@ -690,7 +695,7 @@ private fun MediaContent(
                             
                             AsyncImage(
                                 model = ImageRequest.Builder(context)
-                                    .data(thumbnailHttpUrl)
+                                    .data(thumbnailFinalUrl)
                                     .addHeader("Cookie", "gomuks_auth=$authToken")
                                     .memoryCachePolicy(CachePolicy.ENABLED)
                                     .diskCachePolicy(CachePolicy.ENABLED)
@@ -707,12 +712,12 @@ private fun MediaContent(
                                 placeholder = thumbnailBlurHashPainter,
                                 error = thumbnailBlurHashPainter,
                                 onSuccess = { 
-                                    Log.d("Andromuks", "✅ Video thumbnail loaded: $thumbnailHttpUrl")
+                                    Log.d("Andromuks", "✅ Video thumbnail loaded: $thumbnailFinalUrl")
                                 },
                                 onError = { state ->
                                     if (state is coil.request.ErrorResult) {
                                         CacheUtils.handleImageLoadError(
-                                            imageUrl = thumbnailHttpUrl ?: "",
+                                            imageUrl = thumbnailFinalUrl ?: "",
                                             throwable = state.throwable,
                                             imageLoader = imageLoader,
                                             context = "VideoThumbnail"
