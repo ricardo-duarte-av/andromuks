@@ -2037,6 +2037,46 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Media message command sent with request_id: $messageRequestId")
     }
     
+    /**
+     * Convenience function to send an image message using upload result data
+     */
+    fun sendImageMessage(
+        roomId: String,
+        mxcUrl: String,
+        width: Int,
+        height: Int,
+        size: Long,
+        mimeType: String,
+        blurHash: String,
+        caption: String? = null
+    ) {
+        // Extract filename from mxc URL (format: mxc://server/mediaId)
+        val filename = mxcUrl.substringAfterLast("/").let { mediaId ->
+            // Try to infer extension from mime type
+            val extension = when {
+                mimeType.startsWith("image/jpeg") -> "jpg"
+                mimeType.startsWith("image/png") -> "png"
+                mimeType.startsWith("image/gif") -> "gif"
+                mimeType.startsWith("image/webp") -> "webp"
+                else -> "jpg"
+            }
+            "image_$mediaId.$extension"
+        }
+        
+        sendMediaMessage(
+            roomId = roomId,
+            mxcUrl = mxcUrl,
+            filename = filename,
+            mimeType = mimeType,
+            width = width,
+            height = height,
+            size = size,
+            blurHash = blurHash,
+            caption = caption ?: "",
+            msgType = "m.image"
+        )
+    }
+    
     fun sendDelete(roomId: String, originalEvent: net.vrkknn.andromuks.TimelineEvent, reason: String = "") {
         android.util.Log.d("Andromuks", "AppViewModel: sendDelete called with roomId: '$roomId', eventId: ${originalEvent.eventId}, reason: '$reason'")
         

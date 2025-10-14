@@ -89,6 +89,8 @@ import net.vrkknn.andromuks.utils.EmojiSelectionDialog
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.InlineReadReceiptAvatars
 import net.vrkknn.andromuks.utils.MediaMessage
+import net.vrkknn.andromuks.utils.MediaPreviewDialog
+import net.vrkknn.andromuks.utils.MediaUploadUtils
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.ReactionBadges
 import net.vrkknn.andromuks.utils.ReplyPreview
@@ -97,6 +99,7 @@ import net.vrkknn.andromuks.utils.SmartMessageText
 import net.vrkknn.andromuks.utils.StickerMessage
 import net.vrkknn.andromuks.utils.SystemEventNarrator
 import net.vrkknn.andromuks.utils.TypingNotificationArea
+import net.vrkknn.andromuks.utils.UploadingDialog
 import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
 
@@ -1023,6 +1026,77 @@ fun RoomTimelineScreen(
                             reactingToEvent = null
                         }
                     )
+                }
+                
+                // Media preview dialog (shows selected image with caption input)
+                if (showMediaPreview && selectedMediaUri != null) {
+                    MediaPreviewDialog(
+                        uri = selectedMediaUri!!,
+                        onDismiss = {
+                            showMediaPreview = false
+                            selectedMediaUri = null
+                        },
+                        onSend = { caption ->
+                            // Start upload
+                            showMediaPreview = false
+                            isUploading = true
+                            
+                            // Upload and send in background
+                            coroutineScope.launch {
+                                try {
+                                    Log.d("Andromuks", "RoomTimelineScreen: Starting media upload")
+                                    val uploadResult = MediaUploadUtils.uploadMedia(
+                                        context = context,
+                                        uri = selectedMediaUri!!,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        isEncrypted = false
+                                    )
+                                    
+                                    if (uploadResult != null) {
+                                        Log.d("Andromuks", "RoomTimelineScreen: Upload successful, sending message")
+                                        // Send image message with metadata
+                                        appViewModel.sendImageMessage(
+                                            roomId = roomId,
+                                            mxcUrl = uploadResult.mxcUrl,
+                                            width = uploadResult.width,
+                                            height = uploadResult.height,
+                                            size = uploadResult.size,
+                                            mimeType = uploadResult.mimeType,
+                                            blurHash = uploadResult.blurHash,
+                                            caption = caption.takeIf { it.isNotBlank() }
+                                        )
+                                        
+                                        // Clear state
+                                        selectedMediaUri = null
+                                        isUploading = false
+                                    } else {
+                                        Log.e("Andromuks", "RoomTimelineScreen: Upload failed")
+                                        isUploading = false
+                                        // Show error toast
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Failed to upload image",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("Andromuks", "RoomTimelineScreen: Upload error", e)
+                                    isUploading = false
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "Error uploading image: ${e.message}",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+                        }
+                    )
+                }
+                
+                // Uploading dialog (shows progress during upload)
+                if (isUploading) {
+                    UploadingDialog()
                 }
             }
         }
