@@ -2244,7 +2244,8 @@ fun TimelineEventItem(
                                         homeserverUrl = homeserverUrl,
                                         authToken = authToken,
                                         appViewModel = appViewModel,
-                                        messageSender = event.sender
+                                        messageSender = event.sender,
+                                        onUserClick = onUserClick
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                 }
@@ -2413,7 +2414,8 @@ fun TimelineEventItem(
                                         homeserverUrl = homeserverUrl,
                                         authToken = authToken,
                                         appViewModel = appViewModel,
-                                        messageSender = event.sender
+                                        messageSender = event.sender,
+                                        onUserClick = onUserClick
                                     )
                                 }
                             }
@@ -2462,7 +2464,8 @@ fun TimelineEventItem(
                                         homeserverUrl = homeserverUrl,
                                         authToken = authToken,
                                         appViewModel = appViewModel,
-                                        messageSender = event.sender
+                                        messageSender = event.sender,
+                                        onUserClick = onUserClick
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                 }
@@ -2587,7 +2590,8 @@ fun TimelineEventItem(
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
                                     appViewModel = appViewModel,
-                                    messageSender = event.sender
+                                    messageSender = event.sender,
+                                    onUserClick = onUserClick
                                 )
                             }
                         }
