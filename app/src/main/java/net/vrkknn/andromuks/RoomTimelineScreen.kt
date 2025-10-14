@@ -65,9 +65,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import java.text.SimpleDateFormat
@@ -863,6 +868,33 @@ fun RoomTimelineScreen(
                                     placeholder = { Text("Type a message...") },
                                     modifier = Modifier.fillMaxWidth().height(56.dp),
                                     singleLine = true,
+                                    keyboardOptions = KeyboardOptions(
+                                        capitalization = KeyboardCapitalization.Sentences,
+                                        keyboardType = KeyboardType.Text,
+                                        autoCorrect = true,
+                                        imeAction = ImeAction.Send
+                                    ),
+                                    keyboardActions = KeyboardActions(
+                                        onSend = {
+                                            if (draft.isNotBlank()) {
+                                                // Send edit if editing a message
+                                                if (editingEvent != null) {
+                                                    appViewModel.sendEdit(roomId, draft, editingEvent!!)
+                                                    editingEvent = null // Clear edit state
+                                                }
+                                                // Send reply if replying to a message
+                                                else if (replyingToEvent != null) {
+                                                    appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                                    replyingToEvent = null // Clear reply state
+                                                }
+                                                // Otherwise send regular message
+                                                else {
+                                                    appViewModel.sendMessage(roomId, draft)
+                                                }
+                                                draft = "" // Clear the input after sending
+                                            }
+                                        }
+                                    ),
                                     colors =
                                         androidx.compose.material3.TextFieldDefaults.colors(
                                             focusedIndicatorColor =
