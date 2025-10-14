@@ -2131,6 +2131,19 @@ class AppViewModel : ViewModel() {
             android.util.Log.w("Andromuks", "AppViewModel: Event request error for requestId=$requestId: $errorMessage")
             val (_, callback) = eventRequests.remove(requestId) ?: return
             callback(null)
+        } else if (mutualRoomsRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Mutual rooms error for requestId=$requestId: $errorMessage")
+            val callback = mutualRoomsRequests.remove(requestId) ?: return
+            // Call callback with empty list instead of error
+            callback(emptyList(), null)
+        } else if (userEncryptionInfoRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: User encryption info error for requestId=$requestId: $errorMessage")
+            val callback = userEncryptionInfoRequests.remove(requestId) ?: return
+            callback(null, errorMessage)
+        } else if (trackDevicesRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Track devices error for requestId=$requestId: $errorMessage")
+            val callback = trackDevicesRequests.remove(requestId) ?: return
+            callback(null, errorMessage)
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
@@ -3939,15 +3952,22 @@ class AppViewModel : ViewModel() {
         }
         
         // Request 3: Mutual Rooms
-        requestMutualRooms(userId) { rooms, error ->
-            if (error != null) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to get mutual rooms: $error")
-                hasError = true
-                callback(null, error)
-                return@requestMutualRooms
-            }
-            mutualRooms = rooms ?: emptyList()
+        // Skip mutual rooms request if viewing our own profile (backend returns HTTP 422)
+        if (userId == currentUserId) {
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping mutual rooms request for self")
+            mutualRooms = emptyList()
             checkCompletion()
+        } else {
+            requestMutualRooms(userId) { rooms, error ->
+                if (error != null) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Failed to get mutual rooms: $error")
+                    hasError = true
+                    callback(null, error)
+                    return@requestMutualRooms
+                }
+                mutualRooms = rooms ?: emptyList()
+                checkCompletion()
+            }
         }
         
         // Handle profile response separately
