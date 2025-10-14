@@ -195,10 +195,54 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val currentUserId = sharedPrefs.getString("current_user_id", "self") ?: "self"
             val currentUserDisplayName = sharedPrefs.getString("current_user_display_name", "Me") ?: "Me"
             
-            // Create "me" person for MessagingStyle root (the local user)
+            // Load current user's avatar for "me" person
+            val currentUserAvatarIcon = try {
+                val avatarUrl = sharedPrefs.getString("current_user_avatar_url", null)
+                if (!avatarUrl.isNullOrEmpty()) {
+                    val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+                    val avatarBitmap = if (cachedFile != null) {
+                        Log.d(TAG, "Using cached avatar for current user: $avatarUrl")
+                        android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
+                    } else {
+                        // Try to download avatar for current user
+                        val httpUrl = MediaUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
+                        if (httpUrl != null) {
+                            val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+                            if (downloadedFile != null) {
+                                Log.d(TAG, "Downloaded current user avatar to cache: ${downloadedFile.absolutePath}")
+                                android.graphics.BitmapFactory.decodeFile(downloadedFile.absolutePath)
+                            } else {
+                                Log.d(TAG, "Failed to download current user avatar: $avatarUrl")
+                                null
+                            }
+                        } else {
+                            Log.d(TAG, "Failed to convert current user avatar MXC URL: $avatarUrl")
+                            null
+                        }
+                    }
+                    
+                    // Apply circular transformation to match other avatars
+                    avatarBitmap?.let { 
+                        IconCompat.createWithBitmap(createCircularBitmap(it))
+                    }
+                } else {
+                    Log.d(TAG, "No avatar URL stored for current user")
+                    null
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading current user avatar", e)
+                null
+            }
+            
+            // Create "me" person for MessagingStyle root (the local user) WITH avatar
             val me = Person.Builder()
                 .setName(currentUserDisplayName)
                 .setKey(currentUserId)
+                .apply {
+                    if (currentUserAvatarIcon != null) {
+                        setIcon(currentUserAvatarIcon)
+                    }
+                }
                 .build()
             
             // Create message person WITH sender avatar icon for individual messages
@@ -909,9 +953,46 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val eventId = existingNotification.notification.extras?.getString("event_id")
             Log.d(TAG, "Extracted event_id from notification: $eventId")
             
-            // Create a Person for "You" (the current user)
-            val youPerson = Person.Builder()
-                .setName("You")
+            // Get current user info to create the same "me" Person as the original notification
+            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val currentUserId = sharedPrefs.getString("current_user_id", "self") ?: "self"
+            val currentUserDisplayName = sharedPrefs.getString("current_user_display_name", "Me") ?: "Me"
+            
+            // Try to use cached avatar for the reply (don't download to avoid delays)
+            val currentUserAvatarIcon = try {
+                val avatarUrl = sharedPrefs.getString("current_user_avatar_url", null)
+                if (!avatarUrl.isNullOrEmpty()) {
+                    val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+                    val avatarBitmap = if (cachedFile != null) {
+                        Log.d(TAG, "Using cached avatar for reply: $avatarUrl")
+                        android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
+                    } else {
+                        Log.d(TAG, "Avatar not cached, reply will show without avatar: $avatarUrl")
+                        null
+                    }
+                    
+                    // Apply circular transformation to match other avatars
+                    avatarBitmap?.let { 
+                        IconCompat.createWithBitmap(createCircularBitmap(it))
+                    }
+                } else {
+                    Log.d(TAG, "No avatar URL stored for current user")
+                    null
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading current user avatar for reply", e)
+                null
+            }
+            
+            // Create the "me" Person with the same key and avatar as the original
+            val mePerson = Person.Builder()
+                .setName(currentUserDisplayName)
+                .setKey(currentUserId)
+                .apply {
+                    if (currentUserAvatarIcon != null) {
+                        setIcon(currentUserAvatarIcon)
+                    }
+                }
                 .build()
             
             // Add the reply message to the style
@@ -919,7 +1000,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 MessagingStyle.Message(
                     replyText,
                     System.currentTimeMillis(),
-                    youPerson
+                    mePerson
                 )
             )
             
