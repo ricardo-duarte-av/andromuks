@@ -1681,56 +1681,26 @@ fun TimelineEventItem(
                             )
 
                             // Display media message with nested reply structure
-                            if (replyInfo != null && originalEvent != null) {
-                                Column {
-                                    ReplyPreview(
-                                        replyInfo = replyInfo,
-                                        originalEvent = originalEvent,
-                                        userProfileCache = userProfileCache,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        isMine = actualIsMine,
-                                        modifier = Modifier.padding(bottom = 8.dp),
-                                        onOriginalMessageClick = {
-                                            onScrollToMessage(replyInfo.eventId)
-                                        },
-                                        timelineEvents = timelineEvents,
-                                        onMatrixUserClick = onUserClick
-                                    )
-                                    MediaMessage(
-                                        mediaMessage = mediaMessage,
-                                        homeserverUrl =
-                                            appViewModel?.homeserverUrl ?: homeserverUrl,
-                                        authToken = authToken,
-                                        isMine = actualIsMine,
-                                        isEncrypted = hasEncryptedFile,
-                                        event = event,
-                                        timestamp = event.timestamp,
-                                        isConsecutive = isConsecutive,
-                                        editedBy = editedBy,
-                                        onReply = { onReply(event) },
-                                        onReact = { onReact(event) },
-                                        onEdit = { onEdit(event) },
-                                        onDelete = { onDelete(event) }
-                                    )
-                                }
-                            } else {
-                                MediaMessage(
-                                    mediaMessage = mediaMessage,
-                                    homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                                    authToken = authToken,
-                                    isMine = actualIsMine,
-                                    isEncrypted = hasEncryptedFile,
-                                    event = event,
-                                    timestamp = event.timestamp,
-                                    isConsecutive = isConsecutive,
-                                    editedBy = editedBy,
-                                    onReply = { onReply(event) },
-                                    onReact = { onReact(event) },
-                                    onEdit = { onEdit(event) },
-                                    onDelete = { onDelete(event) }
-                                )
-                            }
+                            MediaMessageItem(
+                                mediaMessage = mediaMessage,
+                                replyInfo = replyInfo,
+                                originalEvent = originalEvent,
+                                userProfileCache = userProfileCache,
+                                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                                authToken = authToken,
+                                isMine = actualIsMine,
+                                hasEncryptedFile = hasEncryptedFile,
+                                event = event,
+                                isConsecutive = isConsecutive,
+                                editedBy = editedBy,
+                                timelineEvents = timelineEvents,
+                                onScrollToMessage = onScrollToMessage,
+                                onReply = { onReply(event) },
+                                onReact = { onReact(event) },
+                                onEdit = { onEdit(event) },
+                                onDelete = { onDelete(event) },
+                                onUserClick = onUserClick
+                            )
 
                             // Add reaction badges for media messages
                             if (appViewModel != null) {
@@ -2216,57 +2186,26 @@ fun TimelineEventItem(
                                 )
 
                                 // Display encrypted media message with nested reply structure
-                                if (replyInfo != null && originalEvent != null) {
-                                    Column {
-                                        ReplyPreview(
-                                            replyInfo = replyInfo,
-                                            originalEvent = originalEvent,
-                                            userProfileCache = userProfileCache,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            isMine = actualIsMine,
-                                            modifier = Modifier.padding(bottom = 8.dp),
-                                            onOriginalMessageClick = {
-                                                onScrollToMessage(replyInfo.eventId)
-                                            },
-                                            timelineEvents = timelineEvents,
-                                            onMatrixUserClick = onUserClick
-                                        )
-                                        MediaMessage(
-                                            mediaMessage = mediaMessage,
-                                            homeserverUrl =
-                                                appViewModel?.homeserverUrl ?: homeserverUrl,
-                                            authToken = authToken,
-                                            isMine = actualIsMine,
-                                            isEncrypted = hasEncryptedFile,
-                                            event = event,
-                                            timestamp = event.timestamp,
-                                            isConsecutive = isConsecutive,
-                                            editedBy = editedBy,
-                                            onReply = { onReply(event) },
-                                            onReact = { onReact(event) },
-                                            onEdit = { onEdit(event) },
-                                            onDelete = { onDelete(event) }
-                                        )
-                                    }
-                                } else {
-                                    MediaMessage(
-                                        mediaMessage = mediaMessage,
-                                        homeserverUrl =
-                                            appViewModel?.homeserverUrl ?: homeserverUrl,
-                                        authToken = authToken,
-                                        isMine = actualIsMine,
-                                        isEncrypted = hasEncryptedFile,
-                                        event = event,
-                                        timestamp = event.timestamp,
-                                        isConsecutive = isConsecutive,
-                                        editedBy = editedBy,
-                                        onReply = { onReply(event) },
-                                        onReact = { onReact(event) },
-                                        onEdit = { onEdit(event) },
-                                        onDelete = { onDelete(event) }
-                                    )
-                                }
+                                MediaMessageItem(
+                                    mediaMessage = mediaMessage,
+                                    replyInfo = replyInfo,
+                                    originalEvent = originalEvent,
+                                    userProfileCache = userProfileCache,
+                                    homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                                    authToken = authToken,
+                                    isMine = actualIsMine,
+                                    hasEncryptedFile = hasEncryptedFile,
+                                    event = event,
+                                    isConsecutive = isConsecutive,
+                                    editedBy = editedBy,
+                                    timelineEvents = timelineEvents,
+                                    onScrollToMessage = onScrollToMessage,
+                                    onReply = { onReply(event) },
+                                    onReact = { onReact(event) },
+                                    onEdit = { onEdit(event) },
+                                    onDelete = { onDelete(event) },
+                                    onUserClick = onUserClick
+                                )
 
                                 // Add reaction badges for encrypted media messages
                                 if (appViewModel != null) {
@@ -2800,6 +2739,87 @@ fun TimelineEventItem(
 
         if (actualIsMine) {
             Spacer(modifier = Modifier.width(8.dp))
+        }
+    }
+}
+
+/**
+ * Helper composable to render media messages with proper positioning.
+ * Extracted to reduce complexity of TimelineEventItem function.
+ */
+@Composable
+private fun MediaMessageItem(
+    mediaMessage: MediaMessage,
+    replyInfo: ReplyInfo?,
+    originalEvent: TimelineEvent?,
+    userProfileCache: Map<String, MemberProfile>,
+    homeserverUrl: String,
+    authToken: String,
+    isMine: Boolean,
+    hasEncryptedFile: Boolean,
+    event: TimelineEvent,
+    isConsecutive: Boolean,
+    editedBy: TimelineEvent?,
+    timelineEvents: List<TimelineEvent>,
+    onScrollToMessage: (String) -> Unit,
+    onReply: () -> Unit,
+    onReact: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+    onUserClick: (String) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+    ) {
+        if (replyInfo != null && originalEvent != null) {
+            Column {
+                ReplyPreview(
+                    replyInfo = replyInfo,
+                    originalEvent = originalEvent,
+                    userProfileCache = userProfileCache,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    isMine = isMine,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                    onOriginalMessageClick = {
+                        onScrollToMessage(replyInfo.eventId)
+                    },
+                    timelineEvents = timelineEvents,
+                    onMatrixUserClick = onUserClick
+                )
+                MediaMessage(
+                    mediaMessage = mediaMessage,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    isMine = isMine,
+                    isEncrypted = hasEncryptedFile,
+                    event = event,
+                    timestamp = event.timestamp,
+                    isConsecutive = isConsecutive,
+                    editedBy = editedBy,
+                    onReply = onReply,
+                    onReact = onReact,
+                    onEdit = onEdit,
+                    onDelete = onDelete
+                )
+            }
+        } else {
+            MediaMessage(
+                mediaMessage = mediaMessage,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                isMine = isMine,
+                isEncrypted = hasEncryptedFile,
+                event = event,
+                timestamp = event.timestamp,
+                isConsecutive = isConsecutive,
+                editedBy = editedBy,
+                onReply = onReply,
+                onReact = onReact,
+                onEdit = onEdit,
+                onDelete = onDelete
+            )
         }
     }
 }

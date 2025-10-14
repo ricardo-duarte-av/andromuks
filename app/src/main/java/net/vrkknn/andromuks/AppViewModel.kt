@@ -1578,7 +1578,7 @@ class AppViewModel : ViewModel() {
         sendWebSocketCommand("paginate", paginateRequestId, mapOf(
             "room_id" to roomId,
             "max_timeline_id" to 0,
-            "limit" to 50,
+            "limit" to 100,
             "reset" to false
         ))
     }
