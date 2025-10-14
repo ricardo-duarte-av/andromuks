@@ -2077,6 +2077,84 @@ class AppViewModel : ViewModel() {
         )
     }
     
+    /**
+     * Send a video message with thumbnail
+     */
+    fun sendVideoMessage(
+        roomId: String,
+        videoMxcUrl: String,
+        thumbnailMxcUrl: String,
+        width: Int,
+        height: Int,
+        duration: Int,
+        size: Long,
+        mimeType: String,
+        thumbnailBlurHash: String,
+        thumbnailWidth: Int,
+        thumbnailHeight: Int,
+        thumbnailSize: Long,
+        caption: String? = null
+    ) {
+        android.util.Log.d("Andromuks", "AppViewModel: sendVideoMessage called with roomId: '$roomId', videoMxcUrl: '$videoMxcUrl'")
+        
+        val ws = webSocket ?: return
+        val messageRequestId = requestIdCounter++
+        
+        // Track this outgoing request
+        messageRequests[messageRequestId] = roomId
+        
+        // Extract filename from mxc URL
+        val filename = videoMxcUrl.substringAfterLast("/").let { mediaId ->
+            val extension = when {
+                mimeType.startsWith("video/mp4") -> "mp4"
+                mimeType.startsWith("video/quicktime") -> "mov"
+                mimeType.startsWith("video/webm") -> "webm"
+                else -> "mp4"
+            }
+            "video_$mediaId.$extension"
+        }
+        
+        // Use caption if provided, otherwise use filename
+        val body = caption?.takeIf { it.isNotBlank() } ?: filename
+        
+        val baseContent = mapOf(
+            "msgtype" to "m.video",
+            "body" to body,
+            "url" to videoMxcUrl,
+            "info" to mapOf(
+                "mimetype" to mimeType,
+                "thumbnail_info" to mapOf(
+                    "mimetype" to "image/jpeg",
+                    "xyz.amorgan.blurhash" to thumbnailBlurHash,
+                    "w" to thumbnailWidth,
+                    "h" to thumbnailHeight,
+                    "size" to thumbnailSize
+                ),
+                "thumbnail_url" to thumbnailMxcUrl,
+                "w" to width,
+                "h" to height,
+                "duration" to duration,
+                "size" to size
+            ),
+            "filename" to filename
+        )
+        
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "base_content" to baseContent,
+            "text" to (caption ?: ""),
+            "mentions" to mapOf(
+                "user_ids" to emptyList<String>(),
+                "room" to false
+            ),
+            "url_previews" to emptyList<String>()
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with video data: $commandData")
+        sendWebSocketCommand("send_message", messageRequestId, commandData)
+        android.util.Log.d("Andromuks", "AppViewModel: Video message command sent with request_id: $messageRequestId")
+    }
+    
     fun sendDelete(roomId: String, originalEvent: net.vrkknn.andromuks.TimelineEvent, reason: String = "") {
         android.util.Log.d("Andromuks", "AppViewModel: sendDelete called with roomId: '$roomId', eventId: ${originalEvent.eventId}, reason: '$reason'")
         
