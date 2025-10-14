@@ -389,6 +389,8 @@ fun RoomTimelineScreen(
     var hasInitialSnapCompleted by remember { mutableStateOf(false) }
     var lastKnownTimelineEventId by remember { mutableStateOf<String?>(null) }
     var hasCompletedInitialLayout by remember { mutableStateOf(false) }
+    var firstVisibleItemIndexBeforeLoad by remember { mutableStateOf(0) }
+    var firstVisibleItemScrollOffsetBeforeLoad by remember { mutableStateOf(0) }
 
     // Monitor scroll position to detect if user is at bottom or has detached
     LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) {
@@ -454,8 +456,26 @@ fun RoomTimelineScreen(
         val hasNewItems = previousItemCount < timelineItems.size
 
         if (isLoadingMore && hasNewItems) {
+            // Calculate how many new items were added
+            val newItemsCount = timelineItems.size - previousItemCount
+            
+            // Calculate the new index to maintain scroll position
+            // The item that was at firstVisibleItemIndexBeforeLoad is now at
+            // firstVisibleItemIndexBeforeLoad + newItemsCount
+            val targetIndex = firstVisibleItemIndexBeforeLoad + newItemsCount
+            
+            Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Restoring scroll position after load - " +
+                "previousCount: $previousItemCount, newCount: ${timelineItems.size}, " +
+                "newItemsAdded: $newItemsCount, " +
+                "oldIndex: $firstVisibleItemIndexBeforeLoad, newIndex: $targetIndex, " +
+                "offset: $firstVisibleItemScrollOffsetBeforeLoad"
+            )
+            
             coroutineScope.launch {
-                listState.scrollToItem(buttonOffset + (timelineItems.size - previousItemCount))
+                // Scroll to maintain the user's viewing position
+                listState.scrollToItem(targetIndex, firstVisibleItemScrollOffsetBeforeLoad)
             }
             isLoadingMore = false
             previousItemCount = timelineItems.size
@@ -650,6 +670,13 @@ fun RoomTimelineScreen(
                                                     Log.d(
                                                         "Andromuks",
                                                         "RoomTimelineScreen: Load More button clicked"
+                                                    )
+                                                    // Save current scroll position before loading
+                                                    firstVisibleItemIndexBeforeLoad = listState.firstVisibleItemIndex
+                                                    firstVisibleItemScrollOffsetBeforeLoad = listState.firstVisibleItemScrollOffset
+                                                    Log.d(
+                                                        "Andromuks",
+                                                        "RoomTimelineScreen: Saved scroll position - index: $firstVisibleItemIndexBeforeLoad, offset: $firstVisibleItemScrollOffsetBeforeLoad"
                                                     )
                                                     isLoadingMore = true
                                                     appViewModel.loadOlderMessages(roomId)
