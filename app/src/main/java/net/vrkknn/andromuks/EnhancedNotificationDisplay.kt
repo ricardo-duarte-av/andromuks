@@ -161,26 +161,34 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val isGroupRoom = notificationData.roomName != notificationData.senderDisplayName
             val hasImage = !notificationData.image.isNullOrEmpty()
             Log.d(TAG, "showEnhancedNotification - hasImage: $hasImage, image: ${notificationData.image}")
-            // Load avatars asynchronously
+            // Load avatars asynchronously with fallbacks
             val roomAvatarIcon = notificationData.roomAvatarUrl?.let { 
                 loadAvatarAsIcon(it) 
-            } ?: IconCompat.createWithResource(context, R.drawable.ic_matrix_notification)
+            } ?: run {
+                // Create fallback avatar for room (use room name + room ID)
+                Log.d(TAG, "No room avatar URL, creating fallback for: ${notificationData.roomName}")
+                createFallbackAvatarIcon(notificationData.roomName, notificationData.roomId)
+            }
             
             val senderAvatarIcon = notificationData.avatarUrl?.let { 
-                loadAvatarAsIcon(it) 
-            } ?: IconCompat.createWithResource(context, R.drawable.ic_matrix_notification)
+                loadAvatarAsIcon(it)
+            } ?: run {
+                // Create fallback avatar for sender
+                Log.d(TAG, "No sender avatar URL, creating fallback for: ${notificationData.senderDisplayName}")
+                createFallbackAvatarIcon(notificationData.senderDisplayName, notificationData.sender)
+            }
             
             // Load room avatar bitmap for large icon
             val roomAvatarBitmap = notificationData.roomAvatarUrl?.let { 
                 loadAvatarBitmap(it) 
-            }
-            val circularRoomAvatar = roomAvatarBitmap?.let { createCircularBitmap(it) }
+            } ?: createFallbackAvatarBitmap(notificationData.roomName, notificationData.roomId, 128)
+            val circularRoomAvatar = createCircularBitmap(roomAvatarBitmap)
             
             // Load sender avatar bitmap
-            val senderAvatarBitmap = notificationData.avatarUrl?.let {
+            val senderAvatarBitmap = notificationData.avatarUrl?.let { 
                 loadAvatarBitmap(it)
-            }
-            val circularSenderAvatar = senderAvatarBitmap?.let { createCircularBitmap(it) }
+            } ?: createFallbackAvatarBitmap(notificationData.senderDisplayName, notificationData.sender, 128)
+            val circularSenderAvatar = createCircularBitmap(senderAvatarBitmap)
             
             // Get current user info for MessagingStyle (the local user, not the room)
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
@@ -622,6 +630,68 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             Log.e(TAG, "  ✗✗✗ EXCEPTION: Error loading avatar as icon: $avatarUrl", e)
             createDefaultAdaptiveIcon()
         }
+    }
+    
+    /**
+     * Create fallback avatar icon with initials (like AvatarUtils but as Bitmap)
+     */
+    private fun createFallbackAvatarIcon(displayName: String?, userId: String): IconCompat {
+        return try {
+            val fallbackBitmap = createFallbackAvatarBitmap(displayName, userId, 128)
+            val circularBitmap = createCircularBitmap(fallbackBitmap)
+            IconCompat.createWithAdaptiveBitmap(circularBitmap)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error creating fallback avatar icon", e)
+            createDefaultAdaptiveIcon()
+        }
+    }
+    
+    /**
+     * Create a bitmap-based fallback avatar with user initial
+     * Uses same color/character logic as AvatarUtils for consistency
+     */
+    private fun createFallbackAvatarBitmap(displayName: String?, userId: String, size: Int): android.graphics.Bitmap {
+        val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bitmap)
+        
+        // Get color and character using AvatarUtils
+        val colorHex = AvatarUtils.getUserColor(userId)
+        val character = AvatarUtils.getFallbackCharacter(displayName, userId)
+        
+        // Parse hex color
+        val color = try {
+            android.graphics.Color.parseColor("#$colorHex")
+        } catch (e: Exception) {
+            android.graphics.Color.parseColor("#d991de") // Fallback color
+        }
+        
+        // Draw background
+        val bgPaint = android.graphics.Paint().apply {
+            this.color = color
+            style = android.graphics.Paint.Style.FILL
+            isAntiAlias = true
+        }
+        canvas.drawRect(0f, 0f, size.toFloat(), size.toFloat(), bgPaint)
+        
+        // Draw text (character/initial)
+        if (character.isNotEmpty()) {
+            val textPaint = android.graphics.Paint().apply {
+                this.color = android.graphics.Color.WHITE
+                textSize = size * 0.5f // 50% of size
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                textAlign = android.graphics.Paint.Align.CENTER
+                isAntiAlias = true
+            }
+            
+            // Center text vertically (accounting for font metrics)
+            val textBounds = android.graphics.Rect()
+            textPaint.getTextBounds(character, 0, character.length, textBounds)
+            val y = size / 2f + textBounds.height() / 2f
+            
+            canvas.drawText(character, size / 2f, y, textPaint)
+        }
+        
+        return bitmap
     }
     
     private fun createDefaultAdaptiveIcon(): IconCompat {

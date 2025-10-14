@@ -162,7 +162,14 @@ class FCMService : FirebaseMessagingService() {
                             
                             val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap)
                             if (notificationData != null) {
-                                enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
+                                CoroutineScope(Dispatchers.Main).launch {
+                                    try {
+                                        enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Error showing enhanced notification", e)
+                                        e.printStackTrace()
+                                    }
+                                }
                             }
                         }
                     }
@@ -245,7 +252,14 @@ class FCMService : FirebaseMessagingService() {
                 )
                 
                 Log.d(TAG, "Showing notification for room: $roomId, sender: $senderDisplayName, text: $text")
-                enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
+                CoroutineScope(Dispatchers.Main).launch {
+                    try {
+                        enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error showing enhanced notification", e)
+                        e.printStackTrace()
+                    }
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error handling message notification", e)
