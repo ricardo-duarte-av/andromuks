@@ -118,6 +118,41 @@ private fun formatDate(timestamp: Long): String {
     return formatter.format(date)
 }
 
+/** Check if a message mentions a specific user */
+private fun isMentioningUser(event: TimelineEvent, userId: String?): Boolean {
+    if (userId == null) return false
+    
+    // Check in content (for unencrypted messages)
+    val contentMentions = event.content?.optJSONObject("m.mentions")
+    if (contentMentions != null) {
+        val userIds = contentMentions.optJSONArray("user_ids")
+        if (userIds != null) {
+            for (i in 0 until userIds.length()) {
+                if (userIds.optString(i) == userId) {
+                    Log.d("Andromuks", "isMentioningUser: Found mention of $userId in event ${event.eventId}")
+                    return true
+                }
+            }
+        }
+    }
+    
+    // Check in decrypted content (for encrypted messages)
+    val decryptedMentions = event.decrypted?.optJSONObject("m.mentions")
+    if (decryptedMentions != null) {
+        val userIds = decryptedMentions.optJSONArray("user_ids")
+        if (userIds != null) {
+            for (i in 0 until userIds.length()) {
+                if (userIds.optString(i) == userId) {
+                    Log.d("Andromuks", "isMentioningUser: Found mention of $userId in encrypted event ${event.eventId}")
+                    return true
+                }
+            }
+        }
+    }
+    
+    return false
+}
+
 /** Date divider component for timeline events */
 @Composable
 fun DateDivider(date: String) {
@@ -1345,6 +1380,9 @@ fun TimelineEventItem(
             isMine
         }
 
+    // Check if the current user is mentioned in this message (calculated once for reuse)
+    val mentionsMe = !actualIsMine && isMentioningUser(event, myUserId)
+
     // Check if this is a narrator event (system event)
     val isNarratorEvent =
         event.type in
@@ -1766,11 +1804,14 @@ fun TimelineEventItem(
                                         bottomStart = 8.dp
                                     )
                                 }
+                            
                             val bubbleColor =
                                 if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
+                                else if (mentionsMe) MaterialTheme.colorScheme.tertiaryContainer
                                 else MaterialTheme.colorScheme.surfaceVariant
                             val textColor =
                                 if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
+                                else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
                                 else MaterialTheme.colorScheme.onSurfaceVariant
 
                             Row(
@@ -1812,11 +1853,14 @@ fun TimelineEventItem(
                                     bottomStart = 12.dp
                                 )
                             }
+                        
                         val bubbleColor =
                             if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
+                            else if (mentionsMe) MaterialTheme.colorScheme.tertiaryContainer
                             else MaterialTheme.colorScheme.surfaceVariant
                         val textColor =
                             if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
+                            else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
                             else MaterialTheme.colorScheme.onSurfaceVariant
 
                         Row(
@@ -2272,11 +2316,14 @@ fun TimelineEventItem(
                                             bottomStart = 8.dp
                                         )
                                     }
+                                
                                 val bubbleColor =
                                     if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
+                                    else if (mentionsMe) MaterialTheme.colorScheme.tertiaryContainer
                                     else MaterialTheme.colorScheme.surfaceVariant
                                 val textColor =
                                     if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
+                                    else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
                                     else MaterialTheme.colorScheme.onSurfaceVariant
 
                                 Row(
@@ -2349,11 +2396,14 @@ fun TimelineEventItem(
                                         bottomStart = 8.dp
                                     )
                                 }
+                            
                             val bubbleColor =
                                 if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
+                                else if (mentionsMe) MaterialTheme.colorScheme.tertiaryContainer
                                 else MaterialTheme.colorScheme.surfaceVariant
                             val textColor =
                                 if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
+                                else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
                                 else MaterialTheme.colorScheme.onSurfaceVariant
 
                             Row(
