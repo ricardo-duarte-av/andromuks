@@ -67,10 +67,6 @@ class ChatBubbleActivity : ComponentActivity() {
                         // Load cached user profiles on app startup
                         appViewModel.loadCachedProfiles(this)
                         
-                        // Enable keepWebSocketOpened for bubble mode to prevent shutdown
-                        Log.d("Andromuks", "ChatBubbleActivity: Setting keepWebSocketOpened to true for bubble mode")
-                        appViewModel.enableKeepWebSocketOpened(true)
-                        
                         // Get room ID from intent
                         val roomId = intent.getStringExtra("room_id")
                         val matrixUri = intent.data
@@ -120,26 +116,15 @@ class ChatBubbleActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         Log.d("Andromuks", "ChatBubbleActivity: onPause called")
-        Log.d("Andromuks", "ChatBubbleActivity: onPause - Stack trace:")
-        Thread.currentThread().stackTrace.take(5).forEach {
-            Log.d("Andromuks", "ChatBubbleActivity: onPause -   at $it")
-        }
         if (::appViewModel.isInitialized) {
-            Log.d("Andromuks", "ChatBubbleActivity: onPause - keepWebSocketOpened: ${appViewModel.keepWebSocketOpened}")
-            // Don't call onAppBecameInvisible() in bubble mode to prevent WebSocket shutdown
-            Log.d("Andromuks", "ChatBubbleActivity: onPause - NOT calling onAppBecameInvisible() for bubble")
+            // WebSocket service maintains connection, just save state for crash recovery
+            appViewModel.onAppBecameInvisible()
         }
     }
     
     override fun onStop() {
         super.onStop()
         Log.d("Andromuks", "ChatBubbleActivity: onStop called")
-        Log.d("Andromuks", "ChatBubbleActivity: onStop - Stack trace:")
-        Thread.currentThread().stackTrace.take(10).forEach {
-            Log.d("Andromuks", "ChatBubbleActivity: onStop -   at $it")
-        }
-        // Don't automatically move to background - let the user control the bubble
-        Log.d("Andromuks", "ChatBubbleActivity: onStop - NOT moving to background automatically")
     }
     
     override fun onNewIntent(intent: Intent) {
@@ -161,28 +146,15 @@ class ChatBubbleActivity : ComponentActivity() {
     }
     
     override fun finish() {
-        Log.d("Andromuks", "ChatBubbleActivity: finish() called - preventing bubble destruction")
-        Log.d("Andromuks", "ChatBubbleActivity: finish() - Stack trace:")
-        Thread.currentThread().stackTrace.take(10).forEach {
-            Log.d("Andromuks", "ChatBubbleActivity: finish() -   at $it")
-        }
+        Log.d("Andromuks", "ChatBubbleActivity: finish() called - minimizing bubble instead of destroying")
         // Don't call super.finish() to prevent the bubble from being destroyed
         // Instead, just move to background so it can be reopened
         moveTaskToBack(true)
     }
     
     override fun onDestroy() {
-        Log.d("Andromuks", "ChatBubbleActivity: onDestroy called")
-        Log.d("Andromuks", "ChatBubbleActivity: onDestroy - Stack trace:")
-        Thread.currentThread().stackTrace.take(10).forEach {
-            Log.d("Andromuks", "ChatBubbleActivity: onDestroy -   at $it")
-        }
-        Log.d("Andromuks", "ChatBubbleActivity: onDestroy - isFinishing: $isFinishing")
-        Log.d("Andromuks", "ChatBubbleActivity: onDestroy - isDestroyed: $isDestroyed")
-        
-        // Clean up resources but don't prevent destruction
-        // The Android system will manage the bubble lifecycle
         super.onDestroy()
+        Log.d("Andromuks", "ChatBubbleActivity: onDestroy called")
     }
     
     /**

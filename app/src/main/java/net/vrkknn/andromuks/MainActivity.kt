@@ -367,6 +367,18 @@ fun AppNavigation(
     ) {
         composable("login") { LoginScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
         composable("auth_check") { AuthCheckScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
+        composable("permissions") {
+            PermissionsScreen(
+                onPermissionsGranted = {
+                    // Navigate to auth_check after permissions are granted
+                    // This will trigger WebSocket connection
+                    navController.navigate("auth_check") {
+                        popUpTo("permissions") { inclusive = true }
+                    }
+                },
+                modifier = modifier
+            )
+        }
         composable(
             route = "room_list",
             exitTransition = {

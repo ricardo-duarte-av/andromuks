@@ -59,8 +59,6 @@ class AppViewModel : ViewModel() {
     // Settings
     var showUnprocessedEvents by mutableStateOf(true)
         private set
-    var keepWebSocketOpened by mutableStateOf(false)
-        private set
 
 
     // List of spaces, each with their rooms
@@ -719,9 +717,8 @@ class AppViewModel : ViewModel() {
         // Process account_data for recent emojis
         processAccountData(syncJson)
         
-        // Auto-save state periodically (every 10 sync_complete messages)
-        // Only save if keepWebSocketOpened is disabled (otherwise service maintains connection)
-        if (!keepWebSocketOpened && syncMessageCount > 0 && syncMessageCount % 10 == 0) {
+        // Auto-save state periodically (every 10 sync_complete messages) for crash recovery
+        if (syncMessageCount > 0 && syncMessageCount % 10 == 0) {
             appContext?.let { context ->
                 saveStateToStorage(context)
             }
@@ -815,6 +812,10 @@ class AppViewModel : ViewModel() {
         
         // Now that all rooms are loaded, populate space edges
         populateSpaceEdges()
+        
+        // Start the WebSocket foreground service now that we have all connection parameters
+        android.util.Log.d("Andromuks", "AppViewModel: Starting WebSocket foreground service after init_complete")
+        startWebSocketService()
         
         // Update ConversationsApi with the real homeserver URL and refresh shortcuts
         // This happens after init_complete when we have all the data we need
@@ -1026,17 +1027,8 @@ class AppViewModel : ViewModel() {
         notificationActionShutdownTimer = null
         notificationActionInProgress = false
         
-        // If keepWebSocketOpened is enabled, the service should be maintaining the connection
-        if (keepWebSocketOpened) {
-            android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened is enabled, service should maintain connection")
-            return
-        }
-        
-        // If WebSocket is not connected, restart it
-        if (webSocket == null) {
-            android.util.Log.d("Andromuks", "AppViewModel: WebSocket not connected, restarting...")
-            onRestartWebSocket?.invoke()
-        }
+        // WebSocket service maintains connection, nothing to do here
+        android.util.Log.d("Andromuks", "AppViewModel: App visible, WebSocket service maintains connection")
     }
     
     /**
@@ -1046,68 +1038,37 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: App became invisible")
         isAppVisible = false
         
-        // If keepWebSocketOpened is enabled, don't save state or start shutdown timer
-        // The foreground service maintains the connection, so no need to persist state
-        if (keepWebSocketOpened) {
-            android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened is enabled, not saving state or starting shutdown timer")
-            android.util.Log.d("Andromuks", "AppViewModel: keepWebSocketOpened value: $keepWebSocketOpened")
-            return
-        }
-        
-        // Save state to storage when app goes to background (only if WebSocket will be closed)
+        // Save state to storage for crash recovery (preserves run_id and last_received_sync_id)
+        // This allows seamless resumption if app is killed by system
         appContext?.let { context ->
             saveStateToStorage(context)
         }
         
-        // Cancel any existing shutdown job
+        // Cancel any existing shutdown job (no shutdown needed - service maintains connection)
         appInvisibleJob?.cancel()
+        appInvisibleJob = null
         
-        // Start delayed shutdown (15 seconds) - reduced from 30 seconds for better UX
-        appInvisibleJob = viewModelScope.launch {
-            android.util.Log.d("Andromuks", "AppViewModel: Starting 15s shutdown timer")
-            delay(15_000) // 15 seconds delay (changed from 30 seconds)
-            
-            // Check if app is still invisible after delay
-            if (!isAppVisible) {
-                android.util.Log.d("Andromuks", "AppViewModel: App still invisible after 15s, shutting down WebSocket")
-                android.util.Log.d("Andromuks", "AppViewModel: Shutdown timer - keepWebSocketOpened: $keepWebSocketOpened")
-                shutdownWebSocket()
-            } else {
-                android.util.Log.d("Andromuks", "AppViewModel: App became visible again, canceling shutdown")
-            }
-        }
+        // WebSocket service maintains connection in background
+        android.util.Log.d("Andromuks", "AppViewModel: App invisible, WebSocket service continues maintaining connection")
     }
     
     /**
      * Manually triggers app suspension (for back button from room list).
      * 
      * This function is called when the user presses the back button from the room list screen.
-     * It starts the 15-second timer to close the websocket, allowing the app to suspend
-     * gracefully while preserving resources.
+     * With the foreground service, we just save state but keep the WebSocket open.
      */
     fun suspendApp() {
-        // Don't suspend if keepWebSocketOpened is enabled
-        if (keepWebSocketOpened) {
-            android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened is enabled, not suspending app")
-            return
-        }
-        
-        android.util.Log.d("Andromuks", "AppViewModel: App manually suspended, starting 15-second timer to close websocket")
-        onAppBecameInvisible() // This will start the 15-second timer
+        android.util.Log.d("Andromuks", "AppViewModel: App manually suspended, WebSocket service continues")
+        onAppBecameInvisible() // This will save state for crash recovery
     }
     
     /**
      * Shuts down the WebSocket connection
+     * Note: With foreground service, this is only called on app cleanup (onCleared)
      */
     private fun shutdownWebSocket() {
         android.util.Log.d("Andromuks", "AppViewModel: Shutting down WebSocket connection")
-        
-        // Don't shutdown if keepWebSocketOpened is enabled
-        if (keepWebSocketOpened) {
-            android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened is enabled, not shutting down")
-            return
-        }
-        
         clearWebSocket()
     }
     
@@ -1248,16 +1209,11 @@ class AppViewModel : ViewModel() {
      * This allows the app to resume quickly on restart by loading cached data
      * and reconnecting with run_id and last_received_id.
      * 
-     * Note: This is only used when keepWebSocketOpened is disabled. When the WebSocket
-     * is kept open via foreground service, state persistence is not needed.
+     * Note: With foreground service maintaining connection, this primarily serves as
+     * crash recovery - preserving run_id and sync state for seamless resumption if
+     * the app process is killed by the system.
      */
     fun saveStateToStorage(context: android.content.Context) {
-        // Skip saving if keepWebSocketOpened is enabled (service maintains connection)
-        if (keepWebSocketOpened) {
-            android.util.Log.d("Andromuks", "AppViewModel: Skipping state save - WebSocket kept open by service")
-            return
-        }
-        
         try {
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
             val editor = prefs.edit()
@@ -3839,49 +3795,25 @@ class AppViewModel : ViewModel() {
         showUnprocessedEvents = !showUnprocessedEvents
     }
 
-    fun enableKeepWebSocketOpened(enabled: Boolean) {
-        keepWebSocketOpened = enabled
-        android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened setting changed to: $keepWebSocketOpened")
-    }
-    
-    fun toggleKeepWebSocketOpened() {
-        keepWebSocketOpened = !keepWebSocketOpened
-        android.util.Log.d("Andromuks", "AppViewModel: Keep WebSocket opened setting changed to: $keepWebSocketOpened")
-        
-        if (keepWebSocketOpened) {
-            // Start the WebSocket service to maintain connection
-            startWebSocketService()
-        } else {
-            // Stop the WebSocket service
-            stopWebSocketService()
-        }
-    }
-
-    private fun startWebSocketService() {
+    /**
+     * Starts the WebSocket service to maintain connection in background
+     * 
+     * Note: The service primarily shows a foreground notification to prevent
+     * Android from killing the app process. The actual WebSocket connection
+     * is managed by NetworkUtils and AppViewModel.
+     */
+    fun startWebSocketService() {
         appContext?.let { context ->
+            android.util.Log.d("Andromuks", "AppViewModel: Starting WebSocket foreground service")
             val intent = android.content.Intent(context, WebSocketService::class.java)
             context.startForegroundService(intent)
-            
-            // Bind to the service to pass connection parameters
-            context.bindService(intent, object : android.content.ServiceConnection {
-                override fun onServiceConnected(name: android.content.ComponentName?, service: android.os.IBinder?) {
-                    val webSocketService = (service as WebSocketService.WebSocketBinder).getService()
-                    webSocketService.setConnectionParameters(
-                        realMatrixHomeserverUrl,
-                        authToken,
-                        this@AppViewModel
-                    )
-                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket service connected and parameters set")
-                }
-                
-                override fun onServiceDisconnected(name: android.content.ComponentName?) {
-                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket service disconnected")
-                }
-            }, Context.BIND_AUTO_CREATE)
         }
     }
 
-    private fun stopWebSocketService() {
+    /**
+     * Stops the WebSocket service (used on logout or app cleanup)
+     */
+    fun stopWebSocketService() {
         appContext?.let { context ->
             val intent = android.content.Intent(context, WebSocketService::class.java)
             context.stopService(intent)

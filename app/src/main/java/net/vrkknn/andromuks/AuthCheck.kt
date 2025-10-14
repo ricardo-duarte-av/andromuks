@@ -1,6 +1,8 @@
 package net.vrkknn.andromuks
 
 import android.content.Context
+import android.os.Build
+import android.os.PowerManager
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -16,6 +18,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.connectToWebsocket
@@ -35,7 +38,34 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
         val homeserverUrl = sharedPreferences.getString("homeserver_url", null)
 
         if (token != null && homeserverUrl != null) {
-            Log.d("AuthCheckScreen", "Token and server URL found. Attempting auto WebSocket connect.")
+            Log.d("AuthCheckScreen", "Token and server URL found.")
+            
+            // Check if permissions are granted
+            val hasNotificationPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.POST_NOTIFICATIONS
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            } else {
+                true // Auto-granted on Android 12 and below
+            }
+            
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            val hasBatteryOptimization = powerManager.isIgnoringBatteryOptimizations(context.packageName)
+            
+            Log.d("AuthCheckScreen", "Permissions check - notifications: $hasNotificationPermission, battery: $hasBatteryOptimization")
+            
+            // If permissions not granted, navigate to permissions screen
+            if (!hasNotificationPermission || !hasBatteryOptimization) {
+                Log.d("AuthCheckScreen", "Permissions not granted, navigating to permissions screen")
+                appViewModel.isLoading = false
+                navController.navigate("permissions") {
+                    popUpTo("auth_check") { inclusive = true }
+                }
+                return@LaunchedEffect
+            }
+            
+            Log.d("AuthCheckScreen", "All permissions granted. Attempting auto WebSocket connect.")
             
             // Try to load cached state first for instant UI
             val hasCachedState = appViewModel.loadStateFromStorage(context)
@@ -103,7 +133,8 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 }
             }
             Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
-            // Now connect websocket
+            
+            // Connect websocket - service will be started after connection is established
             connectToWebsocket(homeserverUrl, client, token, appViewModel)
             // Do not navigate yet; wait for spacesLoaded
         } else {
