@@ -721,29 +721,14 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     /**
      * Clear unread count for a conversation (mark as read)
      * 
-     * According to Android documentation, simply pushing a shortcut update
-     * will clear the unread state in the Conversations space.
+     * DEPRECATED: This function causes "Re-publishing ShortcutInfo" warnings and loses icons!
+     * The system doesn't support re-publishing shortcuts returned by getShortcuts().
+     * Unread state is now cleared automatically by our regular shortcut updates.
      */
+    @Deprecated("Causes icon loss. Unread clearing handled automatically by shortcut updates.")
     fun clearUnreadCount(roomId: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                val shortcutManager = context.getSystemService(ShortcutManager::class.java)
-                
-                // Get the existing shortcut
-                val existingShortcut = shortcutManager.dynamicShortcuts.firstOrNull { it.id == roomId }
-                
-                if (existingShortcut != null) {
-                    // Simply push the existing shortcut to clear unread state
-                    // The act of pushing an existing shortcut marks it as "read" in the system
-                    shortcutManager.pushDynamicShortcut(existingShortcut)
-                    Log.d(TAG, "Cleared unread count for room: $roomId by pushing existing shortcut")
-                } else {
-                    Log.w(TAG, "No existing shortcut found to clear unread count for room: $roomId")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error clearing unread count for room: $roomId", e)
-            }
-        }
+        // DO NOT USE - causes system warning and icon loss
+        Log.w(TAG, "clearUnreadCount() called but deprecated - unread clearing happens automatically")
     }
     
     /**

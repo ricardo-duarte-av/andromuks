@@ -257,39 +257,69 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val imageUri = if (hasImage && notificationData.image != null) {
                 try {
                     Log.d(TAG, "Downloading image for notification: ${notificationData.image}")
-                    val mxcUrl = if (notificationData.image.startsWith("mxc://")) {
-                        notificationData.image
-                    } else if (notificationData.image.startsWith("_gomuks/media/")) {
-                        // Convert _gomuks/media/server/mediaId to mxc://server/mediaId
-                        val parts = notificationData.image.removePrefix("_gomuks/media/").split("?")[0].split("/", limit = 2)
-                        if (parts.size == 2) "mxc://${parts[0]}/${parts[1]}" else null
-                    } else {
-                        null
+                    
+                    // Parse the image URL and convert to MXC format for caching
+                    val (mxcUrl, httpUrl) = when {
+                        notificationData.image.startsWith("mxc://") -> {
+                            // Already an MXC URL
+                            val mxc = notificationData.image
+                            val http = MediaUtils.mxcToHttpUrl(mxc, homeserverUrl)
+                            Pair(mxc, http)
+                        }
+                        notificationData.image.startsWith("_gomuks/media/") -> {
+                            // Relative _gomuks URL - convert to MXC and HTTP
+                            val parts = notificationData.image.removePrefix("_gomuks/media/").split("?")[0].split("/", limit = 2)
+                            val mxc = if (parts.size == 2) "mxc://${parts[0]}/${parts[1]}" else null
+                            val http = if (mxc != null) "$homeserverUrl/${notificationData.image}" else null // Keep query params like ?encrypted=true
+                            Pair(mxc, http)
+                        }
+                        notificationData.image.contains("/_gomuks/media/") -> {
+                            // Full HTTP URL containing _gomuks/media/ - extract the relative part
+                            val gomuksIndex = notificationData.image.indexOf("/_gomuks/media/")
+                            val relativePart = notificationData.image.substring(gomuksIndex + 1) // Remove leading /
+                            val parts = relativePart.removePrefix("_gomuks/media/").split("?")[0].split("/", limit = 2)
+                            val mxc = if (parts.size == 2) "mxc://${parts[0]}/${parts[1]}" else null
+                            val http = notificationData.image // Keep full URL including query params like ?encrypted=true
+                            Pair(mxc, http)
+                        }
+                        else -> {
+                            Log.w(TAG, "Unrecognized image URL format: ${notificationData.image}")
+                            Pair(null, null)
+                        }
                     }
                     
-                    if (mxcUrl != null) {
+                    Log.d(TAG, "Parsed image URLs - MXC: $mxcUrl, HTTP: $httpUrl")
+                    
+                    if (mxcUrl != null && httpUrl != null) {
+                        // Check cache first
                         val cachedFile = MediaCache.getCachedFile(context, mxcUrl)
                         if (cachedFile != null) {
                             Log.d(TAG, "Using cached image: ${cachedFile.absolutePath}")
-                            android.net.Uri.fromFile(cachedFile)
+                            // Use FileProvider to create a content:// URI that can be accessed by the notification system
+                            FileProvider.getUriForFile(
+                                context,
+                                "pt.aguiarvieira.andromuks.fileprovider",
+                                cachedFile
+                            )
                         } else {
-                            val httpUrl = MediaUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
-                            if (httpUrl != null) {
-                                val downloadedFile = MediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
-                                if (downloadedFile != null) {
-                                    Log.d(TAG, "Downloaded image to cache: ${downloadedFile.absolutePath}")
-                                    android.net.Uri.fromFile(downloadedFile)
-                                } else {
-                                    Log.w(TAG, "Failed to download image for notification")
-                                    null
-                                }
+                            // Download and cache
+                            Log.d(TAG, "Downloading image from: $httpUrl")
+                            val downloadedFile = MediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
+                            if (downloadedFile != null) {
+                                Log.d(TAG, "Downloaded image to cache: ${downloadedFile.absolutePath}")
+                                // Use FileProvider to create a content:// URI that can be accessed by the notification system
+                                FileProvider.getUriForFile(
+                                    context,
+                                    "pt.aguiarvieira.andromuks.fileprovider",
+                                    downloadedFile
+                                )
                             } else {
-                                Log.w(TAG, "Failed to convert MXC URL to HTTP: $mxcUrl")
+                                Log.w(TAG, "Failed to download image for notification")
                                 null
                             }
                         }
                     } else {
-                        Log.w(TAG, "Invalid image URL: ${notificationData.image}")
+                        Log.w(TAG, "Could not parse image URL: ${notificationData.image}")
                         null
                     }
                 } catch (e: Exception) {
@@ -497,6 +527,20 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     addAction(createMarkReadAction(notificationData))
                 }
                 .build()
+            
+            // Grant URI permission for image if present
+            if (imageUri != null) {
+                try {
+                    Log.d(TAG, "Granting URI permission for notification image: $imageUri")
+                    context.grantUriPermission(
+                        "com.android.systemui",  // System UI package for notifications
+                        imageUri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not grant URI permission for notification image", e)
+                }
+            }
             
             // Show notification
             val notificationManager = NotificationManagerCompat.from(context)
@@ -1116,8 +1160,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val eventId = existingNotification.notification.extras?.getString("event_id")
             Log.d(TAG, "Extracted event_id from notification for mark read: $eventId")
             
-            // Update the shortcut's unread count to 0 for Conversations API
-            conversationsApi?.clearUnreadCount(roomId)
+            // Note: Unread count clearing is handled automatically by our shortcut updates
+            // No need to call clearUnreadCount() which can lose icons
             
             // Dismiss the notification now that it's been marked as read
             val notificationManagerCompat = NotificationManagerCompat.from(context)
