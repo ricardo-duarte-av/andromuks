@@ -107,9 +107,11 @@ object HtmlParser {
             
             if (nextTagStart == -1) {
                 // No more tags, add remaining text
-                val text = html.substring(currentPos).trim()
-                if (text.isNotEmpty()) {
-                    nodes.add(HtmlNode.Text(text))
+                val text = html.substring(currentPos)
+                // Only trim trailing whitespace, preserve leading spaces
+                val trimmedText = text.trimEnd()
+                if (trimmedText.isNotEmpty()) {
+                    nodes.add(HtmlNode.Text(trimmedText))
                 }
                 break
             }
@@ -436,8 +438,10 @@ private fun AnnotatedString.Builder.appendAnchor(
         pushStringAnnotation("MATRIX_USER", matrixUser)
         appendInlineContent(chipId, displayText)
         pop()
-        // Add space after the user mention
-        append(" ")
+        // Add space after the user mention if not already ending with whitespace
+        if (!endsWithWhitespace()) {
+            append(" ")
+        }
     } else {
         val linkStyle = baseStyle.copy(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
         pushStringAnnotation("URL", href)
