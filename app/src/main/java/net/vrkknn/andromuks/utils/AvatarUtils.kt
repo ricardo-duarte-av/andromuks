@@ -115,26 +115,19 @@ object AvatarUtils {
     }
     
     /**
-     * Loads an avatar with automatic fallback to generated SVG if the MXC URL fails
-     * This function uses Coil's caching mechanism and returns either the server avatar
-     * or a locally generated SVG fallback
+     * Gets the avatar URL without preemptive loading - lets Coil handle caching naturally
+     * Returns either a cached file path, HTTP URL, or null (fallback handled by AsyncImage)
      * 
-     * @param context Android context for Coil ImageLoader
+     * @param context Android context
      * @param mxcUrl The MXC URL from the room/user data
      * @param homeserverUrl The homeserver URL
-     * @param authToken The authentication token for downloading from the server
-     * @param displayName The display name for fallback generation (optional)
-     * @param userId The Matrix user ID for fallback generation
-     * @return A URL (http:// or data:) that can be used with Coil's AsyncImage
+     * @return A URL (file:// or http://) that can be used with Coil's AsyncImage, or null for fallback
      */
-    suspend fun getAvatarUrlWithFallback(
+    fun getAvatarUrl(
         context: Context,
         mxcUrl: String?,
-        homeserverUrl: String,
-        authToken: String,
-        displayName: String?,
-        userId: String
-    ): String {
+        homeserverUrl: String
+    ): String? {
         // First, check if we have a cached file from MediaCache
         val cachedFile = if (mxcUrl != null) {
             MediaCache.getCachedFile(context, mxcUrl)
@@ -143,40 +136,11 @@ object AvatarUtils {
         }
         
         if (cachedFile != null) {
-            //Log.d("Andromuks", "AvatarUtils: Using cached file for $mxcUrl")
             return cachedFile.absolutePath
         }
         
-        // If we have an MXC URL, try to convert and load it
-        val httpUrl = mxcToHttpUrl(mxcUrl, homeserverUrl)
-        
-        if (httpUrl != null) {
-            // Try to load the image with Coil to verify it works and cache it
-            val imageLoader = ImageLoader(context)
-            val request = ImageRequest.Builder(context)
-                .data(httpUrl)
-                .addHeader("Cookie", "gomuks_auth=$authToken")
-                .build()
-            
-            when (val result = imageLoader.execute(request)) {
-                is SuccessResult -> {
-                    //Log.d("Andromuks", "AvatarUtils: Successfully loaded avatar from $httpUrl")
-                    // Download and cache for future use
-                    if (mxcUrl != null) {
-                        MediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
-                    }
-                    return httpUrl
-                }
-                is ErrorResult -> {
-                    Log.w("Andromuks", "AvatarUtils: Failed to load avatar from $httpUrl: ${result.throwable.message}")
-                    // Fall through to generate SVG fallback
-                }
-            }
-        }
-        
-        // No valid MXC URL or download failed, generate local fallback
-        Log.d("Andromuks", "AvatarUtils: Generating SVG fallback for user: $userId")
-        return generateLocalFallbackAvatar(displayName, userId)
+        // If we have an MXC URL, convert to HTTP and let AsyncImage handle loading
+        return mxcToHttpUrl(mxcUrl, homeserverUrl)
     }
     
     /**
