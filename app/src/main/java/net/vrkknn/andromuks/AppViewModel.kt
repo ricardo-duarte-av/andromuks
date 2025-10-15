@@ -45,6 +45,9 @@ class AppViewModel : ViewModel() {
     var realMatrixHomeserverUrl by mutableStateOf("")
         private set
     private var appContext: Context? = null
+    
+    // Timeline cache for instant room opening
+    private val roomTimelineCache = RoomTimelineCache()
 
     // Auth/client state
     var currentUserId by mutableStateOf("")
@@ -711,6 +714,9 @@ class AppViewModel : ViewModel() {
     }
 
     fun updateRoomsFromSyncJson(syncJson: JSONObject) {
+        // Update last sync timestamp for notification display
+        lastSyncTimestamp = System.currentTimeMillis()
+        
         // First, populate member cache from sync data
         populateMemberCacheFromSync(syncJson)
         
@@ -797,6 +803,9 @@ class AppViewModel : ViewModel() {
         
         // Check if current room needs timeline update
         checkAndUpdateCurrentRoomTimeline(syncJson)
+        
+        // Cache timeline events from sync for all rooms (for instant room opening)
+        cacheTimelineEventsFromSync(syncJson)
         
         // Set spacesLoaded after 3 sync messages, but don't trigger navigation yet
         // Navigation will be triggered by onInitComplete() after all initialization is done
@@ -1139,6 +1148,8 @@ class AppViewModel : ViewModel() {
     private var lastReceivedRequestId: Int = 0 // Tracks ANY incoming request_id (for pong detection)
     private var lastReceivedSyncId: Int = 0 // Tracks ONLY sync_complete negative request_ids (for reconnection)
     private var lastPingRequestId: Int = 0
+    private var lastPingTimestamp: Long = 0 // Timestamp when ping was sent (for lag calculation)
+    private var lastSyncTimestamp: Long = 0 // Timestamp of last sync_complete received
     private var pongTimeoutJob: Job? = null
     private var currentRunId: String = "" // Unique connection ID from gomuks backend
     private var vapidKey: String = "" // VAPID key for push notifications
@@ -1172,6 +1183,16 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Received pong for ping $requestId, canceling timeout")
                 pongTimeoutJob?.cancel()
                 pongTimeoutJob = null
+                
+                // Calculate lag
+                val lagMs = System.currentTimeMillis() - lastPingTimestamp
+                android.util.Log.d("Andromuks", "AppViewModel: Pong received, lag: ${lagMs}ms")
+                
+                // Update service notification with lag and last sync time
+                if (lastSyncTimestamp > 0) {
+                    WebSocketService.updateNotification(lagMs, lastSyncTimestamp)
+                }
+                
                 // Trigger timestamp update on pong
                 triggerTimestampUpdate()
             }
@@ -1416,6 +1437,7 @@ class AppViewModel : ViewModel() {
                 }
                 val reqId = requestIdCounter++
                 lastPingRequestId = reqId
+                lastPingTimestamp = System.currentTimeMillis() // Store timestamp for lag calculation
                 // Use lastReceivedSyncId (the negative sync_complete request_id) for reconnection tracking
                 val data = mapOf("last_received_id" to lastReceivedSyncId)
                 sendWebSocketCommand("ping", reqId, data)
@@ -1572,15 +1594,66 @@ class AppViewModel : ViewModel() {
             "refetch" to false
         ))
         
-        // Send paginate command
-        val paginateRequestId = requestIdCounter++
-        timelineRequests[paginateRequestId] = roomId
-        sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-            "room_id" to roomId,
-            "max_timeline_id" to 0,
-            "limit" to 100,
-            "reset" to false
-        ))
+        // Check if we have enough cached events to skip paginate
+        val cachedEvents = roomTimelineCache.getCachedEvents(roomId)
+        if (cachedEvents != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Using cached events for instant room opening: ${cachedEvents.size} events")
+            
+            // Populate edit chain mapping from cached events
+            eventChainMap.clear()
+            editEventsMap.clear()
+            for (event in cachedEvents) {
+                val isEditEvent = when {
+                    event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    else -> false
+                }
+                
+                if (isEditEvent) {
+                    editEventsMap[event.eventId] = event
+                } else {
+                    eventChainMap[event.eventId] = EventChainEntry(
+                        eventId = event.eventId,
+                        ourBubble = event,
+                        replacedBy = null,
+                        originalTimestamp = event.timestamp
+                    )
+                }
+            }
+            
+            // Process edit relationships
+            processEditRelationships()
+            
+            // Build timeline from chain
+            buildTimelineFromChain()
+            
+            // Set smallest rowId from cached events for pagination
+            val smallestCached = cachedEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
+            if (smallestCached > 0) {
+                smallestRowId = smallestCached
+            }
+            
+            isTimelineLoading = false
+            android.util.Log.d("Andromuks", "AppViewModel: Room opened instantly with ${timelineEvents.size} cached events")
+            
+            // Still mark as read
+            val mostRecentEvent = cachedEvents.maxByOrNull { it.timestamp }
+            if (mostRecentEvent != null) {
+                markRoomAsRead(roomId, mostRecentEvent.eventId)
+            }
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: No cache available, sending paginate request")
+            
+            // Send paginate command as usual
+            val paginateRequestId = requestIdCounter++
+            timelineRequests[paginateRequestId] = roomId
+            sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                "room_id" to roomId,
+                "max_timeline_id" to 0,
+                "limit" to 100,
+                "reset" to false
+            ))
+        }
     }
     
     fun requestRoomState(roomId: String) {
@@ -2611,6 +2684,10 @@ class AppViewModel : ViewModel() {
                     buildTimelineFromChain()
                     isTimelineLoading = false
                     android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
+                    
+                    // Seed the cache with these paginated events for future instant opens
+                    android.util.Log.d("Andromuks", "AppViewModel: Seeding cache with ${timelineList.size} paginated events for room $roomId")
+                    roomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineList)
                 }
                 
                 // Mark room as read when timeline is successfully loaded - use most recent event by timestamp
@@ -2866,6 +2943,28 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Received sync_complete for current room: $currentRoomId")
                 updateTimelineFromSync(syncJson, currentRoomId!!)
             }
+        }
+    }
+    
+    /**
+     * Cache timeline events from sync_complete for all rooms
+     * This allows instant room opening if we have enough cached events
+     */
+    private fun cacheTimelineEventsFromSync(syncJson: JSONObject) {
+        val data = syncJson.optJSONObject("data") ?: return
+        val rooms = data.optJSONObject("rooms") ?: return
+        
+        val roomKeys = rooms.keys()
+        while (roomKeys.hasNext()) {
+            val roomId = roomKeys.next()
+            val roomData = rooms.optJSONObject(roomId) ?: continue
+            val events = roomData.optJSONArray("events") ?: continue
+            
+            // Get member map for this room
+            val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+            
+            // Add events to cache
+            roomTimelineCache.addEventsFromSync(roomId, events, memberMap)
         }
     }
     

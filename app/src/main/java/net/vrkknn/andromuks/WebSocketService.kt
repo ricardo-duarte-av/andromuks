@@ -20,12 +20,24 @@ import kotlinx.coroutines.*
  * This service shows a persistent notification to prevent Android from killing
  * the app process. The actual WebSocket connection is managed by NetworkUtils
  * and AppViewModel, not by this service.
+ * 
+ * The notification displays real-time connection health:
+ * - Lag: Ping/pong round-trip time
+ * - Last message: Time since last sync_complete
  */
 class WebSocketService : Service() {
     companion object {
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "websocket_service_channel"
         private const val CHANNEL_NAME = "WebSocket Service"
+        private var instance: WebSocketService? = null
+        
+        /**
+         * Update notification from anywhere in the app
+         */
+        fun updateNotification(lag: Long, lastSyncTime: Long) {
+            instance?.updateNotificationText(lag, lastSyncTime)
+        }
     }
 
     private val binder = WebSocketBinder()
@@ -37,6 +49,7 @@ class WebSocketService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         createNotificationChannel()
         Log.d("WebSocketService", "Service created")
     }
@@ -57,6 +70,7 @@ class WebSocketService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        instance = null
         Log.d("WebSocketService", "Service destroyed")
         serviceScope.cancel()
     }
@@ -96,5 +110,55 @@ class WebSocketService : Service() {
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
+    }
+    
+    /**
+     * Update notification with connection health info
+     * 
+     * @param lagMs Ping/pong round-trip time in milliseconds
+     * @param lastSyncTimestamp Timestamp of last sync_complete message
+     */
+    fun updateNotificationText(lagMs: Long, lastSyncTimestamp: Long) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        // Format lag
+        val lagText = when {
+            lagMs < 100 -> "${lagMs}ms"
+            lagMs < 1000 -> "${lagMs}ms"
+            else -> "${lagMs / 1000}s"
+        }
+        
+        // Format time since last sync
+        val timeSinceSync = System.currentTimeMillis() - lastSyncTimestamp
+        val lastSyncText = when {
+            timeSinceSync < 1000 -> "now"
+            timeSinceSync < 60_000 -> "${timeSinceSync / 1000}s ago"
+            timeSinceSync < 3600_000 -> "${timeSinceSync / 60_000}m ago"
+            else -> "${timeSinceSync / 3600_000}h ago"
+        }
+        
+        val notificationText = "Lag: $lagText • Last: $lastSyncText"
+        
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Andromuks")
+            .setContentText(notificationText)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .build()
+        
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, notification)
+        
+        Log.d("WebSocketService", "Notification updated: $notificationText")
     }
 }
