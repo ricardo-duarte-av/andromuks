@@ -2670,15 +2670,21 @@ class AppViewModel : ViewModel() {
                                     val relType = relatesTo.optString("rel_type")
                                     
                                     if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
-                                        val reactionEvent = ReactionEvent(
-                                            eventId = event.eventId,
-                                            sender = event.sender,
-                                            emoji = emoji,
-                                            relatesToEventId = relatesToEventId,
-                                            timestamp = event.timestamp
-                                        )
-                                        processReactionEvent(reactionEvent)
-                                        android.util.Log.d("Andromuks", "AppViewModel: Processed historical reaction: $emoji from ${event.sender} to $relatesToEventId")
+                                        // Check if this historical reaction has been redacted
+                                        if (event.redactedBy == null) {
+                                            // Only process non-redacted reactions
+                                            val reactionEvent = ReactionEvent(
+                                                eventId = event.eventId,
+                                                sender = event.sender,
+                                                emoji = emoji,
+                                                relatesToEventId = relatesToEventId,
+                                                timestamp = event.timestamp
+                                            )
+                                            processReactionEvent(reactionEvent)
+                                            android.util.Log.d("Andromuks", "AppViewModel: Processed historical reaction: $emoji from ${event.sender} to $relatesToEventId")
+                                        } else {
+                                            android.util.Log.d("Andromuks", "AppViewModel: Skipping redacted historical reaction: $emoji from ${event.sender} to $relatesToEventId")
+                                        }
                                     }
                                 }
                             }
@@ -3166,6 +3172,47 @@ class AppViewModel : ViewModel() {
                 
                 // Trigger UI update
                 updateCounter++
+            } else if (event.type == "m.reaction") {
+                // Process reaction events (don't add to timeline)
+                val content = event.content
+                if (content != null) {
+                    val relatesTo = content.optJSONObject("m.relates_to")
+                    if (relatesTo != null) {
+                        val relatesToEventId = relatesTo.optString("event_id")
+                        val emoji = relatesTo.optString("key")
+                        val relType = relatesTo.optString("rel_type")
+                        
+                        if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
+                            // Check if this reaction has been redacted
+                            if (event.redactedBy != null) {
+                                android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Reaction event ${event.eventId} has been redacted by ${event.redactedBy}, removing reaction")
+                                // Remove this reaction by processing it as if the user toggled it off
+                                val reactionEvent = ReactionEvent(
+                                    eventId = event.eventId,
+                                    sender = event.sender,
+                                    emoji = emoji,
+                                    relatesToEventId = relatesToEventId,
+                                    timestamp = event.timestamp
+                                )
+                                // Process the reaction - it will be removed since the user is already in the list
+                                processReactionEvent(reactionEvent)
+                                android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Removed redacted reaction: $emoji from ${event.sender} to $relatesToEventId")
+                            } else {
+                                // Normal reaction, add it
+                                android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processing reaction: $emoji from ${event.sender} to $relatesToEventId")
+                                val reactionEvent = ReactionEvent(
+                                    eventId = event.eventId,
+                                    sender = event.sender,
+                                    emoji = emoji,
+                                    relatesToEventId = relatesToEventId,
+                                    timestamp = event.timestamp
+                                )
+                                processReactionEvent(reactionEvent)
+                                android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processed reaction: $emoji from ${event.sender} to $relatesToEventId")
+                            }
+                        }
+                    }
+                }
             } else if (event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") {
                 // Check if this is an edit event (m.replace relationship)
                 val isEditEvent = when {
@@ -3178,33 +3225,8 @@ class AppViewModel : ViewModel() {
                     // Handle edit event using edit chain system
                     handleEditEventInChain(event)
                 } else {
-                    // Process reaction events first (don't add to timeline)
-                    if (event.type == "m.reaction") {
-                        val content = event.content
-                        if (content != null) {
-                            val relatesTo = content.optJSONObject("m.relates_to")
-                            if (relatesTo != null) {
-                                val relatesToEventId = relatesTo.optString("event_id")
-                                val emoji = relatesTo.optString("key")
-                                val relType = relatesTo.optString("rel_type")
-                                
-                                if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
-                                    val reactionEvent = ReactionEvent(
-                                        eventId = event.eventId,
-                                        sender = event.sender,
-                                        emoji = emoji,
-                                        relatesToEventId = relatesToEventId,
-                                        timestamp = event.timestamp
-                                    )
-                                    processReactionEvent(reactionEvent)
-                                    android.util.Log.d("Andromuks", "AppViewModel: Processed reaction: $emoji from ${event.sender} to $relatesToEventId")
-                                }
-                            }
-                        }
-                    } else {
-                        // Add new timeline event to chain
-                        addNewEventToChain(event)
-                    }
+                    // Add new timeline event to chain
+                    addNewEventToChain(event)
                 }
             }
         }

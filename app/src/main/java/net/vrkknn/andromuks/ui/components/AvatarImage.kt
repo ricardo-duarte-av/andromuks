@@ -115,8 +115,8 @@ fun AvatarImage(
                 contentScale = ContentScale.Crop,
                 onSuccess = {
                     imageLoadFailed = false
-                    // Success - cache in background if not already cached
-                    if (mxcUrl != null && !avatarUrl.startsWith("file://")) {
+                    // Success - cache in background if not already cached and it's an HTTP URL
+                    if (mxcUrl != null && avatarUrl.startsWith("http")) {
                         coroutineScope.launch {
                             MediaCache.downloadAndCache(context, mxcUrl, avatarUrl, authToken)
                             MediaCache.cleanupCache(context)
