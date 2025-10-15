@@ -2878,7 +2878,8 @@ private fun MediaMessageItem(
                     onReply = onReply,
                     onReact = onReact,
                     onEdit = onEdit,
-                    onDelete = onDelete
+                    onDelete = onDelete,
+                    onUserClick = onUserClick
                 )
             }
         } else {
@@ -2895,7 +2896,8 @@ private fun MediaMessageItem(
                 onReply = onReply,
                 onReact = onReact,
                 onEdit = onEdit,
-                onDelete = onDelete
+                onDelete = onDelete,
+                onUserClick = onUserClick
             )
         }
     }

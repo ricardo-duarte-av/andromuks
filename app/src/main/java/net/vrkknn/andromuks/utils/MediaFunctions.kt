@@ -203,6 +203,41 @@ private fun formatDuration(durationMs: Int): String {
 }
 
 /**
+ * Renders a caption with HTML support when available
+ */
+@Composable
+private fun MediaCaption(
+    caption: String,
+    event: TimelineEvent?,
+    homeserverUrl: String,
+    authToken: String,
+    onUserClick: (String) -> Unit = {}
+) {
+    // Check if the event supports HTML rendering (has sanitized_html or formatted_body)
+    val supportsHtml = event != null && supportsHtmlRendering(event)
+    
+    if (supportsHtml && event != null) {
+        // Use HTML rendering for caption
+        HtmlMessageText(
+            event = event,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            onMatrixUserClick = onUserClick
+        )
+    } else {
+        // Fallback to plain text
+        Text(
+            text = caption,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        )
+    }
+}
+
+/**
  * Displays timestamp inside media bubble (for consecutive messages)
  */
 @Composable
@@ -259,7 +294,8 @@ fun MediaMessage(
     onReply: () -> Unit = {},
     onReact: () -> Unit = {},
     onEdit: () -> Unit = {},
-    onDelete: () -> Unit = {}
+    onDelete: () -> Unit = {},
+    onUserClick: (String) -> Unit = {}
 ) {
     var showImageViewer by remember { mutableStateOf(false) }
     var showVideoPlayer by remember { mutableStateOf(false) }
@@ -324,11 +360,12 @@ fun MediaMessage(
                     )
                     
                     // Caption text below the image, inside the same bubble
-                    Text(
-                        text = mediaMessage.caption,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    MediaCaption(
+                        caption = mediaMessage.caption,
+                        event = event,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onUserClick = onUserClick
                     )
                     
                     // Timestamp (for consecutive messages)
@@ -371,11 +408,12 @@ fun MediaMessage(
                     )
                     
                     // Caption text below the image, inside the same bubble
-                    Text(
-                        text = mediaMessage.caption,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    MediaCaption(
+                        caption = mediaMessage.caption,
+                        event = event,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onUserClick = onUserClick
                     )
                     
                     // Timestamp (for consecutive messages)
