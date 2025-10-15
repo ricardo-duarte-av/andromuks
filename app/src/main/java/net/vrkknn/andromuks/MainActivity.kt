@@ -310,10 +310,10 @@ class MainActivity : ComponentActivity() {
     }
     
     /**
-     * Extract room ID from matrix: URI
+     * Extract room ID or alias from matrix: URI
      * Examples:
-     * - matrix:roomid/bDYZaOWoWwefjYdoRz:aguiarvieira.pt?via=aguiarvieira.pt
-     * - matrix:roomid/bDYZaOWoWwefjYdoRz:aguiarvieira.pt
+     * - matrix:roomid/!bDYZaOWoWwefjYdoRz:aguiarvieira.pt?via=aguiarvieira.pt
+     * - matrix:r/#test9test:aguiarvieira.pt
      */
     private fun extractRoomIdFromMatrixUri(uri: android.net.Uri?): String? {
         Log.d("Andromuks", "MainActivity: extractRoomIdFromMatrixUri called with uri: $uri")
@@ -321,29 +321,15 @@ class MainActivity : ComponentActivity() {
             Log.d("Andromuks", "MainActivity: URI is null")
             return null
         }
-        if (uri.scheme != "matrix") {
-            Log.d("Andromuks", "MainActivity: URI scheme is not 'matrix', got: ${uri.scheme}")
-            return null
+        
+        // Use the extractRoomLink utility function
+        val roomLink = net.vrkknn.andromuks.utils.extractRoomLink(uri.toString())
+        if (roomLink != null) {
+            Log.d("Andromuks", "MainActivity: Extracted room link: ${roomLink.roomIdOrAlias}")
+            return roomLink.roomIdOrAlias
         }
         
-        val path = uri.path
-        Log.d("Andromuks", "MainActivity: URI path: $path")
-        if (path == null || !path.startsWith("/roomid/")) {
-            Log.d("Andromuks", "MainActivity: Path is null or doesn't start with '/roomid/'")
-            return null
-        }
-        
-        // Extract room ID from path: /roomid/bDYZaOWoWwefjYdoRz:aguiarvieira.pt
-        val roomIdWithoutExclamation = path.removePrefix("/roomid/")
-        Log.d("Andromuks", "MainActivity: Room ID without exclamation: $roomIdWithoutExclamation")
-        if (roomIdWithoutExclamation.isNotEmpty()) {
-            // Add back the ! prefix to make it a proper room ID
-            val fullRoomId = "!$roomIdWithoutExclamation"
-            Log.d("Andromuks", "MainActivity: Full room ID: $fullRoomId")
-            return fullRoomId
-        }
-        
-        Log.d("Andromuks", "MainActivity: Room ID without exclamation is empty")
+        Log.d("Andromuks", "MainActivity: Could not extract room link from URI")
         return null
     }
 }

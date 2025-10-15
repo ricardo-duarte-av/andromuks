@@ -95,6 +95,8 @@ import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.ReactionBadges
 import net.vrkknn.andromuks.utils.ReplyPreview
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
+import net.vrkknn.andromuks.utils.RoomJoinerScreen
+import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.utils.SmartMessageText
 import net.vrkknn.andromuks.utils.StickerMessage
 import net.vrkknn.andromuks.utils.SystemEventNarrator
@@ -258,6 +260,10 @@ fun RoomTimelineScreen(
     var selectedMediaIsVideo by remember { mutableStateOf(false) }
     var showMediaPreview by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
+    
+    // Room joiner state
+    var showRoomJoiner by remember { mutableStateOf(false) }
+    var roomLinkToJoin by remember { mutableStateOf<RoomLink?>(null) }
 
     // Media picker launcher - accepts both images and videos
     val mediaPickerLauncher =
@@ -820,6 +826,31 @@ fun RoomTimelineScreen(
                                                 navController.navigate(
                                                     "user_info/${java.net.URLEncoder.encode(userId, "UTF-8")}"
                                                 )
+                                            },
+                                            onRoomLinkClick = { roomLink ->
+                                                Log.d("Andromuks", "RoomTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}")
+                                                
+                                                // If it's a room ID, check if we're already joined
+                                                val existingRoom = if (roomLink.roomIdOrAlias.startsWith("!")) {
+                                                    val room = appViewModel.getRoomById(roomLink.roomIdOrAlias)
+                                                    Log.d("Andromuks", "RoomTimelineScreen: Checked for existing room ${roomLink.roomIdOrAlias}, found: ${room != null}")
+                                                    room
+                                                } else {
+                                                    Log.d("Andromuks", "RoomTimelineScreen: Room link is an alias, showing joiner")
+                                                    null
+                                                }
+                                                
+                                                if (existingRoom != null) {
+                                                    // Already joined, navigate directly
+                                                    Log.d("Andromuks", "RoomTimelineScreen: Already joined, navigating to ${roomLink.roomIdOrAlias}")
+                                                    val encodedRoomId = java.net.URLEncoder.encode(roomLink.roomIdOrAlias, "UTF-8")
+                                                    navController.navigate("room_timeline/$encodedRoomId")
+                                                } else {
+                                                    // For aliases or non-joined rooms, show room joiner
+                                                    Log.d("Andromuks", "RoomTimelineScreen: Not joined, showing room joiner")
+                                                    roomLinkToJoin = roomLink
+                                                    showRoomJoiner = true
+                                                }
                                             }
                                         )
                                     }
@@ -1076,6 +1107,26 @@ fun RoomTimelineScreen(
                     )
                 }
                 
+                // Room joiner screen
+                if (showRoomJoiner && roomLinkToJoin != null) {
+                    RoomJoinerScreen(
+                        roomLink = roomLinkToJoin!!,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel,
+                        onDismiss = {
+                            showRoomJoiner = false
+                            roomLinkToJoin = null
+                        },
+                        onJoinSuccess = { joinedRoomId ->
+                            showRoomJoiner = false
+                            roomLinkToJoin = null
+                            // Navigate to the joined room
+                            appViewModel.joinRoomAndNavigate(joinedRoomId, navController)
+                        }
+                    )
+                }
+                
                 // Emoji selection dialog for reactions
                 if (showEmojiSelection && reactingToEvent != null) {
                     EmojiSelectionDialog(
@@ -1265,7 +1316,8 @@ fun AdaptiveMessageText(
     textColor: Color = MaterialTheme.colorScheme.onSurfaceVariant,
     modifier: Modifier = Modifier,
     onUserClick: (String) -> Unit = {},
-    onMatrixUserClick: (String) -> Unit = onUserClick
+    onMatrixUserClick: (String) -> Unit = onUserClick,
+    onRoomLinkClick: (RoomLink) -> Unit = {}
 ) {
     // For redacted messages, always use plain text to show the deletion message
     val isRedacted = event.redactedBy != null
@@ -1279,7 +1331,8 @@ fun AdaptiveMessageText(
             authToken = authToken,
             color = textColor,
             modifier = modifier,
-            onMatrixUserClick = onMatrixUserClick
+            onMatrixUserClick = onMatrixUserClick,
+            onRoomLinkClick = onRoomLinkClick
         )
     } else {
         // Fallback to plain text for redacted messages or when HTML is not available
@@ -1316,7 +1369,8 @@ fun TimelineEventItem(
     onReact: (TimelineEvent) -> Unit = {},
     onEdit: (TimelineEvent) -> Unit = {},
     onDelete: (TimelineEvent) -> Unit = {},
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
+    onRoomLinkClick: (RoomLink) -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -1935,7 +1989,8 @@ fun TimelineEventItem(
                                                 textColor = textColor,
                                                 modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
                                                 onUserClick = onUserClick,
-                                                onMatrixUserClick = onUserClick
+                                                onMatrixUserClick = onUserClick,
+                                                onRoomLinkClick = onRoomLinkClick
                                             )
                                             // Timestamp positioned at bottom-end
                                             Box(
@@ -1982,7 +2037,8 @@ fun TimelineEventItem(
                                             textColor = textColor,
                                             modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
                                             onUserClick = onUserClick,
-                                            onMatrixUserClick = onUserClick
+                                            onMatrixUserClick = onUserClick,
+                                            onRoomLinkClick = onRoomLinkClick
                                         )
                                         // Timestamp positioned at bottom-end
                                         Box(
@@ -2496,7 +2552,8 @@ fun TimelineEventItem(
                                                         textColor = textColor,
                                                         modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
                                                         onUserClick = onUserClick,
-                                                        onMatrixUserClick = onUserClick
+                                                        onMatrixUserClick = onUserClick,
+                                                        onRoomLinkClick = onRoomLinkClick
                                                     )
                                                 }
                                                 // Timestamp positioned at bottom-end
@@ -2562,7 +2619,8 @@ fun TimelineEventItem(
                                                     textColor = textColor,
                                                     modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
                                                     onUserClick = onUserClick,
-                                                    onMatrixUserClick = onUserClick
+                                                    onMatrixUserClick = onUserClick,
+                                                    onRoomLinkClick = onRoomLinkClick
                                                 )
                                             }
                                             // Timestamp positioned at bottom-end

@@ -764,6 +764,20 @@ class AppViewModel : ViewModel() {
             // Update animation state for new room
             updateRoomAnimationState(room.id, isAnimating = true)
             android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name}")
+            
+            // Check if this is a room we just joined and need to navigate to
+            pendingJoinedRoomNavigation?.let { (pendingRoomId, navController) ->
+                if (room.id == pendingRoomId) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Joined room appeared in sync, navigating to $pendingRoomId")
+                    // Navigate to the newly joined room
+                    val encodedRoomId = java.net.URLEncoder.encode(room.id, "UTF-8")
+                    navController.navigate("room_timeline/$encodedRoomId")
+                    // Request timeline for the room
+                    requestRoomTimeline(room.id)
+                    // Clear the pending navigation
+                    pendingJoinedRoomNavigation = null
+                }
+            }
         }
         
         // Remove left rooms
@@ -1115,7 +1129,11 @@ class AppViewModel : ViewModel() {
     private val eventChainMap = mutableMapOf<String, EventChainEntry>()
     private val editEventsMap = mutableMapOf<String, TimelineEvent>() // Store edit events separately
     
-    private var requestIdCounter = 1
+    // Made public to allow access for RoomJoiner WebSocket operations
+    var requestIdCounter = 1
+        private set
+    
+    fun getAndIncrementRequestId(): Int = requestIdCounter++
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> userId
     private val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
@@ -1136,6 +1154,9 @@ class AppViewModel : ViewModel() {
     private val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val mutualRoomsRequests = mutableMapOf<Int, (List<String>?, String?) -> Unit>() // requestId -> callback
     private val trackDevicesRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
+    private val resolveAliasRequests = mutableMapOf<Int, (Pair<String, List<String>>?) -> Unit>() // requestId -> callback
+    private val getRoomSummaryRequests = mutableMapOf<Int, (Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?) -> Unit>() // requestId -> callback
+    private val joinRoomCallbacks = mutableMapOf<Int, (Pair<String?, String?>?) -> Unit>() // requestId -> callback
     
     // Pagination state
     private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
@@ -2291,6 +2312,12 @@ class AppViewModel : ViewModel() {
             handleMutualRoomsResponse(requestId, data)
         } else if (trackDevicesRequests.containsKey(requestId)) {
             handleTrackDevicesResponse(requestId, data)
+        } else if (resolveAliasRequests.containsKey(requestId)) {
+            handleResolveAliasResponse(requestId, data)
+        } else if (getRoomSummaryRequests.containsKey(requestId)) {
+            handleGetRoomSummaryResponse(requestId, data)
+        } else if (joinRoomCallbacks.containsKey(requestId)) {
+            handleJoinRoomCallbackResponse(requestId, data)
         } else if (outgoingRequests.containsKey(requestId)) {
             android.util.Log.d("Andromuks", "AppViewModel: Routing to handleOutgoingRequestResponse")
             handleOutgoingRequestResponse(requestId, data)
@@ -2335,6 +2362,18 @@ class AppViewModel : ViewModel() {
             android.util.Log.w("Andromuks", "AppViewModel: Track devices error for requestId=$requestId: $errorMessage")
             val callback = trackDevicesRequests.remove(requestId) ?: return
             callback(null, errorMessage)
+        } else if (resolveAliasRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Resolve alias error for requestId=$requestId: $errorMessage")
+            val callback = resolveAliasRequests.remove(requestId) ?: return
+            callback(null)
+        } else if (getRoomSummaryRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Get room summary error for requestId=$requestId: $errorMessage")
+            val callback = getRoomSummaryRequests.remove(requestId) ?: return
+            callback(Pair(null, errorMessage))
+        } else if (joinRoomCallbacks.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Join room error for requestId=$requestId: $errorMessage")
+            val callback = joinRoomCallbacks.remove(requestId) ?: return
+            callback(Pair(null, errorMessage))
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
@@ -4292,5 +4331,167 @@ class AppViewModel : ViewModel() {
             userTrusted = jsonData.optBoolean("user_trusted", false),
             errors = jsonData.opt("errors")
         )
+    }
+    
+    /**
+     * Send a raw WebSocket message
+     */
+    fun sendWebSocketMessage(message: String) {
+        webSocket?.send(message)
+    }
+    
+    /**
+     * Navigate to a room after joining
+     * If room already exists, navigate immediately. Otherwise wait for sync.
+     */
+    fun joinRoomAndNavigate(roomId: String, navController: androidx.navigation.NavController) {
+        android.util.Log.d("Andromuks", "AppViewModel: joinRoomAndNavigate called for $roomId")
+        
+        // Check if room already exists in our list
+        val existingRoom = getRoomById(roomId)
+        if (existingRoom != null) {
+            // Room already exists (already joined), navigate immediately
+            android.util.Log.d("Andromuks", "AppViewModel: Room already in list, navigating immediately")
+            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+            navController.navigate("room_timeline/$encodedRoomId")
+            // Request timeline for the room
+            requestRoomTimeline(roomId)
+        } else {
+            // Room not in list yet, wait for sync
+            android.util.Log.d("Andromuks", "AppViewModel: Room not in list yet, setting pending navigation")
+            pendingJoinedRoomNavigation = Pair(roomId, navController)
+            // The actual navigation will happen when the room appears in sync update
+        }
+    }
+    
+    private var pendingJoinedRoomNavigation: Pair<String, androidx.navigation.NavController>? = null
+    
+    private fun getRoomDisplayName(roomId: String): String {
+        val roomItem = getRoomById(roomId)
+        return roomItem?.name ?: roomId
+    }
+    
+    /**
+     * Resolve room alias to room ID with callback
+     */
+    fun resolveRoomAlias(alias: String, callback: (Pair<String, List<String>>?) -> Unit) {
+        val requestId = requestIdCounter++
+        resolveAliasRequests[requestId] = callback
+        
+        val request = org.json.JSONObject().apply {
+            put("command", "resolve_alias")
+            put("request_id", requestId)
+            put("data", org.json.JSONObject().apply {
+                put("alias", alias)
+            })
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sending resolve_alias for $alias with requestId=$requestId")
+        webSocket?.send(request.toString())
+    }
+    
+    /**
+     * Get room summary with callback
+     */
+    fun getRoomSummary(roomIdOrAlias: String, viaServers: List<String>, callback: (Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?) -> Unit) {
+        val requestId = requestIdCounter++
+        getRoomSummaryRequests[requestId] = callback
+        
+        val request = org.json.JSONObject().apply {
+            put("command", "get_room_summary")
+            put("request_id", requestId)
+            put("data", org.json.JSONObject().apply {
+                put("room_id_or_alias", roomIdOrAlias)
+                put("via", org.json.JSONArray(viaServers))
+            })
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sending get_room_summary for $roomIdOrAlias with requestId=$requestId")
+        webSocket?.send(request.toString())
+    }
+    
+    /**
+     * Join room with callback
+     */
+    fun joinRoomWithCallback(roomIdOrAlias: String, viaServers: List<String>, callback: (Pair<String?, String?>?) -> Unit) {
+        val requestId = requestIdCounter++
+        joinRoomCallbacks[requestId] = callback
+        
+        val request = org.json.JSONObject().apply {
+            put("command", "join_room")
+            put("request_id", requestId)
+            put("data", org.json.JSONObject().apply {
+                put("room_id_or_alias", roomIdOrAlias)
+                if (viaServers.isNotEmpty()) {
+                    put("via", org.json.JSONArray(viaServers))
+                }
+            })
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sending join_room for $roomIdOrAlias with requestId=$requestId")
+        webSocket?.send(request.toString())
+    }
+    
+    private fun handleResolveAliasResponse(requestId: Int, data: Any) {
+        val callback = resolveAliasRequests.remove(requestId) ?: return
+        
+        if (data is org.json.JSONObject) {
+            val roomId = data.optString("room_id")
+            val serversArray = data.optJSONArray("servers")
+            val servers = mutableListOf<String>()
+            if (serversArray != null) {
+                for (i in 0 until serversArray.length()) {
+                    servers.add(serversArray.getString(i))
+                }
+            }
+            if (roomId.isNotEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: Resolved alias to roomId=$roomId, servers=$servers")
+                callback(Pair(roomId, servers))
+            } else {
+                callback(null)
+            }
+        } else {
+            callback(null)
+        }
+    }
+    
+    private fun handleGetRoomSummaryResponse(requestId: Int, data: Any) {
+        val callback = getRoomSummaryRequests.remove(requestId) ?: return
+        
+        if (data is org.json.JSONObject) {
+            val summary = net.vrkknn.andromuks.utils.RoomSummary(
+                roomId = data.optString("room_id", ""),
+                avatarUrl = data.optString("avatar_url").takeIf { it.isNotEmpty() },
+                canonicalAlias = data.optString("canonical_alias").takeIf { it.isNotEmpty() },
+                guestCanJoin = data.optBoolean("guest_can_join", false),
+                joinRule = data.optString("join_rule", ""),
+                name = data.optString("name").takeIf { it.isNotEmpty() },
+                numJoinedMembers = data.optInt("num_joined_members", 0),
+                roomType = data.optString("room_type").takeIf { it.isNotEmpty() },
+                worldReadable = data.optBoolean("world_readable", false),
+                membership = data.optString("membership").takeIf { it.isNotEmpty() },
+                roomVersion = data.optString("im.nheko.summary.version").takeIf { it.isNotEmpty() }
+            )
+            android.util.Log.d("Andromuks", "AppViewModel: Got room summary for ${summary.roomId}")
+            callback(Pair(summary, null))
+        } else {
+            callback(Pair(null, null))
+        }
+    }
+    
+    private fun handleJoinRoomCallbackResponse(requestId: Int, data: Any) {
+        val callback = joinRoomCallbacks.remove(requestId) ?: return
+        
+        if (data is org.json.JSONObject) {
+            val roomId = data.optString("room_id")
+            if (roomId.isNotEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: Joined room successfully, roomId=$roomId")
+                callback(Pair(roomId, null))
+            } else {
+                callback(Pair(null, null))
+            }
+        } else {
+            callback(Pair(null, null))
+        }
     }
 }

@@ -65,6 +65,8 @@ import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.CacheUtils
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
+import net.vrkknn.andromuks.utils.extractRoomLink
+import net.vrkknn.andromuks.utils.RoomLink
 
 private val matrixUserRegex = Regex("matrix:(?:/+)?(?:u|user)/(@?.+)")
 
@@ -286,6 +288,14 @@ data class InlineMatrixUserChip(
     val avatarUrl: String? = null
 )
 
+data class InlineMatrixRoomChip(
+    val roomLink: RoomLink,
+    val displayText: String,
+    val isJoined: Boolean,
+    val roomName: String? = null,
+    val roomAvatarUrl: String? = null
+)
+
 private fun extractMatrixUserId(href: String): String? {
     val trimmed = href.trim()
     if (trimmed.startsWith("https://matrix.to/#/")) {
@@ -428,6 +438,8 @@ private fun AnnotatedString.Builder.appendAnchor(
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
 ) {
     val href = tag.attributes["href"] ?: ""
+    
+    // Check for Matrix user links first
     val matrixUser = extractMatrixUserId(href)
     if (matrixUser != null) {
         val textBuilder = StringBuilder()
@@ -442,12 +454,24 @@ private fun AnnotatedString.Builder.appendAnchor(
         if (!endsWithWhitespace()) {
             append(" ")
         }
-    } else {
+        return
+    }
+    
+    // Check for Matrix room links
+    val roomLink = extractRoomLink(href)
+    if (roomLink != null) {
         val linkStyle = baseStyle.copy(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
-        pushStringAnnotation("URL", href)
+        pushStringAnnotation("ROOM_LINK", href)
         tag.children.forEach { appendHtmlNode(it, linkStyle, inlineImages, inlineMatrixUsers) }
         pop()
+        return
     }
+    
+    // Regular URL
+    val linkStyle = baseStyle.copy(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
+    pushStringAnnotation("URL", href)
+    tag.children.forEach { appendHtmlNode(it, linkStyle, inlineImages, inlineMatrixUsers) }
+    pop()
 }
 
 private fun AnnotatedString.Builder.appendImage(
@@ -589,7 +613,8 @@ fun HtmlMessageText(
     authToken: String,
     modifier: Modifier = Modifier,
     color: Color = Color.Unspecified,
-    onMatrixUserClick: (String) -> Unit = {}
+    onMatrixUserClick: (String) -> Unit = {},
+    onRoomLinkClick: (RoomLink) -> Unit = {}
 ) {
     // Don't render HTML for redacted messages
     // The parent composable should handle showing the deletion message
@@ -757,11 +782,12 @@ fun HtmlMessageText(
                         textLayoutResult?.let { layoutResult ->
                             val offset = layoutResult.getOffsetForPosition(downPosition)
                             
-                            // Check if tap is on a Matrix user pill or URL
+                            // Check if tap is on a Matrix user pill, room link, or URL
                             val hasMatrixUser = annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset).isNotEmpty()
+                            val hasRoomLink = annotatedString.getStringAnnotations(tag = "ROOM_LINK", start = offset, end = offset).isNotEmpty()
                             val hasUrl = annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset).isNotEmpty()
                             
-                            if (hasMatrixUser || hasUrl) {
+                            if (hasMatrixUser || hasRoomLink || hasUrl) {
                                 // Consume the event since we're handling it
                                 up.consume()
                                 
@@ -770,6 +796,17 @@ fun HtmlMessageText(
                                     .firstOrNull()?.let { annotation ->
                                         onMatrixUserClick(annotation.item)
                                         return@awaitEachGesture
+                                    }
+                                
+                                // Matrix room link annotations
+                                annotatedString.getStringAnnotations(tag = "ROOM_LINK", start = offset, end = offset)
+                                    .firstOrNull()?.let { annotation ->
+                                        val roomLink = extractRoomLink(annotation.item)
+                                        if (roomLink != null) {
+                                            Log.d("Andromuks", "HtmlMessageText: room link tapped for ${roomLink.roomIdOrAlias}")
+                                            onRoomLinkClick(roomLink)
+                                            return@awaitEachGesture
+                                        }
                                     }
 
                                 // Check if the tapped position has a URL annotation
