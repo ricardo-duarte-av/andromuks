@@ -747,13 +747,17 @@ class AppViewModel : ViewModel() {
                     room
                 }
                 roomMap[room.id] = updatedRoom
-                // Update animation state for this room
-                updateRoomAnimationState(room.id, isAnimating = true)
+                // Update animation state only if app is visible (battery optimization)
+                if (isAppVisible) {
+                    updateRoomAnimationState(room.id, isAnimating = true)
+                }
                 android.util.Log.d("Andromuks", "AppViewModel: Updated room: ${updatedRoom.name} (unread: ${updatedRoom.unreadCount}, message: ${updatedRoom.messagePreview?.take(20)}...)")
             } else {
                 roomMap[room.id] = room
-                // Update animation state for new room
-                updateRoomAnimationState(room.id, isAnimating = true)
+                // Update animation state only if app is visible (battery optimization)
+                if (isAppVisible) {
+                    updateRoomAnimationState(room.id, isAnimating = true)
+                }
                 android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (unread: ${room.unreadCount})")
             }
         }
@@ -761,8 +765,10 @@ class AppViewModel : ViewModel() {
         // Add new rooms
         syncResult.newRooms.forEach { room ->
             roomMap[room.id] = room
-            // Update animation state for new room
-            updateRoomAnimationState(room.id, isAnimating = true)
+            // Update animation state only if app is visible (battery optimization)
+            if (isAppVisible) {
+                updateRoomAnimationState(room.id, isAnimating = true)
+            }
             android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name}")
             
             // Check if this is a room we just joined and need to navigate to
@@ -784,42 +790,60 @@ class AppViewModel : ViewModel() {
         syncResult.removedRoomIds.forEach { roomId ->
             val removedRoom = roomMap.remove(roomId)
             if (removedRoom != null) {
-                // Remove animation state for removed room
-                roomAnimationStates = roomAnimationStates - roomId
+                // Remove animation state only if app is visible (battery optimization)
+                if (isAppVisible) {
+                    roomAnimationStates = roomAnimationStates - roomId
+                }
                 android.util.Log.d("Andromuks", "AppViewModel: Removed room: ${removedRoom.name}")
             }
         }
         
-        android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${roomMap.size} (updated: ${syncResult.updatedRooms.size}, new: ${syncResult.newRooms.size}, removed: ${syncResult.removedRoomIds.size}) - sync message #$syncMessageCount")
+        android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${roomMap.size} (updated: ${syncResult.updatedRooms.size}, new: ${syncResult.newRooms.size}, removed: ${syncResult.removedRoomIds.size}) - sync message #$syncMessageCount [App visible: $isAppVisible]")
         
         // Process room invitations first
         processRoomInvites(syncJson)
         
-        // Trigger timestamp update on sync
-        triggerTimestampUpdate()
-        
-        // Update the UI with the current room list
-        val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
-        android.util.Log.d("Andromuks", "AppViewModel: Updating spaceList with ${sortedRooms.size} rooms")
-        
-        // Update animation states with new positions
-        sortedRooms.forEachIndexed { index, room ->
-            updateRoomAnimationState(room.id, isAnimating = false, newPosition = index)
-        }
-        
-        setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
-        allRooms = sortedRooms // Update allRooms for filtering
-        updateCounter++ // Force recomposition
-        android.util.Log.d("Andromuks", "AppViewModel: spaceList updated, current size: ${spaceList.size}")
-        
-        // Update conversation shortcuts
-        conversationsApi?.updateConversationShortcuts(sortedRooms)
-        
-        // Check if current room needs timeline update
-        checkAndUpdateCurrentRoomTimeline(syncJson)
-        
-        // Cache timeline events from sync for all rooms (for instant room opening)
+        // Always cache timeline events (lightweight, needed for instant room opening)
         cacheTimelineEventsFromSync(syncJson)
+        
+        // BATTERY OPTIMIZATION: Skip expensive UI updates when app is in background
+        if (isAppVisible) {
+            // Trigger timestamp update on sync (only for visible UI)
+            triggerTimestampUpdate()
+            
+            // Update the UI with the current room list
+            val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+            android.util.Log.d("Andromuks", "AppViewModel: Updating spaceList with ${sortedRooms.size} rooms (app visible)")
+            
+            // Update animation states with new positions
+            sortedRooms.forEachIndexed { index, room ->
+                updateRoomAnimationState(room.id, isAnimating = false, newPosition = index)
+            }
+            
+            setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
+            allRooms = sortedRooms // Update allRooms for filtering
+            updateCounter++ // Force recomposition (only when visible)
+            android.util.Log.d("Andromuks", "AppViewModel: spaceList updated, current size: ${spaceList.size}")
+            
+            // Update conversation shortcuts (only when visible)
+            conversationsApi?.updateConversationShortcuts(sortedRooms)
+            
+            // Check if current room needs timeline update (only if a room is open)
+            checkAndUpdateCurrentRoomTimeline(syncJson)
+        } else {
+            // App is in background - minimal processing for battery saving
+            android.util.Log.d("Andromuks", "AppViewModel: BATTERY SAVE MODE - App in background, skipping UI updates")
+            
+            // Still update allRooms for data consistency (needed for notifications)
+            val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+            allRooms = sortedRooms
+            
+            // Update shortcuts less frequently in background (every 10 sync messages)
+            if (syncMessageCount % 10 == 0) {
+                android.util.Log.d("Andromuks", "AppViewModel: Background: Updating conversation shortcuts (throttled)")
+                conversationsApi?.updateConversationShortcuts(sortedRooms)
+            }
+        }
         
         // Set spacesLoaded after 3 sync messages, but don't trigger navigation yet
         // Navigation will be triggered by onInitComplete() after all initialization is done
@@ -1050,8 +1074,35 @@ class AppViewModel : ViewModel() {
         notificationActionShutdownTimer = null
         notificationActionInProgress = false
         
-        // WebSocket service maintains connection, nothing to do here
-        android.util.Log.d("Andromuks", "AppViewModel: App visible, WebSocket service maintains connection")
+        // Refresh UI with current state (in case updates happened while app was invisible)
+        refreshUIState()
+        
+        // WebSocket service maintains connection
+        android.util.Log.d("Andromuks", "AppViewModel: App visible, refreshing UI with current state")
+    }
+    
+    /**
+     * Refreshes UI state when app becomes visible
+     * This updates the UI with any changes that happened while app was in background
+     */
+    private fun refreshUIState() {
+        val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Refreshing UI with ${sortedRooms.size} rooms")
+        
+        // Update animation states
+        sortedRooms.forEachIndexed { index, room ->
+            updateRoomAnimationState(room.id, isAnimating = false, newPosition = index)
+        }
+        
+        setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
+        allRooms = sortedRooms
+        updateCounter++ // Trigger recomposition to show updated state
+        
+        // Update conversation shortcuts
+        conversationsApi?.updateConversationShortcuts(sortedRooms)
+        
+        android.util.Log.d("Andromuks", "AppViewModel: UI refreshed, updateCounter: $updateCounter")
     }
     
     /**
@@ -1281,14 +1332,6 @@ class AppViewModel : ViewModel() {
                 roomsArray.put(roomJson)
             }
             editor.putString("cached_rooms", roomsArray.toString())
-            
-            // Save current room ID if a room is open
-            if (currentRoomId.isNotBlank()) {
-                editor.putString("current_room_id", currentRoomId)
-                android.util.Log.d("Andromuks", "AppViewModel: Saving current room ID: $currentRoomId")
-            } else {
-                editor.remove("current_room_id")
-            }
             
             // Save timestamp of when state was saved
             editor.putLong("state_saved_timestamp", System.currentTimeMillis())
