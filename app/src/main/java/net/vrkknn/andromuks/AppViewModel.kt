@@ -1337,7 +1337,7 @@ class AppViewModel : ViewModel() {
             editor.putLong("state_saved_timestamp", System.currentTimeMillis())
             
             editor.apply()
-            android.util.Log.d("Andromuks", "AppViewModel: Saved state to storage - run_id: $currentRunId, last_received_sync_id: $lastReceivedSyncId, rooms: ${allRooms.size}, currentRoom: $currentRoomId")
+            android.util.Log.d("Andromuks", "AppViewModel: Saved state to storage - run_id: $currentRunId, last_received_sync_id: $lastReceivedSyncId, rooms: ${allRooms.size}")
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to save state to storage", e)
         }
@@ -1438,13 +1438,6 @@ class AppViewModel : ViewModel() {
                 
                 android.util.Log.d("Andromuks", "AppViewModel: Restored ${cachedRooms.size} rooms from cache")
                 
-                // Restore current room ID if a room was open when app went to background
-                val savedRoomId = prefs.getString("current_room_id", null)
-                if (savedRoomId != null && savedRoomId.isNotBlank()) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Restoring navigation to room: $savedRoomId")
-                    setPendingRoomNavigation(savedRoomId)
-                }
-                
                 // Mark spaces as loaded so UI can show cached data
                 spacesLoaded = true
                 
@@ -1471,7 +1464,6 @@ class AppViewModel : ViewModel() {
             editor.remove("ws_last_received_sync_id")
             editor.remove("ws_vapid_key")
             editor.remove("cached_rooms")
-            editor.remove("current_room_id")
             editor.remove("state_saved_timestamp")
             
             editor.apply()
