@@ -635,14 +635,17 @@ fun RoomListItem(
                 
                 // Enhanced message preview with sender avatar and display name
                 if (room.messagePreview != null && room.messageSender != null) {
+                    // PERFORMANCE: Get profile from cache only (non-blocking)
                     val senderProfile = appViewModel.getUserProfile(room.messageSender, room.id)
                     val senderDisplayName = senderProfile?.displayName ?: room.messageSender
                     val senderAvatarUrl = senderProfile?.avatarUrl
                     
-                    // Debug logging for avatar loading
-                    android.util.Log.d("Andromuks", "RoomListScreen: Room '${room.name}' messageSender='${room.messageSender}'")
-                    android.util.Log.d("Andromuks", "RoomListScreen: Sender profile for ${room.messageSender}: displayName='$senderDisplayName', avatarUrl='$senderAvatarUrl'")
-                    android.util.Log.d("Andromuks", "RoomListScreen: Avatar loading params - homeserverUrl='$homeserverUrl', authToken length=${authToken.length}")
+                    // Request profile asynchronously if not in cache (non-blocking)
+                    LaunchedEffect(room.messageSender, senderProfile) {
+                        if (senderProfile == null) {
+                            appViewModel.requestUserProfileAsync(room.messageSender, room.id)
+                        }
+                    }
                     
                     Row(
                         modifier = Modifier.padding(top = 2.dp),

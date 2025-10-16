@@ -9,6 +9,8 @@ import coil.decode.SvgDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.request.CachePolicy
+import okhttp3.OkHttpClient
+import okhttp3.Interceptor
 
 /**
  * Singleton ImageLoader for the entire app
@@ -25,7 +27,19 @@ object ImageLoaderSingleton {
     }
     
     private fun createImageLoader(context: Context): ImageLoader {
+        // Create custom OkHttpClient with Andromuks User-Agent
+        val okHttpClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                val originalRequest = chain.request()
+                val requestWithUserAgent = originalRequest.newBuilder()
+                    .header("User-Agent", "Andromuks/1.0-alpha (Android; Coil)")
+                    .build()
+                chain.proceed(requestWithUserAgent)
+            }
+            .build()
+        
         return ImageLoader.Builder(context)
+            .okHttpClient(okHttpClient)
             .components {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     add(ImageDecoderDecoder.Factory())

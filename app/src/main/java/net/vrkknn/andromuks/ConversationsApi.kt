@@ -26,6 +26,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import java.io.IOException
@@ -116,16 +117,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 }
             }
             
-            // Create ImageLoader with GIF support
-            val imageLoader = ImageLoader.Builder(context)
-                .components {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        add(ImageDecoderDecoder.Factory())
-                    } else {
-                        add(GifDecoder.Factory())
-                    }
-                }
-                .build()
+            // Use shared ImageLoader singleton with custom User-Agent
+            val imageLoader = ImageLoaderSingleton.get(context)
             
             // Load bitmap using Coil
             val request = ImageRequest.Builder(context)
@@ -229,16 +222,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 }
             }
             
-            // Create ImageLoader with GIF support
-            val imageLoader = ImageLoader.Builder(context)
-                .components {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        add(ImageDecoderDecoder.Factory())
-                    } else {
-                        add(GifDecoder.Factory())
-                    }
-                }
-                .build()
+            // Use shared ImageLoader singleton with custom User-Agent
+            val imageLoader = ImageLoaderSingleton.get(context)
             
             // Load first frame using Coil
             val request = ImageRequest.Builder(context)
@@ -641,16 +626,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 }
             }
             
-            // Create ImageLoader with GIF support
-            val imageLoader = ImageLoader.Builder(context)
-                .components {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                        add(ImageDecoderDecoder.Factory())
-                    } else {
-                        add(GifDecoder.Factory())
-                    }
-                }
-                .build()
+            // Use shared ImageLoader singleton with custom User-Agent
+            val imageLoader = ImageLoaderSingleton.get(context)
             
             // Load bitmap using Coil
             val request = ImageRequest.Builder(context)

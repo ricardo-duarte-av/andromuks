@@ -31,6 +31,7 @@ class RoomTimelineCache {
     
     /**
      * Add events from sync_complete to the cache for a specific room
+     * Includes deduplication to prevent duplicate events
      */
     fun addEventsFromSync(roomId: String, eventsArray: JSONArray, memberMap: Map<String, MemberProfile>) {
         val events = parseEventsFromArray(eventsArray, memberMap)
@@ -44,8 +45,19 @@ class RoomTimelineCache {
         // Get or create cache for this room
         val cache = roomEventsCache.getOrPut(roomId) { mutableListOf() }
         
-        // Add new events
-        cache.addAll(events)
+        // DEDUPLICATION: Filter out events that already exist in cache
+        val existingEventIds = cache.map { it.eventId }.toSet()
+        val newEvents = events.filter { !existingEventIds.contains(it.eventId) }
+        
+        if (newEvents.isEmpty()) {
+            Log.d(TAG, "All ${events.size} events already in cache, skipping")
+            return
+        }
+        
+        Log.d(TAG, "Adding ${newEvents.size} new events (${events.size - newEvents.size} duplicates skipped)")
+        
+        // Add only new events
+        cache.addAll(newEvents)
         
         // Sort by timestamp to maintain chronological order
         cache.sortBy { it.timestamp }

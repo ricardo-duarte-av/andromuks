@@ -60,18 +60,8 @@ fun ImageEmoji(
         MediaUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
     }
     
-    // Create ImageLoader with GIF support
-    val imageLoader = remember {
-        ImageLoader.Builder(context)
-            .components {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    add(ImageDecoderDecoder.Factory())
-                } else {
-                    add(GifDecoder.Factory())
-                }
-            }
-            .build()
-    }
+    // Use shared ImageLoader singleton with custom User-Agent
+    val imageLoader = remember { ImageLoaderSingleton.get(context) }
     
     android.util.Log.d("Andromuks", "ImageEmoji: Converted HTTP URL: $httpUrl")
     

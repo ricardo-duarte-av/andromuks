@@ -597,6 +597,10 @@ class AppViewModel : ViewModel() {
 
     // Per-room member cache: roomId -> (userId -> MemberProfile)
     private val roomMemberCache = mutableMapOf<String, MutableMap<String, MemberProfile>>()
+    
+    // Global user profile cache for O(1) lookups (performance optimization)
+    // This avoids scanning all room caches when looking up a profile
+    private val globalProfileCache = mutableMapOf<String, MemberProfile>()
 
     fun getMemberProfile(roomId: String, userId: String): MemberProfile? {
         return roomMemberCache[roomId]?.get(userId)
@@ -607,21 +611,25 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Gets user profile information for a given user ID
-     * First checks room member cache, then current user profile, then requests profile if needed
+     * Gets user profile information for a given user ID (CACHE ONLY - NON-BLOCKING)
+     * 
+     * This function ONLY checks caches and returns immediately without triggering network requests.
+     * This prevents UI stalls during rendering.
+     * 
+     * PERFORMANCE: Uses O(1) global cache lookup instead of scanning all room caches.
+     * 
+     * To request missing profiles, use requestUserProfileAsync() from a LaunchedEffect or background coroutine.
+     * 
+     * @param userId The Matrix user ID to look up
+     * @param roomId Optional room ID to check room-specific member cache first
+     * @return MemberProfile if found in cache, null otherwise (UI should show fallback)
      */
     fun getUserProfile(userId: String, roomId: String? = null): MemberProfile? {
-        android.util.Log.d("Andromuks", "AppViewModel: getUserProfile called for userId='$userId', roomId='$roomId'")
-        
-        // Check room member cache first if roomId is provided
+        // Check room member cache first if roomId is provided (most specific)
         if (roomId != null) {
             val roomMember = roomMemberCache[roomId]?.get(userId)
-            android.util.Log.d("Andromuks", "AppViewModel: Room member cache for room '$roomId' has ${roomMemberCache[roomId]?.size ?: 0} members")
             if (roomMember != null) {
-                android.util.Log.d("Andromuks", "AppViewModel: Found room member: $roomMember")
                 return roomMember
-            } else {
-                android.util.Log.d("Andromuks", "AppViewModel: User '$userId' not found in room '$roomId' member cache")
             }
         }
         
@@ -633,23 +641,36 @@ class AppViewModel : ViewModel() {
             )
         }
         
-        // Try to find in any room's member cache
-        for (roomMembers in roomMemberCache.values) {
-            val member = roomMembers[userId]
-            if (member != null) {
-                return member
-            }
+        // PERFORMANCE: Check global profile cache (O(1) lookup instead of scanning all rooms)
+        val globalProfile = globalProfileCache[userId]
+        if (globalProfile != null) {
+            return globalProfile
         }
         
-        // If we have a Matrix ID format but no profile, request it
-        if (userId.startsWith("@") && userId.contains(":")) {
-            android.util.Log.d("Andromuks", "AppViewModel: Requesting profile for Matrix user: $userId")
-            requestUserProfile(userId)
-        } else {
-            android.util.Log.d("Andromuks", "AppViewModel: User ID '$userId' is not a Matrix ID format, not requesting profile")
-        }
-        
+        // NOT FOUND - Return null immediately (don't block UI)
+        // UI will show fallback and can request profile asynchronously
         return null
+    }
+    
+    /**
+     * Request user profile asynchronously (non-blocking)
+     * Call this from LaunchedEffect or background coroutine, NOT during composition
+     */
+    fun requestUserProfileAsync(userId: String, roomId: String? = null) {
+        // Only request if it's a valid Matrix ID and not already in cache
+        if (!userId.startsWith("@") || !userId.contains(":")) {
+            return
+        }
+        
+        // Check if already in cache (quick check)
+        val profile = getUserProfile(userId, roomId)
+        if (profile != null) {
+            return // Already cached
+        }
+        
+        // Not in cache - request it (async)
+        android.util.Log.d("Andromuks", "AppViewModel: Async requesting profile for Matrix user: $userId")
+        requestUserProfile(userId, roomId)
     }
     
 
@@ -678,7 +699,10 @@ class AppViewModel : ViewModel() {
                     val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
                     
                     if (userId != null) {
-                        memberMap[userId] = MemberProfile(displayName, avatarUrl)
+                        val profile = MemberProfile(displayName, avatarUrl)
+                        memberMap[userId] = profile
+                        // PERFORMANCE: Also add to global cache for O(1) lookups
+                        globalProfileCache[userId] = profile
                         //android.util.Log.d("Andromuks", "AppViewModel: Cached member '$userId' in room '$roomId' -> displayName: '$displayName'")
                     }
                 }
@@ -2423,6 +2447,9 @@ class AppViewModel : ViewModel() {
         val username = userId.removePrefix("@").substringBefore(":")
         val memberProfile = MemberProfile(username, null)
         
+        // PERFORMANCE: Add to global cache first
+        globalProfileCache[userId] = memberProfile
+        
         // If we know which room requested the profile, add it to that room's cache
         if (requestingRoomId != null) {
             val memberMap = roomMemberCache.getOrPut(requestingRoomId) { mutableMapOf() }
@@ -2451,6 +2478,9 @@ class AppViewModel : ViewModel() {
         
         val memberProfile = MemberProfile(display, avatar)
         
+        // PERFORMANCE: Add to global profile cache first (O(1) access)
+        globalProfileCache[userId] = memberProfile
+        
         // If we know which room requested the profile, add it to that room's cache
         if (requestingRoomId != null) {
             val memberMap = roomMemberCache.getOrPut(requestingRoomId) { mutableMapOf() }
@@ -2469,7 +2499,7 @@ class AppViewModel : ViewModel() {
         if (userId == currentUserId) {
             currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
         }
-        android.util.Log.d("Andromuks", "AppViewModel: Profile updated for $userId display=$display avatar=${avatar != null}")
+        android.util.Log.d("Andromuks", "AppViewModel: Profile updated for $userId display=$display avatar=${avatar != null} (added to global cache)")
         
         // Check if this is part of a full user info request
         val fullUserInfoCallback = fullUserInfoCallbacks.remove(requestId)
@@ -2565,25 +2595,9 @@ class AppViewModel : ViewModel() {
         if (roomId != null) {
             android.util.Log.d("Andromuks", "AppViewModel: Processing outgoing request response for room $roomId, currentRoomId=$currentRoomId")
             
-            // Parse the response as a timeline event
-            try {
-                val obj = data as? JSONObject ?: return
-                android.util.Log.d("Andromuks", "AppViewModel: Response data: ${obj.toString()}")
-                val event = TimelineEvent.fromJson(obj)
-                android.util.Log.d("Andromuks", "AppViewModel: Created timeline event: ${event.eventId}, eventRoomId=${event.roomId}")
-                
-                // Add the event to the timeline if it's for the current room
-                if (event.roomId == currentRoomId) {
-                    val currentEvents = timelineEvents.toMutableList()
-                    currentEvents.add(event)
-                    timelineEvents = currentEvents.sortedBy { it.timestamp }
-                    android.util.Log.d("Andromuks", "AppViewModel: Added outgoing event to timeline, total events: ${timelineEvents.size}")
-                } else {
-                    android.util.Log.d("Andromuks", "AppViewModel: Event roomId (${event.roomId}) doesn't match currentRoomId ($currentRoomId), not adding to timeline")
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Error parsing outgoing request response", e)
-            }
+            // NOTE: Outgoing requests also receive send_complete, so we wait for that instead
+            // to avoid adding the same event multiple times
+            android.util.Log.d("Andromuks", "AppViewModel: Outgoing request response received, waiting for send_complete for actual event")
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: No roomId found for outgoing request $requestId")
         }
@@ -2594,6 +2608,12 @@ class AppViewModel : ViewModel() {
         try {
             val event = TimelineEvent.fromJson(eventData)
             android.util.Log.d("Andromuks", "AppViewModel: Created timeline event from send_complete: ${event.eventId}, type=${event.type}, eventRoomId=${event.roomId}, currentRoomId=$currentRoomId")
+            
+            // Only process send_complete if it's for the current room
+            if (event.roomId != currentRoomId) {
+                android.util.Log.d("Andromuks", "AppViewModel: send_complete for different room (${event.roomId}), ignoring")
+                return
+            }
             
             if (event.type == "m.reaction") {
                 // Process reaction events to update messageReactions instead of adding to timeline
@@ -2612,9 +2632,23 @@ class AppViewModel : ViewModel() {
                     processReactionEvent(reactionEvent)
                     android.util.Log.d("Andromuks", "AppViewModel: Processed send_complete reaction: $emoji from ${event.sender} to $relatesToEventId")
                 }
-            } else {
-                // Use addTimelineEvent for non-reaction events
-                addTimelineEvent(event)
+            } else if (event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") {
+                // Check if this is an edit event
+                val isEditEvent = when {
+                    event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    else -> false
+                }
+                
+                if (isEditEvent) {
+                    // Handle edit via chain system
+                    handleEditEventInChain(event)
+                    buildTimelineFromChain() // Rebuild to show edit
+                } else {
+                    // Add regular event to chain (with deduplication)
+                    addNewEventToChain(event)
+                    buildTimelineFromChain() // Rebuild timeline to include new event
+                }
             }
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Error parsing send_complete event", e)
@@ -2657,7 +2691,10 @@ class AppViewModel : ViewModel() {
                         val userId = event.stateKey ?: event.sender
                         val displayName = event.content?.optString("displayname")?.takeIf { it.isNotBlank() }
                         val avatarUrl = event.content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
-                        memberMap[userId] = MemberProfile(displayName, avatarUrl)
+                        val profile = MemberProfile(displayName, avatarUrl)
+                        memberMap[userId] = profile
+                        // PERFORMANCE: Also add to global cache for O(1) lookups
+                        globalProfileCache[userId] = profile
                     } else {
                         // Process reaction events from paginate
                         if (event.type == "m.reaction") {
@@ -2933,20 +2970,9 @@ class AppViewModel : ViewModel() {
         val roomId = messageRequests.remove(requestId) ?: return
         android.util.Log.d("Andromuks", "AppViewModel: Handling message response for room: $roomId")
         
-        when (data) {
-            is JSONObject -> {
-                // Create TimelineEvent from the response
-                val event = TimelineEvent.fromJson(data)
-                if (event.type == "m.room.message") {
-                    // Add the sent message to timeline using addTimelineEvent (which checks room ID)
-                    addTimelineEvent(event)
-                    android.util.Log.d("Andromuks", "AppViewModel: Added sent message to timeline: ${event.content?.optString("body")}")
-                }
-            }
-            else -> {
-                android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleMessageResponse: ${data::class.java.simpleName}")
-            }
-        }
+        // NOTE: We receive send_complete for sent messages, so we don't need to process
+        // the response here to avoid duplicates. send_complete will add the event to timeline.
+        android.util.Log.d("Andromuks", "AppViewModel: Message response received, waiting for send_complete for actual event")
         
         // Invoke completion callback for notification actions
         notificationActionCompletionCallbacks.remove(requestId)?.invoke()
@@ -3126,7 +3152,10 @@ class AppViewModel : ViewModel() {
                     val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() }
                     val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() }
                     if (displayName != null || avatarUrl != null) {
-                        memberMap[userId] = MemberProfile(displayName, avatarUrl)
+                        val profile = MemberProfile(displayName, avatarUrl)
+                        memberMap[userId] = profile
+                        // PERFORMANCE: Also add to global cache for O(1) lookups
+                        globalProfileCache[userId] = profile
                         android.util.Log.d("Andromuks", "AppViewModel: Updated member cache for $userId: $displayName")
                     }
                 }
@@ -3214,6 +3243,12 @@ class AppViewModel : ViewModel() {
                     }
                 }
             } else if (event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") {
+                // Log if this is our own message from another client
+                val isOwnMessage = event.sender == currentUserId
+                if (isOwnMessage) {
+                    android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processing our own message from another client: ${event.eventId}")
+                }
+                
                 // Check if this is an edit event (m.replace relationship)
                 val isEditEvent = when {
                     event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
@@ -3225,7 +3260,7 @@ class AppViewModel : ViewModel() {
                     // Handle edit event using edit chain system
                     handleEditEventInChain(event)
                 } else {
-                    // Add new timeline event to chain
+                    // Add new timeline event to chain (works for messages from ANY client)
                     addNewEventToChain(event)
                 }
             }
@@ -3308,9 +3343,16 @@ class AppViewModel : ViewModel() {
     
     /**
      * Adds a new timeline event to the edit chain.
+     * Includes deduplication to prevent the same event from being added multiple times.
      */
     private fun addNewEventToChain(event: TimelineEvent) {
         android.util.Log.d("Andromuks", "AppViewModel: addNewEventToChain called for ${event.eventId}")
+        
+        // DEDUPLICATION: Check if event already exists in chain
+        if (eventChainMap.containsKey(event.eventId)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Event ${event.eventId} already in chain, skipping duplicate")
+            return
+        }
         
         // Add regular event to chain mapping
         eventChainMap[event.eventId] = EventChainEntry(

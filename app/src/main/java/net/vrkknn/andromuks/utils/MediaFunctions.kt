@@ -564,18 +564,8 @@ private fun MediaContent(
                 val context = LocalContext.current
                 val coroutineScope = rememberCoroutineScope()
                 
-                // Create ImageLoader with GIF support
-                val imageLoader = remember {
-                    ImageLoader.Builder(context)
-                        .components {
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                                add(ImageDecoderDecoder.Factory())
-                            } else {
-                                add(GifDecoder.Factory())
-                            }
-                        }
-                        .build()
-                }
+                // Use shared ImageLoader singleton with custom User-Agent
+                val imageLoader = remember { ImageLoaderSingleton.get(context) }
                 
                 // Check if we have a cached version first
                 val cachedFile = remember(mediaMessage.url) {
@@ -600,18 +590,8 @@ private fun MediaContent(
                     }
                 }
                 
-                // Download and cache if not already cached
-                LaunchedEffect(mediaMessage.url) {
-                    if (cachedFile == null) {
-                        coroutineScope.launch {
-                            val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-                            val finalUrl = if (isEncrypted) "$httpUrl?encrypted=true" else httpUrl ?: ""
-                            MediaCache.downloadAndCache(context, mediaMessage.url, finalUrl, authToken)
-                            // Clean up cache if needed
-                            MediaCache.cleanupCache(context)
-                        }
-                    }
-                }
+                // NOTE: Coil handles caching automatically with memoryCachePolicy and diskCachePolicy
+                // No need to manually download - would cause duplicate requests (Coil + okhttp)
         
                 if (mediaMessage.msgType == "m.image") {
                     // Debug logging
@@ -872,18 +852,8 @@ private fun ImageViewerDialog(
             // Image with zoom and pan
             val context = LocalContext.current
             
-            // Create ImageLoader with GIF support
-            val imageLoader = remember {
-                ImageLoader.Builder(context)
-                    .components {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            add(ImageDecoderDecoder.Factory())
-                        } else {
-                            add(GifDecoder.Factory())
-                        }
-                    }
-                    .build()
-            }
+            // Use shared ImageLoader singleton with custom User-Agent
+            val imageLoader = remember { ImageLoaderSingleton.get(context) }
             
             // Check if we have a cached version first
             val cachedFile = remember(mediaMessage.url) {

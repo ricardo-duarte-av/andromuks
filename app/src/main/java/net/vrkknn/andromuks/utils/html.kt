@@ -880,18 +880,8 @@ private fun InlineImage(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     
-    // Create ImageLoader with GIF support for animated images
-    val imageLoader = remember {
-        ImageLoader.Builder(context)
-            .components {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    add(ImageDecoderDecoder.Factory())
-                } else {
-                    add(GifDecoder.Factory())
-                }
-            }
-            .build()
-    }
+    // Use shared ImageLoader singleton with custom User-Agent
+    val imageLoader = remember { ImageLoaderSingleton.get(context) }
     
     // Determine the MXC URL for caching
     val mxcUrl = remember(src) {
@@ -935,17 +925,8 @@ private fun InlineImage(
         }
     }
     
-    // Download and cache if not already cached
-    LaunchedEffect(mxcUrl) {
-        if (cachedFile == null && mxcUrl != null) {
-            coroutineScope.launch {
-                val httpUrl = MediaUtils.mxcToHttpUrl(mxcUrl, homeserverUrl) ?: return@launch
-                MediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
-                // Clean up cache if needed
-                MediaCache.cleanupCache(context)
-            }
-        }
-    }
+    // NOTE: Coil handles caching automatically with memoryCachePolicy and diskCachePolicy
+    // No need to manually download - would cause duplicate requests (Coil + okhttp)
     
     if (imageUrl != null) {
         AsyncImage(
