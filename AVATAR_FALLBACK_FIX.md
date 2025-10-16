@@ -126,6 +126,44 @@ fun AvatarImage(...) {
    - Sets `imageLoadFailed = true`
    - Component recomposes and shows fallback text
 
+## Additional Issue: Transparent Avatars
+
+### Problem
+Even after fixing preemptive loading, avatars with transparency (PNG with alpha channel) were showing the colored fallback background **beneath** them because the Box always had a background color set.
+
+### Root Cause
+```kotlin
+Box(
+    modifier = modifier
+        .background(backgroundColor)  // ⚠️ ALWAYS present, even when showing real avatar
+) {
+    AsyncImage(...)  // Real avatar with transparency shows colored circle through it
+}
+```
+
+### Solution
+Only apply background when actually showing the fallback:
+
+```kotlin
+Box(
+    modifier = modifier
+        .then(
+            // Only add background when showing fallback
+            if (avatarUrl == null || imageLoadFailed) {
+                Modifier.background(backgroundColor)
+            } else {
+                Modifier  // No background when showing real avatar
+            }
+        )
+) {
+    if (avatarUrl == null || imageLoadFailed) {
+        Text(fallbackLetter)  // Fallback with colored background
+    } else {
+        AsyncImage(...)  // Real avatar without background interference
+    }
+}
+```
+
 ## Benefits
 
 1. ✅ **No preemptive loading** - Let Coil handle caching naturally
@@ -133,6 +171,7 @@ fun AvatarImage(...) {
 3. ✅ **Proper error handling** - Fallback only shown when actually needed
 4. ✅ **Better performance** - No duplicate ImageLoader instances
 5. ✅ **Cleaner code** - Simpler, more idiomatic Compose
+6. ✅ **Transparent avatars work** - No colored background showing through transparency
 
 ## Files Changed
 

@@ -83,7 +83,14 @@ fun AvatarImage(
         modifier = modifier
             .size(size)
             .clip(CircleShape)
-            .background(backgroundColor ?: MaterialTheme.colorScheme.primaryContainer),
+            .then(
+                // Only add background when showing fallback (no URL or load failed)
+                if (avatarUrl == null || imageLoadFailed) {
+                    Modifier.background(backgroundColor ?: MaterialTheme.colorScheme.primaryContainer)
+                } else {
+                    Modifier
+                }
+            ),
         contentAlignment = Alignment.Center
     ) {
         // Show text fallback if no URL or if image failed to load
