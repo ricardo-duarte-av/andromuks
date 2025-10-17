@@ -1955,7 +1955,11 @@ class AppViewModel : ViewModel() {
         // Check if we have enough cached events to skip paginate
         val cachedEvents = roomTimelineCache.getCachedEvents(roomId)
         if (cachedEvents != null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Using cached events for instant room opening: ${cachedEvents.size} events")
+            val ownMessagesInCache = cachedEvents.count { it.sender == currentUserId && (it.type == "m.room.message" || it.type == "m.room.encrypted") }
+            android.util.Log.d("Andromuks", "AppViewModel: ✓ USING CACHE for instant room opening: ${cachedEvents.size} events (including $ownMessagesInCache of your own messages)")
+            if (ownMessagesInCache > 0) {
+                android.util.Log.d("Andromuks", "AppViewModel: ★ Cache contains $ownMessagesInCache messages from YOU")
+            }
             
             // Populate edit chain mapping from cached events
             eventChainMap.clear()
@@ -2000,7 +2004,7 @@ class AppViewModel : ViewModel() {
                 markRoomAsRead(roomId, mostRecentEvent.eventId)
             }
         } else {
-            android.util.Log.d("Andromuks", "AppViewModel: No cache available, sending paginate request")
+            android.util.Log.d("Andromuks", "AppViewModel: ✗ NO CACHE (or < 100 events) - falling back to PAGINATE request from server")
             
             // Send paginate command as usual
             val paginateRequestId = requestIdCounter++
@@ -2011,6 +2015,7 @@ class AppViewModel : ViewModel() {
                 "limit" to 100,
                 "reset" to false
             ))
+            android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request_id=$paginateRequestId for room=$roomId")
         }
     }
     
@@ -2969,17 +2974,33 @@ class AppViewModel : ViewModel() {
             return
         }
 
-        android.util.Log.d("Andromuks", "AppViewModel: Handling timeline response for room: $roomId, requestId: $requestId, data type: ${data::class.java.simpleName}")
+        val isPaginateRequest = paginateRequests.containsKey(requestId)
+        android.util.Log.d("Andromuks", "AppViewModel: Handling timeline response for room: $roomId, requestId: $requestId, isPaginate: $isPaginateRequest, data type: ${data::class.java.simpleName}")
 
         fun processEventsArray(eventsArray: JSONArray) {
+            android.util.Log.d("Andromuks", "AppViewModel: processEventsArray called with ${eventsArray.length()} events from server")
             val timelineList = mutableListOf<TimelineEvent>()
             val allEvents = mutableListOf<TimelineEvent>()  // For version processing
             val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+            
+            var ownMessageCount = 0
             for (i in 0 until eventsArray.length()) {
                 val eventJson = eventsArray.optJSONObject(i)
                 if (eventJson != null) {
                     val event = TimelineEvent.fromJson(eventJson)
                     allEvents.add(event)  // Collect all events for version processing
+                    
+                    // Track our own messages
+                    if (event.sender == currentUserId && (event.type == "m.room.message" || event.type == "m.room.encrypted")) {
+                        ownMessageCount++
+                        val bodyPreview = when {
+                            event.type == "m.room.message" -> event.content?.optString("body", "")?.take(50)
+                            event.type == "m.room.encrypted" -> event.decrypted?.optString("body", "")?.take(50)
+                            else -> ""
+                        }
+                        android.util.Log.d("Andromuks", "AppViewModel: [PAGINATE] ★ Found OUR message in paginate response: ${event.eventId} body='$bodyPreview' timelineRowid=${event.timelineRowid}")
+                    }
+                    
                     if (event.type == "m.room.member" && event.timelineRowid == -1L) {
                         // State member event; update cache only
                         val userId = event.stateKey ?: event.sender
@@ -3026,7 +3047,10 @@ class AppViewModel : ViewModel() {
                     }
                 }
             }
-            android.util.Log.d("Andromuks", "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}")
+            android.util.Log.d("Andromuks", "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}, ownMessages=$ownMessageCount")
+            if (ownMessageCount > 0) {
+                android.util.Log.d("Andromuks", "AppViewModel: ★★★ PAGINATE RESPONSE CONTAINS $ownMessageCount OF YOUR OWN MESSAGES ★★★")
+            }
             
             // OPTIMIZED: Process versioned messages (edits, redactions) - O(n)
             android.util.Log.d("Andromuks", "AppViewModel: Processing ${allEvents.size} events for version tracking")
@@ -3344,11 +3368,27 @@ class AppViewModel : ViewModel() {
     
     private fun checkAndUpdateCurrentRoomTimeline(syncJson: JSONObject) {
         val data = syncJson.optJSONObject("data")
-        if (data != null && currentRoomId != null) {
+        if (data != null) {
             val rooms = data.optJSONObject("rooms")
-            if (rooms != null && rooms.has(currentRoomId)) {
-                android.util.Log.d("Andromuks", "AppViewModel: Received sync_complete for current room: $currentRoomId")
-                updateTimelineFromSync(syncJson, currentRoomId!!)
+            if (rooms != null) {
+                // Log all rooms in this sync_complete
+                val roomKeys = rooms.keys()
+                val roomsInSync = mutableListOf<String>()
+                while (roomKeys.hasNext()) {
+                    roomsInSync.add(roomKeys.next())
+                }
+                android.util.Log.d("Andromuks", "AppViewModel: sync_complete contains events for ${roomsInSync.size} rooms: $roomsInSync")
+                android.util.Log.d("Andromuks", "AppViewModel: currentRoomId = $currentRoomId (${if (currentRoomId != null) "ROOM OPEN" else "NO ROOM OPEN"})")
+                
+                // Only update timeline if room is currently open
+                if (currentRoomId != null && rooms.has(currentRoomId)) {
+                    android.util.Log.d("Andromuks", "AppViewModel: ✓ Processing sync_complete events for OPEN room: $currentRoomId")
+                    updateTimelineFromSync(syncJson, currentRoomId!!)
+                } else if (currentRoomId != null) {
+                    android.util.Log.d("Andromuks", "AppViewModel: ✗ Skipping sync_complete - current room $currentRoomId not in this sync batch")
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: ✗ Skipping sync_complete - no room currently open (events will be cached only)")
+                }
             }
         }
     }
@@ -3366,6 +3406,8 @@ class AppViewModel : ViewModel() {
             val roomId = roomKeys.next()
             val roomData = rooms.optJSONObject(roomId) ?: continue
             val events = roomData.optJSONArray("events") ?: continue
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Caching ${events.length()} events for room: $roomId (current room: $currentRoomId)")
             
             // Get member map for this room
             val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
@@ -3435,12 +3477,19 @@ class AppViewModel : ViewModel() {
             if (eventJson != null) {
                 val event = TimelineEvent.fromJson(eventJson)
                 events.add(event)
+                // Log each event with its critical fields
+                android.util.Log.d("Andromuks", "AppViewModel: [SYNC EVENT $i/${eventsArray.length()}] eventId=${event.eventId} type=${event.type} sender=${event.sender} timelineRowid=${event.timelineRowid}")
             }
         }
         
         // Sort events by timestamp to process in order
         events.sortBy { it.timestamp }
         android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.size} events in timestamp order")
+        
+        // Count event types for debugging
+        val eventTypeCounts = events.groupBy { it.type }.mapValues { it.value.size }
+        val ownMessageCount = events.count { it.sender == currentUserId && (it.type == "m.room.message" || it.type == "m.room.encrypted") }
+        android.util.Log.d("Andromuks", "AppViewModel: Event breakdown: $eventTypeCounts (including $ownMessageCount from YOU)")
         
         // OPTIMIZED: Process versioned messages (edits, redactions) - O(n)
         android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.size} sync events for version tracking")
@@ -3461,9 +3510,13 @@ class AppViewModel : ViewModel() {
                         memberMap[userId] = profile
                         // PERFORMANCE: Also add to global cache for O(1) lookups
                         globalProfileCache[userId] = profile
-                        android.util.Log.d("Andromuks", "AppViewModel: Updated member cache for $userId: $displayName")
+                        android.util.Log.d("Andromuks", "AppViewModel: [SYNC] ✓ Updated member cache for $userId: displayName='$displayName' (NOT added to timeline - correct)")
                     }
                 }
+            } else if (event.type == "m.room.member" && event.timelineRowid >= 0L) {
+                // Timeline member event (join/leave that should show in timeline)
+                android.util.Log.d("Andromuks", "AppViewModel: [SYNC] Member event with timelineRowid=${event.timelineRowid} - should this be added to timeline?")
+                addNewEventToChain(event)
             } else if (event.type == "m.room.redaction") {
                 // Handle redaction events (live sync path)
                 android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processing redaction event ${event.eventId} from ${event.sender}")
@@ -3551,7 +3604,12 @@ class AppViewModel : ViewModel() {
                 // Log if this is our own message from another client
                 val isOwnMessage = event.sender == currentUserId
                 if (isOwnMessage) {
-                    android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processing our own message from another client: ${event.eventId}")
+                    val bodyPreview = when {
+                        event.type == "m.room.message" -> event.content?.optString("body", "")?.take(50)
+                        event.type == "m.room.encrypted" -> event.decrypted?.optString("body", "")?.take(50)
+                        else -> ""
+                    }
+                    android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] ★ Processing OUR OWN message from another device: ${event.eventId} body='$bodyPreview' timelineRowid=${event.timelineRowid}")
                 }
                 
                 // Check if this is an edit event (m.replace relationship)
@@ -3563,13 +3621,35 @@ class AppViewModel : ViewModel() {
                 
                 if (isEditEvent) {
                     // Handle edit event using edit chain system
+                    android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Event ${event.eventId} is an EDIT, handling via chain")
                     handleEditEventInChain(event)
                 } else {
                     // Add new timeline event to chain (works for messages from ANY client)
+                    android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] ✓ Adding event ${event.eventId} to timeline chain (sender=${event.sender})")
                     addNewEventToChain(event)
+                }
+            } else {
+                // Unknown event type - log it so we can see what's being skipped
+                android.util.Log.w("Andromuks", "AppViewModel: [LIVE SYNC] ✗ UNHANDLED event type: ${event.type} eventId=${event.eventId} sender=${event.sender} timelineRowid=${event.timelineRowid}")
+                if (event.sender == currentUserId) {
+                    android.util.Log.e("Andromuks", "AppViewModel: [LIVE SYNC] ★★★ WARNING: YOUR OWN message was SKIPPED due to unhandled type: ${event.type} ★★★")
                 }
             }
         }
+        
+        // Summary of what was processed
+        val addedToTimeline = events.count { event ->
+            (event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") ||
+            (event.type == "m.room.member" && event.timelineRowid >= 0L) ||
+            (event.type == "m.room.redaction")
+        }
+        val memberStateUpdates = events.count { event ->
+            event.type == "m.room.member" && event.timelineRowid == -1L
+        }
+        val reactions = events.count { it.type == "m.reaction" }
+        val unhandled = events.size - addedToTimeline - memberStateUpdates - reactions
+        
+        android.util.Log.d("Andromuks", "AppViewModel: [SYNC SUMMARY] Total=${events.size}: addedToTimeline=$addedToTimeline, memberUpdates=$memberStateUpdates, reactions=$reactions, unhandled=$unhandled")
         
         // Only process edit relationships for new edit events
         val newEditEvents = events.filter { event ->
@@ -3587,7 +3667,10 @@ class AppViewModel : ViewModel() {
         }
         
         // Build timeline from chain
+        val timelineCountBefore = timelineEvents.size
         buildTimelineFromChain()
+        val timelineCountAfter = timelineEvents.size
+        android.util.Log.d("Andromuks", "AppViewModel: [SYNC] Timeline rebuilt: before=$timelineCountBefore, after=$timelineCountAfter (added ${timelineCountAfter - timelineCountBefore} events)")
         
         // Mark room as read for the newest event since user is actively viewing the room
         val newestEvent = events.maxByOrNull { it.timestamp }

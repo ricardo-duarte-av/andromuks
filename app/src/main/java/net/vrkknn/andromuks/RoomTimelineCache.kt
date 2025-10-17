@@ -194,6 +194,8 @@ class RoomTimelineCache {
      */
     private fun parseEventsFromArray(eventsArray: JSONArray, memberMap: Map<String, MemberProfile>): List<TimelineEvent> {
         val events = mutableListOf<TimelineEvent>()
+        var filteredCount = 0
+        var filteredReasons = mutableMapOf<String, Int>()
         
         for (i in 0 until eventsArray.length()) {
             val eventJson = eventsArray.optJSONObject(i) ?: continue
@@ -201,13 +203,38 @@ class RoomTimelineCache {
             try {
                 val event = TimelineEvent.fromJson(eventJson)
                 
-                // Only cache actual timeline events (not state events or reactions)
-                if (event.timelineRowid >= 0 && event.type != "m.reaction" && event.type != "m.room.member") {
+                // Cache message events regardless of timelineRowid (to catch pending/failed sends)
+                // Only filter out reactions and state member events (timelineRowid = -1)
+                val shouldCache = when {
+                    event.type == "m.reaction" -> false
+                    event.type == "m.room.member" && event.timelineRowid < 0 -> false
+                    event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker" -> true
+                    event.timelineRowid >= 0 -> true  // Any other event with valid timelineRowid
+                    else -> false
+                }
+                
+                if (shouldCache) {
                     events.add(event)
+                    Log.d(TAG, "Cached event: ${event.eventId} type=${event.type} sender=${event.sender} timelineRowid=${event.timelineRowid}")
+                } else {
+                    // Log why event was filtered
+                    val reason = when {
+                        event.type == "m.reaction" -> "type = m.reaction"
+                        event.type == "m.room.member" && event.timelineRowid < 0 -> "type = m.room.member (state event)"
+                        event.timelineRowid < 0 -> "timelineRowid < 0 AND not a message type"
+                        else -> "unknown"
+                    }
+                    filteredCount++
+                    filteredReasons[reason] = (filteredReasons[reason] ?: 0) + 1
+                    Log.d(TAG, "Filtered event: ${event.eventId} type=${event.type} sender=${event.sender} reason=[$reason]")
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to parse event from sync: ${e.message}")
             }
+        }
+        
+        if (filteredCount > 0) {
+            Log.d(TAG, "Filtered $filteredCount events from cache. Reasons: $filteredReasons")
         }
         
         return events
