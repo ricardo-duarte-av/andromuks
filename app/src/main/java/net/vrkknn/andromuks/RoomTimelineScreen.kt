@@ -59,6 +59,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
@@ -555,6 +562,15 @@ fun RoomTimelineScreen(
         appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId)
     }
+    
+    // Refresh timeline when app resumes (to show new events received while suspended)
+    LaunchedEffect(appViewModel.timelineRefreshTrigger) {
+        if (appViewModel.timelineRefreshTrigger > 0 && appViewModel.currentRoomId == roomId) {
+            Log.d("Andromuks", "RoomTimelineScreen: App resumed, refreshing timeline for room: $roomId")
+            // Don't reset state flags - this is just a refresh, not a new room load
+            appViewModel.requestRoomTimeline(roomId)
+        }
+    }
 
     // After initial batch loads, automatically load second batch in background
     // LaunchedEffect(hasLoadedInitialBatch) {
@@ -1009,7 +1025,19 @@ fun RoomTimelineScreen(
                             }
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        // Circular send button
+                        // Circular send button with rotation animation when sending
+                        val isSending = appViewModel.pendingSendCount > 0
+                        val infiniteTransition = rememberInfiniteTransition(label = "send_rotation")
+                        val rotation by infiniteTransition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = if (isSending) 360f else 0f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1000, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "rotation"
+                        )
+                        
                         Button(
                             onClick = {
                                 if (draft.isNotBlank()) {
@@ -1047,7 +1075,8 @@ fun RoomTimelineScreen(
                                 contentDescription = "Send",
                                 tint =
                                     if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = if (isSending) Modifier.rotate(rotation) else Modifier
                             )
                         }
                     }

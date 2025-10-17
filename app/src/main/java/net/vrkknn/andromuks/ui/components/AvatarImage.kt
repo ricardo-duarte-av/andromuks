@@ -122,8 +122,17 @@ fun AvatarImage(
                 contentScale = ContentScale.Crop,
                 onSuccess = {
                     imageLoadFailed = false
-                    // NOTE: Coil handles caching automatically - no need to manually download
-                    // (would cause duplicate requests: Coil + okhttp)
+                    // Cache to MediaCache for notification system access
+                    // Only if it's an HTTP URL and not already in MediaCache
+                    if (mxcUrl != null && avatarUrl.startsWith("http")) {
+                        coroutineScope.launch {
+                            // Check if already cached to avoid redundant downloads
+                            if (MediaCache.getCachedFile(context, mxcUrl) == null) {
+                                MediaCache.downloadAndCache(context, mxcUrl, avatarUrl, authToken)
+                                MediaCache.cleanupCache(context)
+                            }
+                        }
+                    }
                 },
                 onError = { state ->
                     // Mark as failed so fallback shows

@@ -99,6 +99,10 @@ class AppViewModel : ViewModel() {
     var messageReactions by mutableStateOf(mapOf<String, List<MessageReaction>>())
         private set
     
+    // Track pending message sends for send button animation
+    var pendingSendCount by mutableStateOf(0)
+        private set
+    
     // Recent emojis for reactions
     var recentEmojis by mutableStateOf(listOf<String>())
         private set
@@ -135,8 +139,6 @@ class AppViewModel : ViewModel() {
     )
     
     private val pendingNotificationActions = mutableListOf<PendingNotificationAction>()
-    private var notificationActionInProgress = false
-    private var notificationActionShutdownTimer: Job? = null
     private val notificationActionCompletionCallbacks = mutableMapOf<Int, () -> Unit>()
 
     var spacesLoaded by mutableStateOf(false)
@@ -1093,13 +1095,14 @@ class AppViewModel : ViewModel() {
         appInvisibleJob?.cancel()
         appInvisibleJob = null
         
-        // Cancel notification action shutdown timer
-        notificationActionShutdownTimer?.cancel()
-        notificationActionShutdownTimer = null
-        notificationActionInProgress = false
-        
         // Refresh UI with current state (in case updates happened while app was invisible)
         refreshUIState()
+        
+        // If a room is currently open, trigger timeline refresh to show new events from cache
+        if (currentRoomId.isNotEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: Room is open ($currentRoomId), triggering timeline refresh")
+            timelineRefreshTrigger++
+        }
         
         // WebSocket service maintains connection
         android.util.Log.d("Andromuks", "AppViewModel: App visible, refreshing UI with current state")
@@ -1191,6 +1194,10 @@ class AppViewModel : ViewModel() {
     var timelineEvents by mutableStateOf<List<TimelineEvent>>(emptyList())
         private set
     var isTimelineLoading by mutableStateOf(false)
+        private set
+    
+    // Trigger for timeline refresh when app resumes (incremented when app becomes visible)
+    var timelineRefreshTrigger by mutableStateOf(0)
         private set
     
     // Edit chain tracking system
@@ -1829,7 +1836,8 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Generated request_id: $messageRequestId")
         
         messageRequests[messageRequestId] = roomId
-        android.util.Log.d("Andromuks", "AppViewModel: Stored request in messageRequests map")
+        pendingSendCount++
+        android.util.Log.d("Andromuks", "AppViewModel: Stored request in messageRequests map, pendingSendCount=$pendingSendCount")
         
         val commandData = mapOf(
             "room_id" to roomId,
@@ -1855,9 +1863,10 @@ class AppViewModel : ViewModel() {
         
         // Check websocket state
         if (webSocket == null || !spacesLoaded) {
-            android.util.Log.d("Andromuks", "AppViewModel: WebSocket not ready, queueing notification action")
+            android.util.Log.d("Andromuks", "AppViewModel: WebSocket not ready yet, queueing notification action")
             
-            // Queue the action
+            // Queue the action to be executed when WebSocket is ready
+            // (Foreground service maintains connection, this should be rare - only during initial startup)
             pendingNotificationActions.add(
                 PendingNotificationAction(
                     type = "send_message",
@@ -1867,21 +1876,15 @@ class AppViewModel : ViewModel() {
                 )
             )
             
-            // If app is not visible, reconnect websocket
-            if (!isAppVisible) {
-                android.util.Log.d("Andromuks", "AppViewModel: App not visible, reconnecting websocket for notification action")
-                notificationActionInProgress = true
-                restartWebSocketConnection()
-            }
-            
             return
         }
         
-        // WebSocket is ready, send message
-        android.util.Log.d("Andromuks", "AppViewModel: WebSocket ready, sending message from notification")
+        // WebSocket is ready (maintained by foreground service), send message directly
+        android.util.Log.d("Andromuks", "AppViewModel: Sending message from notification (WebSocket maintained by service)")
         val messageRequestId = requestIdCounter++
         
         messageRequests[messageRequestId] = roomId
+        pendingSendCount++
         if (onComplete != null) {
             notificationActionCompletionCallbacks[messageRequestId] = onComplete
         }
@@ -1898,24 +1901,23 @@ class AppViewModel : ViewModel() {
         
         sendWebSocketCommand("send_message", messageRequestId, commandData)
         
-        // Schedule shutdown if app is not visible
-        if (!isAppVisible) {
-            scheduleNotificationActionShutdown()
-        }
+        // No shutdown needed - foreground service keeps WebSocket open
+        android.util.Log.d("Andromuks", "AppViewModel: Message sent, WebSocket remains connected via service")
     }
     
     /**
      * Marks a room as read from a notification action.
-     * This handles websocket connection state and schedules auto-shutdown if needed.
+     * Uses the always-connected WebSocket maintained by the foreground service.
      */
     fun markRoomAsReadFromNotification(roomId: String, eventId: String, onComplete: (() -> Unit)? = null) {
         android.util.Log.d("Andromuks", "AppViewModel: markRoomAsReadFromNotification called for room $roomId")
         
         // Check websocket state
         if (webSocket == null || !spacesLoaded) {
-            android.util.Log.d("Andromuks", "AppViewModel: WebSocket not ready, queueing notification action")
+            android.util.Log.d("Andromuks", "AppViewModel: WebSocket not ready yet, queueing notification action")
             
-            // Queue the action
+            // Queue the action to be executed when WebSocket is ready
+            // (Foreground service maintains connection, this should be rare - only during initial startup)
             pendingNotificationActions.add(
                 PendingNotificationAction(
                     type = "mark_read",
@@ -1925,18 +1927,11 @@ class AppViewModel : ViewModel() {
                 )
             )
             
-            // If app is not visible, reconnect websocket
-            if (!isAppVisible) {
-                android.util.Log.d("Andromuks", "AppViewModel: App not visible, reconnecting websocket for notification action")
-                notificationActionInProgress = true
-                restartWebSocketConnection()
-            }
-            
             return
         }
         
-        // WebSocket is ready, mark as read
-        android.util.Log.d("Andromuks", "AppViewModel: WebSocket ready, marking room as read from notification")
+        // WebSocket is ready (maintained by foreground service), mark as read directly
+        android.util.Log.d("Andromuks", "AppViewModel: Marking room as read from notification (WebSocket maintained by service)")
         val markReadRequestId = requestIdCounter++
         
         markReadRequests[markReadRequestId] = roomId
@@ -1952,33 +1947,8 @@ class AppViewModel : ViewModel() {
         
         sendWebSocketCommand("mark_read", markReadRequestId, commandData)
         
-        // Schedule shutdown if app is not visible
-        if (!isAppVisible) {
-            scheduleNotificationActionShutdown()
-        }
-    }
-    
-    /**
-     * Schedules websocket shutdown after 15 seconds for notification actions
-     */
-    private fun scheduleNotificationActionShutdown() {
-        // Cancel any existing timer
-        notificationActionShutdownTimer?.cancel()
-        
-        android.util.Log.d("Andromuks", "AppViewModel: Scheduling notification action shutdown in 15 seconds")
-        
-        notificationActionShutdownTimer = viewModelScope.launch {
-            delay(15_000) // 15 seconds
-            
-            // Only shutdown if app is still not visible
-            if (!isAppVisible && notificationActionInProgress) {
-                android.util.Log.d("Andromuks", "AppViewModel: Shutting down websocket after notification action")
-                notificationActionInProgress = false
-                shutdownWebSocket()
-            } else {
-                android.util.Log.d("Andromuks", "AppViewModel: Not shutting down - app became visible or action completed")
-            }
-        }
+        // No shutdown needed - foreground service keeps WebSocket open
+        android.util.Log.d("Andromuks", "AppViewModel: Mark read sent, WebSocket remains connected via service")
     }
     
     fun sendReaction(roomId: String, eventId: String, emoji: String) {
@@ -2081,7 +2051,8 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Generated request_id: $messageRequestId")
         
         messageRequests[messageRequestId] = roomId
-        android.util.Log.d("Andromuks", "AppViewModel: Stored request in messageRequests map")
+        pendingSendCount++
+        android.util.Log.d("Andromuks", "AppViewModel: Stored request in messageRequests map, pendingSendCount=$pendingSendCount")
         
         // Extract mentions from the original message sender
         val mentions = mutableListOf<String>()
@@ -2117,6 +2088,7 @@ class AppViewModel : ViewModel() {
         
         // Track this outgoing request
         messageRequests[editRequestId] = roomId
+        pendingSendCount++
         
         val commandData = mapOf(
             "room_id" to roomId,
@@ -2156,6 +2128,7 @@ class AppViewModel : ViewModel() {
         
         // Track this outgoing request
         messageRequests[messageRequestId] = roomId
+        pendingSendCount++
         
         // Use caption if provided, otherwise use filename
         val body = caption.ifBlank { filename }
@@ -2255,6 +2228,7 @@ class AppViewModel : ViewModel() {
         
         // Track this outgoing request
         messageRequests[messageRequestId] = roomId
+        pendingSendCount++
         
         // Extract filename from mxc URL
         val filename = videoMxcUrl.substringAfterLast("/").let { mediaId ->
@@ -2968,7 +2942,10 @@ class AppViewModel : ViewModel() {
     
     private fun handleMessageResponse(requestId: Int, data: Any) {
         val roomId = messageRequests.remove(requestId) ?: return
-        android.util.Log.d("Andromuks", "AppViewModel: Handling message response for room: $roomId")
+        if (pendingSendCount > 0) {
+            pendingSendCount--
+        }
+        android.util.Log.d("Andromuks", "AppViewModel: Handling message response for room: $roomId, pendingSendCount=$pendingSendCount")
         
         // NOTE: We receive send_complete for sent messages, so we don't need to process
         // the response here to avoid duplicates. send_complete will add the event to timeline.

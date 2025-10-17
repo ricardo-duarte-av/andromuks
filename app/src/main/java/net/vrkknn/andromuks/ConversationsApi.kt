@@ -669,30 +669,18 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     
     /**
      * Update a specific shortcut when new message arrives
+     * 
+     * NOTE: We don't re-publish existing shortcuts here because it causes Android system warnings:
+     * "Re-publishing ShortcutInfo returned by server is not supported. Some information such as icon may lost from shortcut."
+     * 
+     * Instead, shortcuts are updated by the regular updateConversationShortcuts() flow which creates
+     * fresh ShortcutInfo objects with proper icons. This is called periodically from AppViewModel
+     * on sync updates.
      */
     fun updateShortcutForNewMessage(roomId: String, message: String, timestamp: Long) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
-            CoroutineScope(Dispatchers.Main).launch {
-                try {
-                    val shortcutManager = context.getSystemService(ShortcutManager::class.java)
-                    val existingShortcuts = shortcutManager.dynamicShortcuts.toMutableList()
-                    
-                    // Find and update the shortcut for this room
-                    val shortcutIndex = existingShortcuts.indexOfFirst { it.id == roomId }
-                    if (shortcutIndex >= 0) {
-                        // Move to top of list
-                        val updatedShortcut = existingShortcuts[shortcutIndex]
-                        existingShortcuts.removeAt(shortcutIndex)
-                        existingShortcuts.add(0, updatedShortcut)
-                        
-                        shortcutManager.dynamicShortcuts = existingShortcuts
-                        Log.d(TAG, "Updated shortcut for room: $roomId")
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error updating shortcut for new message", e)
-                }
-            }
-        }
+        // This function is deprecated and does nothing to avoid Android system warnings
+        // Regular shortcut updates via updateConversationShortcuts() handle everything properly
+        Log.d(TAG, "updateShortcutForNewMessage called for $roomId - using regular update flow instead")
     }
     
     /**
