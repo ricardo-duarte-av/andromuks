@@ -9,6 +9,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -63,12 +65,14 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Reply
 import androidx.compose.material.icons.filled.TagFaces
+import androidx.compose.material.icons.filled.History
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReplyInfo
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
+import net.vrkknn.andromuks.utils.EditHistoryDialog
 
 /**
  * Displays a reply preview showing the original message being replied to.
@@ -578,12 +582,21 @@ fun MessageBubbleWithMenu(
     onReact: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
     content: @Composable RowScope.() -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    var showEditHistory by remember { mutableStateOf(false) }
     var bubbleBounds by remember { mutableStateOf(Rect.Zero) }
     val hapticFeedback = LocalHapticFeedback.current
-    val density = androidx.compose.ui.platform.LocalDensity.current
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val screenWidth = with(density) { configuration.screenWidthDp.dp.toPx() }
+    
+    // Check if message has been edited (O(1) lookup)
+    val hasBeenEdited = remember(event.eventId, appViewModel?.updateCounter) {
+        appViewModel?.isMessageEdited(event.eventId) ?: false
+    }
     
     // Calculate power level permissions
     val myPowerLevel = if (myUserId != null && powerLevels != null) {
@@ -674,17 +687,25 @@ fun MessageBubbleWithMenu(
                             .offset {
                                 with(density) {
                                     // Calculate menu position relative to bubble
-                                    val menuWidth = 200.dp.toPx() // Approximate menu width
-                                    val menuHeight = 50.dp.toPx() // Approximate menu height
+                                    // Dynamically calculate width based on number of buttons
+                                    val buttonCount = 2 + // React + Reply (always shown)
+                                        (if (canEdit) 1 else 0) + 
+                                        (if (canDelete) 1 else 0) + 
+                                        (if (hasBeenEdited) 1 else 0)
+                                    val menuWidth = ((44 * buttonCount).dp + 16.dp).toPx() // 44dp per button + padding
+                                    val menuHeight = 50.dp.toPx()
                                     val bubbleCenterX = bubbleBounds.left + (bubbleBounds.width / 2)
                                     val menuX = bubbleCenterX - (menuWidth / 2)
                                     val menuY = bubbleBounds.top - menuHeight - 8.dp.toPx()
                                     
-                                    // Clamp to keep menu on screen (left edge only)
-                                    val clampedX = menuX.coerceAtLeast(8.dp.toPx())
-                                    val clampedY = menuY.coerceAtLeast(8.dp.toPx())
+                                    // Clamp to keep menu on screen (both left AND right edges)
+                                    val margin = 8.dp.toPx()
+                                    val clampedX = menuX
+                                        .coerceAtLeast(margin)  // Don't go past left edge
+                                        .coerceAtMost(screenWidth - menuWidth - margin)  // Don't go past right edge
+                                    val clampedY = menuY.coerceAtLeast(margin)
                                     
-                                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu position: x=$clampedX, y=$clampedY")
+                                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu position: x=$clampedX, y=$clampedY, menuWidth=$menuWidth, screenWidth=$screenWidth, buttonCount=$buttonCount")
                                     
                                     IntOffset(
                                         x = clampedX.toInt(),
@@ -769,9 +790,39 @@ fun MessageBubbleWithMenu(
                                     )
                                 }
                             }
+                            
+                            // Edit History button (only show if message has been edited)
+                            if (hasBeenEdited) {
+                                IconButton(
+                                    onClick = {
+                                        android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit History clicked")
+                                        showMenu = false
+                                        showEditHistory = true
+                                    },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Text(
+                                        text = "e",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
                         }
                     }
                 }
+            }
+        }
+        
+        // Show edit history dialog
+        if (showEditHistory && appViewModel != null) {
+            val versioned = appViewModel.getMessageVersions(event.eventId)
+            if (versioned != null) {
+                EditHistoryDialog(
+                    versioned = versioned,
+                    onDismiss = { showEditHistory = false }
+                )
             }
         }
     }

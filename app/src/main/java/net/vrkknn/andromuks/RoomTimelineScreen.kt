@@ -70,6 +70,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -1927,14 +1928,30 @@ fun TimelineEventItem(
                                 )
                             }
                         
+                        // Check if message has been edited (O(1) lookup)
+                        val hasBeenEdited = remember(event.eventId, appViewModel?.updateCounter) {
+                            appViewModel?.isMessageEdited(event.eventId) ?: false
+                        }
+                        
                         val bubbleColor =
-                            if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
-                            else if (mentionsMe) MaterialTheme.colorScheme.tertiaryContainer
-                            else MaterialTheme.colorScheme.surfaceVariant
+                            if (actualIsMine) {
+                                if (hasBeenEdited) MaterialTheme.colorScheme.secondaryContainer
+                                else MaterialTheme.colorScheme.primaryContainer
+                            } else if (mentionsMe) {
+                                MaterialTheme.colorScheme.tertiaryContainer
+                            } else {
+                                if (hasBeenEdited) MaterialTheme.colorScheme.surfaceContainerHighest
+                                else MaterialTheme.colorScheme.surfaceVariant
+                            }
                         val textColor =
-                            if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
-                            else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
-                            else MaterialTheme.colorScheme.onSurfaceVariant
+                            if (actualIsMine) {
+                                if (hasBeenEdited) MaterialTheme.colorScheme.onSecondaryContainer
+                                else MaterialTheme.colorScheme.onPrimaryContainer
+                            } else if (mentionsMe) {
+                                MaterialTheme.colorScheme.onTertiaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            }
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -1969,7 +1986,8 @@ fun TimelineEventItem(
                                     onReply = { onReply(event) },
                                     onReact = { onReact(event) },
                                     onEdit = { onEdit(event) },
-                                    onDelete = { onDelete(event) }
+                                    onDelete = { onDelete(event) },
+                                    appViewModel = appViewModel
                                 ) {
                                     Column(
                                         modifier = Modifier.padding(8.dp),
@@ -2039,7 +2057,8 @@ fun TimelineEventItem(
                                     onReply = { onReply(event) },
                                     onReact = { onReact(event) },
                                     onEdit = { onEdit(event) },
-                                    onDelete = { onDelete(event) }
+                                    onDelete = { onDelete(event) },
+                                    appViewModel = appViewModel
                                 ) {
                                     Box(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -2075,20 +2094,20 @@ fun TimelineEventItem(
                                 }
                             }
 
-                            // For others' messages, show read receipts on the right of the bubble
-                            if (!actualIsMine && readReceipts.isNotEmpty()) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                InlineReadReceiptAvatars(
-                                    receipts = readReceipts,
-                                    userProfileCache = userProfileCache,
-                                    homeserverUrl = homeserverUrl,
-                                    authToken = authToken,
-                                    appViewModel = appViewModel,
-                                    messageSender = event.sender,
-                                    onUserClick = onUserClick
-                                )
+                                // For others' messages, show read receipts on the right of the bubble
+                                if (!actualIsMine && readReceipts.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    InlineReadReceiptAvatars(
+                                        receipts = readReceipts,
+                                        userProfileCache = userProfileCache,
+                                        homeserverUrl = homeserverUrl,
+                                        authToken = authToken,
+                                        appViewModel = appViewModel,
+                                        messageSender = event.sender,
+                                        onUserClick = onUserClick
+                                    )
+                                }
                             }
-                        }
 
                         // Add reaction badges for this message
                         if (appViewModel != null) {
@@ -2451,7 +2470,7 @@ fun TimelineEventItem(
                                 }
                             }
                         } else {
-                            // Regular text message
+                            // Regular encrypted text message
                             val bubbleShape =
                                 if (actualIsMine) {
                                     RoundedCornerShape(
@@ -2469,14 +2488,30 @@ fun TimelineEventItem(
                                     )
                                 }
                             
+                            // Check if message has been edited (O(1) lookup)
+                            val hasBeenEdited = remember(event.eventId, appViewModel?.updateCounter) {
+                                appViewModel?.isMessageEdited(event.eventId) ?: false
+                            }
+                            
                             val bubbleColor =
-                                if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
-                                else if (mentionsMe) MaterialTheme.colorScheme.tertiaryContainer
-                                else MaterialTheme.colorScheme.surfaceVariant
+                                if (actualIsMine) {
+                                    if (hasBeenEdited) MaterialTheme.colorScheme.secondaryContainer
+                                    else MaterialTheme.colorScheme.primaryContainer
+                                } else if (mentionsMe) {
+                                    MaterialTheme.colorScheme.tertiaryContainer
+                                } else {
+                                    if (hasBeenEdited) MaterialTheme.colorScheme.surfaceContainerHighest
+                                    else MaterialTheme.colorScheme.surfaceVariant
+                                }
                             val textColor =
-                                if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
-                                else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
-                                else MaterialTheme.colorScheme.onSurfaceVariant
+                                if (actualIsMine) {
+                                    if (hasBeenEdited) MaterialTheme.colorScheme.onSecondaryContainer
+                                    else MaterialTheme.colorScheme.onPrimaryContainer
+                                } else if (mentionsMe) {
+                                    MaterialTheme.colorScheme.onTertiaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                }
 
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -2617,19 +2652,18 @@ fun TimelineEventItem(
                                     }
                                 }
 
-                                // For others' messages, show read receipts on the right of the
-                                // bubble
-                                if (!actualIsMine && readReceipts.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    InlineReadReceiptAvatars(
-                                        receipts = readReceipts,
-                                        userProfileCache = userProfileCache,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        appViewModel = appViewModel,
-                                        messageSender = event.sender,
-                                        onUserClick = onUserClick
-                                    )
+                                    // For others' messages, show read receipts on the right of the bubble
+                                    if (!actualIsMine && readReceipts.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        InlineReadReceiptAvatars(
+                                            receipts = readReceipts,
+                                            userProfileCache = userProfileCache,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                            appViewModel = appViewModel,
+                                            messageSender = event.sender,
+                                            onUserClick = onUserClick
+                                        )
                                 }
                             }
 
@@ -2684,34 +2718,34 @@ fun TimelineEventItem(
                                 }
 
                                 StickerMessage(
-                                    stickerMessage = stickerMessage,
-                                    homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                                    authToken = authToken,
-                                    isMine = actualIsMine,
-                                    isEncrypted =
-                                        stickerMessage
-                                            .hasEncryptedFile, // Use media encryption status
-                                    event = event,
-                                    timestamp = event.timestamp,
-                                    isConsecutive = isConsecutive,
-                                    onReply = { onReply(event) },
-                                    onReact = { onReact(event) },
-                                    onEdit = { onEdit(event) },
-                                    onDelete = { onDelete(event) }
-                                )
-
-                                // For other users' messages, show read receipts on the right
-                                if (!actualIsMine && readReceipts.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    InlineReadReceiptAvatars(
-                                        receipts = readReceipts,
-                                        userProfileCache = userProfileCache,
-                                        homeserverUrl = homeserverUrl,
+                                        stickerMessage = stickerMessage,
+                                        homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
                                         authToken = authToken,
-                                        appViewModel = appViewModel,
-                                        messageSender = event.sender,
-                                        onUserClick = onUserClick
+                                        isMine = actualIsMine,
+                                        isEncrypted =
+                                            stickerMessage
+                                                .hasEncryptedFile, // Use media encryption status
+                                        event = event,
+                                        timestamp = event.timestamp,
+                                        isConsecutive = isConsecutive,
+                                        onReply = { onReply(event) },
+                                        onReact = { onReact(event) },
+                                        onEdit = { onEdit(event) },
+                                        onDelete = { onDelete(event) }
                                     )
+
+                                    // For other users' messages, show read receipts on the right
+                                    if (!actualIsMine && readReceipts.isNotEmpty()) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        InlineReadReceiptAvatars(
+                                            receipts = readReceipts,
+                                            userProfileCache = userProfileCache,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken,
+                                            appViewModel = appViewModel,
+                                            messageSender = event.sender,
+                                            onUserClick = onUserClick
+                                        )
                                 }
                             }
 
@@ -2806,8 +2840,8 @@ fun TimelineEventItem(
                                     messageSender = event.sender,
                                     onUserClick = onUserClick
                                 )
+                                }
                             }
-                        }
 
                         // Add reaction badges for stickers
                         if (appViewModel != null) {
@@ -2885,7 +2919,8 @@ private fun MediaMessageItem(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start
+        horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.CenterVertically
     ) {
         if (replyInfo != null && originalEvent != null) {
             Column {

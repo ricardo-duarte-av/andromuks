@@ -1857,9 +1857,15 @@ class AppViewModel : ViewModel() {
         isPaginating = false
         hasMoreMessages = true
         
-        // Clear edit chain mapping when opening a new room
+        // Clear edit chain mapping when opening a new room (legacy - kept for compatibility)
         eventChainMap.clear()
         editEventsMap.clear()
+        
+        // IMPORTANT: Clear optimized version cache when opening a new room
+        messageVersions.clear()
+        editToOriginal.clear()
+        redactionCache.clear()
+        android.util.Log.d("Andromuks", "AppViewModel: Cleared version cache for new room: $roomId")
         
         // Clear message reactions when switching rooms
         messageReactions = emptyMap()
