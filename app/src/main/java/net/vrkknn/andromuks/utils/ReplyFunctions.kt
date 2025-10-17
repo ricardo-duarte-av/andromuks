@@ -103,19 +103,30 @@ fun ReplyPreview(
     modifier: Modifier = Modifier,
     onOriginalMessageClick: () -> Unit = {},
     timelineEvents: List<TimelineEvent> = emptyList(),
-    onMatrixUserClick: (String) -> Unit = {}
+    onMatrixUserClick: (String) -> Unit = {},
+    appViewModel: net.vrkknn.andromuks.AppViewModel? = null
 ) {
-    // Resolve the event chain to get the latest version of the original message
-    val latestOriginalEvent = originalEvent?.let { event ->
-        RedactionUtils.resolveEventChain(event.eventId, timelineEvents)
+    // OPTIMIZED: Use version cache if available, otherwise fall back to chain resolution
+    val latestOriginalEvent = if (appViewModel != null && originalEvent != null) {
+        appViewModel.getLatestMessageVersion(originalEvent.eventId) ?: originalEvent
+    } else {
+        originalEvent?.let { event ->
+            RedactionUtils.resolveEventChain(event.eventId, timelineEvents)
+        }
     }
     
     val originalSender = latestOriginalEvent?.sender ?: replyInfo.sender
     val originalBody = latestOriginalEvent?.let { event ->
-        // Check if the latest version has been redacted
+        // OPTIMIZED: Check if redacted using O(1) lookup
         if (event.redactedBy != null) {
-            // Latest version was deleted - create detailed deletion message using latest redaction
-            RedactionUtils.createDeletionMessageForEvent(event, timelineEvents, userProfileCache)
+            // Latest version was deleted - use O(1) cached redaction event
+            val redactionEvent = appViewModel?.getRedactionEvent(event.eventId)
+            if (redactionEvent != null) {
+                RedactionUtils.createDeletionMessageFromEvent(redactionEvent, userProfileCache)
+            } else {
+                // Fallback to scanning if cache unavailable
+                RedactionUtils.createDeletionMessageForEvent(event, timelineEvents, userProfileCache)
+            }
         } else {
             // Latest version is still available - show its content
             when {

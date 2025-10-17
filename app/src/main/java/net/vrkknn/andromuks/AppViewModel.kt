@@ -32,6 +32,27 @@ data class UserProfile(
     val avatarUrl: String?
 )
 
+/**
+ * Represents a single version of a message (original or edit)
+ */
+data class MessageVersion(
+    val eventId: String,
+    val event: TimelineEvent,
+    val timestamp: Long,
+    val isOriginal: Boolean = false
+)
+
+/**
+ * Stores the complete edit history and state of a message
+ */
+data class VersionedMessage(
+    val originalEventId: String,
+    val originalEvent: TimelineEvent,
+    val versions: List<MessageVersion>,  // Sorted by timestamp (newest first)
+    val redactedBy: String? = null,
+    val redactionEvent: TimelineEvent? = null
+)
+
 class AppViewModel : ViewModel() {
     companion object {
         // File name for user profile disk cache (used in SharedPreferences)
@@ -603,6 +624,16 @@ class AppViewModel : ViewModel() {
     // Global user profile cache for O(1) lookups (performance optimization)
     // This avoids scanning all room caches when looking up a profile
     private val globalProfileCache = mutableMapOf<String, MemberProfile>()
+    
+    // OPTIMIZED EDIT/REDACTION SYSTEM - O(1) lookups for all operations
+    // Maps original event ID to its complete version history
+    private val messageVersions = mutableMapOf<String, VersionedMessage>()
+    
+    // Maps edit event ID back to original event ID for quick lookup
+    private val editToOriginal = mutableMapOf<String, String>()
+    
+    // Maps redacted event ID to the redaction event for O(1) deletion message creation
+    private val redactionCache = mutableMapOf<String, TimelineEvent>()
 
     fun getMemberProfile(roomId: String, userId: String): MemberProfile? {
         return roomMemberCache[roomId]?.get(userId)
@@ -610,6 +641,42 @@ class AppViewModel : ViewModel() {
 
     fun getMemberMap(roomId: String): Map<String, MemberProfile> {
         return roomMemberCache[roomId] ?: emptyMap()
+    }
+    
+    /**
+     * Gets the complete version history for a message (O(1) lookup)
+     * @param eventId Either the original event ID or an edit event ID
+     * @return VersionedMessage containing all versions, or null if not found
+     */
+    fun getMessageVersions(eventId: String): VersionedMessage? {
+        // Check if this is an edit event first
+        val originalEventId = editToOriginal[eventId] ?: eventId
+        return messageVersions[originalEventId]
+    }
+    
+    /**
+     * Gets the redaction event for a deleted message (O(1) lookup)
+     * @param eventId The event ID that was redacted
+     * @return The redaction event, or null if not redacted
+     */
+    fun getRedactionEvent(eventId: String): TimelineEvent? {
+        return redactionCache[eventId]
+    }
+    
+    /**
+     * Checks if a message has been edited (O(1) lookup)
+     */
+    fun isMessageEdited(eventId: String): Boolean {
+        val versioned = getMessageVersions(eventId)
+        return versioned != null && versioned.versions.size > 1
+    }
+    
+    /**
+     * Gets the latest version of a message (O(1) lookup)
+     */
+    fun getLatestMessageVersion(eventId: String): TimelineEvent? {
+        val versioned = getMessageVersions(eventId)
+        return versioned?.versions?.firstOrNull()?.event
     }
     
     /**
@@ -676,6 +743,140 @@ class AppViewModel : ViewModel() {
     }
     
 
+    
+    /**
+     * Helper function to check if an event is an edit (m.replace relationship)
+     */
+    private fun isEditEvent(event: TimelineEvent): Boolean {
+        return when {
+            event.type == "m.room.message" -> 
+                event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> 
+                event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+            else -> false
+        }
+    }
+    
+    /**
+     * OPTIMIZED: Process events to build version cache (O(n) where n = number of events)
+     * This replaces the old chain-following approach with direct version storage
+     */
+    private fun processVersionedMessages(events: List<TimelineEvent>) {
+        for (event in events) {
+            when {
+                // Handle redaction events - O(1) storage
+                event.type == "m.room.redaction" -> {
+                    val redactsEventId = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                    
+                    if (redactsEventId != null) {
+                        // Store in redaction cache for O(1) lookup
+                        redactionCache[redactsEventId] = event
+                        
+                        // Mark the original message as redacted
+                        val versioned = messageVersions[redactsEventId]
+                        if (versioned != null) {
+                            messageVersions[redactsEventId] = versioned.copy(
+                                redactedBy = event.eventId,
+                                redactionEvent = event
+                            )
+                        } else {
+                            // Redaction came before the original event - create placeholder
+                            // This will be updated when the original event arrives
+                            android.util.Log.d("Andromuks", "AppViewModel: Redaction event ${event.eventId} received before original $redactsEventId")
+                        }
+                    }
+                }
+                
+                // Handle edit events (m.replace) - O(1) storage
+                isEditEvent(event) -> {
+                    val relatesTo = when {
+                        event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")
+                        event.type == "m.room.encrypted" -> event.decrypted?.optJSONObject("m.relates_to")
+                        else -> null
+                    }
+                    
+                    val originalEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+                    
+                    if (originalEventId != null) {
+                        // Store reverse mapping for quick lookup
+                        editToOriginal[event.eventId] = originalEventId
+                        
+                        val versioned = messageVersions[originalEventId]
+                        if (versioned != null) {
+                            // Add this edit to the version list
+                            val newVersion = MessageVersion(
+                                eventId = event.eventId,
+                                event = event,
+                                timestamp = event.timestamp,
+                                isOriginal = false
+                            )
+                            
+                            // Merge and sort versions (newest first)
+                            val updatedVersions = (versioned.versions + newVersion)
+                                .sortedByDescending { it.timestamp }
+                            
+                            messageVersions[originalEventId] = versioned.copy(
+                                versions = updatedVersions
+                            )
+                            
+                            android.util.Log.d("Andromuks", "AppViewModel: Added edit ${event.eventId} to original $originalEventId (total versions: ${updatedVersions.size})")
+                        } else {
+                            // Edit came before original - create placeholder with just the edit
+                            messageVersions[originalEventId] = VersionedMessage(
+                                originalEventId = originalEventId,
+                                originalEvent = event,  // Temporary, will be replaced when original arrives
+                                versions = listOf(MessageVersion(
+                                    eventId = event.eventId,
+                                    event = event,
+                                    timestamp = event.timestamp,
+                                    isOriginal = false
+                                ))
+                            )
+                            android.util.Log.d("Andromuks", "AppViewModel: Edit ${event.eventId} received before original $originalEventId - created placeholder")
+                        }
+                    }
+                }
+                
+                // Handle regular messages (original events) - O(1) storage
+                event.type == "m.room.message" || event.type == "m.room.encrypted" -> {
+                    val existing = messageVersions[event.eventId]
+                    
+                    if (existing != null) {
+                        // We already have edit versions, now add/update the original
+                        val originalVersion = MessageVersion(
+                            eventId = event.eventId,
+                            event = event,
+                            timestamp = event.timestamp,
+                            isOriginal = true
+                        )
+                        
+                        // Merge with existing edits and sort
+                        val updatedVersions = (existing.versions.filter { !it.isOriginal } + originalVersion)
+                            .sortedByDescending { it.timestamp }
+                        
+                        messageVersions[event.eventId] = existing.copy(
+                            originalEvent = event,
+                            versions = updatedVersions
+                        )
+                        
+                        android.util.Log.d("Andromuks", "AppViewModel: Updated original event ${event.eventId} with ${updatedVersions.size} total versions")
+                    } else {
+                        // First time seeing this message - create new versioned message
+                        messageVersions[event.eventId] = VersionedMessage(
+                            originalEventId = event.eventId,
+                            originalEvent = event,
+                            versions = listOf(MessageVersion(
+                                eventId = event.eventId,
+                                event = event,
+                                timestamp = event.timestamp,
+                                isOriginal = true
+                            ))
+                        )
+                    }
+                }
+            }
+        }
+    }
     
     private fun populateMemberCacheFromSync(syncJson: JSONObject) {
         val data = syncJson.optJSONObject("data") ?: return
@@ -2655,11 +2856,13 @@ class AppViewModel : ViewModel() {
 
         fun processEventsArray(eventsArray: JSONArray) {
             val timelineList = mutableListOf<TimelineEvent>()
+            val allEvents = mutableListOf<TimelineEvent>()  // For version processing
             val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
             for (i in 0 until eventsArray.length()) {
                 val eventJson = eventsArray.optJSONObject(i)
                 if (eventJson != null) {
                     val event = TimelineEvent.fromJson(eventJson)
+                    allEvents.add(event)  // Collect all events for version processing
                     if (event.type == "m.room.member" && event.timelineRowid == -1L) {
                         // State member event; update cache only
                         val userId = event.stateKey ?: event.sender
@@ -2707,6 +2910,10 @@ class AppViewModel : ViewModel() {
                 }
             }
             android.util.Log.d("Andromuks", "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}")
+            
+            // OPTIMIZED: Process versioned messages (edits, redactions) - O(n)
+            android.util.Log.d("Andromuks", "AppViewModel: Processing ${allEvents.size} events for version tracking")
+            processVersionedMessages(allEvents)
             
             // Handle empty pagination responses
             if (paginateRequests.containsKey(requestId) && timelineList.isEmpty()) {
@@ -3117,6 +3324,10 @@ class AppViewModel : ViewModel() {
         // Sort events by timestamp to process in order
         events.sortBy { it.timestamp }
         android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.size} events in timestamp order")
+        
+        // OPTIMIZED: Process versioned messages (edits, redactions) - O(n)
+        android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.size} sync events for version tracking")
+        processVersionedMessages(events)
         
         for (event in events) {
             android.util.Log.d("Andromuks", "AppViewModel: Processing event ${event.eventId} of type ${event.type} at timestamp ${event.timestamp}")

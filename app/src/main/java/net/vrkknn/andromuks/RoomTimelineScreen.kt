@@ -1622,18 +1622,12 @@ fun TimelineEventItem(
                         }
                     val msgType = content?.optString("msgtype", "") ?: ""
 
-                    // Check if this message has been redacted
+                    // OPTIMIZED: Check if this message has been redacted using O(1) lookup
                     val isRedacted = event.redactedBy != null
-                    val redactionEvent =
-                        if (isRedacted) {
-                            // Find the latest redaction event to get the reason and sender
-                            net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(
-                                event.eventId,
-                                timelineEvents
-                            )
-                        } else null
-                    val redactionReason =
-                        redactionEvent?.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
+                    val redactionEvent = if (isRedacted && appViewModel != null) {
+                        appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
+                    } else null
+                    
                     val redactionSender = redactionEvent?.sender
 
                     // Request profile if redaction sender is missing from cache
@@ -1650,12 +1644,9 @@ fun TimelineEventItem(
                     // Show deletion message if redacted, otherwise show the message content
                     val finalBody =
                         if (isRedacted) {
-                            // Create deletion message based on reason and sender using latest
-                            // redaction
-                            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(
-                                redactionSender,
-                                redactionReason,
-                                redactionEvent?.timestamp,
+                            // OPTIMIZED: Create deletion message using O(1) cached redaction event
+                            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
+                                redactionEvent,
                                 userProfileCache
                             )
                         } else {
@@ -1679,12 +1670,10 @@ fun TimelineEventItem(
 
                         // If media message is redacted, show deletion message instead of media
                         if (isRedacted) {
-                            // Display deletion message for media
+                            // OPTIMIZED: Display deletion message for media using cached redaction event
                             val deletionMessage =
-                                net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(
-                                    redactionSender,
-                                    redactionReason,
-                                    redactionEvent?.timestamp,
+                                net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
+                                    redactionEvent,
                                     userProfileCache
                                 )
 
@@ -1847,7 +1836,8 @@ fun TimelineEventItem(
                                 onReact = { onReact(event) },
                                 onEdit = { onEdit(event) },
                                 onDelete = { onDelete(event) },
-                                onUserClick = onUserClick
+                                onUserClick = onUserClick,
+                                appViewModel = appViewModel
                             )
 
                             // Add reaction badges for media messages
@@ -2000,7 +1990,8 @@ fun TimelineEventItem(
                                                 onScrollToMessage(replyInfo.eventId)
                                             },
                                             timelineEvents = timelineEvents,
-                                            onMatrixUserClick = onUserClick
+                                            onMatrixUserClick = onUserClick,
+                                            appViewModel = appViewModel
                                         )
 
                                         // Reply message content with inline timestamp
@@ -2150,20 +2141,12 @@ fun TimelineEventItem(
                         )
                         val msgType = decrypted?.optString("msgtype", "") ?: ""
 
-                        // Check if this message has been redacted
+                        // OPTIMIZED: Check if this message has been redacted using O(1) lookup
                         val isRedacted = event.redactedBy != null
-                        val redactionEvent =
-                            if (isRedacted) {
-                                // Find the latest redaction event to get the reason and sender
-                                net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(
-                                    event.eventId,
-                                    timelineEvents
-                                )
-                            } else null
-                        val redactionReason =
-                            redactionEvent?.content?.optString("reason", "")?.takeIf {
-                                it.isNotBlank()
-                            }
+                        val redactionEvent = if (isRedacted && appViewModel != null) {
+                            appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
+                        } else null
+                        
                         val redactionSender = redactionEvent?.sender
 
                         // Request profile if redaction sender is missing from cache
@@ -2186,11 +2169,14 @@ fun TimelineEventItem(
                                 decrypted?.optJSONObject("m.new_content")
                             } else null
 
-                        // Use edit content if this message is being edited, or hide content if
-                        // redacted
+                        // Use edit content if this message is being edited, or show deletion message if redacted
                         val finalBody =
                             if (isRedacted) {
-                                "" // Hide original content for redacted messages
+                                // OPTIMIZED: Create deletion message using O(1) cached redaction event
+                                net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
+                                    redactionEvent,
+                                    userProfileCache
+                                )
                             } else if (editedBy != null && editedBy.decrypted != null) {
                                 val newContent = editedBy.decrypted?.optJSONObject("m.new_content")
                                 val editFormat = newContent?.optString("format", "")
@@ -2360,7 +2346,8 @@ fun TimelineEventItem(
                                     onReact = { onReact(event) },
                                     onEdit = { onEdit(event) },
                                     onDelete = { onDelete(event) },
-                                    onUserClick = onUserClick
+                                    onUserClick = onUserClick,
+                                    appViewModel = appViewModel
                                 )
 
                                 // Add reaction badges for encrypted media messages
@@ -2545,46 +2532,28 @@ fun TimelineEventItem(
                                                     onScrollToMessage(replyInfo.eventId)
                                                 },
                                                 timelineEvents = timelineEvents,
-                                                onMatrixUserClick = onUserClick
+                                                onMatrixUserClick = onUserClick,
+                                                appViewModel = appViewModel
                                             )
 
                                             // Reply message content with inline timestamp
                                             Box {
-                                                // For encrypted messages, show deletion message if
-                                                // redacted, otherwise show content
-                                                if (isRedacted) {
-                                                    Text(
-                                                        text =
-                                                            net.vrkknn.andromuks.utils.RedactionUtils
-                                                                .createDeletionMessage(
-                                                                    redactionSender,
-                                                                    redactionReason,
-                                                                    redactionEvent?.timestamp,
-                                                                    userProfileCache
-                                                                ),
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color =
-                                                            MaterialTheme.colorScheme.onSurfaceVariant,
-                                                        fontStyle = FontStyle.Italic,
-                                                        modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier
-                                                    )
-                                                } else {
-                                                    AdaptiveMessageText(
-                                                        event = event,
-                                                        body = finalBody,
-                                                        format = format,
-                                                        userProfileCache = userProfileCache,
-                                                        homeserverUrl = homeserverUrl,
-                                                        authToken = authToken,
-                                                        appViewModel = appViewModel,
-                                                        roomId = event.roomId,
-                                                        textColor = textColor,
-                                                        modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
-                                                        onUserClick = onUserClick,
-                                                        onMatrixUserClick = onUserClick,
-                                                        onRoomLinkClick = onRoomLinkClick
-                                                    )
-                                                }
+                                                // finalBody already contains deletion message if redacted
+                                                AdaptiveMessageText(
+                                                    event = event,
+                                                    body = finalBody,
+                                                    format = format,
+                                                    userProfileCache = userProfileCache,
+                                                    homeserverUrl = homeserverUrl,
+                                                    authToken = authToken,
+                                                    appViewModel = appViewModel,
+                                                    roomId = event.roomId,
+                                                    textColor = textColor,
+                                                    modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
+                                                    onUserClick = onUserClick,
+                                                    onMatrixUserClick = onUserClick,
+                                                    onRoomLinkClick = onRoomLinkClick
+                                                )
                                                 // Timestamp positioned at bottom-end
                                                 Box(
                                                     modifier = Modifier.align(Alignment.BottomEnd)
@@ -2617,41 +2586,22 @@ fun TimelineEventItem(
                                         Box(
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                                         ) {
-                                            // For encrypted messages, show deletion message if
-                                            // redacted, otherwise show content
-                                            if (isRedacted) {
-                                                Text(
-                                                    text =
-                                                        net.vrkknn.andromuks.utils.RedactionUtils
-                                                            .createDeletionMessage(
-                                                                redactionSender,
-                                                                redactionReason,
-                                                                redactionEvent?.timestamp,
-                                                                userProfileCache
-                                                            ),
-                                                    style = MaterialTheme.typography.bodyMedium,
-                                                    color =
-                                                        MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    fontStyle = FontStyle.Italic,
-                                                    modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier
-                                                )
-                                            } else {
-                                                AdaptiveMessageText(
-                                                    event = event,
-                                                    body = finalBody,
-                                                    format = format,
-                                                    userProfileCache = userProfileCache,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    appViewModel = appViewModel,
-                                                    roomId = event.roomId,
-                                                    textColor = textColor,
-                                                    modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
-                                                    onUserClick = onUserClick,
-                                                    onMatrixUserClick = onUserClick,
-                                                    onRoomLinkClick = onRoomLinkClick
-                                                )
-                                            }
+                                            // finalBody already contains deletion message if redacted
+                                            AdaptiveMessageText(
+                                                event = event,
+                                                body = finalBody,
+                                                format = format,
+                                                userProfileCache = userProfileCache,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                appViewModel = appViewModel,
+                                                roomId = event.roomId,
+                                                textColor = textColor,
+                                                modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
+                                                onUserClick = onUserClick,
+                                                onMatrixUserClick = onUserClick,
+                                                onRoomLinkClick = onRoomLinkClick
+                                            )
                                             // Timestamp positioned at bottom-end
                                             Box(
                                                 modifier = Modifier.align(Alignment.BottomEnd)
@@ -2930,7 +2880,8 @@ private fun MediaMessageItem(
     onReact: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    onUserClick: (String) -> Unit
+    onUserClick: (String) -> Unit,
+    appViewModel: AppViewModel? = null
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -2950,7 +2901,8 @@ private fun MediaMessageItem(
                         onScrollToMessage(replyInfo.eventId)
                     },
                     timelineEvents = timelineEvents,
-                    onMatrixUserClick = onUserClick
+                    onMatrixUserClick = onUserClick,
+                    appViewModel = appViewModel
                 )
                 MediaMessage(
                     mediaMessage = mediaMessage,

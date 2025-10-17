@@ -644,17 +644,15 @@ fun ChatBubbleEventItem(
                     }
                     val msgType = content?.optString("msgtype", "") ?: ""
                     
-                    // Check if this message has been redacted
+                    // OPTIMIZED: Check if this message has been redacted using O(1) lookup
                     val isRedacted = event.redactedBy != null
-                    val redactionEvent = if (isRedacted) {
-                        net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
+                    val redactionEvent = if (isRedacted && appViewModel != null) {
+                        appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
                     } else null
-                    val redactionReason = redactionEvent?.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
-                    val redactionSender = redactionEvent?.sender
                     
                     // Show deletion message if redacted, otherwise show the message content
                     val finalBody = if (isRedacted) {
-                        net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache)
+                        net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(redactionEvent, userProfileCache)
                     } else {
                         body
                     }
@@ -819,16 +817,14 @@ fun ChatBubbleEventItem(
                         }
                         val msgType = decrypted?.optString("msgtype", "") ?: ""
                         
-                        // Check if this message has been redacted
+                        // OPTIMIZED: Check if this message has been redacted using O(1) lookup
                         val isRedacted = event.redactedBy != null
-                        val redactionEvent = if (isRedacted) {
-                            net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
+                        val redactionEvent = if (isRedacted && appViewModel != null) {
+                            appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
                         } else null
-                        val redactionReason = redactionEvent?.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
-                        val redactionSender = redactionEvent?.sender
                         
                         val finalBody = if (isRedacted) {
-                            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessage(redactionSender, redactionReason, redactionEvent?.timestamp, userProfileCache)
+                            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(redactionEvent, userProfileCache)
                         } else {
                             body
                         }
