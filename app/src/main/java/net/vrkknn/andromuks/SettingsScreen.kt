@@ -1,16 +1,23 @@
 package net.vrkknn.andromuks
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import java.text.SimpleDateFormat
+import java.util.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -76,6 +83,16 @@ fun SettingsScreen(
                 }
             }
 
+            // FCM Information Section
+            Text(
+                text = "Push Notifications",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+            
+            FCMInfoSection(appViewModel = appViewModel)
+
             // About Section
             Text(
                 text = "About",
@@ -104,6 +121,218 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun FCMInfoSection(appViewModel: AppViewModel) {
+    val context = LocalContext.current
+    var showSnackbar by remember { mutableStateOf(false) }
+    var snackbarMessage by remember { mutableStateOf("") }
+    
+    // Get FCM-related data
+    val fcmNotificationManager = remember { FCMNotificationManager(context) }
+    val webClientPushIntegration = remember { WebClientPushIntegration(context) }
+    
+    val fcmToken = remember { fcmNotificationManager.getTokenForGomuksBackend() }
+    val deviceId = remember { webClientPushIntegration.getDeviceID() }
+    val encryptionKey = remember { 
+        try {
+            val prefs = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
+            prefs.getString("push_encryption_key", null)
+        } catch (e: Exception) {
+            null
+        }
+    }
+    val vapidKey = remember {
+        try {
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.getString("ws_vapid_key", null)
+        } catch (e: Exception) {
+            null
+        }
+    }
+    val isRegistered = remember { fcmNotificationManager.isRegisteredWithBackend() }
+    val lastRegistration = remember {
+        val prefs = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
+        prefs.getLong("last_push_reg", 0L)
+    }
+    
+    // Helper function to copy to clipboard
+    fun copyToClipboard(label: String, text: String) {
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText(label, text)
+        clipboard.setPrimaryClip(clip)
+        snackbarMessage = "$label copied to clipboard"
+        showSnackbar = true
+    }
+    
+    // Helper function to format timestamp
+    fun formatTimestamp(timestamp: Long): String {
+        if (timestamp == 0L) return "Never"
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        return sdf.format(Date(timestamp))
+    }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Registration Status
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Registration Status",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                Surface(
+                    color = if (isRegistered) MaterialTheme.colorScheme.primaryContainer 
+                           else MaterialTheme.colorScheme.errorContainer,
+                    shape = MaterialTheme.shapes.small
+                ) {
+                    Text(
+                        text = if (isRegistered) "Registered" else "Not Registered",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isRegistered) MaterialTheme.colorScheme.onPrimaryContainer 
+                               else MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+            }
+            
+            HorizontalDivider()
+            
+            // FCM Token
+            FCMInfoItem(
+                label = "FCM Token",
+                value = fcmToken ?: "Not available",
+                onCopy = if (fcmToken != null) {
+                    { copyToClipboard("FCM Token", fcmToken) }
+                } else null
+            )
+            
+            HorizontalDivider()
+            
+            // Device ID
+            FCMInfoItem(
+                label = "Device ID",
+                value = deviceId ?: "Not available",
+                onCopy = if (deviceId != null) {
+                    { copyToClipboard("Device ID", deviceId) }
+                } else null
+            )
+            
+            HorizontalDivider()
+            
+            // Encryption Key
+            FCMInfoItem(
+                label = "Encryption Key",
+                value = encryptionKey ?: "Not available",
+                onCopy = if (encryptionKey != null) {
+                    { copyToClipboard("Encryption Key", encryptionKey) }
+                } else null
+            )
+            
+            HorizontalDivider()
+            
+            // VAPID Key
+            FCMInfoItem(
+                label = "VAPID Key",
+                value = vapidKey ?: "Not available",
+                onCopy = if (vapidKey != null) {
+                    { copyToClipboard("VAPID Key", vapidKey) }
+                } else null
+            )
+            
+            HorizontalDivider()
+            
+            // Last Registration
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Last Registration",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = formatTimestamp(lastRegistration),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+            }
+        }
+    }
+    
+    // Snackbar for copy confirmation
+    if (showSnackbar) {
+        LaunchedEffect(snackbarMessage) {
+            kotlinx.coroutines.delay(2000)
+            showSnackbar = false
+        }
+        
+        Snackbar(
+            modifier = Modifier.padding(16.dp),
+            action = {
+                TextButton(onClick = { showSnackbar = false }) {
+                    Text("Dismiss")
+                }
+            }
+        ) {
+            Text(snackbarMessage)
+        }
+    }
+}
+
+@Composable
+fun FCMInfoItem(
+    label: String,
+    value: String,
+    onCopy: (() -> Unit)?
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
+        
+        if (onCopy != null) {
+            IconButton(onClick = onCopy) {
+                Icon(
+                    imageVector = Icons.Filled.ContentCopy,
+                    contentDescription = "Copy $label",
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
