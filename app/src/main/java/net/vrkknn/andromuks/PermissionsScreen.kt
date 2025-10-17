@@ -23,9 +23,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.compose.material.icons.filled.Power
+import net.vrkknn.andromuks.utils.AutoStartPermissionHelper
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -126,6 +129,14 @@ fun PermissionsScreen(
                 }
             )
             
+            // Auto-start Permission Card (device-specific, informational only)
+            if (AutoStartPermissionHelper.isAutoStartPermissionNeeded()) {
+                AutoStartInfoCard(
+                    context = context,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            
             Spacer(modifier = Modifier.weight(1f))
             
             // Continue button (only shown if all permissions granted)
@@ -215,6 +226,71 @@ private fun PermissionCard(
                     Text("Grant Permission")
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AutoStartInfoCard(
+    context: Context,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Power,
+                    contentDescription = null,
+                    modifier = Modifier.size(32.dp),
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "${AutoStartPermissionHelper.getAutoStartPermissionName()} (Optional)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                    )
+                }
+            }
+            
+            Text(
+                text = AutoStartPermissionHelper.getAutoStartDescription(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            
+            OutlinedButton(
+                onClick = {
+                    Log.d("PermissionsScreen", "Opening auto-start settings")
+                    AutoStartPermissionHelper.openAutoStartSettings(context)
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Open Settings")
+            }
+            
+            Text(
+                text = "This is optional but recommended for ${AutoStartPermissionHelper.getManufacturer()} devices to ensure reliable background operation.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                fontStyle = FontStyle.Italic
+            )
         }
     }
 }

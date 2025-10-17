@@ -149,6 +149,9 @@ class AppViewModel : ViewModel() {
     // Web client push integration
     private var webClientPushIntegration: WebClientPushIntegration? = null
     
+    // Network Monitor (for immediate reconnection on network changes)
+    private var networkMonitor: net.vrkknn.andromuks.utils.NetworkMonitor? = null
+    
     // Notification action tracking
     private data class PendingNotificationAction(
         val type: String, // "send_message" or "mark_read"
@@ -411,6 +414,36 @@ class AppViewModel : ViewModel() {
         fcmNotificationManager = components.fcmNotificationManager
         conversationsApi = components.conversationsApi
         webClientPushIntegration = components.webClientPushIntegration
+        
+        // Initialize network monitor for immediate reconnection on network changes
+        initializeNetworkMonitor(context)
+    }
+    
+    /**
+     * Initialize network monitoring for immediate WebSocket reconnection on network changes
+     */
+    private fun initializeNetworkMonitor(context: Context) {
+        if (networkMonitor != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Network monitor already initialized")
+            return
+        }
+        
+        networkMonitor = net.vrkknn.andromuks.utils.NetworkMonitor(
+            context = context,
+            onNetworkAvailable = {
+                android.util.Log.i("Andromuks", "AppViewModel: Network available - triggering immediate reconnection")
+                // Immediate reconnection instead of waiting for ping timeout
+                restartWebSocket()
+            },
+            onNetworkLost = {
+                android.util.Log.w("Andromuks", "AppViewModel: Network lost - connection will be down until network returns")
+                // Could optionally clear WebSocket here, but better to let ping timeout handle it
+                // This avoids unnecessary reconnect attempts when network is definitely unavailable
+            }
+        )
+        
+        networkMonitor?.startMonitoring()
+        android.util.Log.d("Andromuks", "AppViewModel: Network monitoring started")
     }
     
     /**
@@ -1381,6 +1414,10 @@ class AppViewModel : ViewModel() {
         // Cancel any pending jobs
         appInvisibleJob?.cancel()
         
+        // Stop network monitoring
+        networkMonitor?.stopMonitoring()
+        networkMonitor = null
+        
         // Clear WebSocket connection
         clearWebSocket()
     }
@@ -1712,12 +1749,27 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Get appropriate ping interval based on app visibility
+     * - 15 seconds when app is visible (responsive, user is actively using)
+     * - 60 seconds when app is in background (battery efficient)
+     */
+    private fun getPingInterval(): Long {
+        return if (isAppVisible) {
+            15_000L  // 15 seconds - responsive when user is actively using app
+        } else {
+            60_000L  // 60 seconds - battery efficient when in background
+        }
+    }
+    
     private fun startPingLoop() {
         pingJob?.cancel()
         val ws = webSocket ?: return
         pingJob = viewModelScope.launch {
             while (isActive) {
-                delay(15_000)
+                val interval = getPingInterval()
+                android.util.Log.d("Andromuks", "AppViewModel: Ping interval: ${interval}ms (app visible: $isAppVisible)")
+                delay(interval)
                 val currentWs = webSocket
                 if (currentWs == null) {
                     // Socket gone; stop loop
@@ -1747,6 +1799,18 @@ class AppViewModel : ViewModel() {
     
     private fun restartWebSocket() {
         android.util.Log.d("Andromuks", "AppViewModel: Restarting websocket connection")
+        
+        // Show toast notification to user
+        appContext?.let { context ->
+            viewModelScope.launch(Dispatchers.Main) {
+                android.widget.Toast.makeText(
+                    context,
+                    "Andromuks: Reconnecting...",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+        
         clearWebSocket()
         // Trigger websocket restart via callback
         onRestartWebSocket?.invoke()
@@ -1948,6 +2012,53 @@ class AppViewModel : ViewModel() {
                 "reset" to false
             ))
         }
+    }
+    
+    /**
+     * Refreshes the room timeline by clearing cache and requesting fresh data from server.
+     * This is useful for debugging missing events (e.g., messages from other devices).
+     */
+    fun refreshRoomTimeline(roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: Refreshing timeline for room: $roomId (clearing cache and requesting fresh data)")
+        
+        // 1. Drop all cache for this room
+        roomTimelineCache.clearRoomCache(roomId)
+        android.util.Log.d("Andromuks", "AppViewModel: Cleared timeline cache for room: $roomId")
+        
+        // 2. Clear current timeline state
+        timelineEvents = emptyList()
+        isTimelineLoading = true
+        
+        // 3. Reset pagination state
+        smallestRowId = -1L
+        isPaginating = false
+        hasMoreMessages = true
+        
+        // 4. Clear edit chain mapping and version cache
+        eventChainMap.clear()
+        editEventsMap.clear()
+        messageVersions.clear()
+        editToOriginal.clear()
+        redactionCache.clear()
+        android.util.Log.d("Andromuks", "AppViewModel: Cleared version cache for room: $roomId")
+        
+        // 5. Clear message reactions
+        messageReactions = emptyMap()
+        
+        // 6. Request fresh room state
+        requestRoomState(roomId)
+        
+        // 7. Send fresh paginate command to get consistent data from server
+        val paginateRequestId = requestIdCounter++
+        timelineRequests[paginateRequestId] = roomId
+        sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+            "room_id" to roomId,
+            "max_timeline_id" to 0,
+            "limit" to 100,
+            "reset" to false
+        ))
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sent fresh paginate request for room: $roomId")
     }
     
     fun requestRoomState(roomId: String) {

@@ -38,6 +38,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -686,6 +687,11 @@ fun RoomTimelineScreen(
                         onHeaderClick = {
                             // Navigate to room info screen
                             navController.navigate("room_info/$roomId")
+                        },
+                        onRefreshClick = {
+                            // Refresh room timeline from server
+                            Log.d("Andromuks", "RoomTimelineScreen: Refresh button clicked for room $roomId")
+                            appViewModel.refreshRoomTimeline(roomId)
                         }
                     )
 
@@ -2985,7 +2991,8 @@ fun RoomHeader(
     homeserverUrl: String,
     authToken: String,
     roomId: String? = null,
-    onHeaderClick: () -> Unit = {}
+    onHeaderClick: () -> Unit = {},
+    onRefreshClick: () -> Unit = {}
 ) {
     // Debug logging
     android.util.Log.d("Andromuks", "RoomHeader: roomState = $roomState")
@@ -2995,29 +3002,32 @@ fun RoomHeader(
     Surface(
         modifier =
             Modifier.fillMaxWidth()
-                .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding())
-                .clickable(onClick = onHeaderClick),
+                .padding(top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
         color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Room avatar
-            AvatarImage(
-                mxcUrl = roomState?.avatarUrl ?: fallbackAvatarUrl,
-                homeserverUrl = homeserverUrl,
-                authToken = authToken,
-                fallbackText = roomState?.name ?: fallbackName,
-                size = 48.dp,
-                userId = roomId ?: roomState?.roomId,
-                displayName = roomState?.name ?: fallbackName
-            )
+            // Room avatar (clickable for room info)
+            Box(modifier = Modifier.clickable(onClick = onHeaderClick)) {
+                AvatarImage(
+                    mxcUrl = roomState?.avatarUrl ?: fallbackAvatarUrl,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    fallbackText = roomState?.name ?: fallbackName,
+                    size = 48.dp,
+                    userId = roomId ?: roomState?.roomId,
+                    displayName = roomState?.name ?: fallbackName
+                )
+            }
 
             Spacer(modifier = Modifier.width(12.dp))
 
-            // Room info
-            Column(modifier = Modifier.weight(1f)) {
+            // Room info (clickable for room info)
+            Column(
+                modifier = Modifier.weight(1f).clickable(onClick = onHeaderClick)
+            ) {
                 // Canonical alias or room ID (above room name)
                 val aliasOrId = roomState?.canonicalAlias ?: roomState?.roomId?.let { "!$it" }
 
@@ -3040,6 +3050,15 @@ fun RoomHeader(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = if (aliasOrId != null) 2.dp else 0.dp)
+                )
+            }
+            
+            // Refresh button on the far right
+            IconButton(onClick = onRefreshClick) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Filled.Refresh,
+                    contentDescription = "Refresh timeline",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }

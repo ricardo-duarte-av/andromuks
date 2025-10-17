@@ -80,10 +80,14 @@ class WebSocketService : Service() {
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_MIN  // ← Changed to IMPORTANCE_MIN for minimal visibility
             ).apply {
                 description = "Maintains WebSocket connection for real-time updates"
                 setShowBadge(false)
+                // Make notification as unobtrusive as possible
+                enableLights(false)
+                enableVibration(false)
+                setSound(null, null)
             }
             
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -108,7 +112,8 @@ class WebSocketService : Service() {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_MIN)  // ← Minimal priority
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)  // ← Hide from lock screen
             .build()
     }
     
@@ -153,7 +158,8 @@ class WebSocketService : Service() {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setSilent(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(NotificationCompat.PRIORITY_MIN)  // ← Minimal priority
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)  // ← Hide from lock screen
             .build()
         
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
