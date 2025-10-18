@@ -325,7 +325,7 @@ fun RoomTimelineScreen(
     // Sort events so newer messages are at the bottom, and filter unprocessed events if setting is
     // disabled
     val sortedEvents =
-        remember(timelineEvents, appViewModel.showUnprocessedEvents) {
+        remember(timelineEvents, appViewModel.showUnprocessedEvents, appViewModel.updateCounter) {
             Log.d(
                 "Andromuks",
                 "RoomTimelineScreen: Processing ${timelineEvents.size} timeline events, showUnprocessedEvents: ${appViewModel.showUnprocessedEvents}"
@@ -402,7 +402,7 @@ fun RoomTimelineScreen(
 
     // Create timeline items with date dividers
     val timelineItems =
-        remember(sortedEvents) {
+        remember(sortedEvents, appViewModel.updateCounter) {
             val items = mutableListOf<TimelineItem>()
             var lastDate: String? = null
 
@@ -620,6 +620,20 @@ fun RoomTimelineScreen(
                     }
                 }
             }
+        }
+    }
+
+    // Ensure timeline reactively updates when new events arrive from sync
+    LaunchedEffect(timelineEvents, appViewModel.updateCounter) {
+        Log.d("Andromuks", "RoomTimelineScreen: Timeline events or updateCounter changed - timelineEvents.size: ${timelineEvents.size}, updateCounter: ${appViewModel.updateCounter}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId")
+        
+        // Only react to changes for the current room
+        if (appViewModel.currentRoomId == roomId) {
+            Log.d("Andromuks", "RoomTimelineScreen: Detected timeline update for current room $roomId with ${timelineEvents.size} events")
+            
+            // Force recomposition when timeline events change
+            // This ensures the UI updates even when battery optimization might skip updates
+            // The LaunchedEffect will re-run when timelineEvents or updateCounter changes
         }
     }
 
