@@ -18,7 +18,9 @@ data class TimelineEvent(
     val decryptedType: String? = null,
     val unsigned: JSONObject? = null,
     val redactedBy: String? = null,
-    val localContent: JSONObject? = null
+    val localContent: JSONObject? = null,
+    val relationType: String? = null, // "m.thread" for thread messages
+    val relatesTo: String? = null // Thread root event ID for thread messages
 ) {
     companion object {
         fun fromJson(json: JSONObject): TimelineEvent {
@@ -36,13 +38,16 @@ data class TimelineEvent(
                 decryptedType = json.optString("decrypted_type")?.takeIf { it.isNotBlank() },
                 unsigned = json.optJSONObject("unsigned"),
                 redactedBy = json.optString("redacted_by")?.takeIf { it.isNotBlank() },
-                localContent = json.optJSONObject("local_content")
+                localContent = json.optJSONObject("local_content"),
+                relationType = json.optString("relation_type")?.takeIf { it.isNotBlank() },
+                relatesTo = json.optString("relates_to")?.takeIf { it.isNotBlank() }
             )
         }
     }
     
     /**
      * Extract reply information from this event
+     * Note: For thread messages, this returns the fallback reply-to event, NOT the thread root
      */
     fun getReplyInfo(): ReplyInfo? {
         val messageContent = when {
@@ -61,6 +66,43 @@ data class TimelineEvent(
                 sender = sender,
                 body = messageContent.optString("body", ""),
                 msgType = messageContent.optString("msgtype", "m.text")
+            )
+        } else {
+            null
+        }
+    }
+    
+    /**
+     * Check if this message is part of a thread
+     */
+    fun isThreadMessage(): Boolean {
+        return relationType == "m.thread" && relatesTo != null
+    }
+    
+    /**
+     * Get thread information from this event
+     * Returns ThreadInfo if this is a thread message, null otherwise
+     */
+    fun getThreadInfo(): ThreadInfo? {
+        if (!isThreadMessage()) return null
+        
+        val messageContent = when {
+            type == "m.room.message" -> content
+            type == "m.room.encrypted" && decryptedType == "m.room.message" -> decrypted
+            else -> null
+        } ?: return null
+        
+        val relatesTo = messageContent.optJSONObject("m.relates_to")
+        val threadRootId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+            ?: this.relatesTo // Fallback to top-level relates_to
+        
+        val inReplyTo = relatesTo?.optJSONObject("m.in_reply_to")
+        val fallbackReplyId = inReplyTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+        
+        return if (threadRootId != null) {
+            ThreadInfo(
+                threadRootEventId = threadRootId,
+                fallbackReplyToEventId = fallbackReplyId
             )
         } else {
             null
@@ -135,4 +177,10 @@ data class ReplyInfo(
     val sender: String,
     val body: String,
     val msgType: String = "m.text"
+)
+
+@Immutable
+data class ThreadInfo(
+    val threadRootEventId: String, // The event ID that started the thread
+    val fallbackReplyToEventId: String? = null // The specific message being replied to (for clients without thread support)
 )

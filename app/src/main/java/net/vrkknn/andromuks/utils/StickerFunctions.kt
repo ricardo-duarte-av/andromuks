@@ -181,7 +181,11 @@ fun StickerMessage(
     onReact: () -> Unit = {},
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    myUserId: String? = null,
+    powerLevels: net.vrkknn.andromuks.PowerLevelsInfo? = null,
+    appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
+    onBubbleClick: (() -> Unit)? = null
 ) {
     var showStickerViewer by remember { mutableStateOf(false) }
     
@@ -196,11 +200,22 @@ fun StickerMessage(
         )
     }
     
+    // Check if this is a thread message to apply thread colors
+    val isThreadMessage = event?.isThreadMessage() ?: false
+    val stickerBubbleColor = if (isThreadMessage) {
+        // Own thread messages: full opacity for emphasis
+        // Others' thread messages: lighter for distinction
+        if (isMine) MaterialTheme.colorScheme.tertiaryContainer
+        else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    
     // Stickers are displayed without a caption bubble, just the image
     if (event != null) {
         MessageBubbleWithMenu(
             event = event,
-            bubbleColor = MaterialTheme.colorScheme.surfaceVariant,
+            bubbleColor = stickerBubbleColor,
             bubbleShape = RoundedCornerShape(
                 topStart = if (isMine) 12.dp else 4.dp,
                 topEnd = if (isMine) 4.dp else 12.dp,
@@ -210,10 +225,15 @@ fun StickerMessage(
             modifier = modifier
                 .wrapContentWidth()
                 .wrapContentHeight(),
+            isMine = isMine,
+            myUserId = myUserId,
+            powerLevels = powerLevels,
             onReply = onReply,
             onReact = onReact,
             onEdit = onEdit,
-            onDelete = onDelete
+            onDelete = onDelete,
+            appViewModel = appViewModel,
+            onBubbleClick = onBubbleClick
         ) {
             // Minimal padding for stickers - tight fit with just a small border
             Column(

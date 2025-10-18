@@ -295,7 +295,11 @@ fun MediaMessage(
     onReact: () -> Unit = {},
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
+    myUserId: String? = null,
+    powerLevels: net.vrkknn.andromuks.PowerLevelsInfo? = null,
+    appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
+    onBubbleClick: (() -> Unit)? = null
 ) {
     var showImageViewer by remember { mutableStateOf(false) }
     var showVideoPlayer by remember { mutableStateOf(false) }
@@ -325,12 +329,23 @@ fun MediaMessage(
     // This determines whether to use separate image frame + caption or single bubble
     val hasCaption = !mediaMessage.caption.isNullOrBlank()
     
+    // Check if this is a thread message to apply thread colors
+    val isThreadMessage = event?.isThreadMessage() ?: false
+    val mediaBubbleColor = if (isThreadMessage) {
+        // Own thread messages: full opacity for emphasis
+        // Others' thread messages: lighter for distinction
+        if (isMine) MaterialTheme.colorScheme.tertiaryContainer
+        else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+    } else {
+        MaterialTheme.colorScheme.surfaceVariant
+    }
+    
     if (hasCaption) {
         // With caption: Image inside the caption bubble
         if (event != null) {
             MessageBubbleWithMenu(
                 event = event,
-                bubbleColor = MaterialTheme.colorScheme.surfaceVariant,
+                bubbleColor = mediaBubbleColor,
                 bubbleShape = RoundedCornerShape(
                     topStart = if (isMine) 12.dp else 4.dp,
                     topEnd = if (isMine) 4.dp else 12.dp,
@@ -338,10 +353,15 @@ fun MediaMessage(
                     bottomEnd = 12.dp
                 ),
                 modifier = modifier.fillMaxWidth(0.8f),
+                isMine = isMine,
+                myUserId = myUserId,
+                powerLevels = powerLevels,
                 onReply = onReply,
                 onReact = onReact,
                 onEdit = onEdit,
-                onDelete = onDelete
+                onDelete = onDelete,
+                appViewModel = appViewModel,
+                onBubbleClick = onBubbleClick
             ) {
                 Column {
                     // Image content inside the caption bubble
@@ -433,7 +453,7 @@ fun MediaMessage(
         if (event != null) {
             MessageBubbleWithMenu(
                 event = event,
-                bubbleColor = MaterialTheme.colorScheme.surfaceVariant,
+                bubbleColor = mediaBubbleColor,
                 bubbleShape = RoundedCornerShape(
                     topStart = if (isMine) 12.dp else 4.dp,
                     topEnd = if (isMine) 4.dp else 12.dp,
@@ -443,10 +463,15 @@ fun MediaMessage(
                 modifier = modifier
                     .fillMaxWidth(0.8f)
                     .wrapContentHeight(),
+                isMine = isMine,
+                myUserId = myUserId,
+                powerLevels = powerLevels,
                 onReply = onReply,
                 onReact = onReact,
                 onEdit = onEdit,
-                onDelete = onDelete
+                onDelete = onDelete,
+                appViewModel = appViewModel,
+                onBubbleClick = onBubbleClick
             ) {
                 Column {
                     MediaContent(

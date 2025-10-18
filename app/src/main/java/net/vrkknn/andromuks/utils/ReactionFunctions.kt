@@ -210,6 +210,8 @@ fun processReactionEvent(
     currentRoomId: String?,
     messageReactions: Map<String, List<MessageReaction>>
 ): Map<String, List<MessageReaction>> {
+    android.util.Log.d("Andromuks", "ReactionFunctions: processReactionEvent called - currentRoomId: $currentRoomId, relatesToEventId: ${reactionEvent.relatesToEventId}, emoji: ${reactionEvent.emoji}, sender: ${reactionEvent.sender}")
+    
     // Only process reactions for the current room
     if (currentRoomId != null) {
         val currentReactions = messageReactions.toMutableMap()
@@ -252,8 +254,10 @@ fun processReactionEvent(
         }
         
         currentReactions[reactionEvent.relatesToEventId] = eventReactions
+        android.util.Log.d("Andromuks", "ReactionFunctions: Updated reactions for event ${reactionEvent.relatesToEventId}, new count: ${eventReactions.size}")
         return currentReactions
     }
     
+    android.util.Log.d("Andromuks", "ReactionFunctions: Skipping reaction processing - currentRoomId is null")
     return messageReactions
 }

@@ -570,6 +570,7 @@ fun MessageBubbleWithMenu(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
+    onBubbleClick: (() -> Unit)? = null,
     content: @Composable RowScope.() -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -601,8 +602,8 @@ fun MessageBubbleWithMenu(
     // Determine which buttons to show
     val canEdit = isMine // Only allow editing our own messages
     val canDelete = if (isMine) {
-        // For our own messages, check if we have redact permission
-        myPowerLevel >= redactPowerLevel
+        // Users can ALWAYS delete their own messages (Matrix spec)
+        true
     } else {
         // For others' messages, check if our power level is above theirs AND we have redact permission
         myPowerLevel > senderPowerLevel && myPowerLevel >= redactPowerLevel
@@ -627,7 +628,8 @@ fun MessageBubbleWithMenu(
                         },
                         onTap = {
                             android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Regular tap detected")
-                            // Let other click handlers work (e.g., HtmlMessageText links)
+                            // If there's a bubble click handler (e.g., for threads), call it
+                            onBubbleClick?.invoke()
                         }
                     )
                 },

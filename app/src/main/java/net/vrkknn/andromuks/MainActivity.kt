@@ -423,6 +423,35 @@ fun AppNavigation(
             )
         }
         composable(
+            route = "thread_viewer/{roomId}/{threadRootId}",
+            arguments = listOf(
+                navArgument("roomId") { type = NavType.StringType },
+                navArgument("threadRootId") { type = NavType.StringType }
+            ),
+            enterTransition = {
+                slideInHorizontally(
+                    initialOffsetX = { it },
+                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                )
+            },
+            popExitTransition = {
+                slideOutHorizontally(
+                    targetOffsetX = { it },
+                    animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                )
+            }
+        ) { backStackEntry: NavBackStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+            val threadRootId = backStackEntry.arguments?.getString("threadRootId") ?: ""
+            ThreadViewerScreen(
+                roomId = roomId,
+                threadRootEventId = threadRootId,
+                navController = navController,
+                modifier = modifier,
+                appViewModel = appViewModel
+            )
+        }
+        composable(
             route = "invite_detail/{roomId}",
             arguments = listOf(navArgument("roomId") { type = NavType.StringType })
         ) { backStackEntry: NavBackStackEntry ->

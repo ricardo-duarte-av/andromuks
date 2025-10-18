@@ -646,7 +646,11 @@ class AppViewModel : ViewModel() {
     }
     
     fun processReactionEvent(reactionEvent: ReactionEvent) {
+        val oldReactions = messageReactions[reactionEvent.relatesToEventId]?.size ?: 0
         messageReactions = net.vrkknn.andromuks.utils.processReactionEvent(reactionEvent, currentRoomId, messageReactions)
+        val newReactions = messageReactions[reactionEvent.relatesToEventId]?.size ?: 0
+        android.util.Log.d("Andromuks", "AppViewModel: processReactionEvent - eventId: ${reactionEvent.relatesToEventId}, oldCount: $oldReactions, newCount: $newReactions, updateCounter: $updateCounter")
+        updateCounter++ // Trigger UI recomposition
     }
 
     fun handleClientState(userId: String?, device: String?, homeserver: String?) {
@@ -2375,6 +2379,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: sendReaction called with roomId: '$roomId', eventId: '$eventId', emoji: '$emoji'")
         
         val ws = webSocket ?: return
+        
         val reactionRequestId = requestIdCounter++
         
         // Track this outgoing request
@@ -3016,6 +3021,7 @@ class AppViewModel : ViewModel() {
                 val relatesToEventId = relatesTo?.optString("event_id", "") ?: ""
                 
                 if (emoji.isNotBlank() && relatesToEventId.isNotBlank()) {
+                    // Process all reactions normally - no special handling for our own reactions
                     val reactionEvent = ReactionEvent(
                         eventId = event.eventId,
                         sender = event.sender,
@@ -3684,6 +3690,8 @@ class AppViewModel : ViewModel() {
                             } else {
                                 // Normal reaction, add it
                                 android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processing reaction: $emoji from ${event.sender} to $relatesToEventId")
+                                
+                                // Process all reactions normally - no special handling for our own reactions
                                 val reactionEvent = ReactionEvent(
                                     eventId = event.eventId,
                                     sender = event.sender,
@@ -4734,6 +4742,97 @@ class AppViewModel : ViewModel() {
         sendWebSocketCommand("track_user_devices", requestId, mapOf(
             "user_id" to userId
         ))
+    }
+    
+    /**
+     * Gets all messages in a thread (thread root + all replies)
+     * @param roomId The room containing the thread
+     * @param threadRootEventId The event ID that started the thread
+     * @return List of timeline events in the thread, sorted by timestamp
+     */
+    fun getThreadMessages(roomId: String, threadRootEventId: String): List<TimelineEvent> {
+        // Only return thread messages if we're in the same room
+        if (currentRoomId != roomId) {
+            android.util.Log.w("Andromuks", "AppViewModel: getThreadMessages called for different room")
+            return emptyList()
+        }
+        
+        val threadMessages = mutableListOf<TimelineEvent>()
+        
+        // Add the thread root message first
+        val rootMessage = timelineEvents.find { it.eventId == threadRootEventId }
+        if (rootMessage != null) {
+            threadMessages.add(rootMessage)
+            android.util.Log.d("Andromuks", "AppViewModel: Found thread root: $threadRootEventId")
+        } else {
+            android.util.Log.w("Andromuks", "AppViewModel: Thread root not found: $threadRootEventId")
+        }
+        
+        // Add all messages that are part of this thread
+        val threadReplies = timelineEvents.filter { event ->
+            event.isThreadMessage() && event.relatesTo == threadRootEventId
+        }
+        
+        threadMessages.addAll(threadReplies)
+        
+        // Sort by timestamp
+        val sortedMessages = threadMessages.sortedBy { it.timestamp }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: getThreadMessages - found ${sortedMessages.size} messages in thread (1 root + ${threadReplies.size} replies)")
+        
+        return sortedMessages
+    }
+    
+    /**
+     * Sends a reply in a thread
+     * @param roomId The room ID
+     * @param text The message text
+     * @param threadRootEventId The thread root event ID (where the thread started)
+     * @param fallbackReplyToEventId The specific message being replied to (for fallback compatibility)
+     */
+    fun sendThreadReply(
+        roomId: String,
+        text: String,
+        threadRootEventId: String,
+        fallbackReplyToEventId: String? = null
+    ) {
+        android.util.Log.d("Andromuks", "AppViewModel: sendThreadReply called - roomId: $roomId, text: '$text', threadRoot: $threadRootEventId, fallbackReply: $fallbackReplyToEventId")
+        
+        if (webSocket == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
+            restartWebSocketConnection()
+            return
+        }
+        
+        val messageRequestId = requestIdCounter++
+        messageRequests[messageRequestId] = roomId
+        pendingSendCount++
+        
+        // Build the thread reply structure
+        val relatesTo = mutableMapOf<String, Any>(
+            "rel_type" to "m.thread",
+            "event_id" to threadRootEventId,
+            "is_falling_back" to true
+        )
+        
+        // Add fallback reply-to for clients without thread support
+        if (fallbackReplyToEventId != null) {
+            relatesTo["m.in_reply_to"] = mapOf("event_id" to fallbackReplyToEventId)
+        }
+        
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "text" to text,
+            "relates_to" to relatesTo,
+            "mentions" to mapOf(
+                "user_ids" to emptyList<String>(),
+                "room" to false
+            ),
+            "url_previews" to emptyList<String>()
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sending thread reply with data: $commandData")
+        sendWebSocketCommand("send_message", messageRequestId, commandData)
     }
     
     /**

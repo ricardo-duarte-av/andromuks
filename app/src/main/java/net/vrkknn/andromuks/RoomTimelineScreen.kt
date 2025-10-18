@@ -124,7 +124,7 @@ sealed class TimelineItem {
 }
 
 /** Format timestamp to date string (dd / MM / yyyy) */
-private fun formatDate(timestamp: Long): String {
+internal fun formatDate(timestamp: Long): String {
     val date = Date(timestamp)
     val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
     return formatter.format(date)
@@ -875,6 +875,16 @@ fun RoomTimelineScreen(
                                                     roomLinkToJoin = roomLink
                                                     showRoomJoiner = true
                                                 }
+                                            },
+                                            onThreadClick = { threadEvent ->
+                                                // Navigate to thread viewer
+                                                val threadInfo = threadEvent.getThreadInfo()
+                                                if (threadInfo != null) {
+                                                    Log.d("Andromuks", "RoomTimelineScreen: Thread message clicked, opening thread for root: ${threadInfo.threadRootEventId}")
+                                                    val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+                                                    val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
+                                                    navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
+                                                }
                                             }
                                         )
                                     }
@@ -1018,7 +1028,20 @@ fun RoomTimelineScreen(
                                                 }
                                                 // Send reply if replying to a message
                                                 else if (replyingToEvent != null) {
-                                                    appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                                    // Check if replying to a thread message
+                                                    val threadInfo = replyingToEvent!!.getThreadInfo()
+                                                    if (threadInfo != null) {
+                                                        // Send thread reply
+                                                        appViewModel.sendThreadReply(
+                                                            roomId = roomId,
+                                                            text = draft,
+                                                            threadRootEventId = threadInfo.threadRootEventId,
+                                                            fallbackReplyToEventId = replyingToEvent!!.eventId
+                                                        )
+                                                    } else {
+                                                        // Send normal reply
+                                                        appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                                    }
                                                     replyingToEvent = null // Clear reply state
                                                 }
                                                 // Otherwise send regular message
@@ -1065,7 +1088,20 @@ fun RoomTimelineScreen(
                                     }
                                     // Send reply if replying to a message
                                     else if (replyingToEvent != null) {
-                                        appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                        // Check if replying to a thread message
+                                        val threadInfo = replyingToEvent!!.getThreadInfo()
+                                        if (threadInfo != null) {
+                                            // Send thread reply
+                                            appViewModel.sendThreadReply(
+                                                roomId = roomId,
+                                                text = draft,
+                                                threadRootEventId = threadInfo.threadRootEventId,
+                                                fallbackReplyToEventId = replyingToEvent!!.eventId
+                                            )
+                                        } else {
+                                            // Send normal reply
+                                            appViewModel.sendReply(roomId, draft, replyingToEvent!!)
+                                        }
                                         replyingToEvent = null // Clear reply state
                                     }
                                     // Otherwise send regular message
@@ -1416,7 +1452,8 @@ fun TimelineEventItem(
     onEdit: (TimelineEvent) -> Unit = {},
     onDelete: (TimelineEvent) -> Unit = {},
     onUserClick: (String) -> Unit = {},
-    onRoomLinkClick: (RoomLink) -> Unit = {}
+    onRoomLinkClick: (RoomLink) -> Unit = {},
+    onThreadClick: (TimelineEvent) -> Unit = {}
 ) {
     val context = LocalContext.current
 
@@ -1669,8 +1706,9 @@ fun TimelineEventItem(
                             
                             // Add reaction badges for emote messages
                             if (appViewModel != null) {
-                                val reactions =
+                                val reactions = remember(appViewModel.updateCounter, event.eventId) {
                                     appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                }
                                 if (reactions.isNotEmpty()) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 28.dp),
@@ -1904,13 +1942,21 @@ fun TimelineEventItem(
                                 onEdit = { onEdit(event) },
                                 onDelete = { onDelete(event) },
                                 onUserClick = onUserClick,
-                                appViewModel = appViewModel
+                                appViewModel = appViewModel,
+                                myUserId = myUserId,
+                                powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                                onBubbleClick = if (event.isThreadMessage()) {
+                                    { onThreadClick(event) }
+                                } else {
+                                    null
+                                }
                             )
 
                             // Add reaction badges for media messages
                             if (appViewModel != null) {
-                                val reactions =
+                                val reactions = remember(appViewModel.updateCounter, event.eventId) {
                                     appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                }
                                 if (reactions.isNotEmpty()) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -1999,8 +2045,17 @@ fun TimelineEventItem(
                             appViewModel?.isMessageEdited(event.eventId) ?: false
                         }
                         
+                        // Check if this is a thread message
+                        val isThreadMessage = event.isThreadMessage()
+                        
                         val bubbleColor =
-                            if (actualIsMine) {
+                            if (isThreadMessage) {
+                                // Thread messages use Material3 tertiary colors (typically purple/violet)
+                                // Own messages: fuller opacity for emphasis
+                                // Others' messages: lighter for distinction
+                                if (actualIsMine) MaterialTheme.colorScheme.tertiaryContainer
+                                else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                            } else if (actualIsMine) {
                                 if (hasBeenEdited) MaterialTheme.colorScheme.secondaryContainer
                                 else MaterialTheme.colorScheme.primaryContainer
                             } else if (mentionsMe) {
@@ -2010,7 +2065,10 @@ fun TimelineEventItem(
                                 else MaterialTheme.colorScheme.surfaceVariant
                             }
                         val textColor =
-                            if (actualIsMine) {
+                            if (isThreadMessage) {
+                                // Thread messages use tertiary color for text
+                                MaterialTheme.colorScheme.tertiary
+                            } else if (actualIsMine) {
                                 if (hasBeenEdited) MaterialTheme.colorScheme.onSecondaryContainer
                                 else MaterialTheme.colorScheme.onPrimaryContainer
                             } else if (mentionsMe) {
@@ -2039,8 +2097,9 @@ fun TimelineEventItem(
                                 Spacer(modifier = Modifier.width(8.dp))
                             }
 
-                            // Display reply with nested structure if this is a reply
-                            if (replyInfo != null && originalEvent != null) {
+                            // Display reply with nested structure if this is a reply (but NOT a thread message)
+                            // Thread messages are rendered as normal bubbles with different color
+                            if (replyInfo != null && originalEvent != null && !isThreadMessage) {
                                 MessageBubbleWithMenu(
                                     event = event,
                                     bubbleColor = bubbleColor,
@@ -2053,7 +2112,12 @@ fun TimelineEventItem(
                                     onReact = { onReact(event) },
                                     onEdit = { onEdit(event) },
                                     onDelete = { onDelete(event) },
-                                    appViewModel = appViewModel
+                                    appViewModel = appViewModel,
+                                    onBubbleClick = if (isThreadMessage) {
+                                        { onThreadClick(event) }
+                                    } else {
+                                        null
+                                    }
                                 ) {
                                     Column(
                                         modifier = Modifier.padding(8.dp),
@@ -2124,7 +2188,12 @@ fun TimelineEventItem(
                                     onReact = { onReact(event) },
                                     onEdit = { onEdit(event) },
                                     onDelete = { onDelete(event) },
-                                    appViewModel = appViewModel
+                                    appViewModel = appViewModel,
+                                    onBubbleClick = if (isThreadMessage) {
+                                        { onThreadClick(event) }
+                                    } else {
+                                        null
+                                    }
                                 ) {
                                     Box(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -2177,8 +2246,9 @@ fun TimelineEventItem(
 
                         // Add reaction badges for this message
                         if (appViewModel != null) {
-                            val reactions =
+                            val reactions = remember(appViewModel.updateCounter, event.eventId) {
                                 appViewModel.messageReactions[event.eventId] ?: emptyList()
+                            }
                             if (reactions.isNotEmpty()) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -2243,8 +2313,9 @@ fun TimelineEventItem(
                                 
                                 // Add reaction badges for encrypted emote messages
                                 if (appViewModel != null) {
-                                    val reactions =
+                                    val reactions = remember(appViewModel.updateCounter, event.eventId) {
                                         appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                    }
                                     if (reactions.isNotEmpty()) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 28.dp),
@@ -2469,13 +2540,21 @@ fun TimelineEventItem(
                                     onEdit = { onEdit(event) },
                                     onDelete = { onDelete(event) },
                                     onUserClick = onUserClick,
-                                    appViewModel = appViewModel
+                                    appViewModel = appViewModel,
+                                    myUserId = myUserId,
+                                    powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                                    onBubbleClick = if (event.isThreadMessage()) {
+                                        { onThreadClick(event) }
+                                    } else {
+                                        null
+                                    }
                                 )
 
                                 // Add reaction badges for encrypted media messages
                                 if (appViewModel != null) {
-                                    val reactions =
+                                    val reactions = remember(appViewModel.updateCounter, event.eventId) {
                                         appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                    }
                                     if (reactions.isNotEmpty()) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -2536,7 +2615,9 @@ fun TimelineEventItem(
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
                                         onEdit = { onEdit(event) },
-                                        onDelete = { onDelete(event) }
+                                        onDelete = { onDelete(event) },
+                                        appViewModel = appViewModel,
+                                        onBubbleClick = null
                                     ) {
                                         Text(
                                             text = body,
@@ -2553,8 +2634,9 @@ fun TimelineEventItem(
 
                                 // Add reaction badges for encrypted text message
                                 if (appViewModel != null) {
-                                    val reactions =
+                                    val reactions = remember(appViewModel.updateCounter, event.eventId) {
                                         appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                    }
                                     if (reactions.isNotEmpty()) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -2596,8 +2678,17 @@ fun TimelineEventItem(
                                 appViewModel?.isMessageEdited(event.eventId) ?: false
                             }
                             
+                            // Check if this is a thread message
+                            val isThreadMessage = event.isThreadMessage()
+                            
                             val bubbleColor =
-                                if (actualIsMine) {
+                                if (isThreadMessage) {
+                                    // Thread messages use Material3 tertiary colors (typically purple/violet)
+                                    // Own messages: fuller opacity for emphasis
+                                    // Others' messages: lighter for distinction
+                                    if (actualIsMine) MaterialTheme.colorScheme.tertiaryContainer
+                                    else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                                } else if (actualIsMine) {
                                     if (hasBeenEdited) MaterialTheme.colorScheme.secondaryContainer
                                     else MaterialTheme.colorScheme.primaryContainer
                                 } else if (mentionsMe) {
@@ -2607,7 +2698,10 @@ fun TimelineEventItem(
                                     else MaterialTheme.colorScheme.surfaceVariant
                                 }
                             val textColor =
-                                if (actualIsMine) {
+                                if (isThreadMessage) {
+                                    // Thread messages use tertiary color for text
+                                    MaterialTheme.colorScheme.tertiary
+                                } else if (actualIsMine) {
                                     if (hasBeenEdited) MaterialTheme.colorScheme.onSecondaryContainer
                                     else MaterialTheme.colorScheme.onPrimaryContainer
                                 } else if (mentionsMe) {
@@ -2636,8 +2730,9 @@ fun TimelineEventItem(
                                     Spacer(modifier = Modifier.width(8.dp))
                                 }
 
-                                // Display encrypted text message with nested reply structure
-                                if (replyInfo != null && originalEvent != null) {
+                                // Display encrypted text message with nested reply structure (but NOT for thread messages)
+                                // Thread messages are rendered as normal bubbles with different color
+                                if (replyInfo != null && originalEvent != null && !isThreadMessage) {
                                     MessageBubbleWithMenu(
                                         event = event,
                                         bubbleColor = bubbleColor,
@@ -2649,7 +2744,13 @@ fun TimelineEventItem(
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
                                         onEdit = { onEdit(event) },
-                                        onDelete = { onDelete(event) }
+                                        onDelete = { onDelete(event) },
+                                        appViewModel = appViewModel,
+                                        onBubbleClick = if (isThreadMessage) {
+                                            { onThreadClick(event) }
+                                        } else {
+                                            null
+                                        }
                                     ) {
                                         Column(
                                             modifier = Modifier.padding(8.dp),
@@ -2719,7 +2820,13 @@ fun TimelineEventItem(
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
                                         onEdit = { onEdit(event) },
-                                        onDelete = { onDelete(event) }
+                                        onDelete = { onDelete(event) },
+                                        appViewModel = appViewModel,
+                                        onBubbleClick = if (isThreadMessage) {
+                                            { onThreadClick(event) }
+                                        } else {
+                                            null
+                                        }
                                     ) {
                                         Box(
                                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -2772,8 +2879,9 @@ fun TimelineEventItem(
 
                             // Add reaction badges for encrypted text message
                             if (appViewModel != null) {
-                                val reactions =
+                                val reactions = remember(appViewModel.updateCounter, event.eventId) {
                                     appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                }
                                 if (reactions.isNotEmpty()) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -2834,7 +2942,15 @@ fun TimelineEventItem(
                                         onReply = { onReply(event) },
                                         onReact = { onReact(event) },
                                         onEdit = { onEdit(event) },
-                                        onDelete = { onDelete(event) }
+                                        onDelete = { onDelete(event) },
+                                        myUserId = myUserId,
+                                        powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                                        appViewModel = appViewModel,
+                                        onBubbleClick = if (event.isThreadMessage()) {
+                                            { onThreadClick(event) }
+                                        } else {
+                                            null
+                                        }
                                     )
 
                                     // For other users' messages, show read receipts on the right
@@ -2854,8 +2970,9 @@ fun TimelineEventItem(
 
                             // Add reaction badges for encrypted stickers
                             if (appViewModel != null) {
-                                val reactions =
+                                val reactions = remember(appViewModel.updateCounter, event.eventId) {
                                     appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                }
                                 if (reactions.isNotEmpty()) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -2928,7 +3045,15 @@ fun TimelineEventItem(
                                 onReply = { onReply(event) },
                                 onReact = { onReact(event) },
                                 onEdit = { onEdit(event) },
-                                onDelete = { onDelete(event) }
+                                onDelete = { onDelete(event) },
+                                myUserId = myUserId,
+                                powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                                appViewModel = appViewModel,
+                                onBubbleClick = if (event.isThreadMessage()) {
+                                    { onThreadClick(event) }
+                                } else {
+                                    null
+                                }
                             )
 
                             // For other users' messages, show read receipts on the right
@@ -2948,8 +3073,9 @@ fun TimelineEventItem(
 
                         // Add reaction badges for stickers
                         if (appViewModel != null) {
-                            val reactions =
+                            val reactions = remember(appViewModel.updateCounter, event.eventId) {
                                 appViewModel.messageReactions[event.eventId] ?: emptyList()
+                            }
                             if (reactions.isNotEmpty()) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -3018,14 +3144,22 @@ private fun MediaMessageItem(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onUserClick: (String) -> Unit,
-    appViewModel: AppViewModel? = null
+    appViewModel: AppViewModel? = null,
+    myUserId: String? = null,
+    powerLevels: PowerLevelsInfo? = null,
+    onBubbleClick: (() -> Unit)? = null
 ) {
+    // Check if this is a thread message
+    val isThreadMessage = event.isThreadMessage()
+    
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (replyInfo != null && originalEvent != null) {
+        // Show nested reply preview only for non-thread messages
+        // Thread messages are rendered without nested reply (different color instead)
+        if (replyInfo != null && originalEvent != null && !isThreadMessage) {
             Column {
                 ReplyPreview(
                     replyInfo = replyInfo,
@@ -3056,7 +3190,11 @@ private fun MediaMessageItem(
                     onReact = onReact,
                     onEdit = onEdit,
                     onDelete = onDelete,
-                    onUserClick = onUserClick
+                    onUserClick = onUserClick,
+                    myUserId = myUserId,
+                    powerLevels = powerLevels,
+                    appViewModel = appViewModel,
+                    onBubbleClick = onBubbleClick
                 )
             }
         } else {
@@ -3074,7 +3212,11 @@ private fun MediaMessageItem(
                 onReact = onReact,
                 onEdit = onEdit,
                 onDelete = onDelete,
-                onUserClick = onUserClick
+                onUserClick = onUserClick,
+                myUserId = myUserId,
+                powerLevels = powerLevels,
+                appViewModel = appViewModel,
+                onBubbleClick = onBubbleClick
             )
         }
     }
