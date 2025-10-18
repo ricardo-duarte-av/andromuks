@@ -3049,6 +3049,7 @@ fun RoomHeader(
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    softWrap = false,
                     modifier = Modifier.padding(top = if (aliasOrId != null) 2.dp else 0.dp)
                 )
             }

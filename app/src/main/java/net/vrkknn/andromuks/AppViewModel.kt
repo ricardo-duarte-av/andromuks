@@ -1499,6 +1499,10 @@ class AppViewModel : ViewModel() {
         this.webSocket = webSocket
         startPingLoop()
     }
+    
+    fun isWebSocketConnected(): Boolean {
+        return webSocket != null
+    }
 
     fun clearWebSocket() {
         this.webSocket = null
@@ -1913,6 +1917,96 @@ class AppViewModel : ViewModel() {
     fun requestRoomTimeline(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId")
         currentRoomId = roomId
+        
+        // Check if we have enough cached events BEFORE clearing anything
+        val cachedEvents = roomTimelineCache.getCachedEvents(roomId)
+        if (cachedEvents != null) {
+            // CACHE HIT - instant room opening without clearing UI
+            val ownMessagesInCache = cachedEvents.count { it.sender == currentUserId && (it.type == "m.room.message" || it.type == "m.room.encrypted") }
+            android.util.Log.d("Andromuks", "AppViewModel: ✓ CACHE HIT - Instant room opening: ${cachedEvents.size} events (including $ownMessagesInCache of your own messages)")
+            if (ownMessagesInCache > 0) {
+                android.util.Log.d("Andromuks", "AppViewModel: ★ Cache contains $ownMessagesInCache messages from YOU")
+            }
+            
+            // Clear and rebuild internal structures (but don't clear timelineEvents yet)
+            eventChainMap.clear()
+            editEventsMap.clear()
+            messageVersions.clear()
+            editToOriginal.clear()
+            redactionCache.clear()
+            messageReactions = emptyMap()
+            
+            // Reset pagination state
+            smallestRowId = -1L
+            isPaginating = false
+            hasMoreMessages = true
+            
+            // Ensure member cache exists for this room
+            if (roomMemberCache[roomId] == null) {
+                roomMemberCache[roomId] = mutableMapOf()
+            }
+            
+            // Populate edit chain mapping from cached events
+            for (event in cachedEvents) {
+                val isEditEvent = when {
+                    event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                    else -> false
+                }
+                
+                if (isEditEvent) {
+                    editEventsMap[event.eventId] = event
+                } else {
+                    eventChainMap[event.eventId] = EventChainEntry(
+                        eventId = event.eventId,
+                        ourBubble = event,
+                        replacedBy = null,
+                        originalTimestamp = event.timestamp
+                    )
+                }
+            }
+            
+            // Process edit relationships
+            processEditRelationships()
+            
+            // Build timeline from chain (this updates timelineEvents)
+            buildTimelineFromChain()
+            
+            // Set smallest rowId from cached events for pagination
+            val smallestCached = cachedEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
+            if (smallestCached > 0) {
+                smallestRowId = smallestCached
+            }
+            
+            isTimelineLoading = false
+            android.util.Log.d("Andromuks", "AppViewModel: ✅ Room opened INSTANTLY with ${timelineEvents.size} cached events (no loading flash)")
+            
+            // Request room state (doesn't affect timeline rendering)
+            requestRoomState(roomId)
+            
+            // Send get_room_state command for member updates
+            val stateRequestId = requestIdCounter++
+            timelineRequests[stateRequestId] = roomId
+            sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
+                "room_id" to roomId,
+                "include_members" to true,
+                "fetch_members" to false,
+                "refetch" to false
+            ))
+            
+            // Mark as read
+            val mostRecentEvent = cachedEvents.maxByOrNull { it.timestamp }
+            if (mostRecentEvent != null) {
+                markRoomAsRead(roomId, mostRecentEvent.eventId)
+            }
+            
+            return // Exit early - room is already rendered from cache
+        }
+        
+        // CACHE MISS - show loading and fetch from server
+        android.util.Log.d("Andromuks", "AppViewModel: ✗ CACHE MISS (or < 100 events) - showing loading and fetching from server")
+        
+        // Now clear everything and show loading
         timelineEvents = emptyList()
         isTimelineLoading = true
         
@@ -1921,11 +2015,11 @@ class AppViewModel : ViewModel() {
         isPaginating = false
         hasMoreMessages = true
         
-        // Clear edit chain mapping when opening a new room (legacy - kept for compatibility)
+        // Clear edit chain mapping when opening a new room
         eventChainMap.clear()
         editEventsMap.clear()
         
-        // IMPORTANT: Clear optimized version cache when opening a new room
+        // Clear optimized version cache when opening a new room
         messageVersions.clear()
         editToOriginal.clear()
         redactionCache.clear()
@@ -1952,71 +2046,16 @@ class AppViewModel : ViewModel() {
             "refetch" to false
         ))
         
-        // Check if we have enough cached events to skip paginate
-        val cachedEvents = roomTimelineCache.getCachedEvents(roomId)
-        if (cachedEvents != null) {
-            val ownMessagesInCache = cachedEvents.count { it.sender == currentUserId && (it.type == "m.room.message" || it.type == "m.room.encrypted") }
-            android.util.Log.d("Andromuks", "AppViewModel: ✓ USING CACHE for instant room opening: ${cachedEvents.size} events (including $ownMessagesInCache of your own messages)")
-            if (ownMessagesInCache > 0) {
-                android.util.Log.d("Andromuks", "AppViewModel: ★ Cache contains $ownMessagesInCache messages from YOU")
-            }
-            
-            // Populate edit chain mapping from cached events
-            eventChainMap.clear()
-            editEventsMap.clear()
-            for (event in cachedEvents) {
-                val isEditEvent = when {
-                    event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                    event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                    else -> false
-                }
-                
-                if (isEditEvent) {
-                    editEventsMap[event.eventId] = event
-                } else {
-                    eventChainMap[event.eventId] = EventChainEntry(
-                        eventId = event.eventId,
-                        ourBubble = event,
-                        replacedBy = null,
-                        originalTimestamp = event.timestamp
-                    )
-                }
-            }
-            
-            // Process edit relationships
-            processEditRelationships()
-            
-            // Build timeline from chain
-            buildTimelineFromChain()
-            
-            // Set smallest rowId from cached events for pagination
-            val smallestCached = cachedEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
-            if (smallestCached > 0) {
-                smallestRowId = smallestCached
-            }
-            
-            isTimelineLoading = false
-            android.util.Log.d("Andromuks", "AppViewModel: Room opened instantly with ${timelineEvents.size} cached events")
-            
-            // Still mark as read
-            val mostRecentEvent = cachedEvents.maxByOrNull { it.timestamp }
-            if (mostRecentEvent != null) {
-                markRoomAsRead(roomId, mostRecentEvent.eventId)
-            }
-        } else {
-            android.util.Log.d("Andromuks", "AppViewModel: ✗ NO CACHE (or < 100 events) - falling back to PAGINATE request from server")
-            
-            // Send paginate command as usual
-            val paginateRequestId = requestIdCounter++
-            timelineRequests[paginateRequestId] = roomId
-            sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-                "room_id" to roomId,
-                "max_timeline_id" to 0,
-                "limit" to 100,
-                "reset" to false
-            ))
-            android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request_id=$paginateRequestId for room=$roomId")
-        }
+        // Send paginate command to fetch timeline from server
+        val paginateRequestId = requestIdCounter++
+        timelineRequests[paginateRequestId] = roomId
+        sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+            "room_id" to roomId,
+            "max_timeline_id" to 0,
+            "limit" to 100,
+            "reset" to false
+        ))
+        android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request_id=$paginateRequestId for room=$roomId")
     }
     
     /**

@@ -95,43 +95,52 @@ fun ChatBubbleLoadingScreen(
     }
     
     LaunchedEffect(Unit) {
-        Log.d("Andromuks", "ChatBubbleLoadingScreen: Starting bubble loading")
+        Log.d("Andromuks", "ChatBubbleLoadingScreen: ═══ BUBBLE LOADING STARTED ═══")
         
         if (token != null && homeserverUrl != null) {
-            Log.d("Andromuks", "ChatBubbleLoadingScreen: Token and server URL found, initializing")
+            Log.d("Andromuks", "ChatBubbleLoadingScreen: Token and server URL found")
             appViewModel.initializeFCM(context, homeserverUrl, token)
             appViewModel.updateHomeserverUrl(homeserverUrl)
             appViewModel.updateAuthToken(token)
             
-            // Connect WebSocket for timeline data
-            Log.d("Andromuks", "ChatBubbleLoadingScreen: Connecting WebSocket for timeline data")
-            val client = OkHttpClient()
-            connectToWebsocket(homeserverUrl, client, token, appViewModel)
-            
-            // Wait a bit for WebSocket to establish connection
-            kotlinx.coroutines.delay(2000)
-            
-            // Get room ID from intent
+            // Get room ID from intent first
             val roomId = (context as? ComponentActivity)?.intent?.getStringExtra("room_id")
             Log.d("Andromuks", "ChatBubbleLoadingScreen: Room ID from intent: $roomId")
             
-            // Trigger initial pagination to get latest messages for the bubble
-            if (roomId != null) {
-                Log.d("Andromuks", "ChatBubbleLoadingScreen: Triggering initial pagination for bubble room: $roomId")
-                appViewModel.loadOlderMessages(roomId)
+            if (roomId == null) {
+                Log.e("Andromuks", "ChatBubbleLoadingScreen: ✗ No room ID found in intent!")
+                return@LaunchedEffect
             }
             
-                if (roomId != null) {
-                    Log.d("Andromuks", "ChatBubbleLoadingScreen: Navigating to chat bubble: $roomId")
-                    Log.d("Andromuks", "ChatBubbleLoadingScreen: Navigation stack trace:")
-                    Thread.currentThread().stackTrace.take(5).forEach {
-                        Log.d("Andromuks", "ChatBubbleLoadingScreen:   at $it")
-                    }
-                    navController.navigate("chat_bubble/$roomId")
-                    Log.d("Andromuks", "ChatBubbleLoadingScreen: Navigation completed")
-                } else {
-                    Log.e("Andromuks", "ChatBubbleLoadingScreen: No room ID found in intent")
+            // Check if WebSocket is connected, if not, connect it
+            val isWebSocketConnected = appViewModel.isWebSocketConnected()
+            Log.d("Andromuks", "ChatBubbleLoadingScreen: WebSocket connected: $isWebSocketConnected")
+            
+            if (!isWebSocketConnected) {
+                Log.d("Andromuks", "ChatBubbleLoadingScreen: WebSocket not connected, establishing connection...")
+                val client = OkHttpClient()
+                connectToWebsocket(homeserverUrl, client, token, appViewModel)
+                
+                // Wait for WebSocket to connect (max 3 seconds)
+                var waitTime = 0
+                while (!appViewModel.isWebSocketConnected() && waitTime < 3000) {
+                    kotlinx.coroutines.delay(100)
+                    waitTime += 100
                 }
+                
+                if (appViewModel.isWebSocketConnected()) {
+                    Log.d("Andromuks", "ChatBubbleLoadingScreen: ✓ WebSocket connected after ${waitTime}ms")
+                } else {
+                    Log.e("Andromuks", "ChatBubbleLoadingScreen: ✗ WebSocket failed to connect after ${waitTime}ms")
+                    // Continue anyway - cache might work
+                }
+            } else {
+                Log.d("Andromuks", "ChatBubbleLoadingScreen: ✓ Using existing WebSocket service connection")
+            }
+            
+            Log.d("Andromuks", "ChatBubbleLoadingScreen: Navigating to chat bubble: $roomId")
+            navController.navigate("chat_bubble/$roomId")
+            Log.d("Andromuks", "ChatBubbleLoadingScreen: ✓ Navigation completed")
         } else {
             Log.d("Andromuks", "ChatBubbleLoadingScreen: No token or server URL, navigating to login")
             navController.navigate("login")
@@ -285,23 +294,31 @@ fun ChatBubbleScreen(
     }
     
     LaunchedEffect(roomId) {
-        Log.d("Andromuks", "ChatBubbleScreen: Loading timeline for room: $roomId")
-        Log.d("Andromuks", "ChatBubbleScreen: Current timeline events count: ${timelineEvents.size}")
-        Log.d("Andromuks", "ChatBubbleScreen: Current room state: ${appViewModel.currentRoomState}")
-        Log.d("Andromuks", "ChatBubbleScreen: Current room ID: ${appViewModel.currentRoomId}")
+        Log.d("Andromuks", "ChatBubbleScreen: ═══ LOADING TIMELINE ═══")
+        Log.d("Andromuks", "ChatBubbleScreen:   Room ID: $roomId")
+        Log.d("Andromuks", "ChatBubbleScreen:   Current events: ${timelineEvents.size}")
+        Log.d("Andromuks", "ChatBubbleScreen:   Is loading: $isLoading")
+        Log.d("Andromuks", "ChatBubbleScreen:   WebSocket: ${appViewModel.isWebSocketConnected()}")
         
-        // Request room state and timeline
+        // Request room state and timeline (will use cache if available)
         appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId)
         
-        // Trigger pagination to get the latest messages for the bubble
-        Log.d("Andromuks", "ChatBubbleScreen: Triggering pagination for bubble to get latest messages")
-        Log.d("Andromuks", "ChatBubbleScreen: Current timeline events before pagination: ${timelineEvents.size}")
-        appViewModel.loadOlderMessages(roomId)
+        // Wait a bit and log the result
+        kotlinx.coroutines.delay(500)
+        Log.d("Andromuks", "ChatBubbleScreen: After requestRoomTimeline:")
+        Log.d("Andromuks", "ChatBubbleScreen:   Events: ${timelineEvents.size}")
+        Log.d("Andromuks", "ChatBubbleScreen:   Is loading: $isLoading")
         
-        // Wait a moment for pagination to complete, then log the result
-        kotlinx.coroutines.delay(1000)
-        Log.d("Andromuks", "ChatBubbleScreen: Timeline events after pagination: ${timelineEvents.size}")
+        // If still loading after 5 seconds, log warning
+        kotlinx.coroutines.delay(4500)
+        if (isLoading) {
+            Log.e("Andromuks", "ChatBubbleScreen: ✗ STILL LOADING after 5 seconds!")
+            Log.e("Andromuks", "ChatBubbleScreen:   This indicates cache miss + paginate not completing")
+            Log.e("Andromuks", "ChatBubbleScreen:   WebSocket connected: ${appViewModel.isWebSocketConnected()}")
+        } else {
+            Log.d("Andromuks", "ChatBubbleScreen: ✓ Timeline loaded successfully with ${timelineEvents.size} events")
+        }
     }
     
     // Use imePadding for keyboard handling
@@ -314,7 +331,7 @@ fun ChatBubbleScreen(
             Column(
                 modifier = modifier.fillMaxSize()
             ) {
-                // Room Header (simplified)
+                // Room Header (compact for bubbles)
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     color = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
@@ -322,28 +339,29 @@ fun ChatBubbleScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(16.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Room avatar
+                        // Room avatar (compact size)
                         AvatarImage(
                             mxcUrl = displayAvatarUrl,
                             homeserverUrl = homeserverUrl,
                             authToken = authToken,
                             fallbackText = displayRoomName,
-                            size = 40.dp,
+                            size = 36.dp,
                             userId = roomId,
                             displayName = displayRoomName
                         )
                         
-                        Spacer(modifier = Modifier.width(12.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
                         
-                        // Room name
+                        // Room name (slightly smaller)
                         Text(
                             text = displayRoomName,
-                            style = MaterialTheme.typography.titleMedium,
+                            style = MaterialTheme.typography.titleSmall,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
+                            softWrap = false,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -388,7 +406,7 @@ fun ChatBubbleScreen(
                             .fillMaxWidth(),
                         state = listState,
                         contentPadding = PaddingValues(
-                            horizontal = 16.dp,
+                            horizontal = 12.dp,
                             vertical = 8.dp
                         )
                     ) {
@@ -421,7 +439,7 @@ fun ChatBubbleScreen(
                     }
                 }
                 
-                // Text input field
+                // Text input field (compact for bubbles)
                 Surface(
                     color = MaterialTheme.colorScheme.surface,
                     tonalElevation = 0.dp,
@@ -434,10 +452,10 @@ fun ChatBubbleScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Text input field
+                        // Text input field (compact)
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
                             shape = RoundedCornerShape(16.dp),
@@ -447,10 +465,16 @@ fun ChatBubbleScreen(
                             TextField(
                                 value = draft,
                                 onValueChange = { draft = it },
-                                placeholder = { Text("Type a message...") },
+                                placeholder = { 
+                                    Text(
+                                        "Type a message...",
+                                        style = MaterialTheme.typography.bodyMedium
+                                    ) 
+                                },
+                                textStyle = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(56.dp),
+                                    .height(48.dp),
                                 singleLine = true,
                                 colors = TextFieldDefaults.colors(
                                     focusedIndicatorColor = Color.Transparent,
@@ -460,9 +484,9 @@ fun ChatBubbleScreen(
                             )
                         }
                         
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
                         
-                        // Send button
+                        // Send button (compact)
                         Button(
                             onClick = { 
                                 if (draft.isNotBlank()) {
@@ -476,7 +500,7 @@ fun ChatBubbleScreen(
                                 containerColor = if (draft.isNotBlank()) MaterialTheme.colorScheme.primary 
                                                else MaterialTheme.colorScheme.surfaceVariant
                             ),
-                            modifier = Modifier.size(56.dp),
+                            modifier = Modifier.size(48.dp),
                             contentPadding = PaddingValues(0.dp)
                         ) {
                             Icon(

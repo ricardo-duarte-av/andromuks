@@ -67,6 +67,11 @@ class ChatBubbleActivity : ComponentActivity() {
                         // Load cached user profiles on app startup
                         appViewModel.loadCachedProfiles(this)
                         
+                        // IMPORTANT: Mark bubble as visible immediately to ensure live updates
+                        // This ensures sync_complete events update the timeline
+                        appViewModel.onAppBecameVisible()
+                        Log.d("Andromuks", "ChatBubbleActivity: Marked app as visible for live updates")
+                        
                         // Get room ID from intent
                         val roomId = intent.getStringExtra("room_id")
                         val matrixUri = intent.data
