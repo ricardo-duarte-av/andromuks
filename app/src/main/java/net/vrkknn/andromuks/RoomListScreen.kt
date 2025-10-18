@@ -540,6 +540,11 @@ fun RoomListItem(
     val context = LocalContext.current
     var showContextMenu by remember { mutableStateOf(false) }
     
+    // PERFORMANCE: Remember computed timestamp to avoid recalculation unless it actually changes
+    val timeAgo = remember(room.sortingTimestamp, timestampUpdateTrigger) {
+        formatTimeAgo(room.sortingTimestamp)
+    }
+    
     // Wrapping box for the entire item
     Box(
         modifier = modifier
@@ -633,10 +638,10 @@ fun RoomListItem(
                             }
                         }
 
-                        val timeAgoInline = formatTimeAgo(room.sortingTimestamp)
-                        if (timeAgoInline.isNotEmpty()) {
+                        // Use pre-computed timestamp
+                        if (timeAgo.isNotEmpty()) {
                             Text(
-                                text = timeAgoInline,
+                                text = timeAgo,
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(top = 4.dp)
@@ -664,29 +669,16 @@ fun RoomListItem(
                     val senderDisplayName = senderProfile?.displayName ?: room.messageSender
                     val senderAvatarUrl = senderProfile?.avatarUrl
                     
-                    // Request profile asynchronously if not in cache (non-blocking)
-                    LaunchedEffect(room.messageSender, senderProfile) {
-                        if (senderProfile == null) {
-                            appViewModel.requestUserProfileAsync(room.messageSender, room.id)
-                        }
-                    }
+                    // PERFORMANCE FIX: Removed LaunchedEffect to prevent hundreds of concurrent profile requests
+                    // Profiles are populated from sync data, so this is unnecessary for most cases
+                    // If a profile is missing, it will show the user ID as fallback (acceptable UX trade-off)
                     
                     Row(
                         modifier = Modifier.padding(top = 2.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Sender avatar (mini) - use 20dp for better visibility
-                        AvatarImage(
-                            mxcUrl = senderAvatarUrl,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            fallbackText = senderDisplayName,
-                            size = 20.dp,
-                            userId = room.messageSender,
-                            displayName = senderDisplayName
-                        )
-                        
-                        Spacer(modifier = Modifier.width(6.dp))
+                        // PERFORMANCE: Removed mini sender avatar to reduce image loading by 50%
+                        // The room avatar is more important, and loading 2 avatars per room is expensive
                         
                         // Sender name and message
                         Text(
@@ -1019,29 +1011,30 @@ fun RoomListContent(
         items(
             items = filteredRooms,
             key = { it.id }, // Stable key for animations
-            contentType = { it.id } // Content type for better performance
+            contentType = { "room_item" } // Fixed: Use constant content type, not room ID
         ) { room ->
-            AnimatedVisibility(
-                visible = true,
-                enter = fadeIn(animationSpec = tween(200)),
-                exit = fadeOut(animationSpec = tween(200))
-            ) {
-                RoomListItem(
-                    room = room,
-                    homeserverUrl = appViewModel.homeserverUrl,
-                    authToken = authToken,
-                    onRoomClick = { 
-                        navController.navigate("room_timeline/${room.id}")
-                    },
-                    onRoomLongClick = { selectedRoom ->
-                        // Navigate to room info on long press
-                        navController.navigate("room_info/${selectedRoom.id}")
-                    },
-                    timestampUpdateTrigger = timestampUpdateTrigger,
-                    appViewModel = appViewModel,
-                    modifier = Modifier.animateContentSize()
-                )
-            }
+            // PERFORMANCE FIX: Removed AnimatedVisibility wrapper that caused animation overhead
+            // The items() already handles insertions/deletions efficiently
+            // CRITICAL FIX: Capture room.id OUTSIDE the lambda to prevent wrong room navigation
+            val roomIdForNavigation = room.id
+            
+            RoomListItem(
+                room = room,
+                homeserverUrl = appViewModel.homeserverUrl,
+                authToken = authToken,
+                onRoomClick = { 
+                    // Use captured roomIdForNavigation to prevent race conditions
+                    navController.navigate("room_timeline/$roomIdForNavigation")
+                },
+                onRoomLongClick = { selectedRoom ->
+                    // Navigate to room info on long press
+                    // selectedRoom parameter is still safe to use here
+                    navController.navigate("room_info/${selectedRoom.id}")
+                },
+                timestampUpdateTrigger = timestampUpdateTrigger,
+                appViewModel = appViewModel,
+                modifier = Modifier.animateContentSize()
+            )
         }
     }
 }
