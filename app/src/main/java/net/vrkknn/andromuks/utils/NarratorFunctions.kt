@@ -341,6 +341,131 @@ private fun formatTimestamp(timestamp: Long): String {
     return formatter.format(date)
 }
 
+/**
+ * Renders an emote message (m.emote) in narrator style.
+ * Format: "[Display name] [action text]"
+ * Example: "Alice really likes onions"
+ */
+@Composable
+fun EmoteEventNarrator(
+    event: TimelineEvent,
+    displayName: String,
+    avatarUrl: String?,
+    homeserverUrl: String,
+    authToken: String,
+    onReply: () -> Unit = {},
+    onReact: () -> Unit = {},
+    onEdit: () -> Unit = {},
+    onDelete: () -> Unit = {}
+) {
+    val content = event.content ?: event.decrypted
+    val body = content?.optString("body", "") ?: ""
+    
+    var showMenu by remember { mutableStateOf(false) }
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .clickable(
+                onClick = { showMenu = true },
+                onClickLabel = "Show message options"
+            ),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        // Left side - centered content
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.weight(1f)
+        ) {
+            // Small avatar for the actor
+            AvatarImage(
+                mxcUrl = avatarUrl,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                fallbackText = displayName,
+                size = 20.dp,
+                userId = event.sender,
+                displayName = displayName
+            )
+            
+            // Emote text
+            NarratorText(
+                text = buildAnnotatedString {
+                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                        append(displayName)
+                    }
+                    append(" ")
+                    append(body)
+                }
+            )
+        }
+        
+        // Right side - timestamp
+        Text(
+            text = formatTimestamp(event.timestamp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontStyle = FontStyle.Italic
+        )
+    }
+    
+    // Context menu for emote messages
+    if (showMenu) {
+        AlertDialog(
+            onDismissRequest = { showMenu = false },
+            title = { Text("Message Options") },
+            text = {
+                Column {
+                    TextButton(
+                        onClick = {
+                            showMenu = false
+                            onReply()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Reply")
+                    }
+                    TextButton(
+                        onClick = {
+                            showMenu = false
+                            onReact()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("React")
+                    }
+                    TextButton(
+                        onClick = {
+                            showMenu = false
+                            onEdit()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Edit")
+                    }
+                    TextButton(
+                        onClick = {
+                            showMenu = false
+                            onDelete()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Delete")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showMenu = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
 @Composable
 private fun PinnedEventNarration(
     displayName: String,

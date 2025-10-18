@@ -70,6 +70,7 @@ import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
+import net.vrkknn.andromuks.utils.EmoteEventNarrator
 
 /**
  * Loading screen for chat bubbles - handles authentication and navigation
@@ -668,6 +669,22 @@ fun ChatBubbleEventItem(
                     }
                     val msgType = content?.optString("msgtype", "") ?: ""
                     
+                    // Handle m.emote messages with narrator rendering
+                    if (msgType == "m.emote") {
+                        EmoteEventNarrator(
+                            event = event,
+                            displayName = displayName ?: event.sender,
+                            avatarUrl = avatarUrl,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onReply = { /* No reply in chat bubbles */ },
+                            onReact = { /* No reactions in chat bubbles */ },
+                            onEdit = { /* No edit in chat bubbles */ },
+                            onDelete = { /* No delete in chat bubbles */ }
+                        )
+                        return
+                    }
+                    
                     // OPTIMIZED: Check if this message has been redacted using O(1) lookup
                     val isRedacted = event.redactedBy != null
                     val redactionEvent = if (isRedacted && appViewModel != null) {
@@ -840,6 +857,22 @@ fun ChatBubbleEventItem(
                             decrypted?.optString("body", "") ?: ""
                         }
                         val msgType = decrypted?.optString("msgtype", "") ?: ""
+                        
+                        // Handle encrypted m.emote messages with narrator rendering
+                        if (msgType == "m.emote") {
+                            EmoteEventNarrator(
+                                event = event,
+                                displayName = displayName ?: event.sender,
+                                avatarUrl = avatarUrl,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                onReply = { /* No reply in chat bubbles */ },
+                                onReact = { /* No reactions in chat bubbles */ },
+                                onEdit = { /* No edit in chat bubbles */ },
+                                onDelete = { /* No delete in chat bubbles */ }
+                            )
+                            return
+                        }
                         
                         // OPTIMIZED: Check if this message has been redacted using O(1) lookup
                         val isRedacted = event.redactedBy != null

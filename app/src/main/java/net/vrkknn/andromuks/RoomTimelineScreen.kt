@@ -95,6 +95,7 @@ import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EditPreviewInput
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
+import net.vrkknn.andromuks.utils.EmoteEventNarrator
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.InlineReadReceiptAvatars
 import net.vrkknn.andromuks.utils.MediaMessage
@@ -907,7 +908,16 @@ fun RoomTimelineScreen(
                     LaunchedEffect(editingEvent) {
                         if (editingEvent != null) {
                             val content = editingEvent!!.content ?: editingEvent!!.decrypted
-                            val body = content?.optString("body", "") ?: ""
+                            val msgType = content?.optString("msgtype", "")
+                            
+                            // For emote messages, use edit_source which includes the /me prefix
+                            val body = if (msgType == "m.emote") {
+                                val localContent = editingEvent!!.localContent
+                                val editSource = localContent?.optString("edit_source")?.takeIf { it.isNotBlank() }
+                                editSource ?: content?.optString("body", "") ?: ""
+                            } else {
+                                content?.optString("body", "") ?: ""
+                            }
                             draft = body
                         }
                     }
@@ -1628,6 +1638,43 @@ fun TimelineEventItem(
                             content?.optString("body", "") ?: ""
                         }
                     val msgType = content?.optString("msgtype", "") ?: ""
+                    
+                    // Handle m.emote messages with narrator rendering
+                    if (msgType == "m.emote") {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            EmoteEventNarrator(
+                                event = event,
+                                displayName = displayName ?: event.sender,
+                                avatarUrl = avatarUrl,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                onReply = { onReply(event) },
+                                onReact = { onReact(event) },
+                                onEdit = { onEdit(event) },
+                                onDelete = { onDelete(event) }
+                            )
+                            
+                            // Add reaction badges for emote messages
+                            if (appViewModel != null) {
+                                val reactions =
+                                    appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                if (reactions.isNotEmpty()) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 28.dp),
+                                        horizontalArrangement = Arrangement.Start
+                                    ) {
+                                        ReactionBadges(
+                                            eventId = event.eventId,
+                                            reactions = reactions,
+                                            homeserverUrl = homeserverUrl,
+                                            authToken = authToken
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        return
+                    }
 
                     // OPTIMIZED: Check if this message has been redacted using O(1) lookup
                     val isRedacted = event.redactedBy != null
@@ -2165,6 +2212,43 @@ fun TimelineEventItem(
                             "RoomTimelineScreen: Displaying event ${event.eventId} with body: '$body'"
                         )
                         val msgType = decrypted?.optString("msgtype", "") ?: ""
+                        
+                        // Handle encrypted m.emote messages with narrator rendering
+                        if (msgType == "m.emote") {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                EmoteEventNarrator(
+                                    event = event,
+                                    displayName = displayName ?: event.sender,
+                                    avatarUrl = avatarUrl,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    onReply = { onReply(event) },
+                                    onReact = { onReact(event) },
+                                    onEdit = { onEdit(event) },
+                                    onDelete = { onDelete(event) }
+                                )
+                                
+                                // Add reaction badges for encrypted emote messages
+                                if (appViewModel != null) {
+                                    val reactions =
+                                        appViewModel.messageReactions[event.eventId] ?: emptyList()
+                                    if (reactions.isNotEmpty()) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 28.dp),
+                                            horizontalArrangement = Arrangement.Start
+                                        ) {
+                                            ReactionBadges(
+                                                eventId = event.eventId,
+                                                reactions = reactions,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            return
+                        }
 
                         // OPTIMIZED: Check if this message has been redacted using O(1) lookup
                         val isRedacted = event.redactedBy != null
