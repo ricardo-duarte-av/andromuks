@@ -602,6 +602,16 @@ fun RoomTimelineScreen(
     // This happens after the timeline loads to refresh potentially stale profile data
     LaunchedEffect(sortedEvents, roomId) {
         if (sortedEvents.isNotEmpty()) {
+            // Check if we need to populate the full member list first
+            if (appViewModel.isMemberCacheEmpty(roomId)) {
+                Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Member cache is empty for $roomId, requesting full member list"
+                )
+                // Request the complete member list first to populate the cache
+                appViewModel.requestFullMemberList(roomId)
+            }
+            
             Log.d(
                 "Andromuks",
                 "RoomTimelineScreen: Requesting updated profiles for ${sortedEvents.size} timeline events"

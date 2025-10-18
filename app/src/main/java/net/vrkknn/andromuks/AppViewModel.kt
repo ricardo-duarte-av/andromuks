@@ -732,6 +732,10 @@ class AppViewModel : ViewModel() {
         return roomMemberCache[roomId] ?: emptyMap()
     }
     
+    fun isMemberCacheEmpty(roomId: String): Boolean {
+        return roomMemberCache[roomId]?.isEmpty() ?: true
+    }
+    
     /**
      * Gets the complete version history for a message (O(1) lookup)
      * @param eventId Either the original event ID or an edit event ID
@@ -987,15 +991,27 @@ class AppViewModel : ViewModel() {
                 if (eventType == "m.room.member") {
                     val userId = event.optString("state_key") ?: event.optString("sender")
                     val content = event.optJSONObject("content")
-                    val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
-                    val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                    val membership = content?.optString("membership")
                     
                     if (userId != null) {
-                        val profile = MemberProfile(displayName, avatarUrl)
-                        memberMap[userId] = profile
-                        // PERFORMANCE: Also add to global cache for O(1) lookups
-                        globalProfileCache[userId] = profile
-                        //android.util.Log.d("Andromuks", "AppViewModel: Cached member '$userId' in room '$roomId' -> displayName: '$displayName'")
+                        when (membership) {
+                            "join" -> {
+                                // Add/update joined members
+                                val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                                val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                                
+                                val profile = MemberProfile(displayName, avatarUrl)
+                                memberMap[userId] = profile
+                                // PERFORMANCE: Also add to global cache for O(1) lookups
+                                globalProfileCache[userId] = profile
+                                //android.util.Log.d("Andromuks", "AppViewModel: Cached member '$userId' in room '$roomId' -> displayName: '$displayName'")
+                            }
+                            "leave", "ban" -> {
+                                // Remove members who left or were banned
+                                memberMap.remove(userId)
+                                // Note: Don't remove from global cache as they might be in other rooms
+                            }
+                        }
                     }
                 }
             }
@@ -1563,6 +1579,7 @@ class AppViewModel : ViewModel() {
     private val getRoomSummaryRequests = mutableMapOf<Int, (Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?) -> Unit>() // requestId -> callback
     private val joinRoomCallbacks = mutableMapOf<Int, (Pair<String?, String?>?) -> Unit>() // requestId -> callback
     private val roomSpecificStateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_specific_room_state requests)
+    private val fullMemberListRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_room_state with include_members requests)
     
     // Pagination state
     private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
@@ -2312,6 +2329,33 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Sent get_specific_room_state request with ID $requestId for ${keys.size} members")
     }
     
+    /**
+     * Requests the full member list for a room using get_room_state with include_members=true.
+     * This populates the complete room member cache, ensuring we have accurate member information.
+     * Should be called when opening a room if the member cache is empty or incomplete.
+     */
+    fun requestFullMemberList(roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: Requesting full member list for room: $roomId")
+        
+        // Check if WebSocket is connected
+        if (webSocket == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, skipping full member list request")
+            return
+        }
+        
+        val requestId = requestIdCounter++
+        fullMemberListRequests[requestId] = roomId
+        
+        sendWebSocketCommand("get_room_state", requestId, mapOf(
+            "room_id" to roomId,
+            "include_members" to true,
+            "fetch_members" to false,
+            "refetch" to false
+        ))
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sent get_room_state request with ID $requestId for full member list of room $roomId")
+    }
+    
     fun sendTyping(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Sending typing indicator for room: $roomId")
         val typingRequestId = requestIdCounter++
@@ -2870,6 +2914,8 @@ class AppViewModel : ViewModel() {
             handleJoinRoomCallbackResponse(requestId, data)
         } else if (roomSpecificStateRequests.containsKey(requestId)) {
             handleRoomSpecificStateResponse(requestId, data)
+        } else if (fullMemberListRequests.containsKey(requestId)) {
+            handleFullMemberListResponse(requestId, data)
         } else if (outgoingRequests.containsKey(requestId)) {
             android.util.Log.d("Andromuks", "AppViewModel: Routing to handleOutgoingRequestResponse")
             handleOutgoingRequestResponse(requestId, data)
@@ -2929,6 +2975,9 @@ class AppViewModel : ViewModel() {
         } else if (roomSpecificStateRequests.containsKey(requestId)) {
             android.util.Log.w("Andromuks", "AppViewModel: Room specific state error for requestId=$requestId: $errorMessage")
             roomSpecificStateRequests.remove(requestId)
+        } else if (fullMemberListRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Full member list error for requestId=$requestId: $errorMessage")
+            fullMemberListRequests.remove(requestId)
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
@@ -3590,6 +3639,77 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    private fun handleFullMemberListResponse(requestId: Int, data: Any) {
+        val roomId = fullMemberListRequests.remove(requestId) ?: return
+        android.util.Log.d("Andromuks", "AppViewModel: Handling full member list response for room: $roomId")
+        
+        when (data) {
+            is JSONArray -> {
+                // Parse all room state events but only process m.room.member events
+                parseFullMemberListFromRoomState(roomId, data)
+            }
+            else -> {
+                android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleFullMemberListResponse: ${data::class.java.simpleName}")
+            }
+        }
+    }
+    
+    private fun parseFullMemberListFromRoomState(roomId: String, events: JSONArray) {
+        android.util.Log.d("Andromuks", "AppViewModel: Parsing full member list from ${events.length()} room state events for room: $roomId")
+        
+        val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+        var updatedMembers = 0
+        
+        for (i in 0 until events.length()) {
+            val event = events.optJSONObject(i) ?: continue
+            val eventType = event.optString("type")
+            
+            if (eventType == "m.room.member") {
+                val stateKey = event.optString("state_key")
+                val content = event.optJSONObject("content")
+                val membership = content?.optString("membership")
+                
+                if (stateKey.isNotEmpty()) {
+                    when (membership) {
+                        "join" -> {
+                            // Add/update joined members with full profile data
+                            val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                            val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                            
+                            val newProfile = MemberProfile(displayName, avatarUrl)
+                            memberMap[stateKey] = newProfile
+                            // PERFORMANCE: Also add to global cache for O(1) lookups
+                            globalProfileCache[stateKey] = newProfile
+                            
+                            android.util.Log.d("Andromuks", "AppViewModel: Added member $stateKey to room $roomId - displayName: '$displayName', avatarUrl: '$avatarUrl'")
+                            updatedMembers++
+                            
+                            // Save to disk for persistence
+                            appContext?.let { context ->
+                                saveProfileToDisk(context, stateKey, newProfile)
+                            }
+                        }
+                        "leave", "ban" -> {
+                            // Remove members who left or were banned
+                            val wasRemoved = memberMap.remove(stateKey) != null
+                            if (wasRemoved) {
+                                android.util.Log.d("Andromuks", "AppViewModel: Removed $stateKey from room $roomId (membership: $membership)")
+                                updatedMembers++
+                            }
+                            // Note: Don't remove from global cache as they might be in other rooms
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (updatedMembers > 0) {
+            android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedMembers members in full member list for room $roomId")
+            // Trigger UI update since member cache changed
+            updateCounter++
+        }
+    }
+    
     private fun parseMemberEventsForProfileUpdate(roomId: String, events: JSONArray) {
         android.util.Log.d("Andromuks", "AppViewModel: Parsing ${events.length()} member events for profile update in room: $roomId")
         
@@ -3605,30 +3725,40 @@ class AppViewModel : ViewModel() {
                 val content = event.optJSONObject("content")
                 val membership = content?.optString("membership")
                 
-                // Only process joined members
-                if (stateKey.isNotEmpty() && membership == "join") {
-                    val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
-                    val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
-                    
-                    val newProfile = MemberProfile(displayName, avatarUrl)
-                    val previousProfile = memberMap[stateKey]
-                    
-                    // Only update if the profile data has actually changed
-                    if (previousProfile == null || 
-                        previousProfile.displayName != displayName || 
-                        previousProfile.avatarUrl != avatarUrl) {
+                if (stateKey.isNotEmpty()) {
+                    if (membership == "join") {
+                        // Process joined members - update their profile data
+                        val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                        val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
                         
-                        memberMap[stateKey] = newProfile
-                        // PERFORMANCE: Also add to global cache for O(1) lookups
-                        globalProfileCache[stateKey] = newProfile
+                        val newProfile = MemberProfile(displayName, avatarUrl)
+                        val previousProfile = memberMap[stateKey]
                         
-                        android.util.Log.d("Andromuks", "AppViewModel: Updated profile for $stateKey - displayName: '$displayName', avatarUrl: '$avatarUrl'")
-                        updatedProfiles++
-                        
-                        // Save updated profile to disk
-                        appContext?.let { context ->
-                            saveProfileToDisk(context, stateKey, newProfile)
+                        // Only update if the profile data has actually changed
+                        if (previousProfile == null || 
+                            previousProfile.displayName != displayName || 
+                            previousProfile.avatarUrl != avatarUrl) {
+                            
+                            memberMap[stateKey] = newProfile
+                            // PERFORMANCE: Also add to global cache for O(1) lookups
+                            globalProfileCache[stateKey] = newProfile
+                            
+                            android.util.Log.d("Andromuks", "AppViewModel: Updated profile for $stateKey - displayName: '$displayName', avatarUrl: '$avatarUrl'")
+                            updatedProfiles++
+                            
+                            // Save updated profile to disk
+                            appContext?.let { context ->
+                                saveProfileToDisk(context, stateKey, newProfile)
+                            }
                         }
+                    } else if (membership == "leave" || membership == "ban") {
+                        // Remove members who left or were banned from room cache
+                        val wasRemoved = memberMap.remove(stateKey) != null
+                        if (wasRemoved) {
+                            android.util.Log.d("Andromuks", "AppViewModel: Removed $stateKey from room cache (membership: $membership)")
+                            updatedProfiles++
+                        }
+                        // Note: Don't remove from global cache as they might be in other rooms
                     }
                 }
             }
