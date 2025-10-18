@@ -120,6 +120,9 @@ class AppViewModel : ViewModel() {
     var messageReactions by mutableStateOf(mapOf<String, List<MessageReaction>>())
         private set
     
+    // Track processed reaction events to prevent duplicate processing
+    private val processedReactions = mutableSetOf<String>()
+    
     // Track pending message sends for send button animation
     var pendingSendCount by mutableStateOf(0)
         private set
@@ -646,10 +649,30 @@ class AppViewModel : ViewModel() {
     }
     
     fun processReactionEvent(reactionEvent: ReactionEvent) {
+        // Create a unique key for this logical reaction (sender + emoji + target message)
+        // This prevents the same logical reaction from being processed twice even if it comes
+        // from both send_complete and sync_complete with different event IDs
+        val reactionKey = "${reactionEvent.sender}_${reactionEvent.emoji}_${reactionEvent.relatesToEventId}"
+        
+        // Check if we've already processed this logical reaction recently
+        if (processedReactions.contains(reactionKey)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping duplicate logical reaction: $reactionKey (eventId: ${reactionEvent.eventId})")
+            return
+        }
+        
+        // Mark this logical reaction as processed (temporarily, will be cleaned up)
+        processedReactions.add(reactionKey)
+        
+        // Clean up old processed reactions to prevent memory leaks (keep only last 100)
+        if (processedReactions.size > 100) {
+            val toRemove = processedReactions.take(processedReactions.size - 100)
+            processedReactions.removeAll(toRemove)
+        }
+        
         val oldReactions = messageReactions[reactionEvent.relatesToEventId]?.size ?: 0
         messageReactions = net.vrkknn.andromuks.utils.processReactionEvent(reactionEvent, currentRoomId, messageReactions)
         val newReactions = messageReactions[reactionEvent.relatesToEventId]?.size ?: 0
-        android.util.Log.d("Andromuks", "AppViewModel: processReactionEvent - eventId: ${reactionEvent.relatesToEventId}, oldCount: $oldReactions, newCount: $newReactions, updateCounter: $updateCounter")
+        android.util.Log.d("Andromuks", "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, oldCount: $oldReactions, newCount: $newReactions, updateCounter: $updateCounter")
         updateCounter++ // Trigger UI recomposition
     }
 
@@ -3021,16 +3044,22 @@ class AppViewModel : ViewModel() {
                 val relatesToEventId = relatesTo?.optString("event_id", "") ?: ""
                 
                 if (emoji.isNotBlank() && relatesToEventId.isNotBlank()) {
-                    // Process all reactions normally - no special handling for our own reactions
-                    val reactionEvent = ReactionEvent(
-                        eventId = event.eventId,
-                        sender = event.sender,
-                        emoji = emoji,
-                        relatesToEventId = relatesToEventId,
-                        timestamp = event.timestamp
-                    )
-                    processReactionEvent(reactionEvent)
-                    android.util.Log.d("Andromuks", "AppViewModel: Processed send_complete reaction: $emoji from ${event.sender} to $relatesToEventId")
+                    // Skip processing our own reactions from send_complete since sync_complete will handle them
+                    // This prevents the double processing that causes the toggle behavior
+                    if (event.sender == currentUserId) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Skipping send_complete reaction from ourself (will be processed by sync_complete): $emoji from ${event.sender} to $relatesToEventId")
+                    } else {
+                        // Process reactions from other users in send_complete
+                        val reactionEvent = ReactionEvent(
+                            eventId = event.eventId,
+                            sender = event.sender,
+                            emoji = emoji,
+                            relatesToEventId = relatesToEventId,
+                            timestamp = event.timestamp
+                        )
+                        processReactionEvent(reactionEvent)
+                        android.util.Log.d("Andromuks", "AppViewModel: Processed send_complete reaction from other user: $emoji from ${event.sender} to $relatesToEventId")
+                    }
                 }
             } else if (event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") {
                 // Check if this is an edit event
