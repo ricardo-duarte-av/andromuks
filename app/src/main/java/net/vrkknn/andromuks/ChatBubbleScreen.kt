@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -64,11 +66,101 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.ui.graphics.Color
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.OffsetMapping
+import androidx.compose.ui.text.input.TransformedText
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.zIndex
+import kotlin.math.min
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
 import net.vrkknn.andromuks.utils.EmoteEventNarrator
+
+/** Floating member list for mentions */
+@Composable
+private fun ChatBubbleMentionMemberList(
+    members: Map<String, MemberProfile>,
+    query: String,
+    onMemberSelect: (String, String?) -> Unit,
+    homeserverUrl: String,
+    authToken: String,
+    modifier: Modifier = Modifier
+) {
+    val filteredMembers = remember(members, query) {
+        members.filter { (userId, profile) ->
+            val displayName = profile.displayName
+            val username = userId.removePrefix("@").substringBefore(":")
+            query.isBlank() || 
+            displayName?.contains(query, ignoreCase = true) == true ||
+            username.contains(query, ignoreCase = true) ||
+            userId.contains(query, ignoreCase = true)
+        }.entries.sortedBy { (userId, profile) -> 
+            profile.displayName ?: userId 
+        }
+    }
+
+    if (filteredMembers.isEmpty()) return
+
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 8.dp
+    ) {
+        LazyColumn(
+            modifier = Modifier
+                .widthIn(max = 250.dp)
+                .height(200.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(8.dp)
+        ) {
+            items(filteredMembers.size) { index ->
+                val (userId, profile) = filteredMembers.toList()[index]
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { onMemberSelect(userId, profile.displayName) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    AvatarImage(
+                        mxcUrl = profile.avatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        fallbackText = (profile.displayName ?: userId).take(1),
+                        size = 32.dp,
+                        userId = userId,
+                        displayName = profile.displayName
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = profile.displayName ?: userId.removePrefix("@"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (profile.displayName != null) {
+                            Text(
+                                text = userId,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 /**
  * Loading screen for chat bubbles - handles authentication and navigation
@@ -138,6 +230,7 @@ fun ChatBubbleLoadingScreen(
         }
     }
 }
+
 
 /**
  * Simplified Chat Bubble Screen for Android Chat Bubbles
@@ -241,6 +334,101 @@ fun ChatBubbleScreen(
         appViewModel.getMemberMap(roomId)
     }
 
+    // Mention state
+    var showMentionList by remember { mutableStateOf(false) }
+    var mentionQuery by remember { mutableStateOf("") }
+    var mentionStartIndex by remember { mutableStateOf(-1) }
+    
+    // Text input state (moved here to be accessible by mention handler)
+    var draft by remember { mutableStateOf("") }
+    var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+    
+    // Sync draft with TextFieldValue
+    LaunchedEffect(draft) {
+        if (textFieldValue.text != draft) {
+            textFieldValue = textFieldValue.copy(text = draft, selection = TextRange(draft.length))
+        }
+    }
+
+    // Get current room members for mention list (exclude current user and filter out invalid entries)
+    val roomMembers = remember(roomId, appViewModel.updateCounter) {
+        appViewModel.getMemberMap(roomId).filter { (userId, profile) ->
+            // Exclude current user
+            userId != myUserId &&
+            // Ensure userId is a valid Matrix user ID format (@user:domain)
+            userId.startsWith("@") && 
+            userId.contains(":") &&
+            // Ensure userId is not empty or malformed
+            userId.length > 3
+        }
+    }
+
+    // Mention detection and handling functions
+    fun detectMention(text: String, cursorPosition: Int): Pair<String, Int>? {
+        if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
+        
+        // Look for @ at or before cursor position
+        var atIndex = -1
+        for (i in (cursorPosition - 1) downTo 0) {
+            if (i < text.length && text[i] == '@') {
+                atIndex = i
+                break
+            }
+            // Stop if we hit a space or newline before finding @
+            if (i < text.length && (text[i] == ' ' || text[i] == '\n')) {
+                break
+            }
+        }
+        
+        // Also check if cursor is right after @ at the beginning or after space
+        if (atIndex == -1 && cursorPosition > 0 && cursorPosition <= text.length) {
+            if (text[cursorPosition - 1] == '@') {
+                // Check if @ is at beginning or preceded by space/newline
+                if (cursorPosition == 1 || (cursorPosition > 1 && (text[cursorPosition - 2] == ' ' || text[cursorPosition - 2] == '\n'))) {
+                    atIndex = cursorPosition - 1
+                }
+            }
+        }
+        
+        if (atIndex == -1) return null
+        
+        // Extract the query after @
+        val queryStart = atIndex + 1
+        var queryEnd = cursorPosition
+        
+        // Look for space after cursor position to find end of mention
+        if (cursorPosition < text.length) {
+            for (i in cursorPosition until text.length) {
+                if (text[i] == ' ' || text[i] == '\n') {
+                    queryEnd = i
+                    break
+                }
+                queryEnd = i + 1
+            }
+        }
+        
+        // Allow showing mention list even if we just typed @ (empty query)
+        if (queryStart <= cursorPosition) {
+            val query = if (queryStart < min(queryEnd, text.length)) {
+                text.substring(queryStart, min(queryEnd, text.length))
+            } else {
+                "" // Empty query when just @ is typed
+            }
+            return Pair(query, atIndex)
+        }
+        
+        return null
+    }
+
+    fun handleMentionSelection(userId: String, displayName: String?, originalText: String, startIndex: Int, endIndex: Int): String {
+        // Escape square brackets in display name to prevent regex issues
+        val escapedDisplayName = (displayName ?: userId.removePrefix("@"))
+            .replace("[", "\\[")
+            .replace("]", "\\]")
+        val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
+        return originalText.substring(0, startIndex) + mentionText + originalText.substring(endIndex)
+    }
+
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
     LaunchedEffect(sortedEvents.size, isLoading) {
@@ -295,6 +483,28 @@ fun ChatBubbleScreen(
         }
     }
     
+    // Request updated profile information for users in the room
+    // This happens after the timeline loads to refresh potentially stale profile data
+    LaunchedEffect(sortedEvents, roomId) {
+        // Always request fresh member list when opening a room to ensure accurate membership status
+        // This cleans up any stale invite members or other invalid entries in the cache
+        Log.d(
+            "Andromuks",
+            "ChatBubbleScreen: Requesting fresh member list for $roomId to ensure accurate membership"
+        )
+        appViewModel.requestFullMemberList(roomId)
+        
+        if (sortedEvents.isNotEmpty()) {
+            Log.d(
+                "Andromuks",
+                "ChatBubbleScreen: Requesting updated profiles for ${sortedEvents.size} timeline events"
+            )
+            // Request updated profile information from the server for all users in the timeline
+            // This will not block rendering - it happens in the background and updates UI as data arrives
+            appViewModel.requestUpdatedRoomProfiles(roomId, sortedEvents)
+        }
+    }
+    
     // Use imePadding for keyboard handling
     val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -302,9 +512,10 @@ fun ChatBubbleScreen(
     
     AndromuksTheme {
         Surface {
-            Column(
-                modifier = modifier.fillMaxSize()
-            ) {
+            Box(modifier = modifier.fillMaxSize()) {
+                Column(
+                    modifier = Modifier.fillMaxSize()
+                ) {
                 // Room Header (compact for bubbles)
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -424,8 +635,6 @@ fun ChatBubbleScreen(
                         .fillMaxWidth()
                         .padding(bottom = bottomInset)
                 ) {
-                    var draft by remember { mutableStateOf("") }
-                    
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -439,9 +648,142 @@ fun ChatBubbleScreen(
                             tonalElevation = 1.dp,
                             modifier = Modifier.weight(1f)
                         ) {
+                            // Create mention transformation for TextField with proper caching
+                            val colorScheme = MaterialTheme.colorScheme
+                            val mentionTransformation = remember(colorScheme) {
+                                VisualTransformation { text ->
+                                    val mentionRegex = Regex("""\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""")
+                                    val annotatedString = buildAnnotatedString {
+                                        var lastIndex = 0
+                                        
+                                        for (match in mentionRegex.findAll(text.text)) {
+                                            // Add text before mention
+                                            if (match.range.first > lastIndex) {
+                                                append(text.text.substring(lastIndex, match.range.first))
+                                            }
+                                            
+                                            // Add mention as styled text (pill-like appearance)
+                                            // Unescape the display name for display (remove backslashes before brackets)
+                                            val escapedDisplayName = match.groupValues[1]
+                                            val displayName = escapedDisplayName
+                                                .replace("\\[", "[")
+                                                .replace("\\]", "]")
+                                            withStyle(
+                                                style = SpanStyle(
+                                                    color = colorScheme.onPrimaryContainer,
+                                                    background = colorScheme.primaryContainer
+                                                )
+                                            ) {
+                                                append(" $displayName ")
+                                            }
+                                            
+                                            lastIndex = match.range.last + 1
+                                        }
+                                        
+                                        // Add remaining text
+                                        if (lastIndex < text.text.length) {
+                                            append(text.text.substring(lastIndex))
+                                        }
+                                    }
+                                    
+                                    // Create proper offset mapping to handle the text length changes
+                                    val offsetMapping = object : OffsetMapping {
+                                        override fun originalToTransformed(offset: Int): Int {
+                                            // Clamp offset to valid range
+                                            val clampedOffset = offset.coerceIn(0, text.text.length)
+                                            var transformedOffset = 0
+                                            var originalOffset = 0
+                                            
+                                            for (match in mentionRegex.findAll(text.text)) {
+                                                // Add text before mention
+                                                val beforeLength = match.range.first - originalOffset
+                                                if (clampedOffset <= match.range.first) {
+                                                    val result = transformedOffset + (clampedOffset - originalOffset)
+                                                    return result.coerceIn(0, annotatedString.length)
+                                                }
+                                                transformedOffset += beforeLength
+                                                originalOffset = match.range.first
+                                                
+                                                // Handle mention transformation
+                                                val escapedDisplayName = match.groupValues[1]
+                                                val displayName = escapedDisplayName
+                                                    .replace("\\[", "[")
+                                                    .replace("\\]", "]")
+                                                val transformedMentionLength = " $displayName ".length
+                                                
+                                                if (clampedOffset <= match.range.last + 1) {
+                                                    val result = transformedOffset + transformedMentionLength
+                                                    return result.coerceIn(0, annotatedString.length)
+                                                }
+                                                
+                                                transformedOffset += transformedMentionLength
+                                                originalOffset = match.range.last + 1
+                                            }
+                                            
+                                            // Handle remaining text
+                                            val result = transformedOffset + (clampedOffset - originalOffset)
+                                            return result.coerceIn(0, annotatedString.length)
+                                        }
+                                        
+                                        override fun transformedToOriginal(offset: Int): Int {
+                                            // Clamp offset to valid range
+                                            val clampedOffset = offset.coerceIn(0, annotatedString.length)
+                                            var transformedOffset = 0
+                                            var originalOffset = 0
+                                            
+                                            for (match in mentionRegex.findAll(text.text)) {
+                                                val beforeLength = match.range.first - originalOffset
+                                                if (clampedOffset <= transformedOffset + beforeLength) {
+                                                    val result = originalOffset + (clampedOffset - transformedOffset)
+                                                    return result.coerceIn(0, text.text.length)
+                                                }
+                                                transformedOffset += beforeLength
+                                                originalOffset = match.range.first
+                                                
+                                                val escapedDisplayName = match.groupValues[1]
+                                                val displayName = escapedDisplayName
+                                                    .replace("\\[", "[")
+                                                    .replace("\\]", "]")
+                                                val transformedMentionLength = " $displayName ".length
+                                                
+                                                if (clampedOffset <= transformedOffset + transformedMentionLength) {
+                                                    return match.range.last + 1
+                                                }
+                                                
+                                                transformedOffset += transformedMentionLength
+                                                originalOffset = match.range.last + 1
+                                            }
+                                            
+                                            val result = originalOffset + (clampedOffset - transformedOffset)
+                                            return result.coerceIn(0, text.text.length)
+                                        }
+                                    }
+                                    
+                                    TransformedText(
+                                        annotatedString,
+                                        offsetMapping
+                                    )
+                                }
+                            }
+
+                            // Text input field with mention support
                             TextField(
-                                value = draft,
-                                onValueChange = { draft = it },
+                                value = textFieldValue,
+                                onValueChange = { newValue ->
+                                    textFieldValue = newValue
+                                    draft = newValue.text
+                                    
+                                    // Detect mentions
+                                    val mentionResult = detectMention(newValue.text, newValue.selection.start)
+                                    if (mentionResult != null) {
+                                        val (query, startIndex) = mentionResult
+                                        mentionQuery = query
+                                        mentionStartIndex = startIndex
+                                        showMentionList = true
+                                    } else {
+                                        showMentionList = false
+                                    }
+                                },
                                 placeholder = { 
                                     Text(
                                         "Type a message...",
@@ -453,6 +795,7 @@ fun ChatBubbleScreen(
                                     .fillMaxWidth()
                                     .height(48.dp),
                                 singleLine = true,
+                                visualTransformation = mentionTransformation,
                                 colors = TextFieldDefaults.colors(
                                     focusedIndicatorColor = Color.Transparent,
                                     unfocusedIndicatorColor = Color.Transparent,
@@ -490,14 +833,60 @@ fun ChatBubbleScreen(
                     }
                 }
             }
+            
+            // Floating member list for mentions - placed outside Column but inside main Box
+            if (showMentionList) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(
+                            start = 72.dp, // Align with text input (attach button width + spacing)
+                            bottom = 80.dp  // Above text input
+                        )
+                        .navigationBarsPadding()
+                        .imePadding()
+                        .zIndex(10f)
+                ) {
+                    ChatBubbleMentionMemberList(
+                        members = roomMembers,
+                        query = mentionQuery,
+                        onMemberSelect = { userId: String, displayName: String? ->
+                            // Replace the mention text with the selected user
+                            val mentionEndIndex = mentionStartIndex + 1 + mentionQuery.length
+                            val newText = handleMentionSelection(userId, displayName, draft, mentionStartIndex, mentionEndIndex)
+                            
+                            // Calculate the new cursor position after the inserted mention
+                            // The cursor should be positioned right after the inserted mention text
+                            val escapedDisplayName = (displayName ?: userId.removePrefix("@"))
+                                .replace("[", "\\[")
+                                .replace("]", "\\]")
+                            val mentionText = "[$escapedDisplayName](https://matrix.to/#/$userId)"
+                            val newCursorPosition = mentionStartIndex + mentionText.length
+                            
+                            draft = newText
+                            textFieldValue = TextFieldValue(
+                                text = newText,
+                                selection = TextRange(newCursorPosition)
+                            )
+                            
+                            // Hide the mention list
+                            showMentionList = false
+                            mentionQuery = ""
+                        },
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken
+                    )
+                }
+            }
         }
+    }
     }
 }
 
 /**
  * Format timestamp to time string (HH:mm) for chat bubbles
  */
-private fun formatChatBubbleTimestamp(timestamp: Long): String {
+fun formatChatBubbleTimestamp(timestamp: Long): String {
     val date = Date(timestamp)
     val formatter = SimpleDateFormat("HH:mm", Locale.getDefault())
     return formatter.format(date)
