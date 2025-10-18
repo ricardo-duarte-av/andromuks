@@ -46,8 +46,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.activity.ComponentActivity
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
-import net.vrkknn.andromuks.utils.connectToWebsocket
-import okhttp3.OkHttpClient
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -113,30 +111,11 @@ fun ChatBubbleLoadingScreen(
                 return@LaunchedEffect
             }
             
-            // Check if WebSocket is connected, if not, connect it
+            // Check WebSocket connection status (should be already connected from main app flow)
             val isWebSocketConnected = appViewModel.isWebSocketConnected()
             Log.d("Andromuks", "ChatBubbleLoadingScreen: WebSocket connected: $isWebSocketConnected")
-            
             if (!isWebSocketConnected) {
-                Log.d("Andromuks", "ChatBubbleLoadingScreen: WebSocket not connected, establishing connection...")
-                val client = OkHttpClient()
-                connectToWebsocket(homeserverUrl, client, token, appViewModel)
-                
-                // Wait for WebSocket to connect (max 3 seconds)
-                var waitTime = 0
-                while (!appViewModel.isWebSocketConnected() && waitTime < 3000) {
-                    kotlinx.coroutines.delay(100)
-                    waitTime += 100
-                }
-                
-                if (appViewModel.isWebSocketConnected()) {
-                    Log.d("Andromuks", "ChatBubbleLoadingScreen: ✓ WebSocket connected after ${waitTime}ms")
-                } else {
-                    Log.e("Andromuks", "ChatBubbleLoadingScreen: ✗ WebSocket failed to connect after ${waitTime}ms")
-                    // Continue anyway - cache might work
-                }
-            } else {
-                Log.d("Andromuks", "ChatBubbleLoadingScreen: ✓ Using existing WebSocket service connection")
+                Log.w("Andromuks", "ChatBubbleLoadingScreen: WebSocket not connected - this may indicate an issue with the main app connection")
             }
             
             Log.d("Andromuks", "ChatBubbleLoadingScreen: Navigating to chat bubble: $roomId")

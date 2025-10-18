@@ -240,9 +240,9 @@ class AppViewModel : ViewModel() {
         roomAnimationStates = roomAnimationStates - roomId
     }
     
-    fun restartWebSocketConnection() {
-        android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket connection via pull-to-refresh")
-        restartWebSocket()
+    fun restartWebSocketConnection(reason: String = "Manual reconnection") {
+        android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket connection - Reason: $reason")
+        restartWebSocket(reason)
     }
     
     /**
@@ -282,7 +282,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Will reconnect with run_id but no last_received_id (full payload)")
         
         // 5. Trigger reconnection (will use run_id but not last_received_id since it's 0)
-        onRestartWebSocket?.invoke()
+        onRestartWebSocket?.invoke("Full refresh")
     }
     
     
@@ -465,7 +465,7 @@ class AppViewModel : ViewModel() {
             onNetworkAvailable = {
                 android.util.Log.i("Andromuks", "AppViewModel: Network available - triggering immediate reconnection")
                 // Immediate reconnection instead of waiting for ping timeout
-                restartWebSocket()
+                restartWebSocket("Network restored")
             },
             onNetworkLost = {
                 android.util.Log.w("Andromuks", "AppViewModel: Network lost - connection will be down until network returns")
@@ -1317,7 +1317,7 @@ class AppViewModel : ViewModel() {
     private var pendingBubbleNavigation: String? = null
     
     // Websocket restart callback
-    var onRestartWebSocket: (() -> Unit)? = null
+    var onRestartWebSocket: ((String) -> Unit)? = null
     
     // App lifecycle state
     var isAppVisible by mutableStateOf(true)
@@ -1882,19 +1882,19 @@ class AppViewModel : ViewModel() {
         pongTimeoutJob = viewModelScope.launch {
             delay(5_000) // 5 second timeout
             android.util.Log.w("Andromuks", "AppViewModel: Pong timeout for ping $pingRequestId, restarting websocket")
-            restartWebSocket()
+            restartWebSocket("Ping timeout")
         }
     }
     
-    private fun restartWebSocket() {
-        android.util.Log.d("Andromuks", "AppViewModel: Restarting websocket connection")
+    private fun restartWebSocket(reason: String = "Unknown reason") {
+        android.util.Log.d("Andromuks", "AppViewModel: Restarting websocket connection - Reason: $reason")
         
         // Show toast notification to user
         appContext?.let { context ->
             viewModelScope.launch(Dispatchers.Main) {
                 android.widget.Toast.makeText(
                     context,
-                    "Andromuks: Reconnecting...",
+                    "Andromuks: Reconnecting... ($reason)",
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
             }
@@ -1902,7 +1902,7 @@ class AppViewModel : ViewModel() {
         
         clearWebSocket()
         // Trigger websocket restart via callback
-        onRestartWebSocket?.invoke()
+        onRestartWebSocket?.invoke(reason)
     }
 
     fun requestUserProfile(userId: String, roomId: String? = null) {
@@ -2212,7 +2212,7 @@ class AppViewModel : ViewModel() {
         // Check if WebSocket is connected
         if (webSocket == null) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
-            restartWebSocketConnection()
+            restartWebSocketConnection("WebSocket disconnected during room state request")
             
             // Wait a bit for reconnection and then retry
             CoroutineScope(Dispatchers.Main).launch {
@@ -2258,7 +2258,7 @@ class AppViewModel : ViewModel() {
         // Check if WebSocket is connected, if not, try to reconnect
         if (webSocket == null) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
-            restartWebSocketConnection()
+            restartWebSocketConnection("WebSocket disconnected during message send")
             
             // Wait a bit for reconnection and then retry
             CoroutineScope(Dispatchers.Main).launch {
@@ -2474,7 +2474,7 @@ class AppViewModel : ViewModel() {
         // Check if WebSocket is connected, if not, try to reconnect
         if (webSocket == null) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
-            restartWebSocketConnection()
+            restartWebSocketConnection("WebSocket disconnected during reply send")
             
             // Wait a bit for reconnection and then retry
             CoroutineScope(Dispatchers.Main).launch {
@@ -4504,7 +4504,7 @@ class AppViewModel : ViewModel() {
         // Check if WebSocket is connected, if not, try to reconnect
         if (webSocket == null) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
-            restartWebSocketConnection()
+            restartWebSocketConnection("WebSocket disconnected during mark room as read")
             
             // Wait a bit for reconnection and then retry
             CoroutineScope(Dispatchers.Main).launch {
@@ -4648,7 +4648,7 @@ class AppViewModel : ViewModel() {
         // Check if WebSocket is connected
         if (webSocket == null) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
-            restartWebSocketConnection()
+            restartWebSocketConnection("WebSocket disconnected during get event")
             
             // Wait a bit for reconnection and then retry
             CoroutineScope(Dispatchers.Main).launch {
@@ -4829,7 +4829,7 @@ class AppViewModel : ViewModel() {
         
         if (webSocket == null) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
-            restartWebSocketConnection()
+            restartWebSocketConnection("WebSocket disconnected during thread replied send")
             return
         }
         

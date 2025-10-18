@@ -126,9 +126,10 @@ fun connectToWebsocket(
     url: String,
     client: OkHttpClient,
     token: String,
-    appViewModel: AppViewModel
+    appViewModel: AppViewModel,
+    reason: String = "Initial connection"
 ) {
-    Log.d("NetworkUtils", "connectToWebsocket: Initializing...")
+    Log.d("NetworkUtils", "connectToWebsocket: Initializing... Reason: $reason")
 
     val webSocketUrl = trimWebsocketHost(url)
     
@@ -152,9 +153,9 @@ fun connectToWebsocket(
         .build()
     
     // Set up websocket restart callback
-    appViewModel.onRestartWebSocket = {
-        Log.d("NetworkUtils", "Websocket restart requested, reconnecting...")
-        connectToWebsocket(url, client, token, appViewModel)
+    appViewModel.onRestartWebSocket = { reason ->
+        Log.d("NetworkUtils", "Websocket restart requested, reconnecting... Reason: $reason")
+        connectToWebsocket(url, client, token, appViewModel, reason)
     }
 
     val websocketListener = object : WebSocketListener() {
