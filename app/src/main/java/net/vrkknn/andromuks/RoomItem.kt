@@ -22,7 +22,9 @@ data class RoomItem(
     val highlightCount: Int?,
     val avatarUrl: String?,
     val sortingTimestamp: Long? = null,
-    val isDirectMessage: Boolean = false
+    val isDirectMessage: Boolean = false,
+    val isFavourite: Boolean = false,
+    val isLowPriority: Boolean = false
 )
 
 @Immutable
@@ -45,7 +47,8 @@ enum class RoomSectionType {
     HOME,
     SPACES,
     DIRECT_CHATS,
-    UNREAD
+    UNREAD,
+    FAVOURITES
 }
 
 @Immutable

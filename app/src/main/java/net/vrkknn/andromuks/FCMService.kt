@@ -251,6 +251,15 @@ class FCMService : FirebaseMessagingService() {
                     image = imageUrl
                 )
                 
+                // Check if room is marked as low priority - skip notifications for low priority rooms
+                val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
+                
+                if (lowPriorityRooms.contains(roomId)) {
+                    Log.d(TAG, "Skipping notification for low priority room: $roomId ($roomName)")
+                    continue
+                }
+                
                 Log.d(TAG, "Showing notification for room: $roomId, sender: $senderDisplayName, text: $text")
                 CoroutineScope(Dispatchers.Main).launch {
                     try {

@@ -95,6 +95,8 @@ import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.NotificationsOff
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.combinedClickable
@@ -389,6 +391,16 @@ fun RoomListScreen(
                                 timestampUpdateTrigger = timestampUpdateTrigger
                             )
                         }
+                        RoomSectionType.FAVOURITES -> {
+                            RoomListContent(
+                                rooms = targetSection.rooms,
+                                searchQuery = searchQuery,
+                                appViewModel = appViewModel,
+                                authToken = authToken,
+                                navController = navController,
+                                timestampUpdateTrigger = timestampUpdateTrigger
+                            )
+                        }
                     }
                 }
             }
@@ -630,6 +642,18 @@ fun RoomListItem(
                                 modifier = Modifier.padding(top = 4.dp)
                             )
                         }
+                        
+                        // Show forbidden icon for low priority rooms
+                        if (room.isLowPriority) {
+                            Icon(
+                                imageVector = Icons.Filled.NotificationsOff,
+                                contentDescription = "Low Priority - Notifications Disabled",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .padding(top = 4.dp)
+                                    .size(16.dp)
+                            )
+                        }
                     }
                 }
                 
@@ -853,6 +877,15 @@ fun TabBar(
                     onSectionSelected(RoomSectionType.UNREAD)
                 },
                 badgeCount = appViewModel.getUnreadCount()
+            )
+            
+            TabButton(
+                icon = Icons.Filled.Favorite,
+                label = "Favs",
+                isSelected = currentSection.type == RoomSectionType.FAVOURITES,
+                onClick = {
+                    onSectionSelected(RoomSectionType.FAVOURITES)
+                }
             )
         }
     }

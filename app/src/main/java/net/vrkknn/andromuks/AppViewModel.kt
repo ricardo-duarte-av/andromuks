@@ -373,6 +373,18 @@ class AppViewModel : ViewModel() {
                     unreadCount = unreadRooms.size
                 )
             }
+            RoomSectionType.FAVOURITES -> {
+                val favouriteRooms = roomsToUse.filter { it.isFavourite }
+                val unreadFavouriteCount = favouriteRooms.count { 
+                    (it.unreadCount != null && it.unreadCount > 0) || 
+                    (it.highlightCount != null && it.highlightCount > 0) 
+                }
+                RoomSection(
+                    type = RoomSectionType.FAVOURITES,
+                    rooms = favouriteRooms,
+                    unreadCount = unreadFavouriteCount
+                )
+            }
         }
     }
 
@@ -382,6 +394,23 @@ class AppViewModel : ViewModel() {
 
     fun hideLoading() {
         isLoading = false
+    }
+    
+    /**
+     * Updates the set of low priority room IDs in SharedPreferences.
+     * This is used by FCMService to filter out notifications for low priority rooms.
+     */
+    private fun updateLowPriorityRooms(rooms: List<RoomItem>) {
+        val lowPriorityRoomIds = rooms.filter { it.isLowPriority }.map { it.id }.toSet()
+        
+        appContext?.let { context ->
+            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.edit()
+                .putStringSet("low_priority_rooms", lowPriorityRoomIds)
+                .apply()
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Updated low priority rooms set: ${lowPriorityRoomIds.size} rooms")
+        }
     }
 
     fun updateHomeserverUrl(url: String) {
@@ -1082,6 +1111,10 @@ class AppViewModel : ViewModel() {
             
             setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
             allRooms = sortedRooms // Update allRooms for filtering
+            
+            // Update low priority rooms set for notification filtering
+            updateLowPriorityRooms(sortedRooms)
+            
             updateCounter++ // Force recomposition (only when visible)
             android.util.Log.d("Andromuks", "AppViewModel: spaceList updated, current size: ${spaceList.size}")
             
@@ -1097,6 +1130,9 @@ class AppViewModel : ViewModel() {
             // Still update allRooms for data consistency (needed for notifications)
             val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
             allRooms = sortedRooms
+            
+            // Update low priority rooms set for notification filtering
+            updateLowPriorityRooms(sortedRooms)
             
             // Update shortcuts less frequently in background (every 10 sync messages)
             if (syncMessageCount % 10 == 0) {

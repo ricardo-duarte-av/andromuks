@@ -92,6 +92,29 @@ object SpaceRoomParser {
                 }
             }
 
+            // Extract tags from account_data.m.tag
+            var isFavourite = false
+            var isLowPriority = false
+            
+            val accountData = roomObj.optJSONObject("account_data")
+            if (accountData != null) {
+                val tagData = accountData.optJSONObject("m.tag")
+                if (tagData != null) {
+                    val content = tagData.optJSONObject("content")
+                    if (content != null) {
+                        val tags = content.optJSONObject("tags")
+                        if (tags != null) {
+                            if (tags.has("m.favourite")) {
+                                isFavourite = true
+                            }
+                            if (tags.has("m.lowpriority")) {
+                                isLowPriority = true
+                            }
+                        }
+                    }
+                }
+            }
+            
             android.util.Log.d("Andromuks", "SpaceRoomParser: Creating RoomItem for '$name' - messagePreview='$messagePreview', messageSender='$messageSender'")
             rooms.add(
                 RoomItem(
@@ -101,7 +124,9 @@ object SpaceRoomParser {
                     messageSender = messageSender,
                     unreadCount = if (unreadMessages > 0) unreadMessages else null,
                     highlightCount = if (unreadHighlights > 0) unreadHighlights else null,
-                    avatarUrl = avatar
+                    avatarUrl = avatar,
+                    isFavourite = isFavourite,
+                    isLowPriority = isLowPriority
                 )
             )
         }
@@ -303,6 +328,34 @@ object SpaceRoomParser {
             // Extract sorting_timestamp from meta
             val sortingTimestamp = meta.optLong("sorting_timestamp", 0L).takeIf { it != 0L }
             
+            // Extract tags from account_data.m.tag
+            var isFavourite = false
+            var isLowPriority = false
+            
+            val accountData = roomObj.optJSONObject("account_data")
+            if (accountData != null) {
+                val tagData = accountData.optJSONObject("m.tag")
+                if (tagData != null) {
+                    val content = tagData.optJSONObject("content")
+                    if (content != null) {
+                        val tags = content.optJSONObject("tags")
+                        if (tags != null) {
+                            // Check for m.favourite tag
+                            if (tags.has("m.favourite")) {
+                                isFavourite = true
+                                Log.d("Andromuks", "SpaceRoomParser: Room $roomId marked as favourite")
+                            }
+                            
+                            // Check for m.lowpriority tag
+                            if (tags.has("m.lowpriority")) {
+                                isLowPriority = true
+                                Log.d("Andromuks", "SpaceRoomParser: Room $roomId marked as low priority")
+                            }
+                        }
+                    }
+                }
+            }
+            
             return RoomItem(
                 id = roomId,
                 name = name,
@@ -312,7 +365,9 @@ object SpaceRoomParser {
                 highlightCount = if (unreadHighlights > 0) unreadHighlights else null,
                 avatarUrl = avatar,
                 sortingTimestamp = sortingTimestamp,
-                isDirectMessage = isDirectMessage
+                isDirectMessage = isDirectMessage,
+                isFavourite = isFavourite,
+                isLowPriority = isLowPriority
             )
         } catch (e: Exception) {
             Log.e("Andromuks", "SpaceRoomParser: Error parsing room $roomId", e)
