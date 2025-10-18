@@ -76,6 +76,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import android.content.Context
@@ -115,6 +117,7 @@ fun RoomListScreen(
     appViewModel: AppViewModel = viewModel()
 ) {
     val context = LocalContext.current
+    val hapticFeedback = LocalHapticFeedback.current
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
@@ -245,7 +248,10 @@ fun RoomListScreen(
                 
                 // Settings button
                 IconButton(
-                    onClick = { navController.navigate("settings") }
+                    onClick = { 
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        navController.navigate("settings") 
+                    }
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Settings,
@@ -348,7 +354,8 @@ fun RoomListScreen(
                                 appViewModel = appViewModel,
                                 authToken = authToken,
                                 navController = navController,
-                                timestampUpdateTrigger = timestampUpdateTrigger
+                                timestampUpdateTrigger = timestampUpdateTrigger,
+                                hapticFeedback = hapticFeedback
                             )
                         }
                         RoomSectionType.SPACES -> {
@@ -359,7 +366,8 @@ fun RoomListScreen(
                                     appViewModel = appViewModel,
                                     authToken = authToken,
                                     navController = navController,
-                                    timestampUpdateTrigger = timestampUpdateTrigger
+                                    timestampUpdateTrigger = timestampUpdateTrigger,
+                                    hapticFeedback = hapticFeedback
                                 )
                             } else {
                                 SpacesListContent(
@@ -378,7 +386,8 @@ fun RoomListScreen(
                                 appViewModel = appViewModel,
                                 authToken = authToken,
                                 navController = navController,
-                                timestampUpdateTrigger = timestampUpdateTrigger
+                                timestampUpdateTrigger = timestampUpdateTrigger,
+                                hapticFeedback = hapticFeedback
                             )
                         }
                         RoomSectionType.UNREAD -> {
@@ -388,7 +397,8 @@ fun RoomListScreen(
                                 appViewModel = appViewModel,
                                 authToken = authToken,
                                 navController = navController,
-                                timestampUpdateTrigger = timestampUpdateTrigger
+                                timestampUpdateTrigger = timestampUpdateTrigger,
+                                hapticFeedback = hapticFeedback
                             )
                         }
                         RoomSectionType.FAVOURITES -> {
@@ -398,7 +408,8 @@ fun RoomListScreen(
                                 appViewModel = appViewModel,
                                 authToken = authToken,
                                 navController = navController,
-                                timestampUpdateTrigger = timestampUpdateTrigger
+                                timestampUpdateTrigger = timestampUpdateTrigger,
+                                hapticFeedback = hapticFeedback
                             )
                         }
                     }
@@ -409,6 +420,7 @@ fun RoomListScreen(
             TabBar(
                 currentSection = currentSection,
                 onSectionSelected = { section ->
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     appViewModel.changeSelectedSection(section)
                 },
                 appViewModel = appViewModel
@@ -953,7 +965,8 @@ fun RoomListContent(
     appViewModel: AppViewModel,
     authToken: String,
     navController: NavController,
-    timestampUpdateTrigger: Int
+    timestampUpdateTrigger: Int,
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback
 ) {
     // Handle Android back key when inside a space
     androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null) {
@@ -1023,6 +1036,8 @@ fun RoomListContent(
                 homeserverUrl = appViewModel.homeserverUrl,
                 authToken = authToken,
                 onRoomClick = { 
+                    // Add haptic feedback for room click
+                    hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                     // Use captured roomIdForNavigation to prevent race conditions
                     navController.navigate("room_timeline/$roomIdForNavigation")
                 },
