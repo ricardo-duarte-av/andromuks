@@ -154,6 +154,33 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
             null
         }
     }
+    val runId = remember { appViewModel.getCurrentRunId() }
+    val lastReceivedId = remember { appViewModel.getLastReceivedId() }
+    val homeserverUrl = remember { appViewModel.homeserverUrl }
+    
+    // Construct the current WebSocket URL
+    val currentWebSocketUrl = remember(homeserverUrl, runId, lastReceivedId) {
+        if (homeserverUrl.isBlank()) {
+            "Not available"
+        } else {
+            // Use the same logic as NetworkUtils.trimWebsocketHost()
+            val baseUrl = if (homeserverUrl.lowercase().trim().startsWith("https://")) {
+                homeserverUrl.substringAfter("https://")
+            } else if (homeserverUrl.lowercase().trim().startsWith("http://")) {
+                homeserverUrl.substringAfter("http://")
+            } else {
+                homeserverUrl
+            }
+            val wsHost = baseUrl.split("/").firstOrNull() ?: baseUrl
+            val baseWebSocketUrl = "wss://$wsHost/_gomuks/websocket"
+            
+            if (runId.isNotEmpty() && lastReceivedId != 0) {
+                "$baseWebSocketUrl?run_id=$runId&last_received_id=$lastReceivedId"
+            } else {
+                baseWebSocketUrl
+            }
+        }
+    }
     val isRegistered = remember { fcmNotificationManager.isRegisteredWithBackend() }
     val lastRegistration = remember {
         val prefs = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
@@ -255,6 +282,39 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
                 value = vapidKey ?: "Not available",
                 onCopy = if (vapidKey != null) {
                     { copyToClipboard("VAPID Key", vapidKey) }
+                } else null
+            )
+            
+            HorizontalDivider()
+            
+            // Run ID
+            FCMInfoItem(
+                label = "Run ID",
+                value = runId.ifEmpty { "Not available" },
+                onCopy = if (runId.isNotEmpty()) {
+                    { copyToClipboard("Run ID", runId) }
+                } else null
+            )
+            
+            HorizontalDivider()
+            
+            // Last Received ID
+            FCMInfoItem(
+                label = "Last Received ID",
+                value = if (lastReceivedId != 0) lastReceivedId.toString() else "Not set",
+                onCopy = if (lastReceivedId != 0) {
+                    { copyToClipboard("Last Received ID", lastReceivedId.toString()) }
+                } else null
+            )
+            
+            HorizontalDivider()
+            
+            // WebSocket URL
+            FCMInfoItem(
+                label = "WebSocket URL",
+                value = currentWebSocketUrl,
+                onCopy = if (currentWebSocketUrl != "Not available") {
+                    { copyToClipboard("WebSocket URL", currentWebSocketUrl) }
                 } else null
             )
             

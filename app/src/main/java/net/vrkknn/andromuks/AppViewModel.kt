@@ -20,6 +20,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import android.content.Context
+import android.os.Vibrator
+import android.os.VibrationEffect
+import android.os.Build
 
 data class MemberProfile(
     val displayName: String?,
@@ -52,6 +55,15 @@ data class VersionedMessage(
     val redactedBy: String? = null,
     val redactionEvent: TimelineEvent? = null
 )
+
+/**
+ * Result of WebSocket operations to handle connection issues gracefully
+ */
+enum class WebSocketResult {
+    SUCCESS,
+    NOT_CONNECTED,
+    CONNECTION_ERROR
+}
 
 class AppViewModel : ViewModel() {
     companion object {
@@ -167,6 +179,16 @@ class AppViewModel : ViewModel() {
     
     private val pendingNotificationActions = mutableListOf<PendingNotificationAction>()
     private val notificationActionCompletionCallbacks = mutableMapOf<Int, () -> Unit>()
+
+    // WebSocket pending operations for retry when connection is restored
+    private data class PendingWebSocketOperation(
+        val type: String, // "sendMessage", "sendReply", "markRoomAsRead", etc.
+        val data: Map<String, Any>,
+        val retryCount: Int = 0
+    )
+    
+    private val pendingWebSocketOperations = mutableListOf<PendingWebSocketOperation>()
+    private val maxRetryAttempts = 3
 
     var spacesLoaded by mutableStateOf(false)
         private set
@@ -996,7 +1018,7 @@ class AppViewModel : ViewModel() {
                     if (userId != null) {
                         when (membership) {
                             "join" -> {
-                                // Add/update joined members
+                                // Add/update only joined members to room cache for mention lists
                                 val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
                                 val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
                                 
@@ -1004,12 +1026,23 @@ class AppViewModel : ViewModel() {
                                 memberMap[userId] = profile
                                 // PERFORMANCE: Also add to global cache for O(1) lookups
                                 globalProfileCache[userId] = profile
-                                //android.util.Log.d("Andromuks", "AppViewModel: Cached member '$userId' in room '$roomId' -> displayName: '$displayName'")
+                                //android.util.Log.d("Andromuks", "AppViewModel: Cached joined member '$userId' in room '$roomId' -> displayName: '$displayName'")
+                            }
+                            "invite" -> {
+                                // Store invited members in global cache only (for profile lookups) but not in room member cache
+                                // This prevents them from appearing in mention lists but allows profile display if they send messages
+                                val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                                val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                                
+                                val profile = MemberProfile(displayName, avatarUrl)
+                                globalProfileCache[userId] = profile
+                                //android.util.Log.d("Andromuks", "AppViewModel: Cached invited member '$userId' profile in global cache only -> displayName: '$displayName'")
                             }
                             "leave", "ban" -> {
-                                // Remove members who left or were banned
+                                // Remove members who left or were banned from room cache only
                                 memberMap.remove(userId)
                                 // Note: Don't remove from global cache as they might be in other rooms
+                                // Note: Keep disk cache for potential future re-joining
                             }
                         }
                     }
@@ -1597,10 +1630,23 @@ class AppViewModel : ViewModel() {
     private var pongTimeoutJob: Job? = null
     private var currentRunId: String = "" // Unique connection ID from gomuks backend
     private var vapidKey: String = "" // VAPID key for push notifications
+    private var hasHadInitialConnection = false // Track if we've had an initial connection to only vibrate on reconnections
 
     fun setWebSocket(webSocket: WebSocket) {
         this.webSocket = webSocket
         startPingLoop()
+        
+        // Broadcast that socket connection is available and retry pending operations
+        android.util.Log.i("Andromuks", "AppViewModel: WebSocket connection established - retrying ${pendingWebSocketOperations.size} pending operations")
+        
+        // Only vibrate on reconnections, not initial connection
+        if (hasHadInitialConnection) {
+            performReconnectionHaptic()
+        } else {
+            hasHadInitialConnection = true
+        }
+        
+        retryPendingWebSocketOperations()
     }
     
     fun isWebSocketConnected(): Boolean {
@@ -1613,6 +1659,92 @@ class AppViewModel : ViewModel() {
         pingJob = null
         pongTimeoutJob?.cancel()
         pongTimeoutJob = null
+    }
+    
+    /**
+     * Retry all pending WebSocket operations now that connection is available
+     */
+    private fun retryPendingWebSocketOperations() {
+        if (pendingWebSocketOperations.isEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: No pending WebSocket operations to retry")
+            return
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Retrying ${pendingWebSocketOperations.size} pending WebSocket operations")
+        
+        val operationsToRetry = pendingWebSocketOperations.toList()
+        pendingWebSocketOperations.clear()
+        
+        operationsToRetry.forEach { operation ->
+            try {
+                when (operation.type) {
+                    "sendMessage" -> {
+                        val roomId = operation.data["roomId"] as String?
+                        val text = operation.data["text"] as String?
+                        if (roomId != null && text != null) {
+                            android.util.Log.d("Andromuks", "AppViewModel: Retrying sendMessage for room $roomId")
+                            val result = sendMessageInternal(roomId, text)
+                            if (result != WebSocketResult.SUCCESS && operation.retryCount < maxRetryAttempts) {
+                                // Re-queue if still failing
+                                pendingWebSocketOperations.add(operation.copy(retryCount = operation.retryCount + 1))
+                            }
+                        }
+                    }
+                    "sendReply" -> {
+                        // Note: SendReply operations would need the originalEvent, which is complex to serialize
+                        // For now, we'll skip retrying sendReply operations as they're less critical
+                        android.util.Log.w("Andromuks", "AppViewModel: Skipping retry of sendReply operation (complex to serialize)")
+                    }
+                    "markRoomAsRead" -> {
+                        val roomId = operation.data["roomId"] as String?
+                        val eventId = operation.data["eventId"] as String?
+                        if (roomId != null && eventId != null) {
+                            android.util.Log.d("Andromuks", "AppViewModel: Retrying markRoomAsRead for room $roomId")
+                            markRoomAsReadInternal(roomId, eventId)
+                        }
+                    }
+                    else -> {
+                        android.util.Log.w("Andromuks", "AppViewModel: Unknown operation type for retry: ${operation.type}")
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Error retrying operation ${operation.type}: ${e.message}")
+                if (operation.retryCount < maxRetryAttempts) {
+                    pendingWebSocketOperations.add(operation.copy(retryCount = operation.retryCount + 1))
+                }
+            }
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Finished retrying pending operations, ${pendingWebSocketOperations.size} remain queued")
+    }
+    
+    /**
+     * Perform a subtle haptic vibration to indicate WebSocket reconnection
+     */
+    private fun performReconnectionHaptic() {
+        appContext?.let { context ->
+            // Ensure vibration happens on main thread
+            viewModelScope.launch(Dispatchers.Main) {
+                try {
+                    val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator?
+                    if (vibrator?.hasVibrator() == true) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            // Modern API - use VibrationEffect for more control
+                            val effect = VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE)
+                            vibrator.vibrate(effect)
+                        } else {
+                            // Legacy API
+                            vibrator.vibrate(100)
+                        }
+                        android.util.Log.d("Andromuks", "AppViewModel: Performed reconnection haptic feedback")
+                    } else {
+                        android.util.Log.d("Andromuks", "AppViewModel: Device does not support vibration")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Failed to perform haptic feedback", e)
+                }
+            }
+        }
     }
 
     fun noteIncomingRequestId(requestId: Int) {
@@ -1912,7 +2044,7 @@ class AppViewModel : ViewModel() {
             viewModelScope.launch(Dispatchers.Main) {
                 android.widget.Toast.makeText(
                     context,
-                    "Andromuks: Reconnecting... ($reason)",
+                    "WS: $reason",
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
             }
@@ -2229,20 +2361,8 @@ class AppViewModel : ViewModel() {
         
         // Check if WebSocket is connected
         if (webSocket == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
-            restartWebSocketConnection("WebSocket disconnected during room state request")
-            
-            // Wait a bit for reconnection and then retry
-            CoroutineScope(Dispatchers.Main).launch {
-                delay(2000) // Wait 2 seconds for reconnection
-                if (webSocket != null) {
-                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket reconnected, retrying requestRoomStateWithMembers")
-                    requestRoomStateWithMembers(roomId, callback)
-                } else {
-                    android.util.Log.e("Andromuks", "AppViewModel: WebSocket reconnection failed, cannot request room state")
-                    callback(null, "WebSocket not connected")
-                }
-            }
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - calling back with error, NetworkMonitor will handle reconnection")
+            callback(null, "WebSocket not connected")
             return
         }
         
@@ -2359,47 +2479,42 @@ class AppViewModel : ViewModel() {
     fun sendTyping(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Sending typing indicator for room: $roomId")
         val typingRequestId = requestIdCounter++
-        sendWebSocketCommand("set_typing", typingRequestId, mapOf(
+        val result = sendWebSocketCommand("set_typing", typingRequestId, mapOf(
             "room_id" to roomId,
             "timeout" to 10000
         ))
+        
+        if (result != WebSocketResult.SUCCESS) {
+            android.util.Log.d("Andromuks", "AppViewModel: Typing indicator failed (result: $result), skipping")
+        }
     }
     
     fun sendMessage(roomId: String, text: String) {
         android.util.Log.d("Andromuks", "AppViewModel: sendMessage called with roomId: '$roomId', text: '$text'")
         
-        // Check if WebSocket is connected, if not, try to reconnect
-        if (webSocket == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
-            restartWebSocketConnection("WebSocket disconnected during message send")
-            
-            // Wait a bit for reconnection and then retry
-            CoroutineScope(Dispatchers.Main).launch {
-                delay(2000) // Wait 2 seconds for reconnection
-                if (webSocket != null) {
-                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket reconnected, retrying message send")
-                    sendMessageInternal(roomId, text)
-                } else {
-                    android.util.Log.e("Andromuks", "AppViewModel: WebSocket reconnection failed, cannot send message")
-                }
-            }
-            return
-        }
+        // Try to send the message immediately
+        val result = sendMessageInternal(roomId, text)
         
-        android.util.Log.d("Andromuks", "AppViewModel: WebSocket is connected, proceeding with sendMessageInternal")
-        sendMessageInternal(roomId, text)
+        // If WebSocket is not available, queue the operation for retry when connection is restored
+        if (result != WebSocketResult.SUCCESS) {
+            android.util.Log.w("Andromuks", "AppViewModel: sendMessage failed with result: $result - queuing for retry when connection is restored")
+            pendingWebSocketOperations.add(
+                PendingWebSocketOperation(
+                    type = "sendMessage",
+                    data = mapOf(
+                        "roomId" to roomId,
+                        "text" to text
+                    )
+                )
+            )
+        }
     }
     
-    private fun sendMessageInternal(roomId: String, text: String) {
+    private fun sendMessageInternal(roomId: String, text: String): WebSocketResult {
         android.util.Log.d("Andromuks", "AppViewModel: sendMessageInternal called")
         val messageRequestId = requestIdCounter++
-        android.util.Log.d("Andromuks", "AppViewModel: Generated request_id: $messageRequestId")
         
-        messageRequests[messageRequestId] = roomId
-        pendingSendCount++
-        android.util.Log.d("Andromuks", "AppViewModel: Stored request in messageRequests map, pendingSendCount=$pendingSendCount")
-        
-        val commandData = mapOf(
+        val result = sendWebSocketCommand("send_message", messageRequestId, mapOf(
             "room_id" to roomId,
             "text" to text,
             "mentions" to mapOf(
@@ -2407,11 +2522,17 @@ class AppViewModel : ViewModel() {
                 "room" to false
             ),
             "url_previews" to emptyList<String>()
-        )
+        ))
         
-        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with data: $commandData")
-        sendWebSocketCommand("send_message", messageRequestId, commandData)
-        android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $messageRequestId")
+        if (result == WebSocketResult.SUCCESS) {
+            messageRequests[messageRequestId] = roomId
+            pendingSendCount++
+            android.util.Log.d("Andromuks", "AppViewModel: Message send queued with request_id: $messageRequestId")
+        } else {
+            android.util.Log.w("Andromuks", "AppViewModel: Failed to send message, result: $result")
+        }
+        
+        return result
     }
     
     /**
@@ -2584,36 +2705,18 @@ class AppViewModel : ViewModel() {
     fun sendReply(roomId: String, text: String, originalEvent: net.vrkknn.andromuks.TimelineEvent) {
         android.util.Log.d("Andromuks", "AppViewModel: sendReply called with roomId: '$roomId', text: '$text', originalEvent: ${originalEvent.eventId}")
         
-        // Check if WebSocket is connected, if not, try to reconnect
-        if (webSocket == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
-            restartWebSocketConnection("WebSocket disconnected during reply send")
-            
-            // Wait a bit for reconnection and then retry
-            CoroutineScope(Dispatchers.Main).launch {
-                delay(2000) // Wait 2 seconds for reconnection
-                if (webSocket != null) {
-                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket reconnected, retrying reply send")
-                    sendReplyInternal(roomId, text, originalEvent)
-                } else {
-                    android.util.Log.e("Andromuks", "AppViewModel: WebSocket reconnection failed, cannot send reply")
-                }
-            }
-            return
-        }
+        // Try to send the reply immediately
+        val result = sendReplyInternal(roomId, text, originalEvent)
         
-        android.util.Log.d("Andromuks", "AppViewModel: WebSocket is connected, proceeding with sendReplyInternal")
-        sendReplyInternal(roomId, text, originalEvent)
+        // If WebSocket is not available, just log it - let NetworkMonitor handle reconnection
+        if (result != WebSocketResult.SUCCESS) {
+            android.util.Log.w("Andromuks", "AppViewModel: sendReply failed with result: $result - NetworkMonitor will handle reconnection")
+        }
     }
     
-    private fun sendReplyInternal(roomId: String, text: String, originalEvent: net.vrkknn.andromuks.TimelineEvent) {
+    private fun sendReplyInternal(roomId: String, text: String, originalEvent: net.vrkknn.andromuks.TimelineEvent): WebSocketResult {
         android.util.Log.d("Andromuks", "AppViewModel: sendReplyInternal called")
         val messageRequestId = requestIdCounter++
-        android.util.Log.d("Andromuks", "AppViewModel: Generated request_id: $messageRequestId")
-        
-        messageRequests[messageRequestId] = roomId
-        pendingSendCount++
-        android.util.Log.d("Andromuks", "AppViewModel: Stored request in messageRequests map, pendingSendCount=$pendingSendCount")
         
         // Extract mentions from the original message sender
         val mentions = mutableListOf<String>()
@@ -2636,9 +2739,17 @@ class AppViewModel : ViewModel() {
             "url_previews" to emptyList<String>()
         )
         
-        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with data: $commandData")
-        sendWebSocketCommand("send_message", messageRequestId, commandData)
-        android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $messageRequestId")
+        val result = sendWebSocketCommand("send_message", messageRequestId, commandData)
+        
+        if (result == WebSocketResult.SUCCESS) {
+            messageRequests[messageRequestId] = roomId
+            pendingSendCount++
+            android.util.Log.d("Andromuks", "AppViewModel: Reply send queued with request_id: $messageRequestId")
+        } else {
+            android.util.Log.w("Andromuks", "AppViewModel: Failed to send reply, result: $result")
+        }
+        
+        return result
     }
     
     fun sendEdit(roomId: String, text: String, originalEvent: net.vrkknn.andromuks.TimelineEvent) {
@@ -3658,6 +3769,13 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Parsing full member list from ${events.length()} room state events for room: $roomId")
         
         val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+        
+        // Clear existing cache to ensure we don't have stale invite members or other invalid entries
+        // Since this is a full member list request, we want to start fresh
+        val previousSize = memberMap.size
+        memberMap.clear()
+        android.util.Log.d("Andromuks", "AppViewModel: Cleared $previousSize existing members from cache for fresh member list")
+        
         var updatedMembers = 0
         
         for (i in 0 until events.length()) {
@@ -4774,35 +4892,27 @@ class AppViewModel : ViewModel() {
     fun markRoomAsRead(roomId: String, eventId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: markRoomAsRead called with roomId: '$roomId', eventId: '$eventId'")
         
-        // Check if WebSocket is connected, if not, try to reconnect
-        if (webSocket == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
-            restartWebSocketConnection("WebSocket disconnected during mark room as read")
-            
-            // Wait a bit for reconnection and then retry
-            CoroutineScope(Dispatchers.Main).launch {
-                delay(2000) // Wait 2 seconds for reconnection
-                if (webSocket != null) {
-                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket reconnected, retrying mark read")
-                    markRoomAsReadInternal(roomId, eventId)
-                } else {
-                    android.util.Log.e("Andromuks", "AppViewModel: WebSocket reconnection failed, cannot mark room as read")
-                }
-            }
-            return
-        }
+        // Try to mark as read immediately
+        val result = markRoomAsReadInternal(roomId, eventId)
         
-        android.util.Log.d("Andromuks", "AppViewModel: WebSocket is connected, proceeding with markRoomAsReadInternal")
-        markRoomAsReadInternal(roomId, eventId)
+        // If WebSocket is not available, queue the operation for retry when connection is restored
+        if (result != WebSocketResult.SUCCESS) {
+            android.util.Log.w("Andromuks", "AppViewModel: markRoomAsRead failed with result: $result - queuing for retry when connection is restored")
+            pendingWebSocketOperations.add(
+                PendingWebSocketOperation(
+                    type = "markRoomAsRead",
+                    data = mapOf(
+                        "roomId" to roomId,
+                        "eventId" to eventId
+                    )
+                )
+            )
+        }
     }
     
-    private fun markRoomAsReadInternal(roomId: String, eventId: String) {
+    private fun markRoomAsReadInternal(roomId: String, eventId: String): WebSocketResult {
         android.util.Log.d("Andromuks", "AppViewModel: markRoomAsReadInternal called")
         val markReadRequestId = requestIdCounter++
-        android.util.Log.d("Andromuks", "AppViewModel: Generated request_id: $markReadRequestId")
-        
-        markReadRequests[markReadRequestId] = roomId
-        android.util.Log.d("Andromuks", "AppViewModel: Stored request in markReadRequests map")
         
         val commandData = mapOf(
             "room_id" to roomId,
@@ -4810,9 +4920,16 @@ class AppViewModel : ViewModel() {
             "receipt_type" to "m.read"
         )
         
-        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: mark_read with data: $commandData")
-        sendWebSocketCommand("mark_read", markReadRequestId, commandData)
-        android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $markReadRequestId")
+        val result = sendWebSocketCommand("mark_read", markReadRequestId, commandData)
+        
+        if (result == WebSocketResult.SUCCESS) {
+            markReadRequests[markReadRequestId] = roomId
+            android.util.Log.d("Andromuks", "AppViewModel: Mark read queued with request_id: $markReadRequestId")
+        } else {
+            android.util.Log.w("Andromuks", "AppViewModel: Failed to send mark read, result: $result")
+        }
+        
+        return result
     }
     
     fun getRoomSummary(roomId: String) {
@@ -4896,19 +5013,26 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    private fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>) {
+    private fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult {
         val ws = webSocket
         if (ws == null) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, cannot send command: $command")
-            return
+            return WebSocketResult.NOT_CONNECTED
         }
-        val json = org.json.JSONObject()
-        json.put("command", command)
-        json.put("request_id", requestId)
-        json.put("data", org.json.JSONObject(data))
-        val jsonString = json.toString()
-        //android.util.Log.d("Andromuks", "AppViewModel: Sending command: $jsonString")
-        ws.send(jsonString)
+        
+        return try {
+            val json = org.json.JSONObject()
+            json.put("command", command)
+            json.put("request_id", requestId)
+            json.put("data", org.json.JSONObject(data))
+            val jsonString = json.toString()
+            //android.util.Log.d("Andromuks", "AppViewModel: Sending command: $jsonString")
+            ws.send(jsonString)
+            WebSocketResult.SUCCESS
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to send WebSocket command: $command", e)
+            WebSocketResult.CONNECTION_ERROR
+        }
     }
     
     /**
@@ -4920,20 +5044,8 @@ class AppViewModel : ViewModel() {
         
         // Check if WebSocket is connected
         if (webSocket == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
-            restartWebSocketConnection("WebSocket disconnected during get event")
-            
-            // Wait a bit for reconnection and then retry
-            CoroutineScope(Dispatchers.Main).launch {
-                delay(2000) // Wait 2 seconds for reconnection
-                if (webSocket != null) {
-                    android.util.Log.d("Andromuks", "AppViewModel: WebSocket reconnected, retrying getEvent")
-                    getEvent(roomId, eventId, callback)
-                } else {
-                    android.util.Log.e("Andromuks", "AppViewModel: WebSocket reconnection failed, cannot get event")
-                    callback(null)
-                }
-            }
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - calling back with null, NetworkMonitor will handle reconnection")
+            callback(null)
             return
         }
         
@@ -5101,8 +5213,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: sendThreadReply called - roomId: $roomId, text: '$text', threadRoot: $threadRootEventId, fallbackReply: $fallbackReplyToEventId")
         
         if (webSocket == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, attempting to reconnect")
-            restartWebSocketConnection("WebSocket disconnected during thread replied send")
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - cannot send thread reply, NetworkMonitor will handle reconnection")
             return
         }
         
