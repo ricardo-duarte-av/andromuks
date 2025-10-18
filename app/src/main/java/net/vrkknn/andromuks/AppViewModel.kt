@@ -1562,6 +1562,7 @@ class AppViewModel : ViewModel() {
     private val resolveAliasRequests = mutableMapOf<Int, (Pair<String, List<String>>?) -> Unit>() // requestId -> callback
     private val getRoomSummaryRequests = mutableMapOf<Int, (Pair<net.vrkknn.andromuks.utils.RoomSummary?, String?>?) -> Unit>() // requestId -> callback
     private val joinRoomCallbacks = mutableMapOf<Int, (Pair<String?, String?>?) -> Unit>() // requestId -> callback
+    private val roomSpecificStateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_specific_room_state requests)
     
     // Pagination state
     private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
@@ -2243,6 +2244,74 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $stateRequestId")
     }
     
+    /**
+     * Requests updated profile information for users in a room using get_specific_room_state.
+     * This is used to refresh stale profile cache data when opening a room.
+     * The room will render immediately with cached data, then update as fresh data arrives.
+     */
+    fun requestUpdatedRoomProfiles(roomId: String, timelineEvents: List<TimelineEvent>) {
+        android.util.Log.d("Andromuks", "AppViewModel: Requesting updated room profiles for room: $roomId")
+        
+        // Check if WebSocket is connected
+        if (webSocket == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, skipping profile refresh")
+            return
+        }
+        
+        // Extract unique user IDs from timeline events
+        val userIds = timelineEvents
+            .map { it.sender }
+            .distinct()
+            .filter { !it.isBlank() && it != currentUserId } // Exclude current user and blanks
+        
+        if (userIds.isEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: No users found in timeline events, skipping profile refresh")
+            return
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Requesting profile updates for ${userIds.size} users: $userIds")
+        
+        // Build the keys array for get_specific_room_state
+        val keys = userIds.map { userId ->
+            mapOf(
+                "room_id" to roomId,
+                "type" to "m.room.member",
+                "state_key" to userId
+            )
+        }
+        
+        val requestId = requestIdCounter++
+        roomSpecificStateRequests[requestId] = roomId
+        
+        // Build JSON structure manually to ensure proper array handling
+        val ws = webSocket
+        if (ws != null) {
+            val json = org.json.JSONObject()
+            json.put("command", "get_specific_room_state")
+            json.put("request_id", requestId)
+            
+            val data = org.json.JSONObject()
+            val keysArray = org.json.JSONArray()
+            
+            for (key in keys) {
+                val keyObj = org.json.JSONObject()
+                keyObj.put("room_id", key["room_id"])
+                keyObj.put("type", key["type"])
+                keyObj.put("state_key", key["state_key"])
+                keysArray.put(keyObj)
+            }
+            
+            data.put("keys", keysArray)
+            json.put("data", data)
+            
+            val jsonString = json.toString()
+            android.util.Log.d("Andromuks", "AppViewModel: Sending get_specific_room_state: $jsonString")
+            ws.send(jsonString)
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sent get_specific_room_state request with ID $requestId for ${keys.size} members")
+    }
+    
     fun sendTyping(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Sending typing indicator for room: $roomId")
         val typingRequestId = requestIdCounter++
@@ -2799,6 +2868,8 @@ class AppViewModel : ViewModel() {
             handleGetRoomSummaryResponse(requestId, data)
         } else if (joinRoomCallbacks.containsKey(requestId)) {
             handleJoinRoomCallbackResponse(requestId, data)
+        } else if (roomSpecificStateRequests.containsKey(requestId)) {
+            handleRoomSpecificStateResponse(requestId, data)
         } else if (outgoingRequests.containsKey(requestId)) {
             android.util.Log.d("Andromuks", "AppViewModel: Routing to handleOutgoingRequestResponse")
             handleOutgoingRequestResponse(requestId, data)
@@ -2855,6 +2926,9 @@ class AppViewModel : ViewModel() {
             android.util.Log.w("Andromuks", "AppViewModel: Join room error for requestId=$requestId: $errorMessage")
             val callback = joinRoomCallbacks.remove(requestId) ?: return
             callback(Pair(null, errorMessage))
+        } else if (roomSpecificStateRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Room specific state error for requestId=$requestId: $errorMessage")
+            roomSpecificStateRequests.remove(requestId)
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
@@ -3495,6 +3569,75 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleEventResponse: ${data::class.java.simpleName}")
                 callback(null)
             }
+        }
+    }
+    
+    private fun handleRoomSpecificStateResponse(requestId: Int, data: Any) {
+        val roomId = roomSpecificStateRequests.remove(requestId) ?: return
+        android.util.Log.d("Andromuks", "AppViewModel: Handling room specific state response for room: $roomId")
+        
+        when (data) {
+            is JSONArray -> {
+                // Parse member events from the response
+                parseMemberEventsForProfileUpdate(roomId, data)
+            }
+            is JSONObject -> {
+                android.util.Log.d("Andromuks", "AppViewModel: Room specific state response is JSONObject, expected JSONArray")
+            }
+            else -> {
+                android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleRoomSpecificStateResponse: ${data::class.java.simpleName}")
+            }
+        }
+    }
+    
+    private fun parseMemberEventsForProfileUpdate(roomId: String, events: JSONArray) {
+        android.util.Log.d("Andromuks", "AppViewModel: Parsing ${events.length()} member events for profile update in room: $roomId")
+        
+        val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+        var updatedProfiles = 0
+        
+        for (i in 0 until events.length()) {
+            val event = events.optJSONObject(i) ?: continue
+            val eventType = event.optString("type")
+            
+            if (eventType == "m.room.member") {
+                val stateKey = event.optString("state_key")
+                val content = event.optJSONObject("content")
+                val membership = content?.optString("membership")
+                
+                // Only process joined members
+                if (stateKey.isNotEmpty() && membership == "join") {
+                    val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                    val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                    
+                    val newProfile = MemberProfile(displayName, avatarUrl)
+                    val previousProfile = memberMap[stateKey]
+                    
+                    // Only update if the profile data has actually changed
+                    if (previousProfile == null || 
+                        previousProfile.displayName != displayName || 
+                        previousProfile.avatarUrl != avatarUrl) {
+                        
+                        memberMap[stateKey] = newProfile
+                        // PERFORMANCE: Also add to global cache for O(1) lookups
+                        globalProfileCache[stateKey] = newProfile
+                        
+                        android.util.Log.d("Andromuks", "AppViewModel: Updated profile for $stateKey - displayName: '$displayName', avatarUrl: '$avatarUrl'")
+                        updatedProfiles++
+                        
+                        // Save updated profile to disk
+                        appContext?.let { context ->
+                            saveProfileToDisk(context, stateKey, newProfile)
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (updatedProfiles > 0) {
+            android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedProfiles profiles in room $roomId")
+            // Trigger UI update since member cache changed
+            updateCounter++
         }
     }
     

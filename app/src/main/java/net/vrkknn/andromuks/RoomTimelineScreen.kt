@@ -598,6 +598,20 @@ fun RoomTimelineScreen(
         }
     }
 
+    // Request updated profile information for users in the room
+    // This happens after the timeline loads to refresh potentially stale profile data
+    LaunchedEffect(sortedEvents, roomId) {
+        if (sortedEvents.isNotEmpty()) {
+            Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Requesting updated profiles for ${sortedEvents.size} timeline events"
+            )
+            // Request updated profile information from the server for all users in the timeline
+            // This will not block rendering - it happens in the background and updates UI as data arrives
+            appViewModel.requestUpdatedRoomProfiles(roomId, sortedEvents)
+        }
+    }
+
     // Save updated profiles to disk when member cache changes
     // This persists user profile data (display names, avatars) to disk for future app sessions
     // Only save profiles for users involved in the events being processed to avoid performance
