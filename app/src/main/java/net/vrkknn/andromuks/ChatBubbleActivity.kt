@@ -67,10 +67,10 @@ class ChatBubbleActivity : ComponentActivity() {
                         // Load cached user profiles on app startup
                         appViewModel.loadCachedProfiles(this)
                         
-                        // IMPORTANT: Mark bubble as visible immediately to ensure live updates
-                        // This ensures sync_complete events update the timeline
-                        appViewModel.onAppBecameVisible()
-                        Log.d("Andromuks", "ChatBubbleActivity: Marked app as visible for live updates")
+                        // IMPORTANT: Mark bubble as visible for live updates WITHOUT expensive UI refresh
+                        // Bubbles don't need to update shortcuts or refresh room list
+                        appViewModel.setBubbleVisible(true)
+                        Log.d("Andromuks", "ChatBubbleActivity: Marked bubble as visible (lightweight)")
                         
                         // Get room ID from intent
                         val roomId = intent.getStringExtra("room_id")
@@ -114,7 +114,8 @@ class ChatBubbleActivity : ComponentActivity() {
         super.onResume()
         Log.d("Andromuks", "ChatBubbleActivity: onResume called")
         if (::appViewModel.isInitialized) {
-            appViewModel.onAppBecameVisible()
+            // Lightweight visibility flag - don't trigger expensive UI refresh for bubbles
+            appViewModel.setBubbleVisible(true)
         }
     }
     
@@ -122,8 +123,8 @@ class ChatBubbleActivity : ComponentActivity() {
         super.onPause()
         Log.d("Andromuks", "ChatBubbleActivity: onPause called")
         if (::appViewModel.isInitialized) {
-            // WebSocket service maintains connection, just save state for crash recovery
-            appViewModel.onAppBecameInvisible()
+            // Lightweight invisibility flag - don't trigger shutdown for bubbles
+            appViewModel.setBubbleVisible(false)
         }
     }
     
@@ -198,8 +199,10 @@ fun ChatBubbleNavigation(
     val navController = rememberNavController()
     val appViewModel: AppViewModel = viewModel()
     
-    // Notify the parent about the ViewModel creation
-    onViewModelCreated(appViewModel)
+    // Notify the parent about the ViewModel creation (only once)
+    LaunchedEffect(Unit) {
+        onViewModelCreated(appViewModel)
+    }
     
     Log.d("Andromuks", "ChatBubbleNavigation: Starting bubble navigation")
     

@@ -1542,12 +1542,25 @@ fun TimelineEventItem(
             }
         }
 
+    // Early check for emote message (before rendering layout)
+    val isEmoteMessage = when {
+        event.type == "m.room.message" -> {
+            val isEdit = event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+            val content = if (isEdit) event.content?.optJSONObject("m.new_content") else event.content
+            content?.optString("msgtype", "") == "m.emote"
+        }
+        event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> {
+            event.decrypted?.optString("msgtype", "") == "m.emote"
+        }
+        else -> false
+    }
+    
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
         verticalAlignment = Alignment.Top
     ) {
-        // Show avatar only for non-consecutive messages
-        if (!actualIsMine && !isConsecutive) {
+        // Show avatar only for non-consecutive messages (and not for emotes, they have their own)
+        if (!actualIsMine && !isConsecutive && !isEmoteMessage) {
             Box(modifier = Modifier.clickable { onUserClick(event.sender) }) {
                 AvatarImage(
                     mxcUrl = avatarUrl,
@@ -1560,15 +1573,15 @@ fun TimelineEventItem(
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))
-        } else if (!actualIsMine && isConsecutive) {
-            // Add spacer to maintain alignment for consecutive messages
+        } else if (!actualIsMine && isConsecutive && !isEmoteMessage) {
+            // Add spacer to maintain alignment for consecutive messages (but not for emotes)
             Spacer(modifier = Modifier.width(32.dp)) // 24dp avatar + 8dp spacer
         }
 
         // Event content
         Column(modifier = Modifier.weight(1f)) {
-            // Show name and timestamp header only for non-consecutive messages
-            if (!isConsecutive) {
+            // Show name and timestamp header only for non-consecutive messages (and not for emotes)
+            if (!isConsecutive && !isEmoteMessage) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start

@@ -141,35 +141,39 @@ fun SystemEventNarrator(
                         )
                     }
                     "invite" -> {
-                        val invitedUserId = content?.optString("state_key", "")
-        // Get invited user's display name and avatar using the getMemberProfile function
-        // (Fixed from previous incorrect memberProfileCache usage)
-        val invitedDisplayName = invitedUserId?.let { userId ->
-            appViewModel?.getMemberProfile(roomId, userId)?.displayName
+                        // state_key is on the event itself, not in content!
+                        val invitedUserId = event.stateKey
+        // Get invited user's display name and avatar using getUserProfile
+        // This checks room cache, current user profile, AND global profile cache
+        val invitedProfile = invitedUserId?.let { userId ->
+            appViewModel?.getUserProfile(userId, roomId)
         }
-        val invitedAvatarUrl = invitedUserId?.let { userId ->
-            appViewModel?.getMemberProfile(roomId, userId)?.avatarUrl
-        }
+        val invitedDisplayName = invitedProfile?.displayName
+        val invitedAvatarUrl = invitedProfile?.avatarUrl
                         
-                        // Request profile if not found
+                        // Request profile asynchronously if not found
                         if (invitedDisplayName == null && appViewModel != null && invitedUserId != null) {
-                            appViewModel.requestUserProfile(invitedUserId)
+                            appViewModel.requestUserProfile(invitedUserId, roomId)
                         }
                         
+                        // Use a single Row with inline elements for better text flow
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            NarratorText(
+                            Text(
                                 text = buildAnnotatedString {
                                     withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                                         append(displayName)
                                     }
                                     append(" invited ")
-                                }
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontStyle = FontStyle.Italic
                             )
                             
-                            // Invited user avatar
+                            // Invited user avatar (inline)
                             AvatarImage(
                                 mxcUrl = invitedAvatarUrl,
                                 homeserverUrl = homeserverUrl,
@@ -180,16 +184,21 @@ fun SystemEventNarrator(
                                 displayName = invitedDisplayName
                             )
                             
-                            NarratorText(
+                            // Invitee name and reason (inline, no extra wrapping)
+                            Text(
                                 text = buildAnnotatedString {
                                     withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                                         append(invitedDisplayName ?: invitedUserId?.substringAfterLast(":") ?: "Unknown")
                                     }
-                                    // Safe null check for reason string (was causing compilation error)
-            if (!reason.isNullOrEmpty()) {
+                                    // Safe null check for reason string
+                                    if (!reason.isNullOrEmpty()) {
                                         append(" for $reason")
                                     }
-                                }
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontStyle = FontStyle.Italic,
+                                maxLines = Int.MAX_VALUE
                             )
                         }
                     }

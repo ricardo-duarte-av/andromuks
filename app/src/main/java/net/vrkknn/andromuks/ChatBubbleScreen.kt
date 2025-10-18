@@ -241,31 +241,25 @@ fun ChatBubbleScreen(
         "m.room.encrypted"
     )
     
-    // Sort events so newer messages are at the bottom, and filter to only show messages
+    // OPTIMIZED: Sort events and filter - no O(n²) operations
+    // The AppViewModel already handles edit filtering via buildTimelineFromChain()
     val sortedEvents = remember(timelineEvents) {
         Log.d("Andromuks", "ChatBubbleScreen: Processing ${timelineEvents.size} timeline events")
         
+        // Simple O(n) filter - just filter by type
+        // Edit filtering is already done by AppViewModel's buildTimelineFromChain()
         val filteredEvents = timelineEvents.filter { event ->
             allowedEventTypes.contains(event.type) && event.type != "m.room.redaction"
         }
         
-        // Filter out superseded events (original messages that have been edited)
-        val eventsWithoutSuperseded = filteredEvents.filter { event ->
-            if (event.type == "m.room.message") {
-                val hasBeenEdited = filteredEvents.any { otherEvent ->
-                    otherEvent.type == "m.room.message" &&
-                    otherEvent.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace" &&
-                    otherEvent.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId
-                }
-                !hasBeenEdited
-            } else {
-                true
-            }
-        }
-        
-        val sorted = eventsWithoutSuperseded.sortedBy { it.timestamp }
+        val sorted = filteredEvents.sortedBy { it.timestamp }
         Log.d("Andromuks", "ChatBubbleScreen: Final sorted events: ${sorted.size} events")
         sorted
+    }
+    
+    // Cache member map outside of items for better performance
+    val memberMap = remember(roomId, appViewModel.updateCounter) {
+        appViewModel.getMemberMap(roomId)
     }
 
     // List state and auto-scroll to bottom when data loads/changes
@@ -411,7 +405,10 @@ fun ChatBubbleScreen(
                             vertical = 8.dp
                         )
                     ) {
-                        itemsIndexed(sortedEvents) { index, event ->
+                        itemsIndexed(
+                            items = sortedEvents,
+                            key = { _, event -> event.eventId }  // CRITICAL: Enables efficient recomposition
+                        ) { index, event ->
                             // Check if this is a consecutive message from the same sender
                             val previousEvent = if (index > 0) sortedEvents[index - 1] else null
                             
@@ -430,7 +427,7 @@ fun ChatBubbleScreen(
                                 timelineEvents = timelineEvents,
                                 homeserverUrl = homeserverUrl,
                                 authToken = authToken,
-                                userProfileCache = appViewModel.getMemberMap(roomId),
+                                userProfileCache = memberMap,  // Use cached member map
                                 isMine = myUserId != null && event.sender == myUserId,
                                 myUserId = myUserId,
                                 isConsecutive = isConsecutive,
@@ -564,47 +561,71 @@ fun ChatBubbleEventItem(
 ) {
     val context = LocalContext.current
     
-    // Check for per-message profile (e.g., from Beeper bridge)
-    val perMessageProfile = event.content?.optJSONObject("com.beeper.per_message_profile")
-    val encryptedPerMessageProfile = event.decrypted?.optJSONObject("com.beeper.per_message_profile")
-    val hasPerMessageProfile = perMessageProfile != null
-    val hasEncryptedPerMessageProfile = encryptedPerMessageProfile != null
+    // PERFORMANCE: Cache profile extraction to avoid recalculation on every scroll frame
+    val profileData = remember(event.eventId, event.content, event.decrypted) {
+        // Check for per-message profile (e.g., from Beeper bridge)
+        val perMessageProfile = event.content?.optJSONObject("com.beeper.per_message_profile")
+        val encryptedPerMessageProfile = event.decrypted?.optJSONObject("com.beeper.per_message_profile")
+        val hasPerMessageProfile = perMessageProfile != null
+        val hasEncryptedPerMessageProfile = encryptedPerMessageProfile != null
+        
+        // Use per-message profile if available, otherwise fall back to regular profile cache
+        val actualProfile = when {
+            hasEncryptedPerMessageProfile -> {
+                val encryptedPerMessageDisplayName = encryptedPerMessageProfile?.optString("displayname")?.takeIf { it.isNotBlank() }
+                val encryptedPerMessageAvatarUrl = encryptedPerMessageProfile?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                MemberProfile(encryptedPerMessageDisplayName, encryptedPerMessageAvatarUrl)
+            }
+            hasPerMessageProfile -> {
+                val perMessageDisplayName = perMessageProfile?.optString("displayname")?.takeIf { it.isNotBlank() }
+                val perMessageAvatarUrl = perMessageProfile?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                MemberProfile(perMessageDisplayName, perMessageAvatarUrl)
+            }
+            else -> userProfileCache[event.sender]
+        }
+        
+        // For per-message profiles, check if the message is "mine" based on the per-message profile user ID
+        val actualIsMine = if (hasPerMessageProfile || hasEncryptedPerMessageProfile) {
+            val perMessageUserId = if (hasEncryptedPerMessageProfile) {
+                encryptedPerMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
+            } else {
+                perMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
+            }
+            myUserId != null && perMessageUserId == myUserId
+        } else {
+            isMine
+        }
+        
+        // Early return for edit events (m.replace relationships)
+        val isEditEvent = (event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") ||
+                         (event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace")
+        
+        Triple(actualProfile, actualIsMine, isEditEvent)
+    }
     
-    // Use per-message profile if available, otherwise fall back to regular profile cache
-    val actualProfile = when {
-        hasEncryptedPerMessageProfile -> {
-            val encryptedPerMessageDisplayName = encryptedPerMessageProfile?.optString("displayname")?.takeIf { it.isNotBlank() }
-            val encryptedPerMessageAvatarUrl = encryptedPerMessageProfile?.optString("avatar_url")?.takeIf { it.isNotBlank() }
-            MemberProfile(encryptedPerMessageDisplayName, encryptedPerMessageAvatarUrl)
-        }
-        hasPerMessageProfile -> {
-            val perMessageDisplayName = perMessageProfile?.optString("displayname")?.takeIf { it.isNotBlank() }
-            val perMessageAvatarUrl = perMessageProfile?.optString("avatar_url")?.takeIf { it.isNotBlank() }
-            MemberProfile(perMessageDisplayName, perMessageAvatarUrl)
-        }
-        else -> userProfileCache[event.sender]
+    val actualProfile = profileData.first
+    val actualIsMine = profileData.second
+    val isEditEvent = profileData.third
+    
+    // Early return for edit events
+    if (isEditEvent) {
+        return
     }
     
     val displayName = actualProfile?.displayName
     val avatarUrl = actualProfile?.avatarUrl
     
-    // For per-message profiles, check if the message is "mine" based on the per-message profile user ID
-    val actualIsMine = if (hasPerMessageProfile || hasEncryptedPerMessageProfile) {
-        val perMessageUserId = if (hasEncryptedPerMessageProfile) {
-            encryptedPerMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
-        } else {
-            perMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
+    // Early check for emote message (to skip header since narrator includes it)
+    val isEmoteMessage = when {
+        event.type == "m.room.message" -> {
+            val isEdit = event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+            val content = if (isEdit) event.content?.optJSONObject("m.new_content") else event.content
+            content?.optString("msgtype", "") == "m.emote"
         }
-        myUserId != null && perMessageUserId == myUserId
-    } else {
-        isMine
-    }
-    
-    // Early return for edit events (m.replace relationships)
-    val isEditEvent = (event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") ||
-                     (event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace")
-    if (isEditEvent) {
-        return
+        event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> {
+            event.decrypted?.optString("msgtype", "") == "m.emote"
+        }
+        else -> false
     }
     
     Row(
@@ -613,8 +634,8 @@ fun ChatBubbleEventItem(
             .padding(vertical = 2.dp),
         verticalAlignment = Alignment.Top
     ) {
-        // Show avatar only for non-consecutive messages
-        if (!actualIsMine && !isConsecutive) {
+        // Show avatar only for non-consecutive messages (and not for emotes)
+        if (!actualIsMine && !isConsecutive && !isEmoteMessage) {
             AvatarImage(
                 mxcUrl = avatarUrl,
                 homeserverUrl = homeserverUrl,
@@ -625,18 +646,18 @@ fun ChatBubbleEventItem(
                 displayName = displayName
             )
             Spacer(modifier = Modifier.width(8.dp))
-        } else if (!actualIsMine && isConsecutive) {
+        } else if (!actualIsMine && isConsecutive && !isEmoteMessage) {
             // Add spacer to maintain alignment for consecutive messages
             Spacer(modifier = Modifier.width(32.dp)) // 24dp avatar + 8dp spacer
         }
         
         // Event content
         Column(modifier = Modifier.weight(1f)) {
-            // Show sender name and timestamp only for non-consecutive messages
-            if (!actualIsMine && !isConsecutive) {
+            // Show sender name and timestamp for non-consecutive messages (including our own, but not for emotes)
+            if (!isConsecutive && !isEmoteMessage) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Start
+                    horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
                 ) {
                     Text(
                         text = displayName ?: event.sender,

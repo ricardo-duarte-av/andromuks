@@ -319,7 +319,13 @@ private fun AnnotatedString.Builder.appendHtmlNode(
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
 ) {
     when (node) {
-        is HtmlNode.Text -> withStyle(baseStyle) { append(node.content) }
+        is HtmlNode.Text -> {
+            // Normalize whitespace: collapse multiple spaces/tabs/newlines into single space
+            // This matches standard HTML rendering behavior
+            val normalized = node.content
+                .replace(Regex("\\s+"), " ") // Replace any sequence of whitespace with single space
+            withStyle(baseStyle) { append(normalized) }
+        }
         is HtmlNode.LineBreak -> append("\n")
         is HtmlNode.Tag -> appendHtmlTag(node, baseStyle, inlineImages, inlineMatrixUsers)
     }

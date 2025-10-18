@@ -1343,6 +1343,28 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Lightweight version for chat bubbles - sets visibility without expensive UI refresh
+     * Bubbles don't need to update shortcuts or refresh the room list
+     */
+    fun setBubbleVisible(visible: Boolean) {
+        android.util.Log.d("Andromuks", "AppViewModel: Bubble visibility set to $visible (lightweight)")
+        isAppVisible = visible
+        
+        if (visible) {
+            // Cancel any pending shutdown
+            appInvisibleJob?.cancel()
+            appInvisibleJob = null
+            
+            // If a room is currently open, trigger timeline refresh to show new events from cache
+            if (currentRoomId.isNotEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: Room is open ($currentRoomId), triggering timeline refresh for bubble")
+                timelineRefreshTrigger++
+            }
+        }
+        // Don't call refreshUIState() - bubbles don't need room list updates or shortcut updates
+    }
+    
+    /**
      * Refreshes UI state when app becomes visible
      * This updates the UI with any changes that happened while app was in background
      */
