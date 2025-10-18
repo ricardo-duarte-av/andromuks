@@ -154,62 +154,47 @@ fun ReplyPreview(
     val memberProfile = userProfileCache[originalSender]
     val senderName = memberProfile?.displayName ?: originalSender.substringAfterLast(":")
     
-    // Outer container for the reply
+    // Replied-to message bubble (no outer wrapper - the parent MessageBubbleWithMenu provides the main bubble)
+    // Use a semi-transparent overlay to blend with the outer bubble color
     Surface(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 2.dp
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable { onOriginalMessageClick() },
+        shape = RoundedCornerShape(8.dp),
+        //color = MaterialTheme.colorScheme.surface.copy(alpha = 0.1f),
+        shadowElevation = 1.dp
     ) {
         Column(
-            modifier = Modifier.padding(0.dp)
+            modifier = Modifier.padding(6.dp)
         ) {
-            // Nested bubble for original message (clickable) - optimized spacing
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onOriginalMessageClick() },
-                shape = RoundedCornerShape(8.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                ),
-                tonalElevation = 1.dp
-            ) {
-                Column(
-                    modifier = Modifier.padding(6.dp)
-                ) {
-                    // Sender name
-                    Text(
-                        text = senderName,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(bottom = 2.dp)
-                    )
-                    
-                    // Original message content - use HTML if available
-                    if (latestOriginalEvent != null && supportsHtmlRendering(latestOriginalEvent)) {
-                        HtmlMessageText(
-                            event = latestOriginalEvent,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier,
-                            onMatrixUserClick = onMatrixUserClick
-                        )
-                    } else {
-                        Text(
-                            text = originalBody,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9
-                        )
-                    }
-                }
+            // Sender name
+            Text(
+                text = senderName,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(bottom = 2.dp)
+            )
+            
+            // Original message content - use HTML if available
+            if (latestOriginalEvent != null && supportsHtmlRendering(latestOriginalEvent)) {
+                HtmlMessageText(
+                    event = latestOriginalEvent,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier,
+                    onMatrixUserClick = onMatrixUserClick
+                )
+            } else {
+                Text(
+                    text = originalBody,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9
+                )
             }
         }
     }
@@ -368,7 +353,8 @@ fun ReplyPreviewInput(
             .padding(bottom = 4.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         shape = RoundedCornerShape(12.dp),
-        tonalElevation = 0.dp
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp
     ) {
         Row(
             modifier = Modifier
@@ -447,7 +433,8 @@ fun EditPreviewInput(
             .padding(bottom = 4.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         shape = RoundedCornerShape(12.dp),
-        tonalElevation = 0.dp
+        tonalElevation = 0.dp,
+        shadowElevation = 2.dp
     ) {
         Row(
             modifier = Modifier
@@ -646,7 +633,7 @@ fun MessageBubbleWithMenu(
                 },
             color = bubbleColor,
             shape = bubbleShape,
-            tonalElevation = 2.dp
+            shadowElevation = 3.dp
         ) {
             Row(content = content)
         }

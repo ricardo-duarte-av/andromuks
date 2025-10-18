@@ -389,7 +389,7 @@ fun MediaMessage(
                     bottomEnd = 12.dp
                 ),
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 1.dp
+                shadowElevation = 3.dp
             ) {
                 Column {
                     // Image content inside the caption bubble
@@ -486,7 +486,7 @@ fun MediaMessage(
                     bottomEnd = 12.dp
                 ),
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 1.dp
+                shadowElevation = 3.dp
             ) {
                 Column {
                     MediaContent(

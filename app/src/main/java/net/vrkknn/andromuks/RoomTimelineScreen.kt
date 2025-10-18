@@ -1776,7 +1776,7 @@ fun TimelineEventItem(
                                 Surface(
                                     color = bubbleColor,
                                     shape = bubbleShape,
-                                    tonalElevation = 2.dp,
+                                    shadowElevation = 3.dp,
                                     modifier = Modifier.padding(top = 4.dp)
                                 ) {
                                     Text(
@@ -1962,7 +1962,7 @@ fun TimelineEventItem(
                                 Surface(
                                     color = bubbleColor,
                                     shape = bubbleShape,
-                                    tonalElevation = 2.dp,
+                                    shadowElevation = 3.dp,
                                     modifier = Modifier.padding(top = 4.dp)
                                 ) {
                                     Text(
@@ -2068,7 +2068,7 @@ fun TimelineEventItem(
                                             authToken = authToken,
                                             isMine = actualIsMine,
                                             modifier =
-                                                Modifier.padding(bottom = 8.dp)
+                                                Modifier.padding(bottom = 6.dp)
                                                     .align(Alignment.Start),
                                             onOriginalMessageClick = {
                                                 onScrollToMessage(replyInfo.eventId)
@@ -2664,7 +2664,7 @@ fun TimelineEventItem(
                                                 authToken = authToken,
                                                 isMine = actualIsMine,
                                                 modifier =
-                                                    Modifier.padding(bottom = 8.dp)
+                                                    Modifier.padding(bottom = 6.dp)
                                                         .align(Alignment.Start),
                                                 onOriginalMessageClick = {
                                                     onScrollToMessage(replyInfo.eventId)
