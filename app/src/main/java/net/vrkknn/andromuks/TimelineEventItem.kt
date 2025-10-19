@@ -1,5 +1,3 @@
-
-
 package net.vrkknn.andromuks
 
 import android.util.Log
@@ -274,6 +272,1655 @@ private fun MediaMessageItem(
 }
 
 @Composable
+private fun MessageTypeContent(
+    event: TimelineEvent,
+    timelineEvents: List<TimelineEvent>,
+    homeserverUrl: String,
+    authToken: String,
+    userProfileCache: Map<String, MemberProfile>,
+    actualIsMine: Boolean,
+    myUserId: String?,
+    isConsecutive: Boolean,
+    displayName: String?,
+    avatarUrl: String?,
+    mentionsMe: Boolean,
+    readReceipts: List<ReadReceipt>,
+    editedBy: TimelineEvent?,
+    appViewModel: AppViewModel?,
+    onScrollToMessage: (String) -> Unit,
+    onReply: (TimelineEvent) -> Unit,
+    onReact: (TimelineEvent) -> Unit,
+    onEdit: (TimelineEvent) -> Unit,
+    onDelete: (TimelineEvent) -> Unit,
+    onUserClick: (String) -> Unit,
+    onRoomLinkClick: (RoomLink) -> Unit,
+    onThreadClick: (TimelineEvent) -> Unit
+) {
+    when (event.type) {
+        "m.room.redaction" -> {
+            // Handle redaction events - these should not be displayed as regular messages
+            // The redaction logic will be handled by modifying the original message
+            // When a message is redacted, it gets a redactedBy field pointing to the
+            // redaction event
+            // We use this to display deletion messages instead of the original content
+            return
+        }
+        "m.room.message" -> {
+            RoomMessageContent(
+                event = event,
+                timelineEvents = timelineEvents,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                userProfileCache = userProfileCache,
+                actualIsMine = actualIsMine,
+                myUserId = myUserId,
+                isConsecutive = isConsecutive,
+                displayName = displayName,
+                avatarUrl = avatarUrl,
+                mentionsMe = mentionsMe,
+                readReceipts = readReceipts,
+                editedBy = editedBy,
+                appViewModel = appViewModel,
+                onScrollToMessage = onScrollToMessage,
+                onReply = onReply,
+                onReact = onReact,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                onUserClick = onUserClick,
+                onRoomLinkClick = onRoomLinkClick,
+                onThreadClick = onThreadClick
+            )
+        }
+        "m.room.encrypted" -> {
+            EncryptedMessageContent(
+                event = event,
+                timelineEvents = timelineEvents,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                userProfileCache = userProfileCache,
+                actualIsMine = actualIsMine,
+                myUserId = myUserId,
+                isConsecutive = isConsecutive,
+                displayName = displayName,
+                avatarUrl = avatarUrl,
+                mentionsMe = mentionsMe,
+                readReceipts = readReceipts,
+                editedBy = editedBy,
+                appViewModel = appViewModel,
+                onScrollToMessage = onScrollToMessage,
+                onReply = onReply,
+                onReact = onReact,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                onUserClick = onUserClick,
+                onRoomLinkClick = onRoomLinkClick,
+                onThreadClick = onThreadClick
+            )
+        }
+        "m.sticker" -> {
+            StickerMessageContent(
+                event = event,
+                actualIsMine = actualIsMine,
+                readReceipts = readReceipts,
+                userProfileCache = userProfileCache,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                appViewModel = appViewModel,
+                onUserClick = onUserClick,
+                onReply = onReply,
+                onReact = onReact,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                myUserId = myUserId,
+                onThreadClick = onThreadClick
+            )
+        }
+        "m.reaction" -> {
+            // Reaction events are processed by processReactionEvent and displayed as badges
+            // on messages
+            // No need to render them as separate timeline items
+            return
+        }
+        else -> {
+            Text(
+                text = "Event type: ${event.type}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun RoomMessageContent(
+    event: TimelineEvent,
+    timelineEvents: List<TimelineEvent>,
+    homeserverUrl: String,
+    authToken: String,
+    userProfileCache: Map<String, MemberProfile>,
+    actualIsMine: Boolean,
+    myUserId: String?,
+    isConsecutive: Boolean,
+    displayName: String?,
+    avatarUrl: String?,
+    mentionsMe: Boolean,
+    readReceipts: List<ReadReceipt>,
+    editedBy: TimelineEvent?,
+    appViewModel: AppViewModel?,
+    onScrollToMessage: (String) -> Unit,
+    onReply: (TimelineEvent) -> Unit,
+    onReact: (TimelineEvent) -> Unit,
+    onEdit: (TimelineEvent) -> Unit,
+    onDelete: (TimelineEvent) -> Unit,
+    onUserClick: (String) -> Unit,
+    onRoomLinkClick: (RoomLink) -> Unit,
+    onThreadClick: (TimelineEvent) -> Unit
+) {
+    // Check if this is an edit event (m.replace relationship)
+    val isEditEvent =
+        event.content?.optJSONObject("m.relates_to")?.optString("rel_type") ==
+            "m.replace"
+    // For edit events, get content from m.new_content; for regular messages, use
+    // content directly
+    // This ensures edit events display the new content instead of the edit metadata
+    val content =
+        if (isEditEvent) {
+            event.content?.optJSONObject("m.new_content")
+        } else {
+            event.content
+        }
+    val format = content?.optString("format", "")
+    val body =
+        if (format == "org.matrix.custom.html") {
+            content?.optString("formatted_body", "") ?: ""
+        } else {
+            content?.optString("body", "") ?: ""
+        }
+    val msgType = content?.optString("msgtype", "") ?: ""
+    
+    // Handle m.emote messages with narrator rendering
+    if (msgType == "m.emote") {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            EmoteEventNarrator(
+                event = event,
+                displayName = displayName ?: event.sender,
+                avatarUrl = avatarUrl,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                onReply = { onReply(event) },
+                onReact = { onReact(event) },
+                onEdit = { onEdit(event) },
+                onDelete = { onDelete(event) }
+            )
+            
+            // Add reaction badges for emote messages
+            if (appViewModel != null) {
+                val reactions = remember(appViewModel.updateCounter, event.eventId) {
+                    appViewModel.messageReactions[event.eventId] ?: emptyList()
+                }
+                if (reactions.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 28.dp),
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        ReactionBadges(
+                            eventId = event.eventId,
+                            reactions = reactions,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+
+    // OPTIMIZED: Check if this message has been redacted using O(1) lookup
+    val isRedacted = event.redactedBy != null
+    val redactionEvent = if (isRedacted && appViewModel != null) {
+        appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
+    } else null
+    
+    val redactionSender = redactionEvent?.sender
+
+    // Request profile if redaction sender is missing from cache
+    if (isRedacted && redactionSender != null && appViewModel != null) {
+        if (!userProfileCache.containsKey(redactionSender)) {
+            android.util.Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Requesting profile for redaction sender: $redactionSender in room ${event.roomId}"
+            )
+            appViewModel.requestUserProfile(redactionSender, event.roomId)
+        }
+    }
+
+    // Show deletion message if redacted, otherwise show the message content
+    val finalBody =
+        if (isRedacted) {
+            // OPTIMIZED: Create deletion message using O(1) cached redaction event
+            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
+                redactionEvent,
+                userProfileCache
+            )
+        } else {
+            body // Show the message content (for edit events, this is already the
+                 // new content)
+        }
+
+    // Check if this is a reply message
+    val replyInfo = event.getReplyInfo()
+    val originalEvent =
+        replyInfo?.let { reply ->
+            timelineEvents.find<TimelineEvent> { it.eventId == reply.eventId }
+        }
+
+    // Check if it's a media message
+    if (msgType == "m.image" || msgType == "m.video") {
+        RoomMediaMessageContent(
+            event = event,
+            content = content,
+            body = body,
+            msgType = msgType,
+            actualIsMine = actualIsMine,
+            mentionsMe = mentionsMe,
+            isRedacted = isRedacted,
+            redactionEvent = redactionEvent,
+            userProfileCache = userProfileCache,
+            replyInfo = replyInfo,
+            originalEvent = originalEvent,
+            timelineEvents = timelineEvents,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            isConsecutive = isConsecutive,
+            editedBy = editedBy,
+            appViewModel = appViewModel,
+            myUserId = myUserId,
+            onScrollToMessage = onScrollToMessage,
+            onReply = onReply,
+            onReact = onReact,
+            onEdit = onEdit,
+            onDelete = onDelete,
+            onUserClick = onUserClick,
+            onThreadClick = onThreadClick
+        )
+    } else {
+        RoomTextMessageContent(
+            event = event,
+            finalBody = finalBody,
+            format = format,
+            actualIsMine = actualIsMine,
+            mentionsMe = mentionsMe,
+            readReceipts = readReceipts,
+            userProfileCache = userProfileCache,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            replyInfo = replyInfo,
+            originalEvent = originalEvent,
+            timelineEvents = timelineEvents,
+            isConsecutive = isConsecutive,
+            editedBy = editedBy,
+            appViewModel = appViewModel,
+            myUserId = myUserId,
+            onScrollToMessage = onScrollToMessage,
+            onReply = onReply,
+            onReact = onReact,
+            onEdit = onEdit,
+            onDelete = onDelete,
+            onUserClick = onUserClick,
+            onRoomLinkClick = onRoomLinkClick,
+            onThreadClick = onThreadClick
+        )
+    }
+}
+
+@Composable
+private fun RoomMediaMessageContent(
+    event: TimelineEvent,
+    content: org.json.JSONObject?,
+    body: String,
+    msgType: String,
+    actualIsMine: Boolean,
+    mentionsMe: Boolean,
+    isRedacted: Boolean,
+    redactionEvent: TimelineEvent?,
+    userProfileCache: Map<String, MemberProfile>,
+    replyInfo: ReplyInfo?,
+    originalEvent: TimelineEvent?,
+    timelineEvents: List<TimelineEvent>,
+    homeserverUrl: String,
+    authToken: String,
+    isConsecutive: Boolean,
+    editedBy: TimelineEvent?,
+    appViewModel: AppViewModel?,
+    myUserId: String?,
+    onScrollToMessage: (String) -> Unit,
+    onReply: (TimelineEvent) -> Unit,
+    onReact: (TimelineEvent) -> Unit,
+    onEdit: (TimelineEvent) -> Unit,
+    onDelete: (TimelineEvent) -> Unit,
+    onUserClick: (String) -> Unit,
+    onThreadClick: (TimelineEvent) -> Unit
+) {
+    Log.d(
+        "Andromuks",
+        "TimelineEventItem: Found media message - msgType=$msgType, body=$body"
+    )
+
+    // If media message is redacted, show deletion message instead of media
+    if (isRedacted) {
+        // OPTIMIZED: Display deletion message for media using cached redaction event
+        val deletionMessage =
+            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
+                redactionEvent,
+                userProfileCache
+            )
+
+        val bubbleShape =
+            if (actualIsMine) {
+                RoundedCornerShape(
+                    topStart = 12.dp,
+                    topEnd = 2.dp,
+                    bottomEnd = 12.dp,
+                    bottomStart = 12.dp
+                )
+            } else {
+                RoundedCornerShape(
+                    topStart = 2.dp,
+                    topEnd = 12.dp,
+                    bottomEnd = 12.dp,
+                    bottomStart = 12.dp
+                )
+            }
+
+        val bubbleColor =
+            if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
+            else MaterialTheme.colorScheme.surfaceVariant
+        val textColor =
+            if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement =
+                if (actualIsMine) Arrangement.End else Arrangement.Start
+        ) {
+            Surface(
+                color = bubbleColor,
+                shape = bubbleShape,
+                shadowElevation = 3.dp,
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                Text(
+                    text = deletionMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = textColor,
+                    fontStyle =
+                        FontStyle.Italic, // Make deletion messages italic
+                    modifier =
+                        Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                )
+            }
+        }
+        return // Exit early for redacted media messages
+    }
+
+    // Check if media is encrypted (has file object) or unencrypted (has url field)
+    val fileObj = content?.optJSONObject("file")
+    val hasEncryptedFile = fileObj != null
+    val directUrl = content?.optString("url", "") ?: ""
+    val fileUrl = fileObj?.optString("url", "") ?: ""
+    val url = directUrl.takeIf { it.isNotBlank() } ?: fileUrl
+
+    val filename = content?.optString("filename", "") ?: ""
+    val info = content?.optJSONObject("info")
+
+    Log.d(
+        "Andromuks",
+        "TimelineEventItem: Media data - url=$url, filename=$filename, info=${info != null}, hasEncryptedFile=$hasEncryptedFile"
+    )
+
+    if (url.isNotBlank() && info != null) {
+        // Media parsing and display logic would go here
+        // This is a large section that I'll extract from the original code
+        val width = info.optInt("w", 0)
+        val height = info.optInt("h", 0)
+        val size = info.optLong("size", 0)
+        val mimeType = info.optString("mimetype", "")
+        val blurHash =
+            info.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+
+        // Extract thumbnail info for videos
+        var thumbnailIsEncrypted = false
+        val thumbnailUrl = if (msgType == "m.video") {
+            val thumbnailFile = info.optJSONObject("thumbnail_file")
+            if (thumbnailFile != null) {
+                thumbnailIsEncrypted = true
+                thumbnailFile.optString("url", "")?.takeIf { it.isNotBlank() }
+            } else {
+                info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+            }
+        } else null
+        
+        val thumbnailInfo = if (msgType == "m.video") {
+            info.optJSONObject("thumbnail_info")
+        } else null
+        
+        val thumbnailBlurHash = thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+        val thumbnailWidth = thumbnailInfo?.optInt("w", 0)
+        val thumbnailHeight = thumbnailInfo?.optInt("h", 0)
+        val duration = if (msgType == "m.video") {
+            info.optInt("duration", 0).takeIf { it > 0 }
+        } else null
+
+        // Extract caption
+        val caption = if (body != filename && body.isNotBlank()) {
+            val localContent = event.localContent
+            val sanitizedHtml = localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
+            if (sanitizedHtml != null && sanitizedHtml != filename) {
+                sanitizedHtml
+            } else {
+                body
+            }
+        } else null
+
+        val mediaInfo =
+            MediaInfo(
+                width = width,
+                height = height,
+                size = size,
+                mimeType = mimeType,
+                blurHash = blurHash,
+                thumbnailUrl = thumbnailUrl,
+                thumbnailBlurHash = thumbnailBlurHash,
+                thumbnailWidth = thumbnailWidth,
+                thumbnailHeight = thumbnailHeight,
+                duration = duration,
+                thumbnailIsEncrypted = thumbnailIsEncrypted
+            )
+
+        val mediaMessage =
+            MediaMessage(
+                url = url,
+                filename = filename,
+                caption = caption,
+                info = mediaInfo,
+                msgType = msgType
+            )
+
+        // Display media message with nested reply structure
+        MediaMessageItem(
+            mediaMessage = mediaMessage,
+            replyInfo = replyInfo,
+            originalEvent = originalEvent,
+            userProfileCache = userProfileCache,
+            homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+            authToken = authToken,
+            isMine = actualIsMine,
+            hasEncryptedFile = hasEncryptedFile,
+            event = event,
+            isConsecutive = isConsecutive,
+            editedBy = editedBy,
+            timelineEvents = timelineEvents,
+            onScrollToMessage = onScrollToMessage,
+            onReply = { onReply(event) },
+            onReact = { onReact(event) },
+            onEdit = { onEdit(event) },
+            onDelete = { onDelete(event) },
+            onUserClick = onUserClick,
+            appViewModel = appViewModel,
+            myUserId = myUserId,
+            powerLevels = appViewModel?.currentRoomState?.powerLevels,
+            onBubbleClick = if (event.isThreadMessage()) {
+                { onThreadClick(event) }
+            } else {
+                null
+            }
+        )
+
+        // Add reaction badges for media messages
+        if (appViewModel != null) {
+            val reactions = remember(appViewModel.updateCounter, event.eventId) {
+                appViewModel.messageReactions[event.eventId] ?: emptyList()
+            }
+            if (reactions.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement =
+                        if (actualIsMine) Arrangement.End else Arrangement.Start
+                ) {
+                    ReactionBadges(
+                        eventId = event.eventId,
+                        reactions = reactions,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken
+                    )
+                }
+            }
+        }
+    } else {
+        // Fallback to text message if media parsing fails
+        val bubbleShape =
+            if (actualIsMine) {
+                RoundedCornerShape(
+                    topStart = 12.dp,
+                    topEnd = 2.dp,
+                    bottomEnd = 8.dp,
+                    bottomStart = 12.dp
+                )
+            } else {
+                RoundedCornerShape(
+                    topStart = 2.dp,
+                    topEnd = 12.dp,
+                    bottomEnd = 12.dp,
+                    bottomStart = 8.dp
+                )
+            }
+        
+        val bubbleColor =
+            if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
+            else if (mentionsMe) MaterialTheme.colorScheme.tertiaryContainer
+            else MaterialTheme.colorScheme.surfaceVariant
+        val textColor =
+            if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
+            else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement =
+                if (actualIsMine) Arrangement.End else Arrangement.Start
+        ) {
+            Surface(
+                color = bubbleColor,
+                shape = bubbleShape,
+                shadowElevation = 3.dp,
+                modifier = Modifier.padding(top = 4.dp)
+            ) {
+                Text(
+                    text = body,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = textColor,
+                    modifier =
+                        Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RoomTextMessageContent(
+    event: TimelineEvent,
+    finalBody: String,
+    format: String?,
+    actualIsMine: Boolean,
+    mentionsMe: Boolean,
+    readReceipts: List<ReadReceipt>,
+    userProfileCache: Map<String, MemberProfile>,
+    homeserverUrl: String,
+    authToken: String,
+    replyInfo: ReplyInfo?,
+    originalEvent: TimelineEvent?,
+    timelineEvents: List<TimelineEvent>,
+    isConsecutive: Boolean,
+    editedBy: TimelineEvent?,
+    appViewModel: AppViewModel?,
+    myUserId: String?,
+    onScrollToMessage: (String) -> Unit,
+    onReply: (TimelineEvent) -> Unit,
+    onReact: (TimelineEvent) -> Unit,
+    onEdit: (TimelineEvent) -> Unit,
+    onDelete: (TimelineEvent) -> Unit,
+    onUserClick: (String) -> Unit,
+    onRoomLinkClick: (RoomLink) -> Unit,
+    onThreadClick: (TimelineEvent) -> Unit
+) {
+    val bubbleShape =
+        if (actualIsMine) {
+            RoundedCornerShape(
+                topStart = 12.dp,
+                topEnd = 2.dp,
+                bottomEnd = 12.dp,
+                bottomStart = 12.dp
+            )
+        } else {
+            RoundedCornerShape(
+                topStart = 2.dp,
+                topEnd = 12.dp,
+                bottomEnd = 12.dp,
+                bottomStart = 12.dp
+            )
+        }
+    
+    // Check if message has been edited (O(1) lookup)
+    val hasBeenEdited = remember(event.eventId, appViewModel?.updateCounter) {
+        appViewModel?.isMessageEdited(event.eventId) ?: false
+    }
+    
+    // Check if this is a thread message
+    val isThreadMessage = event.isThreadMessage()
+    
+    val bubbleColor =
+        if (isThreadMessage) {
+            if (actualIsMine) MaterialTheme.colorScheme.tertiaryContainer
+            else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+        } else if (actualIsMine) {
+            if (hasBeenEdited) MaterialTheme.colorScheme.secondaryContainer
+            else MaterialTheme.colorScheme.primaryContainer
+        } else if (mentionsMe) {
+            MaterialTheme.colorScheme.tertiaryContainer
+        } else {
+            if (hasBeenEdited) MaterialTheme.colorScheme.surfaceContainerHighest
+            else MaterialTheme.colorScheme.surfaceVariant
+        }
+    val textColor =
+        if (isThreadMessage) {
+            MaterialTheme.colorScheme.tertiary
+        } else if (actualIsMine) {
+            if (hasBeenEdited) MaterialTheme.colorScheme.onSecondaryContainer
+            else MaterialTheme.colorScheme.onPrimaryContainer
+        } else if (mentionsMe) {
+            MaterialTheme.colorScheme.onTertiaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurfaceVariant
+        }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement =
+            if (actualIsMine) Arrangement.End else Arrangement.Start,
+        verticalAlignment = Alignment.Top
+    ) {
+        // For my messages, show read receipts on the left of the bubble
+        if (actualIsMine && readReceipts.isNotEmpty()) {
+            AnimatedInlineReadReceiptAvatars(
+                receipts = readReceipts,
+                userProfileCache = userProfileCache,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                appViewModel = appViewModel,
+                messageSender = event.sender,
+                eventId = event.eventId,
+                onUserClick = onUserClick
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+
+        // Display reply with nested structure if this is a reply (but NOT a thread message)
+        if (replyInfo != null && originalEvent != null && !isThreadMessage) {
+            MessageBubbleWithMenu(
+                event = event,
+                bubbleColor = bubbleColor,
+                bubbleShape = bubbleShape,
+                modifier = Modifier.widthIn(max = 300.dp),
+                isMine = actualIsMine,
+                myUserId = myUserId,
+                powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                onReply = { onReply(event) },
+                onReact = { onReact(event) },
+                onEdit = { onEdit(event) },
+                onDelete = { onDelete(event) },
+                appViewModel = appViewModel,
+                onBubbleClick = if (isThreadMessage) {
+                    { onThreadClick(event) }
+                } else {
+                    null
+                }
+            ) {
+                Column(
+                    modifier = Modifier.padding(8.dp),
+                    horizontalAlignment = Alignment.Start
+                ) {
+                    // Reply preview
+                    ReplyPreview(
+                        replyInfo = replyInfo,
+                        originalEvent = originalEvent,
+                        userProfileCache = userProfileCache,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        isMine = actualIsMine,
+                        modifier =
+                            Modifier.padding(bottom = 6.dp)
+                                .align(Alignment.Start),
+                        onOriginalMessageClick = {
+                            onScrollToMessage(replyInfo.eventId)
+                        },
+                        timelineEvents = timelineEvents,
+                        onMatrixUserClick = onUserClick,
+                        appViewModel = appViewModel
+                    )
+
+                    // Reply message content with inline timestamp
+                    Box {
+                        AdaptiveMessageText(
+                            event = event,
+                            body = finalBody,
+                            format = format,
+                            userProfileCache = userProfileCache,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            appViewModel = appViewModel,
+                            roomId = event.roomId,
+                            textColor = textColor,
+                            modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
+                            onUserClick = onUserClick,
+                            onMatrixUserClick = onUserClick,
+                            onRoomLinkClick = onRoomLinkClick
+                        )
+                        // Timestamp positioned at bottom-end
+                        Box(
+                            modifier = Modifier.align(Alignment.BottomEnd)
+                        ) {
+                            InlineBubbleTimestamp(
+                                timestamp = event.timestamp,
+                                editedBy = editedBy,
+                                isMine = actualIsMine,
+                                isConsecutive = isConsecutive
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            // Regular message bubble with popup menu
+            MessageBubbleWithMenu(
+                event = event,
+                bubbleColor = bubbleColor,
+                bubbleShape = bubbleShape,
+                modifier = Modifier.widthIn(max = 300.dp),
+                isMine = actualIsMine,
+                myUserId = myUserId,
+                powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                onReply = { onReply(event) },
+                onReact = { onReact(event) },
+                onEdit = { onEdit(event) },
+                onDelete = { onDelete(event) },
+                appViewModel = appViewModel,
+                onBubbleClick = if (isThreadMessage) {
+                    { onThreadClick(event) }
+                } else {
+                    null
+                }
+            ) {
+                Box(
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                ) {
+                    // Text with extra padding at the end for timestamp
+                    AdaptiveMessageText(
+                        event = event,
+                        body = finalBody,
+                        format = format,
+                        userProfileCache = userProfileCache,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel,
+                        roomId = event.roomId,
+                        textColor = textColor,
+                        modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
+                        onUserClick = onUserClick,
+                        onMatrixUserClick = onUserClick,
+                        onRoomLinkClick = onRoomLinkClick
+                    )
+                    // Timestamp positioned at bottom-end
+                    Box(
+                        modifier = Modifier.align(Alignment.BottomEnd)
+                    ) {
+                        InlineBubbleTimestamp(
+                            timestamp = event.timestamp,
+                            editedBy = editedBy,
+                            isMine = actualIsMine,
+                            isConsecutive = isConsecutive
+                        )
+                    }
+                }
+            }
+        }
+
+        // For others' messages, show read receipts on the right of the bubble
+        if (!actualIsMine && readReceipts.isNotEmpty()) {
+            Spacer(modifier = Modifier.width(8.dp))
+            AnimatedInlineReadReceiptAvatars(
+                receipts = readReceipts,
+                userProfileCache = userProfileCache,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                appViewModel = appViewModel,
+                messageSender = event.sender,
+                eventId = event.eventId,
+                onUserClick = onUserClick
+            )
+        }
+    }
+
+    // Add reaction badges for this message
+    if (appViewModel != null) {
+        val reactions = remember(appViewModel.updateCounter, event.eventId) {
+            appViewModel.messageReactions[event.eventId] ?: emptyList()
+        }
+        if (reactions.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement =
+                    if (actualIsMine) Arrangement.End else Arrangement.Start
+            ) {
+                ReactionBadges(
+                    eventId = event.eventId,
+                    reactions = reactions,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EncryptedMessageContent(
+    event: TimelineEvent,
+    timelineEvents: List<TimelineEvent>,
+    homeserverUrl: String,
+    authToken: String,
+    userProfileCache: Map<String, MemberProfile>,
+    actualIsMine: Boolean,
+    myUserId: String?,
+    isConsecutive: Boolean,
+    displayName: String?,
+    avatarUrl: String?,
+    mentionsMe: Boolean,
+    readReceipts: List<ReadReceipt>,
+    editedBy: TimelineEvent?,
+    appViewModel: AppViewModel?,
+    onScrollToMessage: (String) -> Unit,
+    onReply: (TimelineEvent) -> Unit,
+    onReact: (TimelineEvent) -> Unit,
+    onEdit: (TimelineEvent) -> Unit,
+    onDelete: (TimelineEvent) -> Unit,
+    onUserClick: (String) -> Unit,
+    onRoomLinkClick: (RoomLink) -> Unit,
+    onThreadClick: (TimelineEvent) -> Unit
+) {
+    // Check if this is an edit event (m.replace relationship) - don't display edit events
+    val isEditEvent =
+        event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") ==
+            "m.replace"
+    if (isEditEvent) {
+        android.util.Log.d(
+            "Andromuks",
+            "RoomTimelineScreen: Filtering out edit event ${event.eventId}"
+        )
+        return // Don't display edit events as separate timeline items
+    }
+
+    val decryptedType = event.decryptedType
+    val decrypted = event.decrypted
+    if (decryptedType == "m.room.message") {
+        val format = decrypted?.optString("format", "")
+        val body =
+            if (format == "org.matrix.custom.html") {
+                decrypted?.optString("formatted_body", "") ?: ""
+            } else {
+                decrypted?.optString("body", "") ?: ""
+            }
+        android.util.Log.d(
+            "Andromuks",
+            "RoomTimelineScreen: Displaying encrypted event ${event.eventId} with body: '$body'"
+        )
+        val msgType = decrypted?.optString("msgtype", "") ?: ""
+        
+        // Handle encrypted m.emote messages with narrator rendering
+        if (msgType == "m.emote") {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                EmoteEventNarrator(
+                    event = event,
+                    displayName = displayName ?: event.sender,
+                    avatarUrl = avatarUrl,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    onReply = { onReply(event) },
+                    onReact = { onReact(event) },
+                    onEdit = { onEdit(event) },
+                    onDelete = { onDelete(event) }
+                )
+                
+                // Add reaction badges for encrypted emote messages
+                if (appViewModel != null) {
+                    val reactions = remember(appViewModel.updateCounter, event.eventId) {
+                        appViewModel.messageReactions[event.eventId] ?: emptyList()
+                    }
+                    if (reactions.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 28.dp),
+                            horizontalArrangement = Arrangement.Start
+                        ) {
+                            ReactionBadges(
+                                eventId = event.eventId,
+                                reactions = reactions,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken
+                            )
+                        }
+                    }
+                }
+            }
+            return
+        }
+
+        // OPTIMIZED: Check if this message has been redacted using O(1) lookup
+        val isRedacted = event.redactedBy != null
+        val redactionEvent = if (isRedacted && appViewModel != null) {
+            appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
+        } else null
+        
+        val redactionSender = redactionEvent?.sender
+
+        // Request profile if redaction sender is missing from cache
+        if (isRedacted && redactionSender != null && appViewModel != null) {
+            if (!userProfileCache.containsKey(redactionSender)) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Requesting profile for encrypted message redaction sender: $redactionSender in room ${event.roomId}"
+                )
+                appViewModel.requestUserProfile(redactionSender, event.roomId)
+            }
+        }
+
+        // Check if this is an edit (m.replace relationship)
+        val isEdit =
+            decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") ==
+                "m.replace"
+        val editContent =
+            if (isEdit) {
+                decrypted?.optJSONObject("m.new_content")
+            } else null
+
+        // Use edit content if this message is being edited, or show deletion message if redacted
+        val finalBody =
+            if (isRedacted) {
+                // OPTIMIZED: Create deletion message using O(1) cached redaction event
+                net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
+                    redactionEvent,
+                    userProfileCache
+                )
+            } else if (editedBy != null && editedBy.decrypted != null) {
+                val newContent = editedBy.decrypted?.optJSONObject("m.new_content")
+                val editFormat = newContent?.optString("format", "")
+                if (editFormat == "org.matrix.custom.html") {
+                    newContent?.optString("formatted_body", "") ?: ""
+                } else {
+                    newContent?.optString("body", "") ?: ""
+                }
+            } else if (editedBy != null && editedBy.content != null) {
+                val newContent = editedBy.content?.optJSONObject("m.new_content")
+                val editFormat = newContent?.optString("format", "")
+                if (editFormat == "org.matrix.custom.html") {
+                    newContent?.optString("formatted_body", "") ?: ""
+                } else {
+                    newContent?.optString("body", "") ?: ""
+                }
+            } else {
+                body
+            }
+
+        // Check if this is a reply message
+        val replyInfo = event.getReplyInfo()
+        val originalEvent =
+            replyInfo?.let { reply ->
+                timelineEvents.find<TimelineEvent> { it.eventId == reply.eventId }
+            }
+
+        // Check if it's a media message
+        if (msgType == "m.image" || msgType == "m.video") {
+            Log.d(
+                "Andromuks",
+                "TimelineEventItem: Found encrypted media message - msgType=$msgType, body=$body"
+            )
+
+            // Debug: Check what's in the decrypted object
+            Log.d(
+                "Andromuks",
+                "TimelineEventItem: Direct url field: ${decrypted?.optString("url", "NOT_FOUND")}"
+            )
+            Log.d(
+                "Andromuks",
+                "TimelineEventItem: File object exists: ${decrypted?.has("file")}"
+            )
+            if (decrypted?.has("file") == true) {
+                val fileObj = decrypted.optJSONObject("file")
+                Log.d(
+                    "Andromuks",
+                    "TimelineEventItem: File url field: ${fileObj?.optString("url", "NOT_FOUND")}"
+                )
+            }
+
+            // For encrypted messages, URL might be in file.url
+            // Check if media is encrypted (has file object) or just the event is
+            // encrypted (has url field)
+            val fileObj = decrypted?.optJSONObject("file")
+            val hasEncryptedFile = fileObj != null
+            val directUrl = decrypted?.optString("url", "") ?: ""
+            val fileUrl = fileObj?.optString("url", "") ?: ""
+            val url = directUrl.takeIf { it.isNotBlank() } ?: fileUrl
+
+            Log.d(
+                "Andromuks",
+                "TimelineEventItem: URL extraction - directUrl='$directUrl', fileObj=${fileObj != null}, fileUrl='$fileUrl', finalUrl='$url', hasEncryptedFile=$hasEncryptedFile"
+            )
+
+            val filename = decrypted?.optString("filename", "") ?: ""
+            val info = decrypted?.optJSONObject("info")
+
+            Log.d(
+                "Andromuks",
+                "TimelineEventItem: Encrypted media data - url=$url, filename=$filename, info=${info != null}"
+            )
+
+            if (url.isNotBlank() && info != null) {
+                val width = info.optInt("w", 0)
+                val height = info.optInt("h", 0)
+                val size = info.optLong("size", 0)
+                val mimeType = info.optString("mimetype", "")
+                val blurHash =
+                    info.optString("xyz.amorgan.blurhash")?.takeIf {
+                        it.isNotBlank()
+                    }
+
+                // Extract thumbnail info for encrypted videos
+                // For encrypted media, thumbnail is in thumbnail_file.url, not thumbnail_url
+                var thumbnailIsEncrypted = false
+                val thumbnailUrl = if (msgType == "m.video") {
+                    val thumbnailFile = info.optJSONObject("thumbnail_file")
+                    if (thumbnailFile != null) {
+                        // Encrypted thumbnail
+                        thumbnailIsEncrypted = true
+                        thumbnailFile.optString("url", "")?.takeIf { it.isNotBlank() }
+                    } else {
+                        // Unencrypted thumbnail (fallback, though unlikely for encrypted messages)
+                        info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+                    }
+                } else null
+                
+                val thumbnailInfo = if (msgType == "m.video") {
+                    info.optJSONObject("thumbnail_info")
+                } else null
+                
+                val thumbnailBlurHash = thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+                val thumbnailWidth = thumbnailInfo?.optInt("w", 0)
+                val thumbnailHeight = thumbnailInfo?.optInt("h", 0)
+                val duration = if (msgType == "m.video") {
+                    info.optInt("duration", 0).takeIf { it > 0 }
+                } else null
+
+                // Extract caption: use sanitized_html if available, otherwise body (only if different from filename)
+                val caption = if (body != filename && body.isNotBlank()) {
+                    val localContent = event.localContent
+                    val sanitizedHtml = localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
+                    // Use sanitized_html if available and different from filename, otherwise use body
+                    if (sanitizedHtml != null && sanitizedHtml != filename) {
+                        sanitizedHtml
+                    } else {
+                        body
+                    }
+                } else null
+
+                val mediaInfo =
+                    MediaInfo(
+                        width = width,
+                        height = height,
+                        size = size,
+                        mimeType = mimeType,
+                        blurHash = blurHash,
+                        thumbnailUrl = thumbnailUrl,
+                        thumbnailBlurHash = thumbnailBlurHash,
+                        thumbnailWidth = thumbnailWidth,
+                        thumbnailHeight = thumbnailHeight,
+                        duration = duration,
+                        thumbnailIsEncrypted = thumbnailIsEncrypted
+                    )
+
+                val mediaMessage =
+                    MediaMessage(
+                        url = url,
+                        filename = filename,
+                        caption = caption,
+                        info = mediaInfo,
+                        msgType = msgType
+                    )
+
+                Log.d(
+                    "Andromuks",
+                    "TimelineEventItem: Created encrypted MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}"
+                )
+
+                // Display encrypted media message with nested reply structure
+                MediaMessageItem(
+                    mediaMessage = mediaMessage,
+                    replyInfo = replyInfo,
+                    originalEvent = originalEvent,
+                    userProfileCache = userProfileCache,
+                    homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                    authToken = authToken,
+                    isMine = actualIsMine,
+                    hasEncryptedFile = hasEncryptedFile,
+                    event = event,
+                    isConsecutive = isConsecutive,
+                    editedBy = editedBy,
+                    timelineEvents = timelineEvents,
+                    onScrollToMessage = onScrollToMessage,
+                    onReply = { onReply(event) },
+                    onReact = { onReact(event) },
+                    onEdit = { onEdit(event) },
+                    onDelete = { onDelete(event) },
+                    onUserClick = onUserClick,
+                    appViewModel = appViewModel,
+                    myUserId = myUserId,
+                    powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                    onBubbleClick = if (event.isThreadMessage()) {
+                        { onThreadClick(event) }
+                    } else {
+                        null
+                    }
+                )
+
+                // Add reaction badges for encrypted media messages
+                if (appViewModel != null) {
+                    val reactions = remember(appViewModel.updateCounter, event.eventId) {
+                        appViewModel.messageReactions[event.eventId] ?: emptyList()
+                    }
+                    if (reactions.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement =
+                                if (actualIsMine) Arrangement.End
+                                else Arrangement.Start
+                        ) {
+                            ReactionBadges(
+                                eventId = event.eventId,
+                                reactions = reactions,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken
+                            )
+                        }
+                    }
+                }
+            } else {
+                // Fallback to text message if encrypted media parsing fails
+                val bubbleShape =
+                    if (actualIsMine) {
+                        RoundedCornerShape(
+                            topStart = 12.dp,
+                            topEnd = 2.dp,
+                            bottomEnd = 8.dp,
+                            bottomStart = 12.dp
+                        )
+                    } else {
+                        RoundedCornerShape(
+                            topStart = 2.dp,
+                            topEnd = 12.dp,
+                            bottomEnd = 12.dp,
+                            bottomStart = 8.dp
+                        )
+                    }
+                
+                val bubbleColor =
+                    if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
+                    else if (mentionsMe) MaterialTheme.colorScheme.tertiaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant
+                val textColor =
+                    if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
+                    else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement =
+                        if (actualIsMine) Arrangement.End else Arrangement.Start
+                ) {
+                    MessageBubbleWithMenu(
+                        event = event,
+                        bubbleColor = bubbleColor,
+                        bubbleShape = bubbleShape,
+                        modifier = Modifier.widthIn(max = 300.dp),
+                        isMine = actualIsMine,
+                        myUserId = myUserId,
+                        powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                        onReply = { onReply(event) },
+                        onReact = { onReact(event) },
+                        onEdit = { onEdit(event) },
+                        onDelete = { onDelete(event) },
+                        appViewModel = appViewModel,
+                        onBubbleClick = null
+                    ) {
+                        Text(
+                            text = body,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = textColor,
+                            modifier =
+                                Modifier.padding(
+                                    horizontal = 8.dp,
+                                    vertical = 6.dp
+                                )
+                        )
+                    }
+                }
+
+                // Add reaction badges for encrypted text message
+                if (appViewModel != null) {
+                    val reactions = remember(appViewModel.updateCounter, event.eventId) {
+                        appViewModel.messageReactions[event.eventId] ?: emptyList()
+                    }
+                    if (reactions.isNotEmpty()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            horizontalArrangement =
+                                if (actualIsMine) Arrangement.End
+                                else Arrangement.Start
+                        ) {
+                            ReactionBadges(
+                                eventId = event.eventId,
+                                reactions = reactions,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            // Regular encrypted text message
+            val bubbleShape =
+                if (actualIsMine) {
+                    RoundedCornerShape(
+                        topStart = 12.dp,
+                        topEnd = 2.dp,
+                        bottomEnd = 8.dp,
+                        bottomStart = 12.dp
+                    )
+                } else {
+                    RoundedCornerShape(
+                        topStart = 2.dp,
+                        topEnd = 12.dp,
+                        bottomEnd = 12.dp,
+                        bottomStart = 8.dp
+                    )
+                }
+            
+            // Check if message has been edited (O(1) lookup)
+            val hasBeenEdited = remember(event.eventId, appViewModel?.updateCounter) {
+                appViewModel?.isMessageEdited(event.eventId) ?: false
+            }
+            
+            // Check if this is a thread message
+            val isThreadMessage = event.isThreadMessage()
+            
+            val bubbleColor =
+                if (isThreadMessage) {
+                    // Thread messages use Material3 tertiary colors (typically purple/violet)
+                    // Own messages: fuller opacity for emphasis
+                    // Others' messages: lighter for distinction
+                    if (actualIsMine) MaterialTheme.colorScheme.tertiaryContainer
+                    else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+                } else if (actualIsMine) {
+                    if (hasBeenEdited) MaterialTheme.colorScheme.secondaryContainer
+                    else MaterialTheme.colorScheme.primaryContainer
+                } else if (mentionsMe) {
+                    MaterialTheme.colorScheme.tertiaryContainer
+                } else {
+                    if (hasBeenEdited) MaterialTheme.colorScheme.surfaceContainerHighest
+                    else MaterialTheme.colorScheme.surfaceVariant
+                }
+            val textColor =
+                if (isThreadMessage) {
+                    // Thread messages use tertiary color for text
+                    MaterialTheme.colorScheme.tertiary
+                } else if (actualIsMine) {
+                    if (hasBeenEdited) MaterialTheme.colorScheme.onSecondaryContainer
+                    else MaterialTheme.colorScheme.onPrimaryContainer
+                } else if (mentionsMe) {
+                    MaterialTheme.colorScheme.onTertiaryContainer
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    if (actualIsMine) Arrangement.End else Arrangement.Start,
+                verticalAlignment = Alignment.Top
+            ) {
+                // For my messages, show read receipts on the left of the bubble
+                if (actualIsMine && readReceipts.isNotEmpty()) {
+                    AnimatedInlineReadReceiptAvatars(
+                        receipts = readReceipts,
+                        userProfileCache = userProfileCache,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel,
+                        messageSender = event.sender,
+                        eventId = event.eventId,
+                        onUserClick = onUserClick
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                }
+
+                // Display encrypted text message with nested reply structure (but NOT for thread messages)
+                // Thread messages are rendered as normal bubbles with different color
+                if (replyInfo != null && originalEvent != null && !isThreadMessage) {
+                    MessageBubbleWithMenu(
+                        event = event,
+                        bubbleColor = bubbleColor,
+                        bubbleShape = bubbleShape,
+                        modifier = Modifier.widthIn(max = 300.dp),
+                        isMine = actualIsMine,
+                        myUserId = myUserId,
+                        powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                        onReply = { onReply(event) },
+                        onReact = { onReact(event) },
+                        onEdit = { onEdit(event) },
+                        onDelete = { onDelete(event) },
+                        appViewModel = appViewModel,
+                        onBubbleClick = if (isThreadMessage) {
+                            { onThreadClick(event) }
+                        } else {
+                            null
+                        }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(8.dp),
+                            horizontalAlignment = Alignment.Start
+                        ) {
+                            // Reply preview (clickable original message)
+                            ReplyPreview(
+                                replyInfo = replyInfo,
+                                originalEvent = originalEvent,
+                                userProfileCache = userProfileCache,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                isMine = actualIsMine,
+                                modifier =
+                                    Modifier.padding(bottom = 6.dp)
+                                        .align(Alignment.Start),
+                                onOriginalMessageClick = {
+                                    onScrollToMessage(replyInfo.eventId)
+                                },
+                                timelineEvents = timelineEvents,
+                                onMatrixUserClick = onUserClick,
+                                appViewModel = appViewModel
+                            )
+
+                            // Reply message content with inline timestamp
+                            Box {
+                                // finalBody already contains deletion message if redacted
+                                AdaptiveMessageText(
+                                    event = event,
+                                    body = finalBody,
+                                    format = format,
+                                    userProfileCache = userProfileCache,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    appViewModel = appViewModel,
+                                    roomId = event.roomId,
+                                    textColor = textColor,
+                                    modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
+                                    onUserClick = onUserClick,
+                                    onMatrixUserClick = onUserClick,
+                                    onRoomLinkClick = onRoomLinkClick
+                                )
+                                // Timestamp positioned at bottom-end
+                                Box(
+                                    modifier = Modifier.align(Alignment.BottomEnd)
+                                ) {
+                                    InlineBubbleTimestamp(
+                                        timestamp = event.timestamp,
+                                        editedBy = editedBy,
+                                        isMine = actualIsMine,
+                                        isConsecutive = isConsecutive
+                                    )
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Regular encrypted message bubble
+                    MessageBubbleWithMenu(
+                        event = event,
+                        bubbleColor = bubbleColor,
+                        bubbleShape = bubbleShape,
+                        modifier = Modifier.widthIn(max = 300.dp),
+                        isMine = actualIsMine,
+                        myUserId = myUserId,
+                        powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                        onReply = { onReply(event) },
+                        onReact = { onReact(event) },
+                        onEdit = { onEdit(event) },
+                        onDelete = { onDelete(event) },
+                        appViewModel = appViewModel,
+                        onBubbleClick = if (isThreadMessage) {
+                            { onThreadClick(event) }
+                        } else {
+                            null
+                        }
+                    ) {
+                        Box(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        ) {
+                            // finalBody already contains deletion message if redacted
+                            AdaptiveMessageText(
+                                event = event,
+                                body = finalBody,
+                                format = format,
+                                userProfileCache = userProfileCache,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                appViewModel = appViewModel,
+                                roomId = event.roomId,
+                                textColor = textColor,
+                                modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
+                                onUserClick = onUserClick,
+                                onMatrixUserClick = onUserClick,
+                                onRoomLinkClick = onRoomLinkClick
+                            )
+                            // Timestamp positioned at bottom-end
+                            Box(
+                                modifier = Modifier.align(Alignment.BottomEnd)
+                            ) {
+                                InlineBubbleTimestamp(
+                                    timestamp = event.timestamp,
+                                    editedBy = editedBy,
+                                    isMine = actualIsMine,
+                                    isConsecutive = isConsecutive
+                                )
+                            }
+                        }
+                    }
+                }
+
+                    // For others' messages, show read receipts on the right of the bubble
+                    if (!actualIsMine && readReceipts.isNotEmpty()) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        AnimatedInlineReadReceiptAvatars(
+                            receipts = readReceipts,
+                            userProfileCache = userProfileCache,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            appViewModel = appViewModel,
+                            messageSender = event.sender,
+                            eventId = event.eventId,
+                            onUserClick = onUserClick
+                        )
+                }
+            }
+
+            // Add reaction badges for encrypted text message
+            if (appViewModel != null) {
+                val reactions = remember(appViewModel.updateCounter, event.eventId) {
+                    appViewModel.messageReactions[event.eventId] ?: emptyList()
+                }
+                if (reactions.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement =
+                            if (actualIsMine) Arrangement.End else Arrangement.Start
+                    ) {
+                        ReactionBadges(
+                            eventId = event.eventId,
+                            reactions = reactions,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken
+                        )
+                    }
+                }
+            }
+        }
+    } else if (decryptedType == "m.sticker") {
+        // Handle encrypted stickers
+        val stickerMessage = extractStickerFromEvent(event)
+        if (stickerMessage != null) {
+            StickerMessageContent(
+                event = event,
+                actualIsMine = actualIsMine,
+                readReceipts = readReceipts,
+                userProfileCache = userProfileCache,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                appViewModel = appViewModel,
+                onUserClick = onUserClick,
+                onReply = onReply,
+                onReact = onReact,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                myUserId = myUserId,
+                onThreadClick = onThreadClick
+            )
+        } else {
+            Log.w(
+                "Andromuks",
+                "TimelineEventItem: Failed to extract encrypted sticker data from event ${event.eventId}"
+            )
+        }
+    } else {
+        Text(
+            text = "Encrypted message",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun StickerMessageContent(
+    event: TimelineEvent,
+    actualIsMine: Boolean,
+    readReceipts: List<ReadReceipt>,
+    userProfileCache: Map<String, MemberProfile>,
+    homeserverUrl: String,
+    authToken: String,
+    appViewModel: AppViewModel?,
+    onUserClick: (String) -> Unit,
+    onReply: (TimelineEvent) -> Unit,
+    onReact: (TimelineEvent) -> Unit,
+    onEdit: (TimelineEvent) -> Unit,
+    onDelete: (TimelineEvent) -> Unit,
+    myUserId: String?,
+    onThreadClick: (TimelineEvent) -> Unit
+) {
+    val stickerMessage = extractStickerFromEvent(event)
+
+    if (stickerMessage != null) {
+        Log.d(
+            "Andromuks",
+            "TimelineEventItem: Found sticker - url=${stickerMessage.url}, body=${stickerMessage.body}, dimensions=${stickerMessage.width}x${stickerMessage.height}"
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement =
+                if (actualIsMine) Arrangement.End else Arrangement.Start,
+            verticalAlignment = Alignment.Top
+        ) {
+            // For my messages, show read receipts on the left of the bubble
+            if (actualIsMine && readReceipts.isNotEmpty()) {
+                AnimatedInlineReadReceiptAvatars(
+                    receipts = readReceipts,
+                    userProfileCache = userProfileCache,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    appViewModel = appViewModel,
+                    messageSender = event.sender,
+                    eventId = event.eventId,
+                    onUserClick = onUserClick
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+            }
+
+            StickerMessage(
+                stickerMessage = stickerMessage,
+                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                authToken = authToken,
+                isMine = actualIsMine,
+                isEncrypted = stickerMessage.hasEncryptedFile,
+                event = event,
+                timestamp = event.timestamp,
+                isConsecutive = false,
+                onReply = { onReply(event) },
+                onReact = { onReact(event) },
+                onEdit = { onEdit(event) },
+                onDelete = { onDelete(event) },
+                myUserId = myUserId,
+                powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                appViewModel = appViewModel,
+                onBubbleClick = if (event.isThreadMessage()) {
+                    { onThreadClick(event) }
+                } else {
+                    null
+                }
+            )
+
+            // For other users' messages, show read receipts on the right
+            if (!actualIsMine && readReceipts.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(8.dp))
+                AnimatedInlineReadReceiptAvatars(
+                    receipts = readReceipts,
+                    userProfileCache = userProfileCache,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    appViewModel = appViewModel,
+                    messageSender = event.sender,
+                    eventId = event.eventId,
+                    onUserClick = onUserClick
+                )
+            }
+        }
+
+        // Add reaction badges for stickers
+        if (appViewModel != null) {
+            val reactions = remember(appViewModel.updateCounter, event.eventId) {
+                appViewModel.messageReactions[event.eventId] ?: emptyList()
+            }
+            if (reactions.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement =
+                        if (actualIsMine) Arrangement.End else Arrangement.Start
+                ) {
+                    ReactionBadges(
+                        eventId = event.eventId,
+                        reactions = reactions,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken
+                    )
+                }
+            }
+        }
+    } else {
+        Log.w(
+            "Andromuks",
+            "TimelineEventItem: Failed to extract sticker data from event ${event.eventId}"
+        )
+    }
+}
+
+@Composable
 fun TimelineEventItem(
     event: TimelineEvent,
     timelineEvents: List<TimelineEvent>,
@@ -534,1473 +2181,34 @@ fun TimelineEventItem(
                 }
             }
 
-            when (event.type) {
-                "m.room.redaction" -> {
-                    // Handle redaction events - these should not be displayed as regular messages
-                    // The redaction logic will be handled by modifying the original message
-                    // When a message is redacted, it gets a redactedBy field pointing to the
-                    // redaction event
-                    // We use this to display deletion messages instead of the original content
-                    return
-                }
-                "m.room.message" -> {
-                    // Check if this is an edit event (m.replace relationship)
-                    val isEditEvent =
-                        event.content?.optJSONObject("m.relates_to")?.optString("rel_type") ==
-                            "m.replace"
-                    // For edit events, get content from m.new_content; for regular messages, use
-                    // content directly
-                    // This ensures edit events display the new content instead of the edit metadata
-                    val content =
-                        if (isEditEvent) {
-                            event.content?.optJSONObject("m.new_content")
-                        } else {
-                            event.content
-                        }
-                    val format = content?.optString("format", "")
-                    val body =
-                        if (format == "org.matrix.custom.html") {
-                            content?.optString("formatted_body", "") ?: ""
-                        } else {
-                            content?.optString("body", "") ?: ""
-                        }
-                    val msgType = content?.optString("msgtype", "") ?: ""
-                    
-                    // Handle m.emote messages with narrator rendering
-                    if (msgType == "m.emote") {
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            EmoteEventNarrator(
-                                event = event,
-                                displayName = displayName ?: event.sender,
-                                avatarUrl = avatarUrl,
-                                homeserverUrl = homeserverUrl,
-                                authToken = authToken,
-                                onReply = { onReply(event) },
-                                onReact = { onReact(event) },
-                                onEdit = { onEdit(event) },
-                                onDelete = { onDelete(event) }
-                            )
-                            
-                            // Add reaction badges for emote messages
-                            if (appViewModel != null) {
-                                val reactions = remember(appViewModel.updateCounter, event.eventId) {
-                                    appViewModel.messageReactions[event.eventId] ?: emptyList()
-                                }
-                                if (reactions.isNotEmpty()) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 28.dp),
-                                        horizontalArrangement = Arrangement.Start
-                                    ) {
-                                        ReactionBadges(
-                                            eventId = event.eventId,
-                                            reactions = reactions,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                        return
-                    }
-
-                    // OPTIMIZED: Check if this message has been redacted using O(1) lookup
-                    val isRedacted = event.redactedBy != null
-                    val redactionEvent = if (isRedacted && appViewModel != null) {
-                        appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
-                    } else null
-                    
-                    val redactionSender = redactionEvent?.sender
-
-                    // Request profile if redaction sender is missing from cache
-                    if (isRedacted && redactionSender != null && appViewModel != null) {
-                        if (!userProfileCache.containsKey(redactionSender)) {
-                            android.util.Log.d(
-                                "Andromuks",
-                                "RoomTimelineScreen: Requesting profile for redaction sender: $redactionSender in room ${event.roomId}"
-                            )
-                            appViewModel.requestUserProfile(redactionSender, event.roomId)
-                        }
-                    }
-
-                    // Show deletion message if redacted, otherwise show the message content
-                    val finalBody =
-                        if (isRedacted) {
-                            // OPTIMIZED: Create deletion message using O(1) cached redaction event
-                            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                                redactionEvent,
-                                userProfileCache
-                            )
-                        } else {
-                            body // Show the message content (for edit events, this is already the
-                                 // new content)
-                        }
-
-                    // Check if this is a reply message
-                    val replyInfo = event.getReplyInfo()
-                    val originalEvent =
-                        replyInfo?.let { reply ->
-                            timelineEvents.find<TimelineEvent> { it.eventId == reply.eventId }
-                        }
-
-                    // Check if it's a media message
-                    if (msgType == "m.image" || msgType == "m.video") {
-                        Log.d(
-                            "Andromuks",
-                            "TimelineEventItem: Found media message - msgType=$msgType, body=$body"
-                        )
-
-                        // If media message is redacted, show deletion message instead of media
-                        if (isRedacted) {
-                            // OPTIMIZED: Display deletion message for media using cached redaction event
-                            val deletionMessage =
-                                net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                                    redactionEvent,
-                                    userProfileCache
-                                )
-
-                            val bubbleShape =
-                                if (actualIsMine) {
-                                    RoundedCornerShape(
-                                        topStart = 12.dp,
-                                        topEnd = 2.dp,
-                                        bottomEnd = 12.dp,
-                                        bottomStart = 12.dp
-                                    )
-                                } else {
-                                    RoundedCornerShape(
-                                        topStart = 2.dp,
-                                        topEnd = 12.dp,
-                                        bottomEnd = 12.dp,
-                                        bottomStart = 12.dp
-                                    )
-                                }
-
-                            val bubbleColor =
-                                if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
-                                else MaterialTheme.colorScheme.surfaceVariant
-                            val textColor =
-                                if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement =
-                                    if (actualIsMine) Arrangement.End else Arrangement.Start
-                            ) {
-                                Surface(
-                                    color = bubbleColor,
-                                    shape = bubbleShape,
-                                    shadowElevation = 3.dp,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                ) {
-                                    Text(
-                                        text = deletionMessage,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = textColor,
-                                        fontStyle =
-                                            FontStyle.Italic, // Make deletion messages italic
-                                        modifier =
-                                            Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
-                            return // Exit early for redacted media messages
-                        }
-
-                        // Check if media is encrypted (has file object) or unencrypted (has url
-                        // field)
-                        val fileObj = content?.optJSONObject("file")
-                        val hasEncryptedFile = fileObj != null
-                        val directUrl = content?.optString("url", "") ?: ""
-                        val fileUrl = fileObj?.optString("url", "") ?: ""
-                        val url = directUrl.takeIf { it.isNotBlank() } ?: fileUrl
-
-                        val filename = content?.optString("filename", "") ?: ""
-                        val info = content?.optJSONObject("info")
-
-                        Log.d(
-                            "Andromuks",
-                            "TimelineEventItem: Media data - url=$url, filename=$filename, info=${info != null}, hasEncryptedFile=$hasEncryptedFile"
-                        )
-
-                        if (url.isNotBlank() && info != null) {
-                            val width = info.optInt("w", 0)
-                            val height = info.optInt("h", 0)
-                            val size = info.optLong("size", 0)
-                            val mimeType = info.optString("mimetype", "")
-                            val blurHash =
-                                info.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
-
-                            // Extract thumbnail info for videos
-                            // Check for both encrypted (thumbnail_file) and unencrypted (thumbnail_url) thumbnails
-                            var thumbnailIsEncrypted = false
-                            val thumbnailUrl = if (msgType == "m.video") {
-                                val thumbnailFile = info.optJSONObject("thumbnail_file")
-                                if (thumbnailFile != null) {
-                                    // Encrypted thumbnail
-                                    thumbnailIsEncrypted = true
-                                    thumbnailFile.optString("url", "")?.takeIf { it.isNotBlank() }
-                                } else {
-                                    // Unencrypted thumbnail
-                                    info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
-                                }
-                            } else null
-                            
-                            val thumbnailInfo = if (msgType == "m.video") {
-                                info.optJSONObject("thumbnail_info")
-                            } else null
-                            
-                            val thumbnailBlurHash = thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
-                            val thumbnailWidth = thumbnailInfo?.optInt("w", 0)
-                            val thumbnailHeight = thumbnailInfo?.optInt("h", 0)
-                            val duration = if (msgType == "m.video") {
-                                info.optInt("duration", 0).takeIf { it > 0 }
-                            } else null
-
-                            // Extract caption: use sanitized_html if available, otherwise body (only if different from filename)
-                            val caption = if (body != filename && body.isNotBlank()) {
-                                val localContent = event.localContent
-                                val sanitizedHtml = localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
-                                // Use sanitized_html if available and different from filename, otherwise use body
-                                if (sanitizedHtml != null && sanitizedHtml != filename) {
-                                    sanitizedHtml
-                                } else {
-                                    body
-                                }
-                            } else null
-
-                            val mediaInfo =
-                                MediaInfo(
-                                    width = width,
-                                    height = height,
-                                    size = size,
-                                    mimeType = mimeType,
-                                    blurHash = blurHash,
-                                    thumbnailUrl = thumbnailUrl,
-                                    thumbnailBlurHash = thumbnailBlurHash,
-                                    thumbnailWidth = thumbnailWidth,
-                                    thumbnailHeight = thumbnailHeight,
-                                    duration = duration,
-                                    thumbnailIsEncrypted = thumbnailIsEncrypted
-                                )
-
-                            val mediaMessage =
-                                MediaMessage(
-                                    url = url,
-                                    filename = filename,
-                                    caption = caption,
-                                    info = mediaInfo,
-                                    msgType = msgType
-                                )
-
-                            Log.d(
-                                "Andromuks",
-                                "TimelineEventItem: Created MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}"
-                            )
-
-                            // Display media message with nested reply structure
-                            MediaMessageItem(
-                                mediaMessage = mediaMessage,
-                                replyInfo = replyInfo,
-                                originalEvent = originalEvent,
-                                userProfileCache = userProfileCache,
-                                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                                authToken = authToken,
-                                isMine = actualIsMine,
-                                hasEncryptedFile = hasEncryptedFile,
-                                event = event,
-                                isConsecutive = isConsecutive,
-                                editedBy = editedBy,
-                                timelineEvents = timelineEvents,
-                                onScrollToMessage = onScrollToMessage,
-                                onReply = { onReply(event) },
-                                onReact = { onReact(event) },
-                                onEdit = { onEdit(event) },
-                                onDelete = { onDelete(event) },
-                                onUserClick = onUserClick,
-                                appViewModel = appViewModel,
-                                myUserId = myUserId,
-                                powerLevels = appViewModel?.currentRoomState?.powerLevels,
-                                onBubbleClick = if (event.isThreadMessage()) {
-                                    { onThreadClick(event) }
-                                } else {
-                                    null
-                                }
-                            )
-
-                            // Add reaction badges for media messages
-                            if (appViewModel != null) {
-                                val reactions = remember(appViewModel.updateCounter, event.eventId) {
-                                    appViewModel.messageReactions[event.eventId] ?: emptyList()
-                                }
-                                if (reactions.isNotEmpty()) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                        horizontalArrangement =
-                                            if (actualIsMine) Arrangement.End else Arrangement.Start
-                                    ) {
-                                        ReactionBadges(
-                                            eventId = event.eventId,
-                                            reactions = reactions,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            // Fallback to text message if media parsing fails
-                            val bubbleShape =
-                                if (actualIsMine) {
-                                    RoundedCornerShape(
-                                        topStart = 12.dp,
-                                        topEnd = 2.dp,
-                                        bottomEnd = 8.dp,
-                                        bottomStart = 12.dp
-                                    )
-                                } else {
-                                    RoundedCornerShape(
-                                        topStart = 2.dp,
-                                        topEnd = 12.dp,
-                                        bottomEnd = 12.dp,
-                                        bottomStart = 8.dp
-                                    )
-                                }
-                            
-                            val bubbleColor =
-                                if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
-                                else if (mentionsMe) MaterialTheme.colorScheme.tertiaryContainer
-                                else MaterialTheme.colorScheme.surfaceVariant
-                            val textColor =
-                                if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
-                                else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement =
-                                    if (actualIsMine) Arrangement.End else Arrangement.Start
-                            ) {
-                                Surface(
-                                    color = bubbleColor,
-                                    shape = bubbleShape,
-                                    shadowElevation = 3.dp,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                ) {
-                                    Text(
-                                        text = body,
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = textColor,
-                                        modifier =
-                                            Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        // Regular text message
-                        val bubbleShape =
-                            if (actualIsMine) {
-                                RoundedCornerShape(
-                                    topStart = 12.dp,
-                                    topEnd = 2.dp,
-                                    bottomEnd = 12.dp,
-                                    bottomStart = 12.dp
-                                )
-                            } else {
-                                RoundedCornerShape(
-                                    topStart = 2.dp,
-                                    topEnd = 12.dp,
-                                    bottomEnd = 12.dp,
-                                    bottomStart = 12.dp
-                                )
-                            }
-                        
-                        // Check if message has been edited (O(1) lookup)
-                        val hasBeenEdited = remember(event.eventId, appViewModel?.updateCounter) {
-                            appViewModel?.isMessageEdited(event.eventId) ?: false
-                        }
-                        
-                        // Check if this is a thread message
-                        val isThreadMessage = event.isThreadMessage()
-                        
-                        val bubbleColor =
-                            if (isThreadMessage) {
-                                // Thread messages use Material3 tertiary colors (typically purple/violet)
-                                // Own messages: fuller opacity for emphasis
-                                // Others' messages: lighter for distinction
-                                if (actualIsMine) MaterialTheme.colorScheme.tertiaryContainer
-                                else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-                            } else if (actualIsMine) {
-                                if (hasBeenEdited) MaterialTheme.colorScheme.secondaryContainer
-                                else MaterialTheme.colorScheme.primaryContainer
-                            } else if (mentionsMe) {
-                                MaterialTheme.colorScheme.tertiaryContainer
-                            } else {
-                                if (hasBeenEdited) MaterialTheme.colorScheme.surfaceContainerHighest
-                                else MaterialTheme.colorScheme.surfaceVariant
-                            }
-                        val textColor =
-                            if (isThreadMessage) {
-                                // Thread messages use tertiary color for text
-                                MaterialTheme.colorScheme.tertiary
-                            } else if (actualIsMine) {
-                                if (hasBeenEdited) MaterialTheme.colorScheme.onSecondaryContainer
-                                else MaterialTheme.colorScheme.onPrimaryContainer
-                            } else if (mentionsMe) {
-                                MaterialTheme.colorScheme.onTertiaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            }
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement =
-                                if (actualIsMine) Arrangement.End else Arrangement.Start,
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            // For my messages, show read receipts on the left of the bubble
-                            if (actualIsMine && readReceipts.isNotEmpty()) {
-                                AnimatedInlineReadReceiptAvatars(
-                                    receipts = readReceipts,
-                                    userProfileCache = userProfileCache,
-                                    homeserverUrl = homeserverUrl,
-                                    authToken = authToken,
-                                    appViewModel = appViewModel,
-                                    messageSender = event.sender,
-                                    eventId = event.eventId,
-                                    onUserClick = onUserClick
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
-
-                            // Display reply with nested structure if this is a reply (but NOT a thread message)
-                            // Thread messages are rendered as normal bubbles with different color
-                            if (replyInfo != null && originalEvent != null && !isThreadMessage) {
-                                MessageBubbleWithMenu(
-                                    event = event,
-                                    bubbleColor = bubbleColor,
-                                    bubbleShape = bubbleShape,
-                                    modifier = Modifier.widthIn(max = 300.dp),
-                                    isMine = actualIsMine,
-                                    myUserId = myUserId,
-                                    powerLevels = appViewModel?.currentRoomState?.powerLevels,
-                                    onReply = { onReply(event) },
-                                    onReact = { onReact(event) },
-                                    onEdit = { onEdit(event) },
-                                    onDelete = { onDelete(event) },
-                                    appViewModel = appViewModel,
-                                    onBubbleClick = if (isThreadMessage) {
-                                        { onThreadClick(event) }
-                                    } else {
-                                        null
-                                    }
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(8.dp),
-                                        horizontalAlignment = Alignment.Start
-                                    ) {
-                                        // Reply preview (clickable original message)
-                                        ReplyPreview(
-                                            replyInfo = replyInfo,
-                                            originalEvent = originalEvent,
-                                            userProfileCache = userProfileCache,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            isMine = actualIsMine,
-                                            modifier =
-                                                Modifier.padding(bottom = 6.dp)
-                                                    .align(Alignment.Start),
-                                            onOriginalMessageClick = {
-                                                onScrollToMessage(replyInfo.eventId)
-                                            },
-                                            timelineEvents = timelineEvents,
-                                            onMatrixUserClick = onUserClick,
-                                            appViewModel = appViewModel
-                                        )
-
-                                        // Reply message content with inline timestamp
-                                        Box {
-                                            // Text with extra padding at the end for timestamp
-                                            AdaptiveMessageText(
-                                                event = event,
-                                                body = finalBody,
-                                                format = format,
-                                                userProfileCache = userProfileCache,
-                                                homeserverUrl = homeserverUrl,
-                                                authToken = authToken,
-                                                appViewModel = appViewModel,
-                                                roomId = event.roomId,
-                                                textColor = textColor,
-                                                modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
-                                                onUserClick = onUserClick,
-                                                onMatrixUserClick = onUserClick,
-                                                onRoomLinkClick = onRoomLinkClick
-                                            )
-                                            // Timestamp positioned at bottom-end
-                                            Box(
-                                                modifier = Modifier.align(Alignment.BottomEnd)
-                                            ) {
-                                                InlineBubbleTimestamp(
-                                                    timestamp = event.timestamp,
-                                                    editedBy = editedBy,
-                                                    isMine = actualIsMine,
-                                                    isConsecutive = isConsecutive
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            } else {
-                                // Regular message bubble with popup menu
-                                MessageBubbleWithMenu(
-                                    event = event,
-                                    bubbleColor = bubbleColor,
-                                    bubbleShape = bubbleShape,
-                                    modifier = Modifier.widthIn(max = 300.dp),
-                                    isMine = actualIsMine,
-                                    myUserId = myUserId,
-                                    powerLevels = appViewModel?.currentRoomState?.powerLevels,
-                                    onReply = { onReply(event) },
-                                    onReact = { onReact(event) },
-                                    onEdit = { onEdit(event) },
-                                    onDelete = { onDelete(event) },
-                                    appViewModel = appViewModel,
-                                    onBubbleClick = if (isThreadMessage) {
-                                        { onThreadClick(event) }
-                                    } else {
-                                        null
-                                    }
-                                ) {
-                                    Box(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                                    ) {
-                                        // Text with extra padding at the end for timestamp
-                                        AdaptiveMessageText(
-                                            event = event,
-                                            body = finalBody,
-                                            format = format,
-                                            userProfileCache = userProfileCache,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            appViewModel = appViewModel,
-                                            roomId = event.roomId,
-                                            textColor = textColor,
-                                            modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
-                                            onUserClick = onUserClick,
-                                            onMatrixUserClick = onUserClick,
-                                            onRoomLinkClick = onRoomLinkClick
-                                        )
-                                        // Timestamp positioned at bottom-end
-                                        Box(
-                                            modifier = Modifier.align(Alignment.BottomEnd)
-                                        ) {
-                                            InlineBubbleTimestamp(
-                                                timestamp = event.timestamp,
-                                                editedBy = editedBy,
-                                                isMine = actualIsMine,
-                                                isConsecutive = isConsecutive
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-
-                                // For others' messages, show read receipts on the right of the bubble
-                                if (!actualIsMine && readReceipts.isNotEmpty()) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    AnimatedInlineReadReceiptAvatars(
-                                        receipts = readReceipts,
-                                        userProfileCache = userProfileCache,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        appViewModel = appViewModel,
-                                        messageSender = event.sender,
-                                        eventId = event.eventId,
-                                        onUserClick = onUserClick
-                                    )
-                                }
-                            }
-
-                        // Add reaction badges for this message
-                        if (appViewModel != null) {
-                            val reactions = remember(appViewModel.updateCounter, event.eventId) {
-                                appViewModel.messageReactions[event.eventId] ?: emptyList()
-                            }
-                            if (reactions.isNotEmpty()) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                    horizontalArrangement =
-                                        if (actualIsMine) Arrangement.End else Arrangement.Start
-                                ) {
-                                    ReactionBadges(
-                                        eventId = event.eventId,
-                                        reactions = reactions,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-                "m.room.encrypted" -> {
-                    // Check if this is an edit event (m.replace relationship) - don't display edit
-                    // events
-                    val isEditEvent =
-                        event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") ==
-                            "m.replace"
-                    if (isEditEvent) {
-                        android.util.Log.d(
-                            "Andromuks",
-                            "RoomTimelineScreen: Filtering out edit event ${event.eventId}"
-                        )
-                        return // Don't display edit events as separate timeline items
-                    }
-
-                    val decryptedType = event.decryptedType
-                    val decrypted = event.decrypted
-                    if (decryptedType == "m.room.message") {
-                        val format = decrypted?.optString("format", "")
-                        val body =
-                            if (format == "org.matrix.custom.html") {
-                                decrypted?.optString("formatted_body", "") ?: ""
-                            } else {
-                                decrypted?.optString("body", "") ?: ""
-                            }
-                        android.util.Log.d(
-                            "Andromuks",
-                            "RoomTimelineScreen: Displaying event ${event.eventId} with body: '$body'"
-                        )
-                        val msgType = decrypted?.optString("msgtype", "") ?: ""
-                        
-                        // Handle encrypted m.emote messages with narrator rendering
-                        if (msgType == "m.emote") {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                EmoteEventNarrator(
-                                    event = event,
-                                    displayName = displayName ?: event.sender,
-                                    avatarUrl = avatarUrl,
-                                    homeserverUrl = homeserverUrl,
-                                    authToken = authToken,
-                                    onReply = { onReply(event) },
-                                    onReact = { onReact(event) },
-                                    onEdit = { onEdit(event) },
-                                    onDelete = { onDelete(event) }
-                                )
-                                
-                                // Add reaction badges for encrypted emote messages
-                                if (appViewModel != null) {
-                                    val reactions = remember(appViewModel.updateCounter, event.eventId) {
-                                        appViewModel.messageReactions[event.eventId] ?: emptyList()
-                                    }
-                                    if (reactions.isNotEmpty()) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 28.dp),
-                                            horizontalArrangement = Arrangement.Start
-                                        ) {
-                                            ReactionBadges(
-                                                eventId = event.eventId,
-                                                reactions = reactions,
-                                                homeserverUrl = homeserverUrl,
-                                                authToken = authToken
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            return
-                        }
-
-                        // OPTIMIZED: Check if this message has been redacted using O(1) lookup
-                        val isRedacted = event.redactedBy != null
-                        val redactionEvent = if (isRedacted && appViewModel != null) {
-                            appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
-                        } else null
-                        
-                        val redactionSender = redactionEvent?.sender
-
-                        // Request profile if redaction sender is missing from cache
-                        if (isRedacted && redactionSender != null && appViewModel != null) {
-                            if (!userProfileCache.containsKey(redactionSender)) {
-                                android.util.Log.d(
-                                    "Andromuks",
-                                    "RoomTimelineScreen: Requesting profile for encrypted message redaction sender: $redactionSender in room ${event.roomId}"
-                                )
-                                appViewModel.requestUserProfile(redactionSender, event.roomId)
-                            }
-                        }
-
-                        // Check if this is an edit (m.replace relationship)
-                        val isEdit =
-                            decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") ==
-                                "m.replace"
-                        val editContent =
-                            if (isEdit) {
-                                decrypted?.optJSONObject("m.new_content")
-                            } else null
-
-                        // Use edit content if this message is being edited, or show deletion message if redacted
-                        val finalBody =
-                            if (isRedacted) {
-                                // OPTIMIZED: Create deletion message using O(1) cached redaction event
-                                net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                                    redactionEvent,
-                                    userProfileCache
-                                )
-                            } else if (editedBy != null && editedBy.decrypted != null) {
-                                val newContent = editedBy.decrypted?.optJSONObject("m.new_content")
-                                val editFormat = newContent?.optString("format", "")
-                                if (editFormat == "org.matrix.custom.html") {
-                                    newContent?.optString("formatted_body", "") ?: ""
-                                } else {
-                                    newContent?.optString("body", "") ?: ""
-                                }
-                            } else if (editedBy != null && editedBy.content != null) {
-                                val newContent = editedBy.content?.optJSONObject("m.new_content")
-                                val editFormat = newContent?.optString("format", "")
-                                if (editFormat == "org.matrix.custom.html") {
-                                    newContent?.optString("formatted_body", "") ?: ""
-                                } else {
-                                    newContent?.optString("body", "") ?: ""
-                                }
-                            } else {
-                                body
-                            }
-
-                        // Check if this is a reply message
-                        val replyInfo = event.getReplyInfo()
-                        val originalEvent =
-                            replyInfo?.let { reply ->
-                                timelineEvents.find<TimelineEvent> { it.eventId == reply.eventId }
-                            }
-
-                        // Check if it's a media message
-                        if (msgType == "m.image" || msgType == "m.video") {
-                            Log.d(
-                                "Andromuks",
-                                "TimelineEventItem: Found encrypted media message - msgType=$msgType, body=$body"
-                            )
-
-                            // Debug: Check what's in the decrypted object
-                            Log.d(
-                                "Andromuks",
-                                "TimelineEventItem: Direct url field: ${decrypted?.optString("url", "NOT_FOUND")}"
-                            )
-                            Log.d(
-                                "Andromuks",
-                                "TimelineEventItem: File object exists: ${decrypted?.has("file")}"
-                            )
-                            if (decrypted?.has("file") == true) {
-                                val fileObj = decrypted.optJSONObject("file")
-                                Log.d(
-                                    "Andromuks",
-                                    "TimelineEventItem: File url field: ${fileObj?.optString("url", "NOT_FOUND")}"
-                                )
-                            }
-
-                            // For encrypted messages, URL might be in file.url
-                            // Check if media is encrypted (has file object) or just the event is
-                            // encrypted (has url field)
-                            val fileObj = decrypted?.optJSONObject("file")
-                            val hasEncryptedFile = fileObj != null
-                            val directUrl = decrypted?.optString("url", "") ?: ""
-                            val fileUrl = fileObj?.optString("url", "") ?: ""
-                            val url = directUrl.takeIf { it.isNotBlank() } ?: fileUrl
-
-                            Log.d(
-                                "Andromuks",
-                                "TimelineEventItem: URL extraction - directUrl='$directUrl', fileObj=${fileObj != null}, fileUrl='$fileUrl', finalUrl='$url', hasEncryptedFile=$hasEncryptedFile"
-                            )
-
-                            val filename = decrypted?.optString("filename", "") ?: ""
-                            val info = decrypted?.optJSONObject("info")
-
-                            Log.d(
-                                "Andromuks",
-                                "TimelineEventItem: Encrypted media data - url=$url, filename=$filename, info=${info != null}"
-                            )
-
-                            if (url.isNotBlank() && info != null) {
-                                val width = info.optInt("w", 0)
-                                val height = info.optInt("h", 0)
-                                val size = info.optLong("size", 0)
-                                val mimeType = info.optString("mimetype", "")
-                                val blurHash =
-                                    info.optString("xyz.amorgan.blurhash")?.takeIf {
-                                        it.isNotBlank()
-                                    }
-
-                                // Extract thumbnail info for encrypted videos
-                                // For encrypted media, thumbnail is in thumbnail_file.url, not thumbnail_url
-                                var thumbnailIsEncrypted = false
-                                val thumbnailUrl = if (msgType == "m.video") {
-                                    val thumbnailFile = info.optJSONObject("thumbnail_file")
-                                    if (thumbnailFile != null) {
-                                        // Encrypted thumbnail
-                                        thumbnailIsEncrypted = true
-                                        thumbnailFile.optString("url", "")?.takeIf { it.isNotBlank() }
-                                    } else {
-                                        // Unencrypted thumbnail (fallback, though unlikely for encrypted messages)
-                                        info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
-                                    }
-                                } else null
-                                
-                                val thumbnailInfo = if (msgType == "m.video") {
-                                    info.optJSONObject("thumbnail_info")
-                                } else null
-                                
-                                val thumbnailBlurHash = thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
-                                val thumbnailWidth = thumbnailInfo?.optInt("w", 0)
-                                val thumbnailHeight = thumbnailInfo?.optInt("h", 0)
-                                val duration = if (msgType == "m.video") {
-                                    info.optInt("duration", 0).takeIf { it > 0 }
-                                } else null
-
-                                // Extract caption: use sanitized_html if available, otherwise body (only if different from filename)
-                                val caption = if (body != filename && body.isNotBlank()) {
-                                    val localContent = event.localContent
-                                    val sanitizedHtml = localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
-                                    // Use sanitized_html if available and different from filename, otherwise use body
-                                    if (sanitizedHtml != null && sanitizedHtml != filename) {
-                                        sanitizedHtml
-                                    } else {
-                                        body
-                                    }
-                                } else null
-
-                                val mediaInfo =
-                                    MediaInfo(
-                                        width = width,
-                                        height = height,
-                                        size = size,
-                                        mimeType = mimeType,
-                                        blurHash = blurHash,
-                                        thumbnailUrl = thumbnailUrl,
-                                        thumbnailBlurHash = thumbnailBlurHash,
-                                        thumbnailWidth = thumbnailWidth,
-                                        thumbnailHeight = thumbnailHeight,
-                                        duration = duration,
-                                        thumbnailIsEncrypted = thumbnailIsEncrypted
-                                    )
-
-                                val mediaMessage =
-                                    MediaMessage(
-                                        url = url,
-                                        filename = filename,
-                                        caption = caption,
-                                        info = mediaInfo,
-                                        msgType = msgType
-                                    )
-
-                                Log.d(
-                                    "Andromuks",
-                                    "TimelineEventItem: Created encrypted MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}"
-                                )
-
-                                // Display encrypted media message with nested reply structure
-                                MediaMessageItem(
-                                    mediaMessage = mediaMessage,
-                                    replyInfo = replyInfo,
-                                    originalEvent = originalEvent,
-                                    userProfileCache = userProfileCache,
-                                    homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                                    authToken = authToken,
-                                    isMine = actualIsMine,
-                                    hasEncryptedFile = hasEncryptedFile,
-                                    event = event,
-                                    isConsecutive = isConsecutive,
-                                    editedBy = editedBy,
-                                    timelineEvents = timelineEvents,
-                                    onScrollToMessage = onScrollToMessage,
-                                    onReply = { onReply(event) },
-                                    onReact = { onReact(event) },
-                                    onEdit = { onEdit(event) },
-                                    onDelete = { onDelete(event) },
-                                    onUserClick = onUserClick,
-                                    appViewModel = appViewModel,
-                                    myUserId = myUserId,
-                                    powerLevels = appViewModel?.currentRoomState?.powerLevels,
-                                    onBubbleClick = if (event.isThreadMessage()) {
-                                        { onThreadClick(event) }
-                                    } else {
-                                        null
-                                    }
-                                )
-
-                                // Add reaction badges for encrypted media messages
-                                if (appViewModel != null) {
-                                    val reactions = remember(appViewModel.updateCounter, event.eventId) {
-                                        appViewModel.messageReactions[event.eventId] ?: emptyList()
-                                    }
-                                    if (reactions.isNotEmpty()) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                            horizontalArrangement =
-                                                if (actualIsMine) Arrangement.End
-                                                else Arrangement.Start
-                                        ) {
-                                            ReactionBadges(
-                                                eventId = event.eventId,
-                                                reactions = reactions,
-                                                homeserverUrl = homeserverUrl,
-                                                authToken = authToken
-                                            )
-                                        }
-                                    }
-                                }
-                            } else {
-                                // Fallback to text message if encrypted media parsing fails
-                                val bubbleShape =
-                                    if (actualIsMine) {
-                                        RoundedCornerShape(
-                                            topStart = 12.dp,
-                                            topEnd = 2.dp,
-                                            bottomEnd = 8.dp,
-                                            bottomStart = 12.dp
-                                        )
-                                    } else {
-                                        RoundedCornerShape(
-                                            topStart = 2.dp,
-                                            topEnd = 12.dp,
-                                            bottomEnd = 12.dp,
-                                            bottomStart = 8.dp
-                                        )
-                                    }
-                                
-                                val bubbleColor =
-                                    if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
-                                    else if (mentionsMe) MaterialTheme.colorScheme.tertiaryContainer
-                                    else MaterialTheme.colorScheme.surfaceVariant
-                                val textColor =
-                                    if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
-                                    else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
-                                    else MaterialTheme.colorScheme.onSurfaceVariant
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement =
-                                        if (actualIsMine) Arrangement.End else Arrangement.Start
-                                ) {
-                                    MessageBubbleWithMenu(
-                                        event = event,
-                                        bubbleColor = bubbleColor,
-                                        bubbleShape = bubbleShape,
-                                        modifier = Modifier.widthIn(max = 300.dp),
-                                        isMine = actualIsMine,
-                                        myUserId = myUserId,
-                                        powerLevels = appViewModel?.currentRoomState?.powerLevels,
-                                        onReply = { onReply(event) },
-                                        onReact = { onReact(event) },
-                                        onEdit = { onEdit(event) },
-                                        onDelete = { onDelete(event) },
-                                        appViewModel = appViewModel,
-                                        onBubbleClick = null
-                                    ) {
-                                        Text(
-                                            text = body,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = textColor,
-                                            modifier =
-                                                Modifier.padding(
-                                                    horizontal = 8.dp,
-                                                    vertical = 6.dp
-                                                )
-                                        )
-                                    }
-                                }
-
-                                // Add reaction badges for encrypted text message
-                                if (appViewModel != null) {
-                                    val reactions = remember(appViewModel.updateCounter, event.eventId) {
-                                        appViewModel.messageReactions[event.eventId] ?: emptyList()
-                                    }
-                                    if (reactions.isNotEmpty()) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                            horizontalArrangement =
-                                                if (actualIsMine) Arrangement.End
-                                                else Arrangement.Start
-                                        ) {
-                                            ReactionBadges(
-                                                eventId = event.eventId,
-                                                reactions = reactions,
-                                                homeserverUrl = homeserverUrl,
-                                                authToken = authToken
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            // Regular encrypted text message
-                            val bubbleShape =
-                                if (actualIsMine) {
-                                    RoundedCornerShape(
-                                        topStart = 12.dp,
-                                        topEnd = 2.dp,
-                                        bottomEnd = 8.dp,
-                                        bottomStart = 12.dp
-                                    )
-                                } else {
-                                    RoundedCornerShape(
-                                        topStart = 2.dp,
-                                        topEnd = 12.dp,
-                                        bottomEnd = 12.dp,
-                                        bottomStart = 8.dp
-                                    )
-                                }
-                            
-                            // Check if message has been edited (O(1) lookup)
-                            val hasBeenEdited = remember(event.eventId, appViewModel?.updateCounter) {
-                                appViewModel?.isMessageEdited(event.eventId) ?: false
-                            }
-                            
-                            // Check if this is a thread message
-                            val isThreadMessage = event.isThreadMessage()
-                            
-                            val bubbleColor =
-                                if (isThreadMessage) {
-                                    // Thread messages use Material3 tertiary colors (typically purple/violet)
-                                    // Own messages: fuller opacity for emphasis
-                                    // Others' messages: lighter for distinction
-                                    if (actualIsMine) MaterialTheme.colorScheme.tertiaryContainer
-                                    else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-                                } else if (actualIsMine) {
-                                    if (hasBeenEdited) MaterialTheme.colorScheme.secondaryContainer
-                                    else MaterialTheme.colorScheme.primaryContainer
-                                } else if (mentionsMe) {
-                                    MaterialTheme.colorScheme.tertiaryContainer
-                                } else {
-                                    if (hasBeenEdited) MaterialTheme.colorScheme.surfaceContainerHighest
-                                    else MaterialTheme.colorScheme.surfaceVariant
-                                }
-                            val textColor =
-                                if (isThreadMessage) {
-                                    // Thread messages use tertiary color for text
-                                    MaterialTheme.colorScheme.tertiary
-                                } else if (actualIsMine) {
-                                    if (hasBeenEdited) MaterialTheme.colorScheme.onSecondaryContainer
-                                    else MaterialTheme.colorScheme.onPrimaryContainer
-                                } else if (mentionsMe) {
-                                    MaterialTheme.colorScheme.onTertiaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement =
-                                    if (actualIsMine) Arrangement.End else Arrangement.Start,
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                // For my messages, show read receipts on the left of the bubble
-                                if (actualIsMine && readReceipts.isNotEmpty()) {
-                                    AnimatedInlineReadReceiptAvatars(
-                                        receipts = readReceipts,
-                                        userProfileCache = userProfileCache,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        appViewModel = appViewModel,
-                                        messageSender = event.sender,
-                                        eventId = event.eventId,
-                                        onUserClick = onUserClick
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                }
-
-                                // Display encrypted text message with nested reply structure (but NOT for thread messages)
-                                // Thread messages are rendered as normal bubbles with different color
-                                if (replyInfo != null && originalEvent != null && !isThreadMessage) {
-                                    MessageBubbleWithMenu(
-                                        event = event,
-                                        bubbleColor = bubbleColor,
-                                        bubbleShape = bubbleShape,
-                                        modifier = Modifier.widthIn(max = 300.dp),
-                                        isMine = actualIsMine,
-                                        myUserId = myUserId,
-                                        powerLevels = appViewModel?.currentRoomState?.powerLevels,
-                                        onReply = { onReply(event) },
-                                        onReact = { onReact(event) },
-                                        onEdit = { onEdit(event) },
-                                        onDelete = { onDelete(event) },
-                                        appViewModel = appViewModel,
-                                        onBubbleClick = if (isThreadMessage) {
-                                            { onThreadClick(event) }
-                                        } else {
-                                            null
-                                        }
-                                    ) {
-                                        Column(
-                                            modifier = Modifier.padding(8.dp),
-                                            horizontalAlignment = Alignment.Start
-                                        ) {
-                                            // Reply preview (clickable original message)
-                                            ReplyPreview(
-                                                replyInfo = replyInfo,
-                                                originalEvent = originalEvent,
-                                                userProfileCache = userProfileCache,
-                                                homeserverUrl = homeserverUrl,
-                                                authToken = authToken,
-                                                isMine = actualIsMine,
-                                                modifier =
-                                                    Modifier.padding(bottom = 6.dp)
-                                                        .align(Alignment.Start),
-                                                onOriginalMessageClick = {
-                                                    onScrollToMessage(replyInfo.eventId)
-                                                },
-                                                timelineEvents = timelineEvents,
-                                                onMatrixUserClick = onUserClick,
-                                                appViewModel = appViewModel
-                                            )
-
-                                            // Reply message content with inline timestamp
-                                            Box {
-                                                // finalBody already contains deletion message if redacted
-                                                AdaptiveMessageText(
-                                                    event = event,
-                                                    body = finalBody,
-                                                    format = format,
-                                                    userProfileCache = userProfileCache,
-                                                    homeserverUrl = homeserverUrl,
-                                                    authToken = authToken,
-                                                    appViewModel = appViewModel,
-                                                    roomId = event.roomId,
-                                                    textColor = textColor,
-                                                    modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
-                                                    onUserClick = onUserClick,
-                                                    onMatrixUserClick = onUserClick,
-                                                    onRoomLinkClick = onRoomLinkClick
-                                                )
-                                                // Timestamp positioned at bottom-end
-                                                Box(
-                                                    modifier = Modifier.align(Alignment.BottomEnd)
-                                                ) {
-                                                    InlineBubbleTimestamp(
-                                                        timestamp = event.timestamp,
-                                                        editedBy = editedBy,
-                                                        isMine = actualIsMine,
-                                                        isConsecutive = isConsecutive
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // Regular encrypted message bubble
-                                    MessageBubbleWithMenu(
-                                        event = event,
-                                        bubbleColor = bubbleColor,
-                                        bubbleShape = bubbleShape,
-                                        modifier = Modifier.widthIn(max = 300.dp),
-                                        isMine = actualIsMine,
-                                        myUserId = myUserId,
-                                        powerLevels = appViewModel?.currentRoomState?.powerLevels,
-                                        onReply = { onReply(event) },
-                                        onReact = { onReact(event) },
-                                        onEdit = { onEdit(event) },
-                                        onDelete = { onDelete(event) },
-                                        appViewModel = appViewModel,
-                                        onBubbleClick = if (isThreadMessage) {
-                                            { onThreadClick(event) }
-                                        } else {
-                                            null
-                                        }
-                                    ) {
-                                        Box(
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                                        ) {
-                                            // finalBody already contains deletion message if redacted
-                                            AdaptiveMessageText(
-                                                event = event,
-                                                body = finalBody,
-                                                format = format,
-                                                userProfileCache = userProfileCache,
-                                                homeserverUrl = homeserverUrl,
-                                                authToken = authToken,
-                                                appViewModel = appViewModel,
-                                                roomId = event.roomId,
-                                                textColor = textColor,
-                                                modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
-                                                onUserClick = onUserClick,
-                                                onMatrixUserClick = onUserClick,
-                                                onRoomLinkClick = onRoomLinkClick
-                                            )
-                                            // Timestamp positioned at bottom-end
-                                            Box(
-                                                modifier = Modifier.align(Alignment.BottomEnd)
-                                            ) {
-                                                InlineBubbleTimestamp(
-                                                    timestamp = event.timestamp,
-                                                    editedBy = editedBy,
-                                                    isMine = actualIsMine,
-                                                    isConsecutive = isConsecutive
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-
-                                    // For others' messages, show read receipts on the right of the bubble
-                                    if (!actualIsMine && readReceipts.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        AnimatedInlineReadReceiptAvatars(
-                                            receipts = readReceipts,
-                                            userProfileCache = userProfileCache,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            appViewModel = appViewModel,
-                                            messageSender = event.sender,
-                                            eventId = event.eventId,
-                                            onUserClick = onUserClick
-                                        )
-                                }
-                            }
-
-                            // Add reaction badges for encrypted text message
-                            if (appViewModel != null) {
-                                val reactions = remember(appViewModel.updateCounter, event.eventId) {
-                                    appViewModel.messageReactions[event.eventId] ?: emptyList()
-                                }
-                                if (reactions.isNotEmpty()) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                        horizontalArrangement =
-                                            if (actualIsMine) Arrangement.End else Arrangement.Start
-                                    ) {
-                                        ReactionBadges(
-                                            eventId = event.eventId,
-                                            reactions = reactions,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    } else if (decryptedType == "m.sticker") {
-                        // Handle encrypted stickers
-                        val stickerMessage = extractStickerFromEvent(event)
-
-                        if (stickerMessage != null) {
-                            Log.d(
-                                "Andromuks",
-                                "TimelineEventItem: Found encrypted sticker - url=${stickerMessage.url}, body=${stickerMessage.body}, dimensions=${stickerMessage.width}x${stickerMessage.height}"
-                            )
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement =
-                                    if (actualIsMine) Arrangement.End else Arrangement.Start,
-                                verticalAlignment = Alignment.Top
-                            ) {
-                                // For my messages, show read receipts on the left of the bubble
-                                if (actualIsMine && readReceipts.isNotEmpty()) {
-                                    AnimatedInlineReadReceiptAvatars(
-                                        receipts = readReceipts,
-                                        userProfileCache = userProfileCache,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken,
-                                        appViewModel = appViewModel,
-                                        messageSender = event.sender,
-                                        eventId = event.eventId,
-                                        onUserClick = onUserClick
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                }
-
-                                StickerMessage(
-                                        stickerMessage = stickerMessage,
-                                        homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                                        authToken = authToken,
-                                        isMine = actualIsMine,
-                                        isEncrypted =
-                                            stickerMessage
-                                                .hasEncryptedFile, // Use media encryption status
-                                        event = event,
-                                        timestamp = event.timestamp,
-                                        isConsecutive = isConsecutive,
-                                        onReply = { onReply(event) },
-                                        onReact = { onReact(event) },
-                                        onEdit = { onEdit(event) },
-                                        onDelete = { onDelete(event) },
-                                        myUserId = myUserId,
-                                        powerLevels = appViewModel?.currentRoomState?.powerLevels,
-                                        appViewModel = appViewModel,
-                                        onBubbleClick = if (event.isThreadMessage()) {
-                                            { onThreadClick(event) }
-                                        } else {
-                                            null
-                                        }
-                                    )
-
-                                    // For other users' messages, show read receipts on the right
-                                    if (!actualIsMine && readReceipts.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        AnimatedInlineReadReceiptAvatars(
-                                            receipts = readReceipts,
-                                            userProfileCache = userProfileCache,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            appViewModel = appViewModel,
-                                            messageSender = event.sender,
-                                            eventId = event.eventId,
-                                            onUserClick = onUserClick
-                                        )
-                                }
-                            }
-
-                            // Add reaction badges for encrypted stickers
-                            if (appViewModel != null) {
-                                val reactions = remember(appViewModel.updateCounter, event.eventId) {
-                                    appViewModel.messageReactions[event.eventId] ?: emptyList()
-                                }
-                                if (reactions.isNotEmpty()) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                        horizontalArrangement =
-                                            if (actualIsMine) Arrangement.End else Arrangement.Start
-                                    ) {
-                                        ReactionBadges(
-                                            eventId = event.eventId,
-                                            reactions = reactions,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken
-                                        )
-                                    }
-                                }
-                            }
-                        } else {
-                            Log.w(
-                                "Andromuks",
-                                "TimelineEventItem: Failed to extract encrypted sticker data from event ${event.eventId}"
-                            )
-                        }
-                    } else {
-                        Text(
-                            text = "Encrypted message",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                "m.sticker" -> {
-                    // Handle unencrypted stickers
-                    val stickerMessage = extractStickerFromEvent(event)
-
-                    if (stickerMessage != null) {
-                        Log.d(
-                            "Andromuks",
-                            "TimelineEventItem: Found unencrypted sticker - url=${stickerMessage.url}, body=${stickerMessage.body}, dimensions=${stickerMessage.width}x${stickerMessage.height}"
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement =
-                                if (actualIsMine) Arrangement.End else Arrangement.Start,
-                            verticalAlignment = Alignment.Top
-                        ) {
-                            // For my messages, show read receipts on the left of the bubble
-                            if (actualIsMine && readReceipts.isNotEmpty()) {
-                                AnimatedInlineReadReceiptAvatars(
-                                    receipts = readReceipts,
-                                    userProfileCache = userProfileCache,
-                                    homeserverUrl = homeserverUrl,
-                                    authToken = authToken,
-                                    appViewModel = appViewModel,
-                                    messageSender = event.sender,
-                                    eventId = event.eventId,
-                                    onUserClick = onUserClick
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                            }
-
-                            StickerMessage(
-                                stickerMessage = stickerMessage,
-                                homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                                authToken = authToken,
-                                isMine = actualIsMine,
-                                isEncrypted =
-                                    stickerMessage.hasEncryptedFile, // Use media encryption status
-                                event = event,
-                                timestamp = event.timestamp,
-                                isConsecutive = isConsecutive,
-                                onReply = { onReply(event) },
-                                onReact = { onReact(event) },
-                                onEdit = { onEdit(event) },
-                                onDelete = { onDelete(event) },
-                                myUserId = myUserId,
-                                powerLevels = appViewModel?.currentRoomState?.powerLevels,
-                                appViewModel = appViewModel,
-                                onBubbleClick = if (event.isThreadMessage()) {
-                                    { onThreadClick(event) }
-                                } else {
-                                    null
-                                }
-                            )
-
-                            // For other users' messages, show read receipts on the right
-                            if (!actualIsMine && readReceipts.isNotEmpty()) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                AnimatedInlineReadReceiptAvatars(
-                                    receipts = readReceipts,
-                                    userProfileCache = userProfileCache,
-                                    homeserverUrl = homeserverUrl,
-                                    authToken = authToken,
-                                    appViewModel = appViewModel,
-                                    messageSender = event.sender,
-                                    eventId = event.eventId,
-                                    onUserClick = onUserClick
-                                )
-                                }
-                            }
-
-                        // Add reaction badges for stickers
-                        if (appViewModel != null) {
-                            val reactions = remember(appViewModel.updateCounter, event.eventId) {
-                                appViewModel.messageReactions[event.eventId] ?: emptyList()
-                            }
-                            if (reactions.isNotEmpty()) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                                    horizontalArrangement =
-                                        if (actualIsMine) Arrangement.End else Arrangement.Start
-                                ) {
-                                    ReactionBadges(
-                                        eventId = event.eventId,
-                                        reactions = reactions,
-                                        homeserverUrl = homeserverUrl,
-                                        authToken = authToken
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        Log.w(
-                            "Andromuks",
-                            "TimelineEventItem: Failed to extract sticker data from event ${event.eventId}"
-                        )
-                    }
-                }
-                "m.reaction" -> {
-                    // Reaction events are processed by processReactionEvent and displayed as badges
-                    // on messages
-                    // No need to render them as separate timeline items
-                    return
-                }
-                else -> {
-                    Text(
-                        text = "Event type: ${event.type}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
+            MessageTypeContent(
+                event = event,
+                timelineEvents = timelineEvents,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                userProfileCache = userProfileCache,
+                actualIsMine = actualIsMine,
+                myUserId = myUserId,
+                isConsecutive = isConsecutive,
+                displayName = displayName,
+                avatarUrl = avatarUrl,
+                mentionsMe = mentionsMe,
+                readReceipts = readReceipts,
+                editedBy = editedBy,
+                appViewModel = appViewModel,
+                onScrollToMessage = onScrollToMessage,
+                onReply = onReply,
+                onReact = onReact,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                onUserClick = onUserClick,
+                onRoomLinkClick = onRoomLinkClick,
+                onThreadClick = onThreadClick
+            )
 
         if (actualIsMine) {
             Spacer(modifier = Modifier.width(8.dp))
         }
     }
+}
 }
