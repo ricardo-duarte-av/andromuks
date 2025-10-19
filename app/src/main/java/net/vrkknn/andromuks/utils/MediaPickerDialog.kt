@@ -37,11 +37,21 @@ import coil.request.ImageRequest
 fun MediaPreviewDialog(
     uri: Uri,
     isVideo: Boolean = false,
+    isAudio: Boolean = false,
+    isFile: Boolean = false,
     onDismiss: () -> Unit,
     onSend: (caption: String) -> Unit
 ) {
     var caption by remember { mutableStateOf("") }
     val context = LocalContext.current
+    
+    // Determine the appropriate title based on media type
+    val title = when {
+        isAudio -> "Send Audio"
+        isFile -> "Send File"
+        isVideo -> "Send Video"
+        else -> "Send Image"
+    }
     
     Dialog(
         onDismissRequest = onDismiss,
@@ -68,7 +78,7 @@ fun MediaPreviewDialog(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = if (isVideo) "Send Video" else "Send Image",
+                        text = title,
                         style = MaterialTheme.typography.titleLarge
                     )
                     IconButton(onClick = onDismiss) {

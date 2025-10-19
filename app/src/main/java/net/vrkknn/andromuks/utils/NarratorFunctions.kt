@@ -367,7 +367,12 @@ fun EmoteEventNarrator(
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {}
 ) {
-    val content = event.content ?: event.decrypted
+    // For encrypted messages, prioritize decrypted content, otherwise use regular content
+    val content = if (event.type == "m.room.encrypted" && event.decrypted != null) {
+        event.decrypted
+    } else {
+        event.content
+    }
     val body = content?.optString("body", "") ?: ""
     
     var showMenu by remember { mutableStateOf(false) }

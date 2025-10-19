@@ -3,6 +3,7 @@ package net.vrkknn.andromuks.utils
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaPlayer
 import android.net.Uri
 import android.util.Log
 import android.webkit.MimeTypeMap
@@ -31,6 +32,27 @@ data class MediaUploadResult(
     val size: Long,
     val mimeType: String,
     val blurHash: String
+)
+
+/**
+ * Data class representing the result of an audio upload
+ */
+data class AudioUploadResult(
+    val mxcUrl: String,
+    val duration: Int, // duration in milliseconds
+    val size: Long,
+    val mimeType: String,
+    val filename: String
+)
+
+/**
+ * Data class representing the result of a file upload
+ */
+data class FileUploadResult(
+    val mxcUrl: String,
+    val size: Long,
+    val mimeType: String,
+    val filename: String
 )
 
 /**
@@ -340,6 +362,198 @@ object MediaUploadUtils {
         }
         
         return result
+    }
+    
+    /**
+     * Upload audio to the server and return upload result with metadata
+     */
+    suspend fun uploadAudio(
+        context: Context,
+        uri: Uri,
+        homeserverUrl: String,
+        authToken: String,
+        isEncrypted: Boolean = false
+    ): AudioUploadResult? = withContext(Dispatchers.IO) {
+        try {
+            Log.d("Andromuks", "MediaUploadUtils: Starting audio upload for URI: $uri")
+            
+            // Get file metadata
+            val inputStream = context.contentResolver.openInputStream(uri)
+            if (inputStream == null) {
+                Log.e("Andromuks", "MediaUploadUtils: Failed to open audio input stream")
+                return@withContext null
+            }
+            
+            val fileBytes = inputStream.readBytes()
+            inputStream.close()
+            
+            val size = fileBytes.size.toLong()
+            
+            // Get mime type
+            val mimeType = context.contentResolver.getType(uri) ?: "audio/mpeg"
+            
+            // Get filename
+            val filename = getFileNameFromUri(context, uri) ?: "audio_${System.currentTimeMillis()}.mp3"
+            
+            Log.d("Andromuks", "MediaUploadUtils: Audio file size: $size bytes, mimeType: $mimeType, filename: $filename")
+            
+            // Get audio duration
+            val duration = getAudioDuration(context, uri)
+            Log.d("Andromuks", "MediaUploadUtils: Audio duration: ${duration}ms")
+            
+            // Upload to server
+            val uploadUrl = buildUploadUrl(homeserverUrl, filename, isEncrypted)
+            Log.d("Andromuks", "MediaUploadUtils: Upload URL: $uploadUrl")
+            
+            val client = OkHttpClient.Builder()
+                .build()
+            
+            val requestBody = fileBytes.toRequestBody(mimeType.toMediaType())
+            
+            val request = Request.Builder()
+                .url(uploadUrl)
+                .post(requestBody)
+                .addHeader("Cookie", "gomuks_auth=$authToken")
+                .addHeader("Content-Type", mimeType)
+                .build()
+            
+            Log.d("Andromuks", "MediaUploadUtils: Sending audio upload request...")
+            
+            val response = client.newCall(request).execute()
+            
+            if (!response.isSuccessful) {
+                Log.e("Andromuks", "MediaUploadUtils: Audio upload failed with code: ${response.code}")
+                Log.e("Andromuks", "MediaUploadUtils: Response body: ${response.body?.string()}")
+                return@withContext null
+            }
+            
+            val responseBody = response.body?.string()
+            Log.d("Andromuks", "MediaUploadUtils: Audio upload response: $responseBody")
+            
+            // Parse response to get mxc:// URL
+            val mxcUrl = parseMxcUrlFromResponse(responseBody)
+            if (mxcUrl == null) {
+                Log.e("Andromuks", "MediaUploadUtils: Failed to parse mxc URL from audio response")
+                return@withContext null
+            }
+            
+            Log.d("Andromuks", "MediaUploadUtils: Audio upload successful, mxc URL: $mxcUrl")
+            
+            AudioUploadResult(
+                mxcUrl = mxcUrl,
+                duration = duration,
+                size = size,
+                mimeType = mimeType,
+                filename = filename
+            )
+            
+        } catch (e: Exception) {
+            Log.e("Andromuks", "MediaUploadUtils: Audio upload failed", e)
+            null
+        }
+    }
+    
+    /**
+     * Upload file to the server and return upload result with metadata
+     */
+    suspend fun uploadFile(
+        context: Context,
+        uri: Uri,
+        homeserverUrl: String,
+        authToken: String,
+        isEncrypted: Boolean = false
+    ): FileUploadResult? = withContext(Dispatchers.IO) {
+        try {
+            Log.d("Andromuks", "MediaUploadUtils: Starting file upload for URI: $uri")
+            
+            // Get file metadata
+            val inputStream = context.contentResolver.openInputStream(uri)
+            if (inputStream == null) {
+                Log.e("Andromuks", "MediaUploadUtils: Failed to open file input stream")
+                return@withContext null
+            }
+            
+            val fileBytes = inputStream.readBytes()
+            inputStream.close()
+            
+            val size = fileBytes.size.toLong()
+            
+            // Get mime type
+            val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
+            
+            // Get filename
+            val filename = getFileNameFromUri(context, uri) ?: "file_${System.currentTimeMillis()}"
+            
+            Log.d("Andromuks", "MediaUploadUtils: File size: $size bytes, mimeType: $mimeType, filename: $filename")
+            
+            // Upload to server
+            val uploadUrl = buildUploadUrl(homeserverUrl, filename, isEncrypted)
+            Log.d("Andromuks", "MediaUploadUtils: Upload URL: $uploadUrl")
+            
+            val client = OkHttpClient.Builder()
+                .build()
+            
+            val requestBody = fileBytes.toRequestBody(mimeType.toMediaType())
+            
+            val request = Request.Builder()
+                .url(uploadUrl)
+                .post(requestBody)
+                .addHeader("Cookie", "gomuks_auth=$authToken")
+                .addHeader("Content-Type", mimeType)
+                .build()
+            
+            Log.d("Andromuks", "MediaUploadUtils: Sending file upload request...")
+            
+            val response = client.newCall(request).execute()
+            
+            if (!response.isSuccessful) {
+                Log.e("Andromuks", "MediaUploadUtils: File upload failed with code: ${response.code}")
+                Log.e("Andromuks", "MediaUploadUtils: Response body: ${response.body?.string()}")
+                return@withContext null
+            }
+            
+            val responseBody = response.body?.string()
+            Log.d("Andromuks", "MediaUploadUtils: File upload response: $responseBody")
+            
+            // Parse response to get mxc:// URL
+            val mxcUrl = parseMxcUrlFromResponse(responseBody)
+            if (mxcUrl == null) {
+                Log.e("Andromuks", "MediaUploadUtils: Failed to parse mxc URL from file response")
+                return@withContext null
+            }
+            
+            Log.d("Andromuks", "MediaUploadUtils: File upload successful, mxc URL: $mxcUrl")
+            
+            FileUploadResult(
+                mxcUrl = mxcUrl,
+                size = size,
+                mimeType = mimeType,
+                filename = filename
+            )
+            
+        } catch (e: Exception) {
+            Log.e("Andromuks", "MediaUploadUtils: File upload failed", e)
+            null
+        }
+    }
+    
+    /**
+     * Get audio duration from URI using MediaPlayer
+     */
+    private suspend fun getAudioDuration(context: Context, uri: Uri): Int {
+        return withContext(Dispatchers.IO) {
+            try {
+                val mediaPlayer = MediaPlayer()
+                mediaPlayer.setDataSource(context, uri)
+                mediaPlayer.prepare()
+                val duration = mediaPlayer.duration
+                mediaPlayer.release()
+                duration
+            } catch (e: Exception) {
+                Log.e("Andromuks", "MediaUploadUtils: Failed to get audio duration", e)
+                0 // Return 0 if duration cannot be determined
+            }
+        }
     }
 }
 

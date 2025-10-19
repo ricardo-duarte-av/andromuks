@@ -3207,6 +3207,102 @@ class AppViewModel : ViewModel() {
         sendWebSocketCommand("redact_event", deleteRequestId, commandData)
         android.util.Log.d("Andromuks", "AppViewModel: Delete command sent with request_id: $deleteRequestId")
     }
+    
+    /**
+     * Send an audio message
+     */
+    fun sendAudioMessage(
+        roomId: String,
+        mxcUrl: String,
+        filename: String,
+        duration: Int, // duration in milliseconds
+        size: Long,
+        mimeType: String,
+        caption: String? = null
+    ) {
+        android.util.Log.d("Andromuks", "AppViewModel: sendAudioMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', duration: ${duration}ms")
+        
+        val ws = webSocket ?: return
+        val messageRequestId = requestIdCounter++
+        
+        // Track this outgoing request
+        messageRequests[messageRequestId] = roomId
+        pendingSendCount++
+        
+        val baseContent = mapOf(
+            "msgtype" to "m.audio",
+            "body" to filename,
+            "url" to mxcUrl,
+            "info" to mapOf(
+                "mimetype" to mimeType,
+                "duration" to duration,
+                "size" to size
+            ),
+            "filename" to filename
+        )
+        
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "base_content" to baseContent,
+            "text" to (caption ?: ""),
+            "mentions" to mapOf(
+                "user_ids" to emptyList<String>(),
+                "room" to false
+            ),
+            "url_previews" to emptyList<String>()
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with audio data: $commandData")
+        sendWebSocketCommand("send_message", messageRequestId, commandData)
+        android.util.Log.d("Andromuks", "AppViewModel: Audio message command sent with request_id: $messageRequestId")
+    }
+    
+    /**
+     * Send a file message
+     */
+    fun sendFileMessage(
+        roomId: String,
+        mxcUrl: String,
+        filename: String,
+        size: Long,
+        mimeType: String,
+        caption: String? = null
+    ) {
+        android.util.Log.d("Andromuks", "AppViewModel: sendFileMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', filename: '$filename'")
+        
+        val ws = webSocket ?: return
+        val messageRequestId = requestIdCounter++
+        
+        // Track this outgoing request
+        messageRequests[messageRequestId] = roomId
+        pendingSendCount++
+        
+        val baseContent = mapOf(
+            "msgtype" to "m.file",
+            "body" to filename,
+            "url" to mxcUrl,
+            "info" to mapOf(
+                "mimetype" to mimeType,
+                "size" to size
+            ),
+            "filename" to filename
+        )
+        
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "base_content" to baseContent,
+            "text" to (caption ?: ""),
+            "mentions" to mapOf(
+                "user_ids" to emptyList<String>(),
+                "room" to false
+            ),
+            "url_previews" to emptyList<String>()
+        )
+        
+        android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with file data: $commandData")
+        sendWebSocketCommand("send_message", messageRequestId, commandData)
+        android.util.Log.d("Andromuks", "AppViewModel: File message command sent with request_id: $messageRequestId")
+    }
 
     fun handleResponse(requestId: Int, data: Any) {
         android.util.Log.d("Andromuks", "AppViewModel: handleResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")

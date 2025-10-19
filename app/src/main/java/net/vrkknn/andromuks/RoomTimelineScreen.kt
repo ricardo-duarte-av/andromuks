@@ -1,11 +1,14 @@
 package net.vrkknn.andromuks
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
+import android.os.Build
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,6 +46,9 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -64,6 +70,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -72,6 +79,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
@@ -332,6 +341,11 @@ fun RoomTimelineScreen(
     var showMediaPreview by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
     
+    // Attachment menu state
+    var showAttachmentMenu by remember { mutableStateOf(false) }
+    var selectedAudioUri by remember { mutableStateOf<Uri?>(null) }
+    var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
+    
     // Room joiner state
     var showRoomJoiner by remember { mutableStateOf(false) }
     var roomLinkToJoin by remember { mutableStateOf<RoomLink?>(null) }
@@ -380,6 +394,13 @@ fun RoomTimelineScreen(
             showMentionList = false
         }
     }
+    
+    // Hide attachment menu when editing or replying starts
+    LaunchedEffect(editingEvent, replyingToEvent) {
+        if (editingEvent != null || replyingToEvent != null) {
+            showAttachmentMenu = false
+        }
+    }
 
     // Typing detection with debouncing
     LaunchedEffect(draft) {
@@ -391,6 +412,37 @@ fun RoomTimelineScreen(
             }
         }
     }
+
+    // Helper function to check if we need to request media permissions
+    fun needsMediaPermissions(): Boolean {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    }
+
+    // Helper function to check if we have the necessary permissions for a specific picker type
+    fun hasRequiredMediaPermissions(pickerType: String): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            when (pickerType) {
+                "image" -> {
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                }
+                "audio" -> {
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                }
+                "file" -> {
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                }
+                else -> false
+            }
+        } else {
+            true // No need for these permissions on older Android versions
+        }
+    }
+
+    // State to track which picker we're trying to launch after permission request
+    var pendingMediaPickerType by remember { mutableStateOf("") }
 
     // Media picker launcher - accepts both images and videos
     val mediaPickerLauncher =
@@ -404,6 +456,89 @@ fun RoomTimelineScreen(
                 showMediaPreview = true
             }
         }
+    
+    // Audio picker launcher
+    val audioPickerLauncher =
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) {
+            uri: Uri? ->
+            uri?.let {
+                selectedAudioUri = it
+                showMediaPreview = true
+            }
+        }
+    
+    // File picker launcher
+    val filePickerLauncher =
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) {
+            uri: Uri? ->
+            uri?.let {
+                selectedFileUri = it
+                showMediaPreview = true
+            }
+        }
+
+    // Permission request launcher for media permissions
+    val mediaPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val hasImagesPermission = permissions[Manifest.permission.READ_MEDIA_IMAGES] ?: false
+        val hasVideoPermission = permissions[Manifest.permission.READ_MEDIA_VIDEO] ?: false
+        val hasAudioPermission = permissions[Manifest.permission.READ_MEDIA_AUDIO] ?: false
+        
+        // Check if we have the necessary permissions for the requested picker type
+        val hasRequiredPermissions = when (pendingMediaPickerType) {
+            "image" -> hasImagesPermission && hasVideoPermission
+            "audio" -> hasAudioPermission
+            "file" -> hasImagesPermission && hasVideoPermission && hasAudioPermission
+            else -> false
+        }
+        
+        // If permissions are granted, launch the appropriate picker
+        if (hasRequiredPermissions) {
+            when (pendingMediaPickerType) {
+                "image" -> mediaPickerLauncher.launch("image/*,video/*")
+                "audio" -> audioPickerLauncher.launch("audio/*")
+                "file" -> filePickerLauncher.launch("*/*")
+            }
+        }
+    }
+
+    // Helper function to launch picker with permission check
+    fun launchPickerWithPermission(pickerType: String, mimeType: String) {
+        if (needsMediaPermissions() && !hasRequiredMediaPermissions(pickerType)) {
+            // Need to request permissions first
+            pendingMediaPickerType = pickerType
+            when (pickerType) {
+                "image" -> {
+                    mediaPermissionLauncher.launch(arrayOf(
+                        Manifest.permission.READ_MEDIA_IMAGES,
+                        Manifest.permission.READ_MEDIA_VIDEO
+                    ))
+                }
+                "audio" -> {
+                    // For audio, we only need to request audio permission
+                    mediaPermissionLauncher.launch(arrayOf(
+                        Manifest.permission.READ_MEDIA_AUDIO
+                    ))
+                }
+                "file" -> {
+                    // For files, request all media permissions as files can be anything
+                    mediaPermissionLauncher.launch(arrayOf(
+                        Manifest.permission.READ_MEDIA_IMAGES,
+                        Manifest.permission.READ_MEDIA_VIDEO,
+                        Manifest.permission.READ_MEDIA_AUDIO
+                    ))
+                }
+            }
+        } else {
+            // Permissions already granted, launch directly
+            when (pickerType) {
+                "image" -> mediaPickerLauncher.launch(mimeType)
+                "audio" -> audioPickerLauncher.launch(mimeType)
+                "file" -> filePickerLauncher.launch(mimeType)
+            }
+        }
+    }
 
     // Build user profile cache from m.room.member events
     val userProfileCache =
@@ -934,6 +1069,12 @@ fun RoomTimelineScreen(
                                     Modifier
                                 }
                             )
+                            .clickable {
+                                // Close attachment menu when tapping outside
+                                if (showAttachmentMenu) {
+                                    showAttachmentMenu = false
+                                }
+                            }
                 ) {
                     // 1. Room Header (always visible at the top, below status bar)
                     RoomHeader(
@@ -1174,7 +1315,7 @@ fun RoomTimelineScreen(
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Attach button in its own frame
+                        // Main attach button
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
                             shape = RoundedCornerShape(16.dp),
@@ -1182,12 +1323,12 @@ fun RoomTimelineScreen(
                             modifier = Modifier.width(48.dp).height(56.dp)
                         ) {
                             IconButton(
-                                onClick = { mediaPickerLauncher.launch("*/*") }, // Accept both images and videos
+                                onClick = { showAttachmentMenu = !showAttachmentMenu },
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.AttachFile,
-                                    contentDescription = "Attach media",
+                                    contentDescription = "Attach",
                                     tint = MaterialTheme.colorScheme.primary
                                 )
                             }
@@ -1532,6 +1673,97 @@ fun RoomTimelineScreen(
                     }
                 }
                 
+                // Attachment menu overlay
+                if (showAttachmentMenu) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(
+                                start = 16.dp, // Same as text input padding
+                                bottom = 80.dp // Above text input area
+                            )
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .zIndex(5f) // Ensure it's above other content
+                    ) {
+                        AnimatedVisibility(
+                            visible = showAttachmentMenu,
+                            enter = expandVertically(animationSpec = tween(200)),
+                            exit = shrinkVertically(animationSpec = tween(200))
+                        ) {
+                            Column {
+                                // Files option (top)
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.width(48.dp).height(56.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            showAttachmentMenu = false
+                                            launchPickerWithPermission("file", "*/*")
+                                        },
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Folder,
+                                            contentDescription = "Files",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                
+                                // Audio option (middle)
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.width(48.dp).height(56.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            showAttachmentMenu = false
+                                            launchPickerWithPermission("audio", "audio/*")
+                                        },
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.AudioFile,
+                                            contentDescription = "Audio",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                
+                                // Image/Video option (bottom, closest to main button)
+                                Surface(
+                                    color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                    shape = RoundedCornerShape(16.dp),
+                                    tonalElevation = 1.dp,
+                                    modifier = Modifier.width(48.dp).height(56.dp)
+                                ) {
+                                    IconButton(
+                                        onClick = {
+                                            showAttachmentMenu = false
+                                            launchPickerWithPermission("image", "image/*,video/*")
+                                        },
+                                        modifier = Modifier.fillMaxSize()
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Image,
+                                            contentDescription = "Images & Videos",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
                 // Floating member list for mentions
                 if (showMentionList) {
                     Box(
@@ -1633,13 +1865,21 @@ fun RoomTimelineScreen(
                 }
                 
                 // Media preview dialog (shows selected media with caption input)
-                if (showMediaPreview && selectedMediaUri != null) {
+                if (showMediaPreview && (selectedMediaUri != null || selectedAudioUri != null || selectedFileUri != null)) {
+                    val currentUri = selectedMediaUri ?: selectedAudioUri ?: selectedFileUri!!
+                    val isAudio = selectedAudioUri != null
+                    val isFile = selectedFileUri != null
+                    
                     MediaPreviewDialog(
-                        uri = selectedMediaUri!!,
-                        isVideo = selectedMediaIsVideo,
+                        uri = currentUri,
+                        isVideo = selectedMediaIsVideo && !isAudio && !isFile,
+                        isAudio = isAudio,
+                        isFile = isFile,
                         onDismiss = {
                             showMediaPreview = false
                             selectedMediaUri = null
+                            selectedAudioUri = null
+                            selectedFileUri = null
                             selectedMediaIsVideo = false
                         },
                         onSend = { caption ->
@@ -1650,91 +1890,169 @@ fun RoomTimelineScreen(
                             // Upload and send in background
                             coroutineScope.launch {
                                 try {
-                                    if (selectedMediaIsVideo) {
-                                        // Upload video with thumbnail
-                                        Log.d("Andromuks", "RoomTimelineScreen: Starting video upload")
-                                        val videoResult = VideoUploadUtils.uploadVideo(
-                                            context = context,
-                                            uri = selectedMediaUri!!,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            isEncrypted = false
-                                        )
-                                        
-                                        if (videoResult != null) {
-                                            Log.d("Andromuks", "RoomTimelineScreen: Video upload successful, sending message")
-                                            // Send video message with metadata
-                                            appViewModel.sendVideoMessage(
-                                                roomId = roomId,
-                                                videoMxcUrl = videoResult.videoMxcUrl,
-                                                thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
-                                                width = videoResult.width,
-                                                height = videoResult.height,
-                                                duration = videoResult.duration,
-                                                size = videoResult.size,
-                                                mimeType = videoResult.mimeType,
-                                                thumbnailBlurHash = videoResult.thumbnailBlurHash,
-                                                thumbnailWidth = videoResult.thumbnailWidth,
-                                                thumbnailHeight = videoResult.thumbnailHeight,
-                                                thumbnailSize = videoResult.thumbnailSize,
-                                                caption = caption.takeIf { it.isNotBlank() }
+                                    when {
+                                        isAudio -> {
+                                            // Upload audio
+                                            Log.d("Andromuks", "RoomTimelineScreen: Starting audio upload")
+                                            val audioResult = MediaUploadUtils.uploadAudio(
+                                                context = context,
+                                                uri = selectedAudioUri!!,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                isEncrypted = false
                                             )
                                             
-                                            // Clear state
-                                            selectedMediaUri = null
-                                            selectedMediaIsVideo = false
-                                            isUploading = false
-                                        } else {
-                                            Log.e("Andromuks", "RoomTimelineScreen: Video upload failed")
-                                            isUploading = false
-                                            android.widget.Toast.makeText(
-                                                context,
-                                                "Failed to upload video",
-                                                android.widget.Toast.LENGTH_SHORT
-                                            ).show()
+                                            if (audioResult != null) {
+                                                Log.d("Andromuks", "RoomTimelineScreen: Audio upload successful, sending message")
+                                                // Send audio message with metadata
+                                                appViewModel.sendAudioMessage(
+                                                    roomId = roomId,
+                                                    mxcUrl = audioResult.mxcUrl,
+                                                    filename = audioResult.filename,
+                                                    duration = audioResult.duration,
+                                                    size = audioResult.size,
+                                                    mimeType = audioResult.mimeType,
+                                                    caption = caption.takeIf { it.isNotBlank() }
+                                                )
+                                                
+                                                // Clear state
+                                                selectedAudioUri = null
+                                                isUploading = false
+                                            } else {
+                                                Log.e("Andromuks", "RoomTimelineScreen: Audio upload failed")
+                                                isUploading = false
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Failed to upload audio",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
                                         }
-                                    } else {
-                                        // Upload image
-                                        Log.d("Andromuks", "RoomTimelineScreen: Starting image upload")
-                                        val uploadResult = MediaUploadUtils.uploadMedia(
-                                            context = context,
-                                            uri = selectedMediaUri!!,
-                                            homeserverUrl = homeserverUrl,
-                                            authToken = authToken,
-                                            isEncrypted = false
-                                        )
-                                        
-                                        if (uploadResult != null) {
-                                            Log.d("Andromuks", "RoomTimelineScreen: Image upload successful, sending message")
-                                            // Send image message with metadata
-                                            appViewModel.sendImageMessage(
-                                                roomId = roomId,
-                                                mxcUrl = uploadResult.mxcUrl,
-                                                width = uploadResult.width,
-                                                height = uploadResult.height,
-                                                size = uploadResult.size,
-                                                mimeType = uploadResult.mimeType,
-                                                blurHash = uploadResult.blurHash,
-                                                caption = caption.takeIf { it.isNotBlank() }
+                                        isFile -> {
+                                            // Upload file
+                                            Log.d("Andromuks", "RoomTimelineScreen: Starting file upload")
+                                            val fileResult = MediaUploadUtils.uploadFile(
+                                                context = context,
+                                                uri = selectedFileUri!!,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                isEncrypted = false
                                             )
                                             
-                                            // Clear state
-                                            selectedMediaUri = null
-                                            isUploading = false
-                                        } else {
-                                            Log.e("Andromuks", "RoomTimelineScreen: Image upload failed")
-                                            isUploading = false
-                                            android.widget.Toast.makeText(
-                                                context,
-                                                "Failed to upload image",
-                                                android.widget.Toast.LENGTH_SHORT
-                                            ).show()
+                                            if (fileResult != null) {
+                                                Log.d("Andromuks", "RoomTimelineScreen: File upload successful, sending message")
+                                                // Send file message with metadata
+                                                appViewModel.sendFileMessage(
+                                                    roomId = roomId,
+                                                    mxcUrl = fileResult.mxcUrl,
+                                                    filename = fileResult.filename,
+                                                    size = fileResult.size,
+                                                    mimeType = fileResult.mimeType,
+                                                    caption = caption.takeIf { it.isNotBlank() }
+                                                )
+                                                
+                                                // Clear state
+                                                selectedFileUri = null
+                                                isUploading = false
+                                            } else {
+                                                Log.e("Andromuks", "RoomTimelineScreen: File upload failed")
+                                                isUploading = false
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Failed to upload file",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        }
+                                        selectedMediaIsVideo -> {
+                                            // Upload video with thumbnail
+                                            Log.d("Andromuks", "RoomTimelineScreen: Starting video upload")
+                                            val videoResult = VideoUploadUtils.uploadVideo(
+                                                context = context,
+                                                uri = selectedMediaUri!!,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                isEncrypted = false
+                                            )
+                                            
+                                            if (videoResult != null) {
+                                                Log.d("Andromuks", "RoomTimelineScreen: Video upload successful, sending message")
+                                                // Send video message with metadata
+                                                appViewModel.sendVideoMessage(
+                                                    roomId = roomId,
+                                                    videoMxcUrl = videoResult.videoMxcUrl,
+                                                    thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
+                                                    width = videoResult.width,
+                                                    height = videoResult.height,
+                                                    duration = videoResult.duration,
+                                                    size = videoResult.size,
+                                                    mimeType = videoResult.mimeType,
+                                                    thumbnailBlurHash = videoResult.thumbnailBlurHash,
+                                                    thumbnailWidth = videoResult.thumbnailWidth,
+                                                    thumbnailHeight = videoResult.thumbnailHeight,
+                                                    thumbnailSize = videoResult.thumbnailSize,
+                                                    caption = caption.takeIf { it.isNotBlank() }
+                                                )
+                                                
+                                                // Clear state
+                                                selectedMediaUri = null
+                                                selectedMediaIsVideo = false
+                                                isUploading = false
+                                            } else {
+                                                Log.e("Andromuks", "RoomTimelineScreen: Video upload failed")
+                                                isUploading = false
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Failed to upload video",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        }
+                                        else -> {
+                                            // Upload image
+                                            Log.d("Andromuks", "RoomTimelineScreen: Starting image upload")
+                                            val uploadResult = MediaUploadUtils.uploadMedia(
+                                                context = context,
+                                                uri = selectedMediaUri!!,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                isEncrypted = false
+                                            )
+                                            
+                                            if (uploadResult != null) {
+                                                Log.d("Andromuks", "RoomTimelineScreen: Image upload successful, sending message")
+                                                // Send image message with metadata
+                                                appViewModel.sendImageMessage(
+                                                    roomId = roomId,
+                                                    mxcUrl = uploadResult.mxcUrl,
+                                                    width = uploadResult.width,
+                                                    height = uploadResult.height,
+                                                    size = uploadResult.size,
+                                                    mimeType = uploadResult.mimeType,
+                                                    blurHash = uploadResult.blurHash,
+                                                    caption = caption.takeIf { it.isNotBlank() }
+                                                )
+                                                
+                                                // Clear state
+                                                selectedMediaUri = null
+                                                isUploading = false
+                                            } else {
+                                                Log.e("Andromuks", "RoomTimelineScreen: Image upload failed")
+                                                isUploading = false
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Failed to upload image",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
                                         }
                                     }
                                 } catch (e: Exception) {
                                     Log.e("Andromuks", "RoomTimelineScreen: Upload error", e)
                                     isUploading = false
                                     selectedMediaUri = null
+                                    selectedAudioUri = null
+                                    selectedFileUri = null
                                     selectedMediaIsVideo = false
                                     android.widget.Toast.makeText(
                                         context,
