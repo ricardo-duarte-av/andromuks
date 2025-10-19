@@ -558,7 +558,7 @@ fun RoomTimelineScreen(
         }
 
     // Get current room members for mention list (exclude current user and filter out invalid entries)
-    val roomMembers = remember(roomId, appViewModel.updateCounter) {
+    val roomMembers = remember(roomId, appViewModel.memberUpdateCounter) {
         appViewModel.getMemberMap(roomId).filter { (userId, profile) ->
             // Exclude current user
             userId != myUserId &&
@@ -656,7 +656,7 @@ fun RoomTimelineScreen(
     // Sort events so newer messages are at the bottom, and filter unprocessed events if setting is
     // disabled
     val sortedEvents =
-        remember(timelineEvents, appViewModel.showUnprocessedEvents, appViewModel.updateCounter) {
+        remember(timelineEvents, appViewModel.showUnprocessedEvents, appViewModel.timelineUpdateCounter) {
             Log.d(
                 "Andromuks",
                 "RoomTimelineScreen: Processing ${timelineEvents.size} timeline events, showUnprocessedEvents: ${appViewModel.showUnprocessedEvents}"
@@ -733,7 +733,7 @@ fun RoomTimelineScreen(
 
     // Create timeline items with date dividers
     val timelineItems =
-        remember(sortedEvents, appViewModel.updateCounter) {
+        remember(sortedEvents, appViewModel.timelineUpdateCounter) {
             val items = mutableListOf<TimelineItem>()
             var lastDate: String? = null
 
@@ -981,7 +981,7 @@ fun RoomTimelineScreen(
     // This persists user profile data (display names, avatars) to disk for future app sessions
     // Only save profiles for users involved in the events being processed to avoid performance
     // issues
-    LaunchedEffect(appViewModel.updateCounter) {
+    LaunchedEffect(appViewModel.memberUpdateCounter) {
         // Only save profiles for users who are actually involved in the current timeline events
         val usersInTimeline = sortedEvents.map { it.sender }.distinct().toSet()
         if (usersInTimeline.isNotEmpty()) {

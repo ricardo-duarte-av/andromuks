@@ -126,13 +126,13 @@ fun RoomListScreen(
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     
-    // Force recomposition by observing the update counter
-    val updateCounter = appViewModel.updateCounter
+    // Force recomposition by observing the room list update counter
+    val roomListUpdateCounter = appViewModel.roomListUpdateCounter
     var currentSection by remember { mutableStateOf(appViewModel.getCurrentRoomSection()) }
     var previousSectionType by remember { mutableStateOf(currentSection.type) }
     var sectionAnimationDirection by remember { mutableStateOf(0) }
 
-    LaunchedEffect(updateCounter) {
+    LaunchedEffect(roomListUpdateCounter) {
         val newSection = appViewModel.getCurrentRoomSection()
         if (newSection.type != currentSection.type) {
             val oldIndex = RoomSectionType.values().indexOf(previousSectionType)
@@ -149,7 +149,7 @@ fun RoomListScreen(
             currentSection = newSection
         }
     }
-    android.util.Log.d("Andromuks", "RoomListScreen: currentSection = ${currentSection.type}, updateCounter = $updateCounter")
+    android.util.Log.d("Andromuks", "RoomListScreen: currentSection = ${currentSection.type}, roomListUpdateCounter = $roomListUpdateCounter")
     
     android.util.Log.d("Andromuks", "RoomListScreen: currentSection.type = ${currentSection.type}, rooms.size = ${currentSection.rooms.size}, spaces.size = ${currentSection.spaces.size}")
     

@@ -191,8 +191,8 @@ fun ThreadViewerScreen(
     val homeserverUrl = appViewModel.homeserverUrl
     
     // Get thread messages (thread root + all messages with relatesTo == threadRootEventId)
-    // React to updateCounter so reactions trigger recomposition
-    val threadMessages = remember(appViewModel.updateCounter) {
+    // React to timeline update counter so timeline changes trigger recomposition
+    val threadMessages = remember(appViewModel.timelineUpdateCounter) {
         appViewModel.getThreadMessages(roomId, threadRootEventId)
     }
     
@@ -234,7 +234,7 @@ fun ThreadViewerScreen(
     }
 
     // Get current room members for mention list (exclude current user and filter out invalid entries)
-    val roomMembers = remember(roomId, appViewModel.updateCounter) {
+    val roomMembers = remember(roomId, appViewModel.memberUpdateCounter) {
         appViewModel.getMemberMap(roomId).filter { (userId, profile) ->
             // Exclude current user
             userId != myUserId &&

@@ -330,7 +330,7 @@ fun ChatBubbleScreen(
     }
     
     // Cache member map outside of items for better performance
-    val memberMap = remember(roomId, appViewModel.updateCounter) {
+    val memberMap = remember(roomId, appViewModel.memberUpdateCounter) {
         appViewModel.getMemberMap(roomId)
     }
 
@@ -351,7 +351,7 @@ fun ChatBubbleScreen(
     }
 
     // Get current room members for mention list (exclude current user and filter out invalid entries)
-    val roomMembers = remember(roomId, appViewModel.updateCounter) {
+    val roomMembers = remember(roomId, appViewModel.memberUpdateCounter) {
         appViewModel.getMemberMap(roomId).filter { (userId, profile) ->
             // Exclude current user
             userId != myUserId &&

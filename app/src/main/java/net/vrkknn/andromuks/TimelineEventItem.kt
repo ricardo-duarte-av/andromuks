@@ -455,7 +455,7 @@ private fun RoomMessageContent(
             
             // Add reaction badges for emote messages
             if (appViewModel != null) {
-                val reactions = remember(appViewModel.updateCounter, event.eventId) {
+                val reactions = remember(appViewModel.reactionUpdateCounter, event.eventId) {
                     appViewModel.messageReactions[event.eventId] ?: emptyList()
                 }
                 if (reactions.isNotEmpty()) {
@@ -780,7 +780,7 @@ private fun RoomMediaMessageContent(
 
         // Add reaction badges for media messages
         if (appViewModel != null) {
-            val reactions = remember(appViewModel.updateCounter, event.eventId) {
+            val reactions = remember(appViewModel.reactionUpdateCounter, event.eventId) {
                 appViewModel.messageReactions[event.eventId] ?: emptyList()
             }
             if (reactions.isNotEmpty()) {
@@ -894,7 +894,7 @@ private fun RoomTextMessageContent(
         }
     
     // Check if message has been edited (O(1) lookup)
-    val hasBeenEdited = remember(event.eventId, appViewModel?.updateCounter) {
+    val hasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
         appViewModel?.isMessageEdited(event.eventId) ?: false
     }
     
@@ -1095,7 +1095,7 @@ private fun RoomTextMessageContent(
 
     // Add reaction badges for this message
     if (appViewModel != null) {
-        val reactions = remember(appViewModel.updateCounter, event.eventId) {
+        val reactions = remember(appViewModel.reactionUpdateCounter, event.eventId) {
             appViewModel.messageReactions[event.eventId] ?: emptyList()
         }
         if (reactions.isNotEmpty()) {
@@ -1185,7 +1185,7 @@ private fun EncryptedMessageContent(
                 
                 // Add reaction badges for encrypted emote messages
                 if (appViewModel != null) {
-                    val reactions = remember(appViewModel.updateCounter, event.eventId) {
+                    val reactions = remember(appViewModel.reactionUpdateCounter, event.eventId) {
                         appViewModel.messageReactions[event.eventId] ?: emptyList()
                     }
                     if (reactions.isNotEmpty()) {
@@ -1424,7 +1424,7 @@ private fun EncryptedMessageContent(
 
                 // Add reaction badges for encrypted media messages
                 if (appViewModel != null) {
-                    val reactions = remember(appViewModel.updateCounter, event.eventId) {
+                    val reactions = remember(appViewModel.reactionUpdateCounter, event.eventId) {
                         appViewModel.messageReactions[event.eventId] ?: emptyList()
                     }
                     if (reactions.isNotEmpty()) {
@@ -1506,7 +1506,7 @@ private fun EncryptedMessageContent(
 
                 // Add reaction badges for encrypted text message
                 if (appViewModel != null) {
-                    val reactions = remember(appViewModel.updateCounter, event.eventId) {
+                    val reactions = remember(appViewModel.reactionUpdateCounter, event.eventId) {
                         appViewModel.messageReactions[event.eventId] ?: emptyList()
                     }
                     if (reactions.isNotEmpty()) {
@@ -1546,7 +1546,7 @@ private fun EncryptedMessageContent(
                 }
             
             // Check if message has been edited (O(1) lookup)
-            val hasBeenEdited = remember(event.eventId, appViewModel?.updateCounter) {
+            val hasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
                 appViewModel?.isMessageEdited(event.eventId) ?: false
             }
             
@@ -1753,7 +1753,7 @@ private fun EncryptedMessageContent(
 
             // Add reaction badges for encrypted text message
             if (appViewModel != null) {
-                val reactions = remember(appViewModel.updateCounter, event.eventId) {
+                val reactions = remember(appViewModel.reactionUpdateCounter, event.eventId) {
                     appViewModel.messageReactions[event.eventId] ?: emptyList()
                 }
                 if (reactions.isNotEmpty()) {
@@ -1894,7 +1894,7 @@ private fun StickerMessageContent(
 
         // Add reaction badges for stickers
         if (appViewModel != null) {
-            val reactions = remember(appViewModel.updateCounter, event.eventId) {
+            val reactions = remember(appViewModel.reactionUpdateCounter, event.eventId) {
                 appViewModel.messageReactions[event.eventId] ?: emptyList()
             }
             if (reactions.isNotEmpty()) {

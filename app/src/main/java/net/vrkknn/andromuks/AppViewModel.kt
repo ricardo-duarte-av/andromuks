@@ -146,8 +146,24 @@ class AppViewModel : ViewModel() {
     var recentEmojis by mutableStateOf(listOf<String>())
         private set
     
-    // Force recomposition counter
+    // Force recomposition counter - DEPRECATED: Use specific counters below instead
     var updateCounter by mutableStateOf(0)
+        private set
+    
+    // Granular update counters to reduce unnecessary recompositions
+    var roomListUpdateCounter by mutableStateOf(0)
+        private set
+    
+    var timelineUpdateCounter by mutableStateOf(0)
+        private set
+    
+    var reactionUpdateCounter by mutableStateOf(0)
+        private set
+    
+    var memberUpdateCounter by mutableStateOf(0)
+        private set
+    
+    var roomStateUpdateCounter by mutableStateOf(0)
         private set
     
     // Read receipts update counter - separate from main updateCounter to reduce unnecessary UI updates
@@ -203,13 +219,15 @@ class AppViewModel : ViewModel() {
     fun setSpaces(spaces: List<SpaceItem>) {
         android.util.Log.d("Andromuks", "AppViewModel: setSpaces called with ${spaces.size} spaces")
         spaceList = spaces
-        updateCounter++
-        android.util.Log.d("Andromuks", "AppViewModel: spaceList set to ${spaceList.size} spaces, updateCounter: $updateCounter")
+        roomListUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
+        android.util.Log.d("Andromuks", "AppViewModel: spaceList set to ${spaceList.size} spaces, roomListUpdateCounter: $roomListUpdateCounter")
     }
     
     fun updateAllSpaces(spaces: List<SpaceItem>) {
         allSpaces = spaces
-        updateCounter++
+        roomListUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
         android.util.Log.d("Andromuks", "AppViewModel: allSpaces set to ${spaces.size} spaces")
     }
     
@@ -219,17 +237,20 @@ class AppViewModel : ViewModel() {
         if (section != RoomSectionType.SPACES) {
             currentSpaceId = null
         }
-        updateCounter++
+        roomListUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
     }
     
     fun enterSpace(spaceId: String) {
         currentSpaceId = spaceId
-        updateCounter++
+        roomListUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
     }
     
     fun exitSpace() {
         currentSpaceId = null
-        updateCounter++
+        roomListUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
     }
     
     fun incrementUpdateCounter() {
@@ -763,8 +784,9 @@ class AppViewModel : ViewModel() {
         val oldReactions = messageReactions[reactionEvent.relatesToEventId]?.size ?: 0
         messageReactions = net.vrkknn.andromuks.utils.processReactionEvent(reactionEvent, currentRoomId, messageReactions)
         val newReactions = messageReactions[reactionEvent.relatesToEventId]?.size ?: 0
-        android.util.Log.d("Andromuks", "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, oldCount: $oldReactions, newCount: $newReactions, updateCounter: $updateCounter")
-        updateCounter++ // Trigger UI recomposition
+        android.util.Log.d("Andromuks", "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, oldCount: $oldReactions, newCount: $newReactions, reactionUpdateCounter: $reactionUpdateCounter")
+        reactionUpdateCounter++ // Trigger UI recomposition for reactions only
+        updateCounter++ // Keep for backward compatibility temporarily
     }
 
     fun handleClientState(userId: String?, device: String?, homeserver: String?) {
@@ -1260,7 +1282,6 @@ class AppViewModel : ViewModel() {
             // Update low priority rooms set for notification filtering
             updateLowPriorityRooms(sortedRooms)
             
-            updateCounter++ // Force recomposition (only when visible)
             android.util.Log.d("Andromuks", "AppViewModel: spaceList updated, current size: ${spaceList.size}")
             
             // Update conversation shortcuts (only when visible)
@@ -1566,12 +1587,11 @@ class AppViewModel : ViewModel() {
         
         setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
         allRooms = sortedRooms
-        updateCounter++ // Trigger recomposition to show updated state
         
         // Update conversation shortcuts
         conversationsApi?.updateConversationShortcuts(sortedRooms)
         
-        android.util.Log.d("Andromuks", "AppViewModel: UI refreshed, updateCounter: $updateCounter")
+        android.util.Log.d("Andromuks", "AppViewModel: UI refreshed, roomListUpdateCounter: $roomListUpdateCounter")
     }
     
     /**
@@ -3528,7 +3548,8 @@ class AppViewModel : ViewModel() {
         }
         
         // Trigger UI update since member cache changed
-        updateCounter++
+        memberUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
     }
     
     private fun handleProfileResponse(requestId: Int, data: Any) {
@@ -3571,7 +3592,8 @@ class AppViewModel : ViewModel() {
         }
         
         // Trigger UI update since member cache changed
-        updateCounter++
+        memberUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
     }
     
     /**
@@ -4092,7 +4114,8 @@ class AppViewModel : ViewModel() {
         
         // Update current room state
         currentRoomState = roomState
-        updateCounter++
+        roomStateUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
         
         android.util.Log.d("Andromuks", "AppViewModel: Parsed room state - Name: $name, Alias: $canonicalAlias, Topic: $topic, Avatar: $avatarUrl, Encrypted: $isEncrypted")
     }
@@ -4991,7 +5014,8 @@ class AppViewModel : ViewModel() {
         }
         
         this.timelineEvents = sortedTimelineEvents
-        updateCounter++
+        timelineUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
         
         android.util.Log.d("Andromuks", "AppViewModel: Built timeline with ${timelineEvents.size} events from chain, ${actuallyNewMessages.size} new messages detected")
     }
@@ -5032,9 +5056,10 @@ class AppViewModel : ViewModel() {
         
         // Sort chronologically by timestamp
         this.timelineEvents = currentEvents.sortedBy { it.timestamp }
-        updateCounter++
+        timelineUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
         
-        android.util.Log.d("Andromuks", "AppViewModel: Timeline sorted and updated, updateCounter incremented to $updateCounter")
+        android.util.Log.d("Andromuks", "AppViewModel: Timeline sorted and updated, timelineUpdateCounter incremented to $timelineUpdateCounter")
         
         // Update smallest rowId for next pagination
         val newSmallest = newEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
@@ -5491,7 +5516,8 @@ class AppViewModel : ViewModel() {
         
         // Remove from pending invites
         pendingInvites.remove(roomId)
-        updateCounter++
+        roomListUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
     }
     
     fun refuseRoomInvite(roomId: String) {
@@ -5505,7 +5531,8 @@ class AppViewModel : ViewModel() {
         
         // Remove from pending invites
         pendingInvites.remove(roomId)
-        updateCounter++
+        roomListUpdateCounter++
+        updateCounter++ // Keep for backward compatibility temporarily
     }
     
     fun handleMarkReadResponse(requestId: Int, success: Boolean) {
