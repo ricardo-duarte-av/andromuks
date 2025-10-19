@@ -141,6 +141,10 @@ fun connectToWebsocket(
         // Reconnecting with run_id and last_received_id
         Log.d("NetworkUtils", "Reconnecting with run_id: $runId, last_received_id: $lastReceivedId")
         "$webSocketUrl?run_id=$runId&last_received_id=$lastReceivedId"
+    } else if (runId.isNotEmpty() && lastReceivedId == 0) {
+        // Force refresh: reconnecting with run_id but NO last_received_id (full payload)
+        Log.d("NetworkUtils", "FORCE REFRESH: Reconnecting with run_id: $runId but last_received_id=0 (full payload)")
+        "$webSocketUrl?run_id=$runId"
     } else {
         // First connection
         Log.d("NetworkUtils", "First connection to websocket")

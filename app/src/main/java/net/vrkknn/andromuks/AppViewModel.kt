@@ -296,12 +296,13 @@ class AppViewModel : ViewModel() {
         // 3. Reset requestIdCounter to 1
         requestIdCounter = 1
         
-        // 4. Reset last_received_sync_id to 0 (keep run_id for reconnection)
+        // 4. FORCE CLEAR last_received_sync_id to 0 for clean state (keep run_id for reconnection)
         lastReceivedSyncId = 0
         lastReceivedRequestId = 0
         
-        android.util.Log.d("Andromuks", "AppViewModel: State reset complete - run_id preserved: $currentRunId")
-        android.util.Log.d("Andromuks", "AppViewModel: Will reconnect with run_id but no last_received_id (full payload)")
+        val preservedRunId = currentRunId
+        android.util.Log.d("Andromuks", "AppViewModel: State reset complete - run_id preserved: $preservedRunId")
+        android.util.Log.d("Andromuks", "AppViewModel: FORCE REFRESH - lastReceivedSyncId cleared to 0, will reconnect with run_id but NO last_received_id (full payload)")
         
         // 5. Trigger reconnection (will use run_id but not last_received_id since it's 0)
         onRestartWebSocket?.invoke("Full refresh")

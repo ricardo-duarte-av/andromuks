@@ -184,7 +184,7 @@ fun RoomListScreen(
         refreshing = refreshing,
         onRefresh = {
             refreshing = true
-            // Perform full refresh: reset state and get complete payload
+            // FORCE REFRESH: Reset state, clear last_received_id, and get complete payload
             appViewModel.performFullRefresh()
         }
     )
