@@ -147,7 +147,7 @@ data class MediaMessage(
     val filename: String,
     val caption: String?,
     val info: MediaInfo,
-    val msgType: String // "m.image", "m.video", or "m.audio"
+    val msgType: String // "m.image", "m.video", "m.audio", or "m.file"
 )
 
 @Immutable

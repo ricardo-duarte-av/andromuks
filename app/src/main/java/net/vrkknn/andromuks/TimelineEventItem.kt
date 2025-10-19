@@ -516,7 +516,7 @@ private fun RoomMessageContent(
         }
 
     // Check if it's a media message
-    if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio") {
+    if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file") {
         RoomMediaMessageContent(
             event = event,
             content = content,
@@ -1270,7 +1270,7 @@ private fun EncryptedMessageContent(
             }
 
         // Check if it's a media message
-        if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio") {
+        if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file") {
             Log.d(
                 "Andromuks",
                 "TimelineEventItem: Found encrypted media message - msgType=$msgType, body=$body"

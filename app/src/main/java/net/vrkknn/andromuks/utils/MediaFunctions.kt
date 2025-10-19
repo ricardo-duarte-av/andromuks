@@ -75,9 +75,19 @@ import net.vrkknn.andromuks.utils.MediaUtils
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.DisposableEffect
+import android.app.DownloadManager
+import android.content.Context
+import android.net.Uri
+import android.os.Environment
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import java.io.FileOutputStream
 
 /**
  * Media cache utility functions for MXC URLs
@@ -219,14 +229,14 @@ private fun MediaCaption(
     homeserverUrl: String,
     authToken: String,
     onUserClick: (String) -> Unit = {},
-    isAudioMessage: Boolean = false
+    isCompactMedia: Boolean = false // For audio and file messages
 ) {
     // Check if the event supports HTML rendering (has sanitized_html or formatted_body)
     val supportsHtml = event != null && supportsHtmlRendering(event)
     
-    // Use reduced padding for audio messages
-    val padding = if (isAudioMessage) {
-        Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+    // Use minimal padding for compact media messages (audio and file)
+    val padding = if (isCompactMedia) {
+        Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
     } else {
         Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
     }
@@ -401,7 +411,7 @@ fun MediaMessage(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         onUserClick = onUserClick,
-                        isAudioMessage = mediaMessage.msgType == "m.audio"
+                        isCompactMedia = mediaMessage.msgType == "m.audio" || mediaMessage.msgType == "m.file"
                     )
                     
                     // Timestamp (for consecutive messages)
@@ -450,7 +460,7 @@ fun MediaMessage(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         onUserClick = onUserClick,
-                        isAudioMessage = mediaMessage.msgType == "m.audio"
+                        isCompactMedia = mediaMessage.msgType == "m.audio" || mediaMessage.msgType == "m.file"
                     )
                     
                     // Timestamp (for consecutive messages)
@@ -583,6 +593,15 @@ private fun MediaContent(
         if (mediaMessage.msgType == "m.audio") {
             // Audio player - use its own sizing without aspect ratio container
             AudioPlayer(
+                mediaMessage = mediaMessage,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                isEncrypted = isEncrypted,
+                context = LocalContext.current
+            )
+        } else if (mediaMessage.msgType == "m.file") {
+            // File download component - use its own sizing without aspect ratio container
+            FileDownload(
                 mediaMessage = mediaMessage,
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
@@ -1054,6 +1073,237 @@ private fun AudioPlayer(
                 }
             }
         }
+    }
+}
+
+/**
+ * File download component for m.file messages with Material 3 design.
+ * Features file icon, filename, size, mimetype, and download button.
+ */
+@Composable
+private fun FileDownload(
+    mediaMessage: MediaMessage,
+    homeserverUrl: String,
+    authToken: String,
+    isEncrypted: Boolean,
+    context: android.content.Context
+) {
+    // Convert MXC URL to HTTP URL
+    val fileHttpUrl = remember(mediaMessage.url, isEncrypted) {
+        val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+        if (isEncrypted) {
+            "$httpUrl?encrypted=true"
+        } else {
+            httpUrl ?: ""
+        }
+    }
+    
+    val coroutineScope = rememberCoroutineScope()
+    
+    // File download UI
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        // File icon
+        Icon(
+            imageVector = Icons.Filled.InsertDriveFile,
+            contentDescription = "File",
+            modifier = Modifier.size(32.dp),
+            tint = MaterialTheme.colorScheme.primary
+        )
+        
+        // File info
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            // Filename
+            Text(
+                text = mediaMessage.filename,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            
+            Spacer(modifier = Modifier.height(4.dp))
+            
+            // Size and mimetype
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // File size
+                mediaMessage.info.size?.let { sizeBytes ->
+                    Text(
+                        text = formatFileSize(sizeBytes),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                
+                // MIME type
+                mediaMessage.info.mimeType?.let { mimeType ->
+                    Text(
+                        text = mimeType,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+            }
+        }
+        
+        // Download button
+        IconButton(
+            onClick = {
+                coroutineScope.launch {
+                    downloadFile(
+                        context = context,
+                        url = fileHttpUrl,
+                        filename = mediaMessage.filename,
+                        authToken = authToken
+                    )
+                }
+            },
+            modifier = Modifier.size(40.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Download,
+                contentDescription = "Download",
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(24.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Download file using OkHttp and Android DownloadManager
+ */
+private suspend fun downloadFile(
+    context: android.content.Context,
+    url: String,
+    filename: String,
+    authToken: String
+) {
+    try {
+        // Use Android DownloadManager for system-level download handling
+        val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val request = DownloadManager.Request(Uri.parse(url))
+        
+        // Set authentication header
+        request.addRequestHeader("Cookie", "gomuks_auth=$authToken")
+        
+        // Set destination directory (Downloads folder)
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val file = File(downloadsDir, filename)
+        
+        // Handle duplicate filenames
+        var finalFile = file
+        var counter = 1
+        while (finalFile.exists()) {
+            val nameWithoutExt = filename.substringBeforeLast(".")
+            val extension = if (filename.contains(".")) filename.substringAfterLast(".") else ""
+            val newFilename = if (extension.isNotEmpty()) {
+                "$nameWithoutExt ($counter).$extension"
+            } else {
+                "$filename ($counter)"
+            }
+            finalFile = File(downloadsDir, newFilename)
+            counter++
+        }
+        
+        request.setDestinationUri(Uri.fromFile(finalFile))
+        request.setTitle("Downloading $filename")
+        request.setDescription("Downloading file from Andromuks")
+        request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+        
+        downloadManager.enqueue(request)
+        
+        Log.d("Andromuks", "File download started: $filename to ${finalFile.absolutePath}")
+        
+    } catch (e: Exception) {
+        Log.e("Andromuks", "Failed to download file: $filename", e)
+        // Fallback: Try using OkHttp for download
+        try {
+            downloadFileWithOkHttp(context, url, filename, authToken)
+        } catch (fallbackException: Exception) {
+            Log.e("Andromuks", "Fallback download also failed: $filename", fallbackException)
+        }
+    }
+}
+
+/**
+ * Fallback download using OkHttp when DownloadManager fails
+ */
+private suspend fun downloadFileWithOkHttp(
+    context: android.content.Context,
+    url: String,
+    filename: String,
+    authToken: String
+) {
+    try {
+        val client = OkHttpClient()
+        val request = Request.Builder()
+            .url(url)
+            .addHeader("Cookie", "gomuks_auth=$authToken")
+            .build()
+        
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                throw Exception("HTTP ${response.code}: ${response.message}")
+            }
+            
+            val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            val file = File(downloadsDir, filename)
+            
+            // Handle duplicate filenames
+            var finalFile = file
+            var counter = 1
+            while (finalFile.exists()) {
+                val nameWithoutExt = filename.substringBeforeLast(".")
+                val extension = if (filename.contains(".")) filename.substringAfterLast(".") else ""
+                val newFilename = if (extension.isNotEmpty()) {
+                    "$nameWithoutExt ($counter).$extension"
+                } else {
+                    "$filename ($counter)"
+                }
+                finalFile = File(downloadsDir, newFilename)
+                counter++
+            }
+            
+            response.body?.byteStream()?.use { input ->
+                FileOutputStream(finalFile).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            
+            Log.d("Andromuks", "File downloaded successfully: $filename to ${finalFile.absolutePath}")
+        }
+    } catch (e: Exception) {
+        Log.e("Andromuks", "OkHttp download failed for $filename", e)
+        throw e
+    }
+}
+
+/**
+ * Format file size in bytes to human readable format
+ */
+private fun formatFileSize(bytes: Long): String {
+    val kb = 1024.0
+    val mb = kb * 1024
+    val gb = mb * 1024
+    
+    return when {
+        bytes >= gb -> String.format("%.1f GB", bytes / gb)
+        bytes >= mb -> String.format("%.1f MB", bytes / mb)
+        bytes >= kb -> String.format("%.1f KB", bytes / kb)
+        else -> "$bytes B"
     }
 }
 

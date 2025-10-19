@@ -1088,7 +1088,7 @@ fun ChatBubbleEventItem(
                     }
                     
                     // Check if it's a media message
-                    if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio") {
+                    if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file") {
                         val url = content?.optString("url", "") ?: ""
                         val filename = content?.optString("filename", "") ?: ""
                         val info = content?.optJSONObject("info")
@@ -1276,7 +1276,7 @@ fun ChatBubbleEventItem(
                         }
                         
                         // Check if it's a media message
-                        if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio") {
+                        if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file") {
                             // For encrypted messages, URL might be in file.url
                             val directUrl = decrypted?.optString("url", "") ?: ""
                             val fileObj = decrypted?.optJSONObject("file")
