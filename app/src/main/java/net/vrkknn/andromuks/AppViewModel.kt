@@ -112,6 +112,26 @@ class AppViewModel : ViewModel() {
     var allSpaces by mutableStateOf(listOf<SpaceItem>())
         private set
     
+    // PERFORMANCE: Cached room sections to avoid expensive filtering on every recomposition
+    private var cachedDirectChatRooms by mutableStateOf<List<RoomItem>>(emptyList())
+        private set
+    
+    private var cachedUnreadRooms by mutableStateOf<List<RoomItem>>(emptyList())
+        private set
+    
+    private var cachedFavouriteRooms by mutableStateOf<List<RoomItem>>(emptyList())
+        private set
+    
+    // Cache invalidation tracking
+    private var lastAllRoomsHash: Int = 0
+    
+    /**
+     * Invalidate room section cache when allRooms data changes
+     */
+    private fun invalidateRoomSectionCache() {
+        lastAllRoomsHash = 0 // Force cache recalculation on next access
+    }
+    
     // Current selected section
     var selectedSection by mutableStateOf(RoomSectionType.HOME)
         private set
@@ -317,6 +337,7 @@ class AppViewModel : ViewModel() {
         // 2. Clear all room data
         roomMap.clear()
         allRooms = emptyList()
+        invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
         allSpaces = emptyList()
         spaceList = emptyList()
         spacesLoaded = false
@@ -431,7 +452,43 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    /**
+     * Update cached room sections to avoid expensive filtering on every recomposition.
+     * Only recalculates when allRooms actually changes.
+     */
+    private fun updateCachedRoomSections() {
+        // Get rooms from spaceList if allRooms is empty (fallback for existing data)
+        val roomsToUse = if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
+            spaceList.firstOrNull()?.rooms ?: emptyList()
+        } else {
+            allRooms
+        }
+        
+        // Check if we need to update cache (simple hash-based invalidation)
+        val currentHash = roomsToUse.hashCode()
+        if (currentHash == lastAllRoomsHash) {
+            return // Cache is still valid
+        }
+        
+        lastAllRoomsHash = currentHash
+        
+        // Update cached filtered lists
+        cachedDirectChatRooms = roomsToUse.filter { it.isDirectMessage }
+        
+        cachedUnreadRooms = roomsToUse.filter { 
+            (it.unreadCount != null && it.unreadCount > 0) || 
+            (it.highlightCount != null && it.highlightCount > 0) 
+        }
+        
+        cachedFavouriteRooms = roomsToUse.filter { it.isFavourite }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Updated cached room sections - DMs: ${cachedDirectChatRooms.size}, Unread: ${cachedUnreadRooms.size}, Favourites: ${cachedFavouriteRooms.size}")
+    }
+    
     fun getCurrentRoomSection(): RoomSection {
+        // Update cached room sections if needed
+        updateCachedRoomSections()
+        
         // Get rooms from spaceList if allRooms is empty (fallback for existing data)
         val roomsToUse = if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
             spaceList.firstOrNull()?.rooms ?: emptyList()
@@ -466,37 +523,34 @@ class AppViewModel : ViewModel() {
                 }
             }
             RoomSectionType.DIRECT_CHATS -> {
-                val dmRooms = roomsToUse.filter { it.isDirectMessage }
-                val unreadDmCount = dmRooms.count { 
+                // PERFORMANCE: Use cached direct chat rooms instead of filtering every time
+                val unreadDmCount = cachedDirectChatRooms.count { 
                     (it.unreadCount != null && it.unreadCount > 0) || 
                     (it.highlightCount != null && it.highlightCount > 0) 
                 }
                 RoomSection(
                     type = RoomSectionType.DIRECT_CHATS,
-                    rooms = dmRooms,
+                    rooms = cachedDirectChatRooms,
                     unreadCount = unreadDmCount
                 )
             }
             RoomSectionType.UNREAD -> {
-                val unreadRooms = roomsToUse.filter { 
-                    (it.unreadCount != null && it.unreadCount > 0) || 
-                    (it.highlightCount != null && it.highlightCount > 0) 
-                }
+                // PERFORMANCE: Use cached unread rooms instead of filtering every time
                 RoomSection(
                     type = RoomSectionType.UNREAD,
-                    rooms = unreadRooms,
-                    unreadCount = unreadRooms.size
+                    rooms = cachedUnreadRooms,
+                    unreadCount = cachedUnreadRooms.size
                 )
             }
             RoomSectionType.FAVOURITES -> {
-                val favouriteRooms = roomsToUse.filter { it.isFavourite }
-                val unreadFavouriteCount = favouriteRooms.count { 
+                // PERFORMANCE: Use cached favourite rooms instead of filtering every time
+                val unreadFavouriteCount = cachedFavouriteRooms.count { 
                     (it.unreadCount != null && it.unreadCount > 0) || 
                     (it.highlightCount != null && it.highlightCount > 0) 
                 }
                 RoomSection(
                     type = RoomSectionType.FAVOURITES,
-                    rooms = favouriteRooms,
+                    rooms = cachedFavouriteRooms,
                     unreadCount = unreadFavouriteCount
                 )
             }
@@ -1278,6 +1332,7 @@ class AppViewModel : ViewModel() {
             
             setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
             allRooms = sortedRooms // Update allRooms for filtering
+            invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
             
             // Update low priority rooms set for notification filtering
             updateLowPriorityRooms(sortedRooms)
@@ -1296,6 +1351,7 @@ class AppViewModel : ViewModel() {
             // Still update allRooms for data consistency (needed for notifications)
             val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
             allRooms = sortedRooms
+            invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
             
             // Update low priority rooms set for notification filtering
             updateLowPriorityRooms(sortedRooms)
@@ -1587,6 +1643,7 @@ class AppViewModel : ViewModel() {
         
         setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
         allRooms = sortedRooms
+        invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
         
         // Update conversation shortcuts
         conversationsApi?.updateConversationShortcuts(sortedRooms)
@@ -2067,6 +2124,7 @@ class AppViewModel : ViewModel() {
                 }
                 
                 allRooms = cachedRooms
+                invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
                 setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = cachedRooms)))
                 
                 android.util.Log.d("Andromuks", "AppViewModel: Restored ${cachedRooms.size} rooms from cache")

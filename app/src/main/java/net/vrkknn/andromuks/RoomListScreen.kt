@@ -587,6 +587,16 @@ fun RoomListItem(
         formatTimeAgo(room.sortingTimestamp)
     }
     
+    // PERFORMANCE: Cache sender profile lookup to avoid expensive operations on every recomposition
+    val senderDisplayName = remember(room.messageSender, room.id, appViewModel.memberUpdateCounter) {
+        if (room.messageSender != null) {
+            val senderProfile = appViewModel.getUserProfile(room.messageSender, room.id)
+            senderProfile?.displayName ?: room.messageSender
+        } else {
+            null
+        }
+    }
+    
     // Wrapping box for the entire item
     Box(
         modifier = modifier
@@ -706,14 +716,8 @@ fun RoomListItem(
                 
                 // Enhanced message preview with sender avatar and display name
                 if (room.messagePreview != null && room.messageSender != null) {
-                    // PERFORMANCE: Get profile from cache only (non-blocking)
-                    val senderProfile = appViewModel.getUserProfile(room.messageSender, room.id)
-                    val senderDisplayName = senderProfile?.displayName ?: room.messageSender
-                    val senderAvatarUrl = senderProfile?.avatarUrl
-                    
-                    // PERFORMANCE FIX: Removed LaunchedEffect to prevent hundreds of concurrent profile requests
-                    // Profiles are populated from sync data, so this is unnecessary for most cases
-                    // If a profile is missing, it will show the user ID as fallback (acceptable UX trade-off)
+                    // PERFORMANCE: Use cached senderDisplayName instead of expensive profile lookup on every recomposition
+                    val displayNameToUse = senderDisplayName ?: room.messageSender
                     
                     Row(
                         modifier = Modifier.padding(top = 2.dp),
@@ -724,7 +728,7 @@ fun RoomListItem(
                         
                         // Sender name and message
                         Text(
-                            text = "$senderDisplayName: ${room.messagePreview}",
+                            text = "$displayNameToUse: ${room.messagePreview}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -1003,6 +1007,17 @@ fun RoomListContent(
         appViewModel.exitSpace()
     }
     
+    // PERFORMANCE: Cache filtered rooms to avoid recalculation on every recomposition
+    val filteredRooms = remember(rooms, searchQuery) {
+        if (searchQuery.isBlank()) {
+            rooms
+        } else {
+            rooms.filter { room ->
+                room.name.contains(searchQuery, ignoreCase = true)
+            }
+        }
+    }
+    
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Top,
@@ -1043,14 +1058,7 @@ fun RoomListContent(
             }
         }
         
-        val filteredRooms = if (searchQuery.isBlank()) {
-            rooms
-        } else {
-            rooms.filter { room ->
-                room.name.contains(searchQuery, ignoreCase = true)
-            }
-        }
-        
+        // Use the cached filteredRooms from the remember block above
         items(
             items = filteredRooms,
             key = { it.id }, // Stable key for animations
