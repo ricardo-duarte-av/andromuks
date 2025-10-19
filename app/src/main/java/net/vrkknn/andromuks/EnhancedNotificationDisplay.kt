@@ -200,7 +200,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val circularSenderAvatar = createCircularBitmap(senderAvatarBitmap)
             
             // Get current user info for MessagingStyle (the local user, not the room)
-            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val currentUserId = sharedPrefs.getString("current_user_id", "self") ?: "self"
             val currentUserDisplayName = sharedPrefs.getString("current_user_display_name", "Me") ?: "Me"
             

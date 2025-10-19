@@ -166,18 +166,17 @@ class FCMService : FirebaseMessagingService() {
                                 val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                                 val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
                                 
-                                if (lowPriorityRooms.contains(notificationData.roomId)) {
-                                    Log.d(TAG, "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})")
-                                    return
-                                }
-                                
-                                CoroutineScope(Dispatchers.Main).launch {
-                                    try {
-                                        enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
-                                    } catch (e: Exception) {
-                                        Log.e(TAG, "Error showing enhanced notification", e)
-                                        e.printStackTrace()
+                                if (!lowPriorityRooms.contains(notificationData.roomId)) {
+                                    CoroutineScope(Dispatchers.Main).launch {
+                                        try {
+                                            enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
+                                        } catch (e: Exception) {
+                                            Log.e(TAG, "Error showing enhanced notification", e)
+                                            e.printStackTrace()
+                                        }
                                     }
+                                } else {
+                                    Log.d(TAG, "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})")
                                 }
                             }
                         }
