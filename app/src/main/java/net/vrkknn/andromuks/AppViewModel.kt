@@ -1363,6 +1363,9 @@ class AppViewModel : ViewModel() {
     // Pending room navigation from shortcuts
     private var pendingRoomNavigation: String? = null
     
+    // Track if the pending navigation is from a notification (for optimized cache handling)
+    private var isPendingNavigationFromNotification: Boolean = false
+    
     // Pending bubble navigation from chat bubbles
     private var pendingBubbleNavigation: String? = null
     
@@ -1395,9 +1398,10 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    fun setPendingRoomNavigation(roomId: String) {
-        android.util.Log.d("Andromuks", "AppViewModel: Set pending room navigation to: $roomId")
+    fun setPendingRoomNavigation(roomId: String, fromNotification: Boolean = false) {
+        android.util.Log.d("Andromuks", "AppViewModel: Set pending room navigation to: $roomId (fromNotification: $fromNotification)")
         pendingRoomNavigation = roomId
+        isPendingNavigationFromNotification = fromNotification
     }
     
     fun getPendingRoomNavigation(): String? {
@@ -1411,6 +1415,7 @@ class AppViewModel : ViewModel() {
     fun clearPendingRoomNavigation() {
         android.util.Log.d("Andromuks", "AppViewModel: Clearing pending room navigation")
         pendingRoomNavigation = null
+        isPendingNavigationFromNotification = false
     }
     
     fun setPendingBubbleNavigation(roomId: String) {
@@ -1625,6 +1630,7 @@ class AppViewModel : ViewModel() {
     private val fcmRegistrationRequests = mutableMapOf<Int, String>() // requestId -> "fcm_registration"
     private val eventRequests = mutableMapOf<Int, Pair<String, (TimelineEvent?) -> Unit>>() // requestId -> (roomId, callback)
     private val paginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for pagination)
+    private val backgroundPrefetchRequests = mutableMapOf<Int, String>() // requestId -> roomId (for background prefetch)
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     private val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val mutualRoomsRequests = mutableMapOf<Int, (List<String>?, String?) -> Unit>() // requestId -> callback
@@ -2174,15 +2180,28 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId")
         currentRoomId = roomId
         
+        // Check if we're opening from a notification (for optimized cache handling)
+        val openingFromNotification = isPendingNavigationFromNotification && pendingRoomNavigation == roomId
+        
         // Check if we have enough cached events BEFORE clearing anything
-        val cachedEvents = roomTimelineCache.getCachedEvents(roomId)
+        // Use more lenient threshold for notification-based navigation to avoid loading spinners
+        val cachedEvents = if (openingFromNotification) {
+            // First try the standard threshold, then fall back to notification threshold
+            roomTimelineCache.getCachedEvents(roomId) ?: roomTimelineCache.getCachedEventsForNotification(roomId)
+        } else {
+            roomTimelineCache.getCachedEvents(roomId)
+        }
         if (cachedEvents != null) {
             // CACHE HIT - instant room opening without clearing UI
             val ownMessagesInCache = cachedEvents.count { it.sender == currentUserId && (it.type == "m.room.message" || it.type == "m.room.encrypted") }
-            android.util.Log.d("Andromuks", "AppViewModel: ✓ CACHE HIT - Instant room opening: ${cachedEvents.size} events (including $ownMessagesInCache of your own messages)")
+            val cacheType = if (openingFromNotification && cachedEvents.size < 100) "notification-optimized" else "standard"
+            android.util.Log.d("Andromuks", "AppViewModel: ✓ CACHE HIT ($cacheType) - Instant room opening: ${cachedEvents.size} events (including $ownMessagesInCache of your own messages)")
             if (ownMessagesInCache > 0) {
                 android.util.Log.d("Andromuks", "AppViewModel: ★ Cache contains $ownMessagesInCache messages from YOU")
             }
+            
+            // Ensure loading is false BEFORE processing to prevent loading flash
+            isTimelineLoading = false
             
             // Clear and rebuild internal structures (but don't clear timelineEvents yet)
             eventChainMap.clear()
@@ -2234,8 +2253,12 @@ class AppViewModel : ViewModel() {
                 smallestRowId = smallestCached
             }
             
-            isTimelineLoading = false
             android.util.Log.d("Andromuks", "AppViewModel: ✅ Room opened INSTANTLY with ${timelineEvents.size} cached events (no loading flash)")
+            
+            // Clear notification flag since we've successfully loaded the room
+            if (openingFromNotification) {
+                isPendingNavigationFromNotification = false
+            }
             
             // Request room state (doesn't affect timeline rendering)
             requestRoomState(roomId)
@@ -2259,8 +2282,117 @@ class AppViewModel : ViewModel() {
             return // Exit early - room is already rendered from cache
         }
         
+        // Check if we have partial cache (10-99 events) - show it and background prefetch more
+        val partialCacheCount = roomTimelineCache.getCachedEventCount(roomId)
+        if (partialCacheCount >= 10) {
+            android.util.Log.d("Andromuks", "AppViewModel: 🔄 PARTIAL CACHE ($partialCacheCount events) - showing cached content and background prefetching more")
+            
+            // Show the partial cache immediately (like cache hit)
+            val partialCachedEvents = roomTimelineCache.getCachedEventsForNotification(roomId)
+            if (partialCachedEvents != null) {
+                val ownMessagesInCache = partialCachedEvents.count { it.sender == currentUserId && (it.type == "m.room.message" || it.type == "m.room.encrypted") }
+                android.util.Log.d("Andromuks", "AppViewModel: ✓ Showing partial cache with ${partialCachedEvents.size} events (including $ownMessagesInCache of your own messages)")
+                
+                // Ensure loading is false BEFORE processing to prevent loading flash
+                isTimelineLoading = false
+                
+                // Clear and rebuild internal structures (but don't clear timelineEvents yet)
+                eventChainMap.clear()
+                editEventsMap.clear()
+                messageVersions.clear()
+                editToOriginal.clear()
+                redactionCache.clear()
+                messageReactions = emptyMap()
+                
+                // Reset pagination state
+                smallestRowId = -1L
+                isPaginating = false
+                hasMoreMessages = true
+                
+                // Ensure member cache exists for this room
+                if (roomMemberCache[roomId] == null) {
+                    roomMemberCache[roomId] = mutableMapOf()
+                }
+                
+                // Populate edit chain mapping from cached events
+                for (event in partialCachedEvents) {
+                    val isEditEvent = when {
+                        event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+                        else -> false
+                    }
+                    
+                    if (isEditEvent) {
+                        editEventsMap[event.eventId] = event
+                    } else {
+                        eventChainMap[event.eventId] = EventChainEntry(
+                            eventId = event.eventId,
+                            ourBubble = event,
+                            replacedBy = null,
+                            originalTimestamp = event.timestamp
+                        )
+                    }
+                }
+                
+                // Process edit relationships
+                processEditRelationships()
+                
+                // Build timeline from chain (this updates timelineEvents)
+                buildTimelineFromChain()
+                
+                // Set smallest rowId from cached events for pagination
+                val smallestCached = partialCachedEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
+                if (smallestCached > 0) {
+                    smallestRowId = smallestCached
+                }
+                
+                android.util.Log.d("Andromuks", "AppViewModel: ✅ Room opened with partial cache (${timelineEvents.size} events) - background prefetch initiated")
+                
+                // Clear notification flag since we've successfully loaded the room
+                if (openingFromNotification) {
+                    isPendingNavigationFromNotification = false
+                }
+                
+                // Request room state (doesn't affect timeline rendering)
+                requestRoomState(roomId)
+                
+                // Send get_room_state command for member updates
+                val stateRequestId = requestIdCounter++
+                timelineRequests[stateRequestId] = roomId
+                sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
+                    "room_id" to roomId,
+                    "include_members" to true,
+                    "fetch_members" to false,
+                    "refetch" to false
+                ))
+                
+                // Mark as read
+                val mostRecentEvent = partialCachedEvents.maxByOrNull { it.timestamp }
+                if (mostRecentEvent != null) {
+                    markRoomAsRead(roomId, mostRecentEvent.eventId)
+                }
+                
+                // BACKGROUND PREFETCH: Request more events to reach 100 total
+                val eventsNeeded = 100 - partialCacheCount
+                if (eventsNeeded > 0 && smallestCached > 0) {
+                    android.util.Log.d("Andromuks", "AppViewModel: 🔄 Background prefetching $eventsNeeded more events to reach 100 total")
+                    val prefetchRequestId = requestIdCounter++
+                    backgroundPrefetchRequests[prefetchRequestId] = roomId
+                    sendWebSocketCommand("paginate", prefetchRequestId, mapOf(
+                        "room_id" to roomId,
+                        "max_timeline_id" to smallestCached,
+                        "limit" to eventsNeeded,
+                        "reset" to false
+                    ))
+                    android.util.Log.d("Andromuks", "AppViewModel: Sent background prefetch request_id=$prefetchRequestId for room=$roomId")
+                }
+                
+                return // Exit early - room is shown with partial cache
+            }
+        }
+        
         // CACHE MISS - show loading and fetch from server
-        android.util.Log.d("Andromuks", "AppViewModel: ✗ CACHE MISS (or < 100 events) - showing loading and fetching from server")
+        android.util.Log.d("Andromuks", "AppViewModel: ✗ CACHE MISS (or < 10 events) - showing loading and fetching from server")
         
         // Now clear everything and show loading
         timelineEvents = emptyList()
@@ -3027,6 +3159,9 @@ class AppViewModel : ViewModel() {
             handleFCMRegistrationResponse(requestId, data)
         } else if (eventRequests.containsKey(requestId)) {
             handleEventResponse(requestId, data)
+        } else if (backgroundPrefetchRequests.containsKey(requestId)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Routing background prefetch response to handleTimelineResponse")
+            handleTimelineResponse(requestId, data)
         } else if (paginateRequests.containsKey(requestId)) {
             android.util.Log.d("Andromuks", "AppViewModel: Routing pagination response to handleTimelineResponse")
             handleTimelineResponse(requestId, data)
@@ -3355,14 +3490,15 @@ class AppViewModel : ViewModel() {
     
     fun handleTimelineResponse(requestId: Int, data: Any) {
         android.util.Log.d("Andromuks", "AppViewModel: handleTimelineResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
-        val roomId = timelineRequests[requestId] ?: paginateRequests[requestId]
+        val roomId = timelineRequests[requestId] ?: paginateRequests[requestId] ?: backgroundPrefetchRequests[requestId]
         if (roomId == null) {
             android.util.Log.w("Andromuks", "AppViewModel: Received response for unknown request ID: $requestId")
             return
         }
 
         val isPaginateRequest = paginateRequests.containsKey(requestId)
-        android.util.Log.d("Andromuks", "AppViewModel: Handling timeline response for room: $roomId, requestId: $requestId, isPaginate: $isPaginateRequest, data type: ${data::class.java.simpleName}")
+        val isBackgroundPrefetchRequest = backgroundPrefetchRequests.containsKey(requestId)
+        android.util.Log.d("Andromuks", "AppViewModel: Handling timeline response for room: $roomId, requestId: $requestId, isPaginate: $isPaginateRequest, isBackgroundPrefetch: $isBackgroundPrefetchRequest, data type: ${data::class.java.simpleName}")
 
         fun processEventsArray(eventsArray: JSONArray) {
             android.util.Log.d("Andromuks", "AppViewModel: processEventsArray called with ${eventsArray.length()} events from server")
@@ -3444,14 +3580,32 @@ class AppViewModel : ViewModel() {
             processVersionedMessages(allEvents)
             
             // Handle empty pagination responses
-            if (paginateRequests.containsKey(requestId) && timelineList.isEmpty()) {
-                android.util.Log.d("Andromuks", "AppViewModel: Empty pagination response - no more messages to load")
+            if ((paginateRequests.containsKey(requestId) || backgroundPrefetchRequests.containsKey(requestId)) && timelineList.isEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: Empty pagination/prefetch response - no more messages to load")
                 paginateRequests.remove(requestId)
+                backgroundPrefetchRequests.remove(requestId)
                 isPaginating = false
                 return
             }
             
             if (timelineList.isNotEmpty()) {
+                // Handle background prefetch requests first - before any UI processing
+                if (backgroundPrefetchRequests.containsKey(requestId)) {
+                    // This is a background prefetch request - silently add to cache without affecting UI
+                    android.util.Log.d("Andromuks", "AppViewModel: Processing background prefetch request, silently adding ${timelineList.size} events to cache")
+                    
+                    // Add events to cache silently (merge with existing cache)
+                    roomTimelineCache.mergePaginatedEvents(roomId, timelineList)
+                    
+                    // Clean up the background prefetch request
+                    backgroundPrefetchRequests.remove(requestId)
+                    
+                    val newCacheCount = roomTimelineCache.getCachedEventCount(roomId)
+                    android.util.Log.d("Andromuks", "AppViewModel: ✅ Background prefetch completed - cache now has $newCacheCount events for room $roomId")
+                    
+                    return // Exit early - don't process edit chains or UI updates for background prefetch
+                }
+                
                 // Store smallest rowId for pagination (only for initial paginate, not pagination requests)
                 if (!paginateRequests.containsKey(requestId)) {
                     val currentSmallest = timelineList.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
@@ -3517,9 +3671,12 @@ class AppViewModel : ViewModel() {
                 }
                 
                 // Mark room as read when timeline is successfully loaded - use most recent event by timestamp
-                val mostRecentEvent = timelineList.maxByOrNull { it.timestamp }
-                if (mostRecentEvent != null) {
-                    markRoomAsRead(roomId, mostRecentEvent.eventId)
+                // (But not for background prefetch requests since we're just silently updating cache)
+                if (!backgroundPrefetchRequests.containsKey(requestId)) {
+                    val mostRecentEvent = timelineList.maxByOrNull { it.timestamp }
+                    if (mostRecentEvent != null) {
+                        markRoomAsRead(roomId, mostRecentEvent.eventId)
+                    }
                 }
             }
         }
@@ -3536,12 +3693,15 @@ class AppViewModel : ViewModel() {
                     android.util.Log.d("Andromuks", "AppViewModel: JSONObject did not contain 'events' array")
                 }
                 
-                // Parse has_more field for pagination
+                // Parse has_more field for pagination (but not for background prefetch)
                 if (paginateRequests.containsKey(requestId)) {
                     val hasMore = data.optBoolean("has_more", true) // Default to true if not present
                     hasMoreMessages = hasMore
                     android.util.Log.d("Andromuks", "AppViewModel: Parsed has_more: $hasMore from pagination response")
                     android.util.Log.d("Andromuks", "AppViewModel: Full pagination response data keys: ${data.keys().asSequence().toList()}")
+                } else if (backgroundPrefetchRequests.containsKey(requestId)) {
+                    // For background prefetch, we don't update hasMoreMessages to avoid affecting UI
+                    android.util.Log.d("Andromuks", "AppViewModel: Skipping has_more parsing for background prefetch request")
                 }
                 
                 // Process read receipts from timeline response
@@ -3557,6 +3717,8 @@ class AppViewModel : ViewModel() {
         }
 
         timelineRequests.remove(requestId)
+        paginateRequests.remove(requestId)
+        backgroundPrefetchRequests.remove(requestId)
     }
     
     private fun handleRoomStateResponse(requestId: Int, data: Any) {

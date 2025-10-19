@@ -56,7 +56,9 @@ class MainActivity : ComponentActivity() {
                         val extractedRoomId = roomId ?: extractRoomIdFromMatrixUri(matrixUri)
                         Log.d("Andromuks", "MainActivity: onCreate - extractedRoomId: $extractedRoomId")
                         if (extractedRoomId != null) {
-                            appViewModel.setPendingRoomNavigation(extractedRoomId)
+                            // This is from a notification click if we have roomId or matrixUri (from notification intent)
+                            val fromNotification = roomId != null || matrixUri != null
+                            appViewModel.setPendingRoomNavigation(extractedRoomId, fromNotification)
                         }
                         
                         // Register broadcast receiver for notification actions
@@ -254,7 +256,9 @@ class MainActivity : ComponentActivity() {
         extractedRoomId?.let { roomId ->
             if (::appViewModel.isInitialized) {
                 Log.d("Andromuks", "MainActivity: onNewIntent - Navigating to room: $roomId")
-                appViewModel.setPendingRoomNavigation(roomId)
+                // This is from a notification if we have roomId or matrixUri
+                val fromNotification = intent.getStringExtra("room_id") != null || intent.data != null
+                appViewModel.setPendingRoomNavigation(roomId, fromNotification)
                 // Force navigation if app is already running
                 if (appViewModel.spacesLoaded) {
                     // App is already initialized, trigger navigation directly

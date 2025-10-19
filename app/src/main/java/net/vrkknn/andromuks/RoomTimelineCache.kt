@@ -89,6 +89,50 @@ class RoomTimelineCache {
     }
     
     /**
+     * Get cached events for a room with lower threshold for notification scenarios
+     * Returns cached events if there are at least 10 events, null otherwise
+     * This helps avoid loading spinners when opening rooms from notifications
+     */
+    fun getCachedEventsForNotification(roomId: String): List<TimelineEvent>? {
+        val cache = roomEventsCache[roomId] ?: return null
+        
+        return if (cache.size >= 10) { // Lower threshold for notification scenarios
+            Log.d(TAG, "Cache hit for notification room $roomId: ${cache.size} events available (>= 10)")
+            cache.toList() // Return a copy
+        } else {
+            Log.d(TAG, "Cache miss for notification room $roomId: only ${cache.size} events (need >= 10)")
+            null
+        }
+    }
+    
+    /**
+     * Get the number of cached events for a room
+     */
+    fun getCachedEventCount(roomId: String): Int {
+        return roomEventsCache[roomId]?.size ?: 0
+    }
+    
+    /**
+     * Get the oldest cached event's timeline_rowid for pagination
+     * Returns -1 if no cached events or if the oldest event has no timeline_rowid
+     */
+    fun getOldestCachedEventRowId(roomId: String): Long {
+        val cache = roomEventsCache[roomId] ?: return -1L
+        if (cache.isEmpty()) return -1L
+        
+        // Events are sorted by timestamp, newest last, so first event is oldest
+        return cache.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
+    }
+    
+    /**
+     * Check if we have some cached events but not enough for instant render
+     */
+    fun hasPartialCache(roomId: String): Boolean {
+        val count = getCachedEventCount(roomId)
+        return count in 10 until TARGET_EVENTS_FOR_INSTANT_RENDER
+    }
+    
+    /**
      * Mark a room as initialized (received its first paginate response)
      * This helps us know which rooms have full initial data
      */
