@@ -19,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.content.Context
 import android.media.MediaPlayer
 import android.media.AudioManager
@@ -2787,6 +2788,11 @@ class AppViewModel : ViewModel() {
                 )
             )
             
+            // If callback provided and WebSocket not ready, call it immediately to prevent UI stalling
+            if (onComplete != null) {
+                android.util.Log.w("Andromuks", "AppViewModel: WebSocket not ready, calling completion callback immediately to prevent UI stalling")
+                onComplete()
+            }
             return
         }
         
@@ -2798,6 +2804,26 @@ class AppViewModel : ViewModel() {
         pendingSendCount++
         if (onComplete != null) {
             notificationActionCompletionCallbacks[messageRequestId] = onComplete
+            
+            // Set up timeout to prevent infinite stalling - use IO dispatcher to avoid background throttling
+            // Use shorter timeout when app is in background to handle throttling issues
+            viewModelScope.launch(Dispatchers.IO) {
+                val timeoutMs = if (isAppVisible) 30000L else 10000L // 10s timeout in background
+                android.util.Log.d("Andromuks", "AppViewModel: Setting message send timeout to ${timeoutMs}ms (app visible: $isAppVisible)")
+                delay(timeoutMs)
+                // Switch to Main dispatcher only for the final callback
+                withContext(Dispatchers.Main) {
+                    if (notificationActionCompletionCallbacks.containsKey(messageRequestId)) {
+                        android.util.Log.w("Andromuks", "AppViewModel: Message send timeout after ${timeoutMs}ms for requestId=$messageRequestId, calling completion callback")
+                        notificationActionCompletionCallbacks.remove(messageRequestId)?.invoke()
+                        // Also clean up from messageRequests and pendingSendCount
+                        messageRequests.remove(messageRequestId)
+                        if (pendingSendCount > 0) {
+                            pendingSendCount--
+                        }
+                    }
+                }
+            }
         }
         
         val commandData = mapOf(
@@ -2810,7 +2836,18 @@ class AppViewModel : ViewModel() {
             "url_previews" to emptyList<String>()
         )
         
-        sendWebSocketCommand("send_message", messageRequestId, commandData)
+        val result = sendWebSocketCommand("send_message", messageRequestId, commandData)
+        
+        // Handle immediate failure cases
+        if (result != WebSocketResult.SUCCESS) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to send message from notification, result: $result")
+            messageRequests.remove(messageRequestId)
+            if (pendingSendCount > 0) {
+                pendingSendCount--
+            }
+            notificationActionCompletionCallbacks.remove(messageRequestId)?.invoke()
+            return
+        }
         
         // No shutdown needed - foreground service keeps WebSocket open
         android.util.Log.d("Andromuks", "AppViewModel: Message sent, WebSocket remains connected via service")
@@ -2838,6 +2875,11 @@ class AppViewModel : ViewModel() {
                 )
             )
             
+            // If callback provided and WebSocket not ready, call it immediately to prevent UI stalling
+            if (onComplete != null) {
+                android.util.Log.w("Andromuks", "AppViewModel: WebSocket not ready, calling completion callback immediately to prevent UI stalling")
+                onComplete()
+            }
             return
         }
         
@@ -2848,6 +2890,23 @@ class AppViewModel : ViewModel() {
         markReadRequests[markReadRequestId] = roomId
         if (onComplete != null) {
             notificationActionCompletionCallbacks[markReadRequestId] = onComplete
+            
+            // Set up timeout to prevent infinite stalling - use IO dispatcher to avoid background throttling
+            // Use shorter timeout when app is in background to handle throttling issues
+            viewModelScope.launch(Dispatchers.IO) {
+                val timeoutMs = if (isAppVisible) 30000L else 10000L // 10s timeout in background
+                android.util.Log.d("Andromuks", "AppViewModel: Setting mark read timeout to ${timeoutMs}ms (app visible: $isAppVisible)")
+                delay(timeoutMs)
+                // Switch to Main dispatcher only for the final callback
+                withContext(Dispatchers.Main) {
+                    if (notificationActionCompletionCallbacks.containsKey(markReadRequestId)) {
+                        android.util.Log.w("Andromuks", "AppViewModel: Mark read timeout after ${timeoutMs}ms for requestId=$markReadRequestId, calling completion callback")
+                        notificationActionCompletionCallbacks.remove(markReadRequestId)?.invoke()
+                        // Also clean up from markReadRequests
+                        markReadRequests.remove(markReadRequestId)
+                    }
+                }
+            }
         }
         
         val commandData = mapOf(
@@ -2856,7 +2915,15 @@ class AppViewModel : ViewModel() {
             "receipt_type" to "m.read"
         )
         
-        sendWebSocketCommand("mark_read", markReadRequestId, commandData)
+        val result = sendWebSocketCommand("mark_read", markReadRequestId, commandData)
+        
+        // Handle immediate failure cases
+        if (result != WebSocketResult.SUCCESS) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to send mark read from notification, result: $result")
+            markReadRequests.remove(markReadRequestId)
+            notificationActionCompletionCallbacks.remove(markReadRequestId)?.invoke()
+            return
+        }
         
         // No shutdown needed - foreground service keeps WebSocket open
         android.util.Log.d("Andromuks", "AppViewModel: Mark read sent, WebSocket remains connected via service")
@@ -3367,10 +3434,20 @@ class AppViewModel : ViewModel() {
     fun handleError(requestId: Int, errorMessage: String) {
         if (profileRequests.containsKey(requestId)) {
             handleProfileError(requestId, errorMessage)
+        } else if (messageRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Message send error for requestId=$requestId: $errorMessage")
+            val roomId = messageRequests.remove(requestId)
+            if (pendingSendCount > 0) {
+                pendingSendCount--
+            }
+            // Invoke completion callback to prevent UI stalling
+            notificationActionCompletionCallbacks.remove(requestId)?.invoke()
         } else if (markReadRequests.containsKey(requestId)) {
             android.util.Log.w("Andromuks", "AppViewModel: Mark read error for requestId=$requestId: $errorMessage")
             // Remove the failed request from pending
             markReadRequests.remove(requestId)
+            // Invoke completion callback to prevent UI stalling
+            notificationActionCompletionCallbacks.remove(requestId)?.invoke()
         } else if (roomSummaryRequests.containsKey(requestId)) {
             android.util.Log.w("Andromuks", "AppViewModel: Room summary error for requestId=$requestId: $errorMessage")
             roomSummaryRequests.remove(requestId)
@@ -4025,14 +4102,48 @@ class AppViewModel : ViewModel() {
         if (pendingSendCount > 0) {
             pendingSendCount--
         }
-        android.util.Log.d("Andromuks", "AppViewModel: Handling message response for room: $roomId, pendingSendCount=$pendingSendCount")
+        android.util.Log.d("Andromuks", "AppViewModel: Handling message response for room: $roomId, pendingSendCount=$pendingSendCount, data: $data")
+        
+        // Check if the response indicates an error
+        var isError = false
+        when (data) {
+            is Boolean -> {
+                if (!data) {
+                    isError = true
+                    android.util.Log.e("Andromuks", "AppViewModel: Message send failed - boolean false response")
+                }
+            }
+            is JSONObject -> {
+                // Check for error indicators in JSON response
+                val error = data.optString("error")
+                val success = data.optBoolean("success", true)
+                if (error.isNotEmpty() || !success) {
+                    isError = true
+                    android.util.Log.e("Andromuks", "AppViewModel: Message send failed - error: $error, success: $success")
+                }
+            }
+            is String -> {
+                // String responses could indicate errors
+                if (data.lowercase().contains("error") || data.lowercase().contains("fail")) {
+                    isError = true
+                    android.util.Log.e("Andromuks", "AppViewModel: Message send appears to be an error response: $data")
+                }
+            }
+        }
         
         // NOTE: We receive send_complete for sent messages, so we don't need to process
         // the response here to avoid duplicates. send_complete will add the event to timeline.
         android.util.Log.d("Andromuks", "AppViewModel: Message response received, waiting for send_complete for actual event")
         
-        // Invoke completion callback for notification actions
-        notificationActionCompletionCallbacks.remove(requestId)?.invoke()
+        // Always invoke completion callback for notification actions, even if there was an error
+        // This prevents the UI from stalling indefinitely
+        val callback = notificationActionCompletionCallbacks.remove(requestId)
+        if (callback != null) {
+            if (isError) {
+                android.util.Log.w("Andromuks", "AppViewModel: Message send had error, but calling completion callback to prevent UI stalling")
+            }
+            callback()
+        }
     }
     
     private fun handleReactionResponse(requestId: Int, data: Any) {
