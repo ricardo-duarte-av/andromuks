@@ -158,6 +158,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     suspend fun showEnhancedNotification(notificationData: NotificationData) {
         try {
+            // Check if room is marked as low priority - skip notifications for low priority rooms
+            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
+            
+            if (lowPriorityRooms.contains(notificationData.roomId)) {
+                Log.d(TAG, "Skipping notification for low priority room (EnhancedNotificationDisplay): ${notificationData.roomId} (${notificationData.roomName})")
+                return
+            }
+            
             val isGroupRoom = notificationData.roomName != notificationData.senderDisplayName
             val hasImage = !notificationData.image.isNullOrEmpty()
             Log.d(TAG, "showEnhancedNotification - hasImage: $hasImage, image: ${notificationData.image}")

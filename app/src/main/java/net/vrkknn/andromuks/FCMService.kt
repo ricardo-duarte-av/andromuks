@@ -162,6 +162,15 @@ class FCMService : FirebaseMessagingService() {
                             
                             val notificationData = NotificationDataParser.parseNotificationData(jsonDataMap)
                             if (notificationData != null) {
+                                // Check if room is marked as low priority - skip notifications for low priority rooms
+                                val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                                val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
+                                
+                                if (lowPriorityRooms.contains(notificationData.roomId)) {
+                                    Log.d(TAG, "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})")
+                                    return
+                                }
+                                
                                 CoroutineScope(Dispatchers.Main).launch {
                                     try {
                                         enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
@@ -405,6 +414,18 @@ class FCMService : FirebaseMessagingService() {
     ) {
         val roomId = data["room_id"]
         val eventId = data["event_id"]
+        
+        // Check if room is marked as low priority - skip notifications for low priority rooms
+        if (roomId != null) {
+            val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+            val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
+            
+            if (lowPriorityRooms.contains(roomId)) {
+                Log.d(TAG, "Skipping background notification for low priority room: $roomId")
+                return
+            }
+        }
+        
         val notificationId = generateNotificationId(roomId)
         
         // Create intent for opening the app
