@@ -1,6 +1,9 @@
 package net.vrkknn.andromuks
 
+import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.net.Uri
 import android.util.Log
 import androidx.activity.compose.BackHandler
@@ -53,6 +56,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -794,6 +798,32 @@ fun RoomTimelineScreen(
             Log.d("Andromuks", "RoomTimelineScreen: App resumed, refreshing timeline for room: $roomId")
             // Don't reset state flags - this is just a refresh, not a new room load
             appViewModel.requestRoomTimeline(roomId)
+        }
+    }
+
+    // Listen for foreground refresh broadcast to refresh timeline when app comes to foreground
+    DisposableEffect(Unit) {
+        val foregroundRefreshReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == "net.vrkknn.andromuks.FOREGROUND_REFRESH") {
+                    Log.d("Andromuks", "RoomTimelineScreen: Received FOREGROUND_REFRESH broadcast, refreshing timeline UI from cache for room: $roomId")
+                    // Lightweight timeline refresh from cached data (no network requests)
+                    appViewModel.refreshTimelineUI()
+                }
+            }
+        }
+        
+        val filter = IntentFilter("net.vrkknn.andromuks.FOREGROUND_REFRESH")
+        context.registerReceiver(foregroundRefreshReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        Log.d("Andromuks", "RoomTimelineScreen: Registered FOREGROUND_REFRESH broadcast receiver")
+        
+        onDispose {
+            try {
+                context.unregisterReceiver(foregroundRefreshReceiver)
+                Log.d("Andromuks", "RoomTimelineScreen: Unregistered FOREGROUND_REFRESH broadcast receiver")
+            } catch (e: Exception) {
+                Log.w("Andromuks", "RoomTimelineScreen: Error unregistering foreground refresh receiver", e)
+            }
         }
     }
 

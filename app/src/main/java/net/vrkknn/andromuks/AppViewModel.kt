@@ -1502,6 +1502,26 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Lightweight refresh of the UI from cached data without restarting WebSocket
+     * This should be used when app comes to foreground to update the room list from
+     * any cached sync events received while the app was in background
+     */
+    fun refreshUIFromCache() {
+        android.util.Log.d("Andromuks", "AppViewModel: Refreshing UI from cached data")
+        refreshUIState()
+    }
+    
+    /**
+     * Lightweight timeline refresh that triggers UI update from cached timeline data
+     * This should be used when app comes to foreground to refresh the timeline view
+     * without making new network requests
+     */
+    fun refreshTimelineUI() {
+        android.util.Log.d("Andromuks", "AppViewModel: Refreshing timeline UI from cached data")
+        timelineRefreshTrigger++
+    }
+    
+    /**
      * Called when app becomes invisible (background/standby)
      */
     fun onAppBecameInvisible() {

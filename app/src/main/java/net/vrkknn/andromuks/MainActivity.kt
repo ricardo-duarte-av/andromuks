@@ -298,6 +298,11 @@ class MainActivity : ComponentActivity() {
         if (::appViewModel.isInitialized) {
             appViewModel.onAppBecameVisible()
         }
+        
+        // Broadcast that app is now in foreground so screens can refresh
+        val foregroundRefreshIntent = Intent("net.vrkknn.andromuks.FOREGROUND_REFRESH")
+        sendBroadcast(foregroundRefreshIntent)
+        Log.d("Andromuks", "MainActivity: Sent FOREGROUND_REFRESH broadcast")
     }
     
     override fun onStart() {

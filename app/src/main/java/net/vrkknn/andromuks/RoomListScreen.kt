@@ -1,5 +1,9 @@
 package net.vrkknn.andromuks
 
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
 import android.util.Log
 import android.view.Surface
 import androidx.compose.animation.AnimatedContent
@@ -58,6 +62,7 @@ import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -80,7 +85,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
-import android.content.Context
 import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.Badge
@@ -195,6 +199,32 @@ fun RoomListScreen(
         if (refreshing && appViewModel.spacesLoaded) {
             delay(500) // Short delay to show the refresh animation
             refreshing = false
+        }
+    }
+    
+    // Listen for foreground refresh broadcast
+    DisposableEffect(Unit) {
+        val foregroundRefreshReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                if (intent?.action == "net.vrkknn.andromuks.FOREGROUND_REFRESH") {
+                    android.util.Log.d("Andromuks", "RoomListScreen: Received FOREGROUND_REFRESH broadcast, refreshing UI from cache")
+                    // Lightweight refresh from cached sync data (no WebSocket restart needed)
+                    appViewModel.refreshUIFromCache()
+                }
+            }
+        }
+        
+        val filter = IntentFilter("net.vrkknn.andromuks.FOREGROUND_REFRESH")
+        context.registerReceiver(foregroundRefreshReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        android.util.Log.d("Andromuks", "RoomListScreen: Registered FOREGROUND_REFRESH broadcast receiver")
+        
+        onDispose {
+            try {
+                context.unregisterReceiver(foregroundRefreshReceiver)
+                android.util.Log.d("Andromuks", "RoomListScreen: Unregistered FOREGROUND_REFRESH broadcast receiver")
+            } catch (e: Exception) {
+                android.util.Log.w("Andromuks", "RoomListScreen: Error unregistering foreground refresh receiver", e)
+            }
         }
     }
     
