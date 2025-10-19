@@ -516,7 +516,7 @@ private fun RoomMessageContent(
         }
 
     // Check if it's a media message
-    if (msgType == "m.image" || msgType == "m.video") {
+    if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio") {
         RoomMediaMessageContent(
             event = event,
             content = content,
@@ -709,7 +709,7 @@ private fun RoomMediaMessageContent(
         val thumbnailBlurHash = thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
         val thumbnailWidth = thumbnailInfo?.optInt("w", 0)
         val thumbnailHeight = thumbnailInfo?.optInt("h", 0)
-        val duration = if (msgType == "m.video") {
+        val duration = if (msgType == "m.video" || msgType == "m.audio") {
             info.optInt("duration", 0).takeIf { it > 0 }
         } else null
 
@@ -1270,7 +1270,7 @@ private fun EncryptedMessageContent(
             }
 
         // Check if it's a media message
-        if (msgType == "m.image" || msgType == "m.video") {
+        if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio") {
             Log.d(
                 "Andromuks",
                 "TimelineEventItem: Found encrypted media message - msgType=$msgType, body=$body"
@@ -1347,7 +1347,7 @@ private fun EncryptedMessageContent(
                 val thumbnailBlurHash = thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
                 val thumbnailWidth = thumbnailInfo?.optInt("w", 0)
                 val thumbnailHeight = thumbnailInfo?.optInt("h", 0)
-                val duration = if (msgType == "m.video") {
+                val duration = if (msgType == "m.video" || msgType == "m.audio") {
                     info.optInt("duration", 0).takeIf { it > 0 }
                 } else null
 

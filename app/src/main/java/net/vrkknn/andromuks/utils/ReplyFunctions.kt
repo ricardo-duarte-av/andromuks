@@ -385,6 +385,7 @@ fun ReplyPreviewInput(
                         isFetchingEvent -> "Loading message..."
                         msgType == "m.image" -> "📷 Image"
                         msgType == "m.video" -> "🎥 Video"
+                        msgType == "m.audio" -> "🎵 Audio"
                         msgType == "m.file" -> "📎 File"
                         body.isBlank() -> "Empty message"
                         else -> body
@@ -464,6 +465,7 @@ fun EditPreviewInput(
                     text = when {
                         msgType == "m.image" -> "📷 Image"
                         msgType == "m.video" -> "🎥 Video"
+                        msgType == "m.audio" -> "🎵 Audio"
                         msgType == "m.file" -> "📎 File"
                         body.isBlank() -> "Empty message"
                         else -> body

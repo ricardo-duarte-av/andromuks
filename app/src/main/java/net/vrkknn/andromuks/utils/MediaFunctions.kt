@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -71,6 +72,12 @@ import coil.request.ImageRequest
 import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.MediaUtils
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.runtime.DisposableEffect
 
 /**
  * Media cache utility functions for MXC URLs
@@ -211,10 +218,18 @@ private fun MediaCaption(
     event: TimelineEvent?,
     homeserverUrl: String,
     authToken: String,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
+    isAudioMessage: Boolean = false
 ) {
     // Check if the event supports HTML rendering (has sanitized_html or formatted_body)
     val supportsHtml = event != null && supportsHtmlRendering(event)
+    
+    // Use reduced padding for audio messages
+    val padding = if (isAudioMessage) {
+        Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+    } else {
+        Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+    }
     
     if (supportsHtml && event != null) {
         // Use HTML rendering for caption
@@ -223,7 +238,7 @@ private fun MediaCaption(
             homeserverUrl = homeserverUrl,
             authToken = authToken,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            modifier = padding,
             onMatrixUserClick = onUserClick
         )
     } else {
@@ -232,7 +247,7 @@ private fun MediaCaption(
             text = caption,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            modifier = padding
         )
     }
 }
@@ -385,7 +400,8 @@ fun MediaMessage(
                         event = event,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
-                        onUserClick = onUserClick
+                        onUserClick = onUserClick,
+                        isAudioMessage = mediaMessage.msgType == "m.audio"
                     )
                     
                     // Timestamp (for consecutive messages)
@@ -433,7 +449,8 @@ fun MediaMessage(
                         event = event,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
-                        onUserClick = onUserClick
+                        onUserClick = onUserClick,
+                        isAudioMessage = mediaMessage.msgType == "m.audio"
                     )
                     
                     // Timestamp (for consecutive messages)
@@ -562,258 +579,497 @@ private fun MediaContent(
     isEncrypted: Boolean,
     onImageClick: () -> Unit = {}
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        // Media container with aspect ratio
-        val aspectRatio = if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
-            mediaMessage.info.width.toFloat() / mediaMessage.info.height.toFloat()
+    Column(modifier = Modifier.fillMaxWidth()) {
+        if (mediaMessage.msgType == "m.audio") {
+            // Audio player - use its own sizing without aspect ratio container
+            AudioPlayer(
+                mediaMessage = mediaMessage,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                isEncrypted = isEncrypted,
+                context = LocalContext.current
+            )
         } else {
-            16f / 9f // Default aspect ratio
-        }
-        
-        BoxWithConstraints(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            val calculatedHeight = if (aspectRatio > 0) {
-                (maxWidth / aspectRatio).coerceAtMost(300.dp) // Max height of 300dp
-            } else {
-                200.dp // Default height
-            }
-            
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(calculatedHeight)
-            ) {
-                val context = LocalContext.current
-                val coroutineScope = rememberCoroutineScope()
-                
-                // Use shared ImageLoader singleton with custom User-Agent
-                val imageLoader = remember { ImageLoaderSingleton.get(context) }
-                
-                // Check if we have a cached version first
-                val cachedFile = remember(mediaMessage.url) {
-                    MediaCache.getCachedFile(context, mediaMessage.url)
+            // Media container with aspect ratio for images and videos
+            val aspectRatio =
+                if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                    mediaMessage.info.width.toFloat() / mediaMessage.info.height.toFloat()
+                } else {
+                    16f / 9f // Default aspect ratio
                 }
-                
-                val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile) {
-                    if (cachedFile != null) {
-                        // Use cached file
-                        Log.d("Andromuks", "MediaMessage: Using cached file: ${cachedFile.absolutePath}")
-                        cachedFile.absolutePath
+
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val calculatedHeight =
+                    if (aspectRatio > 0) {
+                        (maxWidth / aspectRatio).coerceAtMost(300.dp) // Max height of 300dp
                     } else {
-                        // Use HTTP URL
-                        val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-                        if (isEncrypted) {
-                            val encryptedUrl = "$httpUrl?encrypted=true"
-                            Log.d("Andromuks", "MediaMessage: Added encrypted=true to URL: $encryptedUrl")
-                            encryptedUrl
-                        } else {
-                            httpUrl
-                        }
+                        200.dp // Default height
                     }
-                }
-                
-                // NOTE: Coil handles caching automatically with memoryCachePolicy and diskCachePolicy
-                // No need to manually download - would cause duplicate requests (Coil + okhttp)
-        
-                if (mediaMessage.msgType == "m.image") {
-                    // Debug logging
-                    Log.d("Andromuks", "MediaMessage: URL=$imageUrl, BlurHash=${mediaMessage.info.blurHash}, AuthToken=$authToken")
-                    
-                    val blurHashPainter = remember(mediaMessage.info.blurHash) {
-                        mediaMessage.info.blurHash?.let { blurHash ->
-                            Log.d("Andromuks", "Decoding BlurHash: $blurHash")
-                            val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
-                            Log.d("Andromuks", "BlurHash decoded: ${bitmap != null}")
-                            if (bitmap != null) {
-                                val imageBitmap = bitmap.asImageBitmap()
-                                Log.d("Andromuks", "BlurHash converted to ImageBitmap: ${imageBitmap.width}x${imageBitmap.height}")
-                                Log.d("Andromuks", "BlurHash bitmap info: config=${bitmap.config}, hasAlpha=${bitmap.hasAlpha()}")
-                                BitmapPainter(imageBitmap)
+
+                Box(modifier = Modifier.fillMaxWidth().height(calculatedHeight)) {
+                    val context = LocalContext.current
+                    val coroutineScope = rememberCoroutineScope()
+
+                    // Use shared ImageLoader singleton with custom User-Agent
+                    val imageLoader = remember { ImageLoaderSingleton.get(context) }
+
+                    // Check if we have a cached version first
+                    val cachedFile =
+                        remember(mediaMessage.url) {
+                            MediaCache.getCachedFile(context, mediaMessage.url)
+                        }
+
+                    val imageUrl =
+                        remember(mediaMessage.url, isEncrypted, cachedFile) {
+                            if (cachedFile != null) {
+                                // Use cached file
+                                Log.d(
+                                    "Andromuks",
+                                    "MediaMessage: Using cached file: ${cachedFile.absolutePath}"
+                                )
+                                cachedFile.absolutePath
                             } else {
-                                Log.w("Andromuks", "BlurHash decode failed, using fallback")
-                                BitmapPainter(
-                                    BlurHashUtils.createPlaceholderBitmap(
-                                        32, 32, 
-                                        androidx.compose.ui.graphics.Color.Gray
+                                // Use HTTP URL
+                                val httpUrl =
+                                    MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+                                if (isEncrypted) {
+                                    val encryptedUrl = "$httpUrl?encrypted=true"
+                                    Log.d(
+                                        "Andromuks",
+                                        "MediaMessage: Added encrypted=true to URL: $encryptedUrl"
                                     )
-                                )
-                            }
-                        } ?: run {
-                            // Simple fallback placeholder without MaterialTheme
-                            Log.d("Andromuks", "No BlurHash available, using simple fallback")
-                            BitmapPainter(
-                                BlurHashUtils.createPlaceholderBitmap(
-                                    32, 32, 
-                                    androidx.compose.ui.graphics.Color.Gray
-                                )
-                            )
-                        }
-                    }
-                    
-                    Log.d("Andromuks", "BlurHash painter created: ${blurHashPainter != null}")
-                    
-                    Log.d("Andromuks", "AsyncImage: Starting image load for $imageUrl")
-                    
-                    AsyncImage(
-                        model = ImageRequest.Builder(context)
-                            .data(imageUrl)
-                            .apply {
-                                if (cachedFile == null) {
-                                    addHeader("Cookie", "gomuks_auth=$authToken")
+                                    encryptedUrl
+                                } else {
+                                    httpUrl
                                 }
                             }
-                            .memoryCachePolicy(CachePolicy.ENABLED)
-                            .diskCachePolicy(CachePolicy.ENABLED)
-                            .build(),
-                        imageLoader = imageLoader,
-                        contentDescription = mediaMessage.filename,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = { onImageClick() }
-                                    // Don't handle onLongPress - let it bubble up to MessageBubbleWithMenu
-                                )
-                            },
-                        placeholder = blurHashPainter,
-                        error = blurHashPainter, // Use BlurHash as error fallback too
-                        onSuccess = { 
-                            Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
-                        },
-                        onError = { state ->
-                            if (state is coil.request.ErrorResult) {
-                                CacheUtils.handleImageLoadError(
-                                    imageUrl = imageUrl,
-                                    throwable = state.throwable,
-                                    imageLoader = imageLoader,
-                                    context = "Media"
-                                )
-                            }
-                        },
-                        onLoading = { state ->
-                            Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
                         }
-                    )
-                } else if (mediaMessage.msgType == "m.video") {
-                    // Video thumbnail with play button overlay
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        // Check if video has a thumbnail
-                        val thumbnailUrl = mediaMessage.info.thumbnailUrl
-                        
-                        if (thumbnailUrl != null) {
-                            // Render video thumbnail
-                            val thumbnailHttpUrl = MediaUtils.mxcToHttpUrl(thumbnailUrl, homeserverUrl)
-                            val thumbnailFinalUrl = if (mediaMessage.info.thumbnailIsEncrypted && thumbnailHttpUrl != null) {
-                                "$thumbnailHttpUrl?encrypted=true"
-                            } else {
-                                thumbnailHttpUrl
-                            }
-                            
-                            val thumbnailBlurHashPainter = remember(mediaMessage.info.thumbnailBlurHash) {
-                                mediaMessage.info.thumbnailBlurHash?.let { blurHash ->
+
+                    // NOTE: Coil handles caching automatically with memoryCachePolicy and
+                    // diskCachePolicy
+                    // No need to manually download - would cause duplicate requests (Coil + okhttp)
+
+                    if (mediaMessage.msgType == "m.image") {
+                        // Debug logging
+                        Log.d(
+                            "Andromuks",
+                            "MediaMessage: URL=$imageUrl, BlurHash=${mediaMessage.info.blurHash}, AuthToken=$authToken"
+                        )
+
+                        val blurHashPainter =
+                            remember(mediaMessage.info.blurHash) {
+                                mediaMessage.info.blurHash?.let { blurHash ->
+                                    Log.d("Andromuks", "Decoding BlurHash: $blurHash")
                                     val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
+                                    Log.d("Andromuks", "BlurHash decoded: ${bitmap != null}")
                                     if (bitmap != null) {
-                                        BitmapPainter(bitmap.asImageBitmap())
+                                        val imageBitmap = bitmap.asImageBitmap()
+                                        Log.d(
+                                            "Andromuks",
+                                            "BlurHash converted to ImageBitmap: ${imageBitmap.width}x${imageBitmap.height}"
+                                        )
+                                        Log.d(
+                                            "Andromuks",
+                                            "BlurHash bitmap info: config=${bitmap.config}, hasAlpha=${bitmap.hasAlpha()}"
+                                        )
+                                        BitmapPainter(imageBitmap)
                                     } else {
+                                        Log.w("Andromuks", "BlurHash decode failed, using fallback")
                                         BitmapPainter(
                                             BlurHashUtils.createPlaceholderBitmap(
-                                                32, 32,
+                                                32,
+                                                32,
                                                 androidx.compose.ui.graphics.Color.Gray
                                             )
                                         )
                                     }
-                                } ?: BitmapPainter(
-                                    BlurHashUtils.createPlaceholderBitmap(
-                                        32, 32,
-                                        androidx.compose.ui.graphics.Color.Gray
-                                    )
-                                )
+                                }
+                                    ?: run {
+                                        // Simple fallback placeholder without MaterialTheme
+                                        Log.d(
+                                            "Andromuks",
+                                            "No BlurHash available, using simple fallback"
+                                        )
+                                        BitmapPainter(
+                                            BlurHashUtils.createPlaceholderBitmap(
+                                                32,
+                                                32,
+                                                androidx.compose.ui.graphics.Color.Gray
+                                            )
+                                        )
+                                    }
                             }
-                            
-                            AsyncImage(
-                                model = ImageRequest.Builder(context)
-                                    .data(thumbnailFinalUrl)
-                                    .addHeader("Cookie", "gomuks_auth=$authToken")
+
+                        Log.d("Andromuks", "BlurHash painter created: ${blurHashPainter != null}")
+
+                        Log.d("Andromuks", "AsyncImage: Starting image load for $imageUrl")
+
+                        AsyncImage(
+                            model =
+                                ImageRequest.Builder(context)
+                                    .data(imageUrl)
+                                    .apply {
+                                        if (cachedFile == null) {
+                                            addHeader("Cookie", "gomuks_auth=$authToken")
+                                        }
+                                    }
                                     .memoryCachePolicy(CachePolicy.ENABLED)
                                     .diskCachePolicy(CachePolicy.ENABLED)
                                     .build(),
-                                imageLoader = imageLoader,
-                                contentDescription = "Video thumbnail: ${mediaMessage.filename}",
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .pointerInput(Unit) {
-                                        detectTapGestures(
-                                            onTap = { onImageClick() }
+                            imageLoader = imageLoader,
+                            contentDescription = mediaMessage.filename,
+                            modifier =
+                                Modifier.fillMaxSize().pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onTap = { onImageClick() }
+                                        // Don't handle onLongPress - let it bubble up to
+                                        // MessageBubbleWithMenu
+                                    )
+                                },
+                            placeholder = blurHashPainter,
+                            error = blurHashPainter, // Use BlurHash as error fallback too
+                            onSuccess = {
+                                Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
+                            },
+                            onError = { state ->
+                                if (state is coil.request.ErrorResult) {
+                                    CacheUtils.handleImageLoadError(
+                                        imageUrl = imageUrl,
+                                        throwable = state.throwable,
+                                        imageLoader = imageLoader,
+                                        context = "Media"
+                                    )
+                                }
+                            },
+                            onLoading = { state ->
+                                Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
+                            }
+                        )
+                    } else if (mediaMessage.msgType == "m.video") {
+                        // Video thumbnail with play button overlay
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            // Check if video has a thumbnail
+                            val thumbnailUrl = mediaMessage.info.thumbnailUrl
+
+                            if (thumbnailUrl != null) {
+                                // Render video thumbnail
+                                val thumbnailHttpUrl =
+                                    MediaUtils.mxcToHttpUrl(thumbnailUrl, homeserverUrl)
+                                val thumbnailFinalUrl =
+                                    if (
+                                        mediaMessage.info.thumbnailIsEncrypted &&
+                                            thumbnailHttpUrl != null
+                                    ) {
+                                        "$thumbnailHttpUrl?encrypted=true"
+                                    } else {
+                                        thumbnailHttpUrl
+                                    }
+
+                                val thumbnailBlurHashPainter =
+                                    remember(mediaMessage.info.thumbnailBlurHash) {
+                                        mediaMessage.info.thumbnailBlurHash?.let { blurHash ->
+                                            val bitmap =
+                                                BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
+                                            if (bitmap != null) {
+                                                BitmapPainter(bitmap.asImageBitmap())
+                                            } else {
+                                                BitmapPainter(
+                                                    BlurHashUtils.createPlaceholderBitmap(
+                                                        32,
+                                                        32,
+                                                        androidx.compose.ui.graphics.Color.Gray
+                                                    )
+                                                )
+                                            }
+                                        }
+                                            ?: BitmapPainter(
+                                                BlurHashUtils.createPlaceholderBitmap(
+                                                    32,
+                                                    32,
+                                                    androidx.compose.ui.graphics.Color.Gray
+                                                )
+                                            )
+                                    }
+
+                                AsyncImage(
+                                    model =
+                                        ImageRequest.Builder(context)
+                                            .data(thumbnailFinalUrl)
+                                            .addHeader("Cookie", "gomuks_auth=$authToken")
+                                            .memoryCachePolicy(CachePolicy.ENABLED)
+                                            .diskCachePolicy(CachePolicy.ENABLED)
+                                            .build(),
+                                    imageLoader = imageLoader,
+                                    contentDescription =
+                                        "Video thumbnail: ${mediaMessage.filename}",
+                                    modifier =
+                                        Modifier.fillMaxSize().pointerInput(Unit) {
+                                            detectTapGestures(onTap = { onImageClick() })
+                                        },
+                                    placeholder = thumbnailBlurHashPainter,
+                                    error = thumbnailBlurHashPainter,
+                                    onSuccess = {
+                                        Log.d(
+                                            "Andromuks",
+                                            "✅ Video thumbnail loaded: $thumbnailFinalUrl"
                                         )
                                     },
-                                placeholder = thumbnailBlurHashPainter,
-                                error = thumbnailBlurHashPainter,
-                                onSuccess = { 
-                                    Log.d("Andromuks", "✅ Video thumbnail loaded: $thumbnailFinalUrl")
-                                },
-                                onError = { state ->
-                                    if (state is coil.request.ErrorResult) {
-                                        CacheUtils.handleImageLoadError(
-                                            imageUrl = thumbnailFinalUrl ?: "",
-                                            throwable = state.throwable,
-                                            imageLoader = imageLoader,
-                                            context = "VideoThumbnail"
-                                        )
+                                    onError = { state ->
+                                        if (state is coil.request.ErrorResult) {
+                                            CacheUtils.handleImageLoadError(
+                                                imageUrl = thumbnailFinalUrl ?: "",
+                                                throwable = state.throwable,
+                                                imageLoader = imageLoader,
+                                                context = "VideoThumbnail"
+                                            )
+                                        }
                                     }
-                                }
-                            )
-                            
-                            // Duration badge in bottom-right corner
-                            mediaMessage.info.duration?.let { durationMs ->
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(8.dp),
-                                    contentAlignment = Alignment.BottomEnd
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(4.dp),
-                                        color = Color.Black.copy(alpha = 0.7f)
+                                )
+
+                                // Duration badge in bottom-right corner
+                                mediaMessage.info.duration?.let { durationMs ->
+                                    Box(
+                                        modifier = Modifier.fillMaxSize().padding(8.dp),
+                                        contentAlignment = Alignment.BottomEnd
                                     ) {
-                                        Text(
-                                            text = formatDuration(durationMs),
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color.White,
-                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                                        )
+                                        Surface(
+                                            shape = RoundedCornerShape(4.dp),
+                                            color = Color.Black.copy(alpha = 0.7f)
+                                        ) {
+                                            Text(
+                                                text = formatDuration(durationMs),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color.White,
+                                                modifier =
+                                                    Modifier.padding(
+                                                        horizontal = 4.dp,
+                                                        vertical = 2.dp
+                                                    )
+                                            )
+                                        }
                                     }
                                 }
-                            }
-                        } else {
-                            // Fallback: No thumbnail available, show placeholder
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = "🎥",
-                                    style = MaterialTheme.typography.headlineMedium
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = mediaMessage.filename,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
+                            } else {
+                                // Fallback: No thumbnail available, show placeholder
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Text(
+                                        text = "🎥",
+                                        style = MaterialTheme.typography.headlineMedium
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = mediaMessage.filename,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
+
+
+/**
+ * Audio player component for m.audio messages with Material 3 design.
+ * Features play/pause button, progress slider, and duration display.
+ */
+@Composable
+private fun AudioPlayer(
+    mediaMessage: MediaMessage,
+    homeserverUrl: String,
+    authToken: String,
+    isEncrypted: Boolean,
+    context: android.content.Context
+) {
+    // Convert MXC URL to HTTP URL
+    val audioHttpUrl = remember(mediaMessage.url, isEncrypted) {
+        val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+        if (isEncrypted) {
+            "$httpUrl?encrypted=true"
+        } else {
+            httpUrl ?: ""
+        }
+    }
+    
+    // ExoPlayer instance for audio playback
+    val exoPlayer = remember {
+        // Create MediaItem with authentication headers
+        val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+            .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
+        
+        val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
+            .setDataSourceFactory(dataSourceFactory)
+        
+        androidx.media3.exoplayer.ExoPlayer.Builder(context)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
+            .apply {
+                // Set up player with custom data source
+                val mediaItem = androidx.media3.common.MediaItem.fromUri(audioHttpUrl)
+                setMediaItem(mediaItem)
+                prepare()
+            }
+    }
+    
+    // Dispose player when component is removed
+    DisposableEffect(Unit) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+    
+    // State for play/pause and progress
+    var isPlaying by remember { mutableStateOf(false) }
+    var duration by remember { mutableStateOf(0L) }
+    var currentPosition by remember { mutableStateOf(0L) }
+    
+    // Listen to player state changes
+    LaunchedEffect(exoPlayer) {
+        while (true) {
+            isPlaying = exoPlayer.isPlaying
+            duration = exoPlayer.duration.takeIf { it != androidx.media3.common.C.TIME_UNSET } ?: 0L
+            currentPosition = exoPlayer.currentPosition
+            kotlinx.coroutines.delay(100) // Update every 100ms
+        }
+    }
+    
+    // Audio player UI
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(80.dp) // Fixed height for audio player
+            .padding(horizontal = 12.dp, vertical = 8.dp)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center
+        ) {
+            // Top row: filename and duration
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = mediaMessage.filename,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                Text(
+                    text = if (duration > 0) {
+                        "${formatDurationMs(duration.toInt())}"
+                    } else {
+                        mediaMessage.info.duration?.let { formatDuration(it) } ?: "--:--"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Bottom row: play button and progress slider
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Play/Pause button
+                IconButton(
+                    onClick = {
+                        if (isPlaying) {
+                            exoPlayer.pause()
+                        } else {
+                            exoPlayer.play()
+                        }
+                    },
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                        contentDescription = if (isPlaying) "Pause" else "Play",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
+                // Progress slider
+                Column(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Slider(
+                        value = if (duration > 0) currentPosition.toFloat() / duration.toFloat() else 0f,
+                        onValueChange = { progress ->
+                            if (duration > 0) {
+                                val newPosition = (progress * duration).toLong()
+                                exoPlayer.seekTo(newPosition)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = SliderDefaults.colors(
+                            thumbColor = MaterialTheme.colorScheme.primary,
+                            activeTrackColor = MaterialTheme.colorScheme.primary,
+                            inactiveTrackColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                        )
+                    )
+                    
+                    // Current position and duration
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = formatDurationMs(currentPosition.toInt()),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        
+                        Text(
+                            text = if (duration > 0) {
+                                formatDurationMs(duration.toInt())
+                            } else {
+                                mediaMessage.info.duration?.let { formatDuration(it) } ?: "--:--"
+                            },
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Format duration from milliseconds to MM:SS or HH:MM:SS format
+ */
+private fun formatDurationMs(durationMs: Int): String {
+    val seconds = durationMs / 1000
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    val secs = seconds % 60
+    
+    return if (hours > 0) {
+        String.format("%d:%02d:%02d", hours, minutes, secs)
+    } else {
+        String.format("%d:%02d", minutes, secs)
     }
 }
 
