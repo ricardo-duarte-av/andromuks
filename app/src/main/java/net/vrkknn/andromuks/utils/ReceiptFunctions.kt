@@ -17,6 +17,10 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,18 +58,24 @@ object ReceiptFunctions {
      * reads a newer message, we must remove their receipt from all older messages
      * and only show it on the latest message they've read.
      * 
+     * OPTIMIZED: Returns true if receipts were actually changed to allow selective UI updates.
+     * 
      * @param receiptsJson JSON object containing read receipts
      * @param readReceiptsMap Mutable map to store the processed receipts (eventId -> list of receipts)
-     * @param updateCounter Counter to trigger UI updates (will be incremented)
+     * @param updateCounter Counter to trigger UI updates (will be incremented only if changes occurred)
+     * @param onMovementDetected Optional callback to track receipt movements for animation (userId, previousEventId, newEventId)
+     * @return true if receipts were modified, false otherwise
      */
     fun processReadReceipts(
         receiptsJson: JSONObject,
         readReceiptsMap: MutableMap<String, MutableList<ReadReceipt>>,
-        updateCounter: () -> Unit
-    ) {
+        updateCounter: () -> Unit,
+        onMovementDetected: ((String, String?, String) -> Unit)? = null
+    ): Boolean {
         Log.d("Andromuks", "ReceiptFunctions: processReadReceipts called with ${receiptsJson.length()} event receipts")
         val keys = receiptsJson.keys()
         var totalReceipts = 0
+        var hasChanges = false
         
         // Track the latest read receipt for each user
         val userLatestReceipts = mutableMapOf<String, ReadReceipt>()
@@ -91,11 +101,16 @@ object ReceiptFunctions {
                             userLatestReceipts[receipt.userId] = receipt
                         }
                         
-                        Log.d("Andromuks", "ReceiptFunctions: Processed read receipt: ${receipt.userId} read ${receipt.eventId} at ${receipt.timestamp}")
                         totalReceipts++
                     }
                 }
             }
+        }
+        
+        // Early return if no receipts to process
+        if (userLatestReceipts.isEmpty()) {
+            Log.d("Andromuks", "ReceiptFunctions: No receipts to process, skipping")
+            return false
         }
         
         // Second pass: remove all existing receipts for users who have new receipts
@@ -107,10 +122,29 @@ object ReceiptFunctions {
                 val filteredReceipts = receiptsList.filter { it.userId !in usersWithNewReceipts }
                 if (filteredReceipts.isEmpty()) {
                     readReceiptsMap.remove(eventId)
-                    Log.d("Andromuks", "ReceiptFunctions: Removed all receipts for event: $eventId")
-                } else {
+                    hasChanges = true
+                } else if (filteredReceipts.size != receiptsList.size) {
                     readReceiptsMap[eventId] = filteredReceipts.toMutableList()
-                    Log.d("Andromuks", "ReceiptFunctions: Updated receipts for event: $eventId (removed ${receiptsList.size - filteredReceipts.size} receipts)")
+                    hasChanges = true
+                }
+            }
+        }
+        
+        // Detect movements for animation before adding new receipts
+        if (onMovementDetected != null) {
+            for ((userId, latestReceipt) in userLatestReceipts) {
+                // Find the previous event ID where this user had a receipt
+                var previousEventId: String? = null
+                for ((eventId, receiptsList) in readReceiptsMap) {
+                    if (receiptsList.any { it.userId == userId } && eventId != latestReceipt.eventId) {
+                        previousEventId = eventId
+                        break
+                    }
+                }
+                
+                // If user moved to a different event, notify for animation
+                if (previousEventId != null && previousEventId != latestReceipt.eventId) {
+                    onMovementDetected(userId, previousEventId, latestReceipt.eventId)
                 }
             }
         }
@@ -119,12 +153,25 @@ object ReceiptFunctions {
         for ((userId, latestReceipt) in userLatestReceipts) {
             val eventId = latestReceipt.eventId
             val receiptsList = readReceiptsMap.getOrPut(eventId) { mutableListOf() }
-            receiptsList.add(latestReceipt)
-            Log.d("Andromuks", "ReceiptFunctions: Added latest receipt for user $userId to event: $eventId")
+            // Only add if not already present
+            val existingReceipt = receiptsList.find { it.userId == userId }
+            if (existingReceipt == null || existingReceipt.timestamp != latestReceipt.timestamp) {
+                if (existingReceipt != null) {
+                    receiptsList.remove(existingReceipt)
+                }
+                receiptsList.add(latestReceipt)
+                hasChanges = true
+            }
         }
         
-        Log.d("Andromuks", "ReceiptFunctions: processReadReceipts completed - processed $totalReceipts total receipts, ${userLatestReceipts.size} unique users, triggering UI update")
-        updateCounter()
+        Log.d("Andromuks", "ReceiptFunctions: processReadReceipts completed - processed $totalReceipts total receipts, ${userLatestReceipts.size} unique users, hasChanges: $hasChanges")
+        
+        // Only trigger UI update if receipts actually changed
+        if (hasChanges) {
+            updateCounter()
+        }
+        
+        return hasChanges
     }
     
     /**
@@ -299,6 +346,146 @@ fun InlineReadReceiptAvatars(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Animated version of read receipt avatars that smoothly animates when receipts move between messages.
+ * 
+ * @param receipts List of read receipts to display
+ * @param userProfileCache Cache of user profiles for avatar display
+ * @param homeserverUrl URL of the Matrix homeserver
+ * @param authToken Authentication token for API requests
+ * @param appViewModel ViewModel for additional functionality
+ * @param messageSender The sender of the message (to exclude from read receipts)
+ * @param eventId The event ID for this message (to detect animations)
+ */
+@Composable
+fun AnimatedInlineReadReceiptAvatars(
+    receipts: List<ReadReceipt>,
+    userProfileCache: Map<String, MemberProfile>,
+    homeserverUrl: String,
+    authToken: String,
+    appViewModel: AppViewModel?,
+    messageSender: String,
+    eventId: String,
+    onUserClick: (String) -> Unit = {}
+) {
+    val context = LocalContext.current
+    var showReceiptDialog by remember { mutableStateOf(false) }
+    
+    // Get receipt movements for animation
+    val receiptMovements = appViewModel?.getReceiptMovements() ?: emptyMap()
+    val animationTrigger = appViewModel?.receiptAnimationTrigger ?: 0L
+    
+    Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Called with ${receipts.size} receipts for event: $eventId")
+    
+    // Filter out the message sender from read receipts
+    val filteredReceipts = receipts.filter { it.userId != messageSender }
+    
+    // Check which receipts are newly appearing (should animate in) or moving away (should animate out)
+    val receiptMovementsToNewEvent = receiptMovements.filter { (_, movement) ->
+        movement.second == eventId // Moving TO this event
+    }
+    
+    val receiptMovementsFromThisEvent = receiptMovements.filter { (_, movement) ->
+        movement.first == eventId // Moving FROM this event
+    }
+    
+    // Show read receipt details dialog
+    if (showReceiptDialog) {
+        ReadReceiptDetailsDialog(
+            receipts = filteredReceipts,
+            userProfileCache = userProfileCache,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            onDismiss = { showReceiptDialog = false },
+            onUserClick = { userId ->
+                showReceiptDialog = false
+                onUserClick(userId)
+            }
+        )
+    }
+    
+    if (filteredReceipts.isNotEmpty()) {
+        Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Rendering ${filteredReceipts.size} read receipt avatars with animation trigger: $animationTrigger")
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            verticalAlignment = Alignment.Top,
+            modifier = Modifier.padding(top = 4.dp) // Align with the top of message bubble
+        ) {
+            // Show up to 3 avatars, with a "+X" indicator if there are more
+            val maxAvatars = 3
+            val avatarsToShow = filteredReceipts.take(maxAvatars)
+            val remainingCount = filteredReceipts.size - maxAvatars
+            
+            avatarsToShow.forEach { receipt ->
+                val userProfile = userProfileCache[receipt.userId]
+                val avatarUrl = userProfile?.avatarUrl
+                val displayName = userProfile?.displayName
+                
+                // Check if this receipt is animating in from another message
+                val isAnimatingIn = receiptMovementsToNewEvent.containsKey(receipt.userId)
+                
+                Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Rendering animated avatar for user: ${receipt.userId}, isAnimatingIn: $isAnimatingIn")
+                
+                // Use simple animated visibility with enhanced enter animation for moved receipts
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn(animationSpec = tween(durationMillis = if (isAnimatingIn) 500 else 200)),
+                    exit = fadeOut(animationSpec = tween(durationMillis = 200))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clickable { 
+                                Log.d("Andromuks", "Animated read receipt avatar clicked for user: ${receipt.userId}")
+                                showReceiptDialog = true
+                            }
+                    ) {
+                        AvatarImage(
+                            mxcUrl = avatarUrl,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            fallbackText = (displayName ?: receipt.userId).take(1),
+                            size = 16.dp,
+                            userId = receipt.userId,
+                            displayName = displayName
+                        )
+                    }
+                }
+            }
+            
+            // Show "+" indicator if there are more than maxAvatars
+            if (remainingCount > 0) {
+                AnimatedVisibility(
+                    visible = true,
+                    enter = fadeIn(animationSpec = tween(300)),
+                    exit = fadeOut(animationSpec = tween(200))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clickable {
+                                Log.d("Andromuks", "Animated read receipt + indicator clicked")
+                                showReceiptDialog = true
+                            }
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "+$remainingCount",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
         }

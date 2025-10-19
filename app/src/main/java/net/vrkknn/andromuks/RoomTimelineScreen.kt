@@ -67,9 +67,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -113,6 +116,7 @@ import net.vrkknn.andromuks.utils.EmojiSelectionDialog
 import net.vrkknn.andromuks.utils.EmoteEventNarrator
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.InlineReadReceiptAvatars
+import net.vrkknn.andromuks.utils.AnimatedInlineReadReceiptAvatars
 import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.MediaPreviewDialog
 import net.vrkknn.andromuks.utils.MediaUploadUtils
@@ -898,8 +902,9 @@ fun RoomTimelineScreen(
     }
 
     // Ensure timeline reactively updates when new events arrive from sync
-    LaunchedEffect(timelineEvents, appViewModel.updateCounter) {
-        Log.d("Andromuks", "RoomTimelineScreen: Timeline events or updateCounter changed - timelineEvents.size: ${timelineEvents.size}, updateCounter: ${appViewModel.updateCounter}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId")
+    // OPTIMIZED: Only track timelineEvents changes directly, updateCounter is handled by receipt updates
+    LaunchedEffect(timelineEvents) {
+        Log.d("Andromuks", "RoomTimelineScreen: Timeline events changed - timelineEvents.size: ${timelineEvents.size}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId")
         
         // Only react to changes for the current room
         if (appViewModel.currentRoomId == roomId) {
@@ -907,7 +912,6 @@ fun RoomTimelineScreen(
             
             // Force recomposition when timeline events change
             // This ensures the UI updates even when battery optimization might skip updates
-            // The LaunchedEffect will re-run when timelineEvents or updateCounter changes
         }
     }
 
@@ -2000,9 +2004,9 @@ fun TimelineEventItem(
     }
 
     // Calculate read receipts and recalculate when receipts are updated
-    // Use updateCounter as a key to trigger recomposition when receipts change
+    // OPTIMIZED: Use separate readReceiptsUpdateCounter to avoid unnecessary recomposition of timeline
     val readReceipts =
-        remember(event.eventId, appViewModel?.updateCounter) {
+        remember(event.eventId, appViewModel?.readReceiptsUpdateCounter) {
             if (appViewModel != null) {
                 net.vrkknn.andromuks.utils.ReceiptFunctions.getReadReceipts(
                     event.eventId,
@@ -2026,8 +2030,47 @@ fun TimelineEventItem(
         else -> false
     }
     
+    // Check if this message should animate in (new message with slide-up effect)
+    val newMessageAnimations = appViewModel?.getNewMessageAnimations() ?: emptyMap()
+    val animationTrigger = appViewModel?.newMessageAnimationTrigger ?: 0L
+    val shouldAnimate = newMessageAnimations.containsKey(event.eventId)
+    var shouldShowAnimation by remember(event.eventId, animationTrigger) { 
+        mutableStateOf(!shouldAnimate) // Start as visible for non-animating messages
+    }
+    
+    // Launch animation when this message is marked for animation
+    LaunchedEffect(event.eventId, animationTrigger) {
+        if (shouldAnimate && !shouldShowAnimation) {
+            kotlinx.coroutines.delay(500) // 500ms delay for receipt processing
+            shouldShowAnimation = true
+        }
+    }
+    
+    // Animate slide-up effect for new messages
+    val animatedOffsetY by animateFloatAsState(
+        targetValue = if (shouldShowAnimation || !shouldAnimate) 0f else 120f, // Start 120dp below for new messages
+        animationSpec = spring(
+            dampingRatio = 0.8f,
+            stiffness = 300f
+        ),
+        label = "slide_up_${event.eventId}_$animationTrigger"
+    )
+    
+    // Animate alpha for smooth fade-in
+    val animatedAlpha by animateFloatAsState(
+        targetValue = if (shouldShowAnimation || !shouldAnimate) 1f else 0.3f, // Start semi-transparent for new messages
+        animationSpec = tween(durationMillis = 400),
+        label = "fade_in_${event.eventId}_$animationTrigger"
+    )
+    
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .graphicsLayer(
+                translationY = animatedOffsetY,
+                alpha = animatedAlpha
+            ),
         verticalAlignment = Alignment.Top
     ) {
         // Show avatar only for non-consecutive messages (and not for emotes, they have their own)
@@ -2519,13 +2562,14 @@ fun TimelineEventItem(
                         ) {
                             // For my messages, show read receipts on the left of the bubble
                             if (actualIsMine && readReceipts.isNotEmpty()) {
-                                InlineReadReceiptAvatars(
+                                AnimatedInlineReadReceiptAvatars(
                                     receipts = readReceipts,
                                     userProfileCache = userProfileCache,
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
                                     appViewModel = appViewModel,
                                     messageSender = event.sender,
+                                    eventId = event.eventId,
                                     onUserClick = onUserClick
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -2666,13 +2710,14 @@ fun TimelineEventItem(
                                 // For others' messages, show read receipts on the right of the bubble
                                 if (!actualIsMine && readReceipts.isNotEmpty()) {
                                     Spacer(modifier = Modifier.width(8.dp))
-                                    InlineReadReceiptAvatars(
+                                    AnimatedInlineReadReceiptAvatars(
                                         receipts = readReceipts,
                                         userProfileCache = userProfileCache,
                                         homeserverUrl = homeserverUrl,
                                         authToken = authToken,
                                         appViewModel = appViewModel,
                                         messageSender = event.sender,
+                                        eventId = event.eventId,
                                         onUserClick = onUserClick
                                     )
                                 }
@@ -3152,13 +3197,14 @@ fun TimelineEventItem(
                             ) {
                                 // For my messages, show read receipts on the left of the bubble
                                 if (actualIsMine && readReceipts.isNotEmpty()) {
-                                    InlineReadReceiptAvatars(
+                                    AnimatedInlineReadReceiptAvatars(
                                         receipts = readReceipts,
                                         userProfileCache = userProfileCache,
                                         homeserverUrl = homeserverUrl,
                                         authToken = authToken,
                                         appViewModel = appViewModel,
                                         messageSender = event.sender,
+                                        eventId = event.eventId,
                                         onUserClick = onUserClick
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -3299,13 +3345,14 @@ fun TimelineEventItem(
                                     // For others' messages, show read receipts on the right of the bubble
                                     if (!actualIsMine && readReceipts.isNotEmpty()) {
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        InlineReadReceiptAvatars(
+                                        AnimatedInlineReadReceiptAvatars(
                                             receipts = readReceipts,
                                             userProfileCache = userProfileCache,
                                             homeserverUrl = homeserverUrl,
                                             authToken = authToken,
                                             appViewModel = appViewModel,
                                             messageSender = event.sender,
+                                            eventId = event.eventId,
                                             onUserClick = onUserClick
                                         )
                                 }
@@ -3350,13 +3397,14 @@ fun TimelineEventItem(
                             ) {
                                 // For my messages, show read receipts on the left of the bubble
                                 if (actualIsMine && readReceipts.isNotEmpty()) {
-                                    InlineReadReceiptAvatars(
+                                    AnimatedInlineReadReceiptAvatars(
                                         receipts = readReceipts,
                                         userProfileCache = userProfileCache,
                                         homeserverUrl = homeserverUrl,
                                         authToken = authToken,
                                         appViewModel = appViewModel,
                                         messageSender = event.sender,
+                                        eventId = event.eventId,
                                         onUserClick = onUserClick
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -3390,13 +3438,14 @@ fun TimelineEventItem(
                                     // For other users' messages, show read receipts on the right
                                     if (!actualIsMine && readReceipts.isNotEmpty()) {
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        InlineReadReceiptAvatars(
+                                        AnimatedInlineReadReceiptAvatars(
                                             receipts = readReceipts,
                                             userProfileCache = userProfileCache,
                                             homeserverUrl = homeserverUrl,
                                             authToken = authToken,
                                             appViewModel = appViewModel,
                                             messageSender = event.sender,
+                                            eventId = event.eventId,
                                             onUserClick = onUserClick
                                         )
                                 }
@@ -3454,13 +3503,14 @@ fun TimelineEventItem(
                         ) {
                             // For my messages, show read receipts on the left of the bubble
                             if (actualIsMine && readReceipts.isNotEmpty()) {
-                                InlineReadReceiptAvatars(
+                                AnimatedInlineReadReceiptAvatars(
                                     receipts = readReceipts,
                                     userProfileCache = userProfileCache,
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
                                     appViewModel = appViewModel,
                                     messageSender = event.sender,
+                                    eventId = event.eventId,
                                     onUserClick = onUserClick
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -3493,13 +3543,14 @@ fun TimelineEventItem(
                             // For other users' messages, show read receipts on the right
                             if (!actualIsMine && readReceipts.isNotEmpty()) {
                                 Spacer(modifier = Modifier.width(8.dp))
-                                InlineReadReceiptAvatars(
+                                AnimatedInlineReadReceiptAvatars(
                                     receipts = readReceipts,
                                     userProfileCache = userProfileCache,
                                     homeserverUrl = homeserverUrl,
                                     authToken = authToken,
                                     appViewModel = appViewModel,
                                     messageSender = event.sender,
+                                    eventId = event.eventId,
                                     onUserClick = onUserClick
                                 )
                                 }

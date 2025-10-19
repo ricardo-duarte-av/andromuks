@@ -20,6 +20,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import android.content.Context
+import android.media.MediaPlayer
+import android.media.AudioManager
 import android.os.Vibrator
 import android.os.VibrationEffect
 import android.os.Build
@@ -145,6 +147,10 @@ class AppViewModel : ViewModel() {
     
     // Force recomposition counter
     var updateCounter by mutableStateOf(0)
+        private set
+    
+    // Read receipts update counter - separate from main updateCounter to reduce unnecessary UI updates
+    var readReceiptsUpdateCounter by mutableStateOf(0)
         private set
     
     // Timestamp update counter for dynamic time displays
@@ -340,6 +346,67 @@ class AppViewModel : ViewModel() {
      */
     fun getReadReceiptsMap(): Map<String, List<ReadReceipt>> {
         return readReceipts.mapValues { it.value.toList() }
+    }
+    
+    /**
+     * Get receipt movements for animation tracking
+     * @return Map of userId -> (previousEventId, currentEventId, timestamp)
+     */
+    fun getReceiptMovements(): Map<String, Triple<String?, String, Long>> {
+        // Clean up old movements (older than 2 seconds) to prevent memory leaks
+        val currentTime = System.currentTimeMillis()
+        receiptMovements.entries.removeAll { (_, movement) ->
+            currentTime - movement.third > 2000
+        }
+        return receiptMovements.toMap()
+    }
+    
+    /**
+     * Get new message animations for slide-up effect
+     * @return Map of eventId -> timestamp when animation should start
+     */
+    fun getNewMessageAnimations(): Map<String, Long> {
+        // Clean up old animations (older than 3 seconds) to prevent memory leaks
+        val currentTime = System.currentTimeMillis()
+        newMessageAnimations.entries.removeAll { (_, timestamp) ->
+            currentTime - timestamp > 3000
+        }
+        return newMessageAnimations.toMap()
+    }
+    
+    /**
+     * Play a notification sound for new messages
+     */
+    private fun playNewMessageSound() {
+        appContext?.let { context ->
+            try {
+                val mediaPlayer = MediaPlayer.create(context, net.vrkknn.andromuks.R.raw.pop_alert)
+                mediaPlayer?.let { player ->
+                    // Set audio stream to notification channel
+                    player.setAudioStreamType(AudioManager.STREAM_NOTIFICATION)
+                    
+                    // Set completion listener to release resources
+                    player.setOnCompletionListener { mp ->
+                        mp.release()
+                    }
+                    
+                    // Set error listener to handle any issues
+                    player.setOnErrorListener { mp, what, extra ->
+                        android.util.Log.w("Andromuks", "AppViewModel: Error playing notification sound: what=$what, extra=$extra")
+                        mp.release()
+                        true
+                    }
+                    
+                    // Start playing
+                    player.start()
+                    android.util.Log.d("Andromuks", "AppViewModel: Playing new message sound")
+                } ?: run {
+                    android.util.Log.w("Andromuks", "AppViewModel: Failed to create MediaPlayer for new message sound")
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("Andromuks", "AppViewModel: Error playing new message sound", e)
+            }
+        }
     }
     
     fun getCurrentRoomSection(): RoomSection {
@@ -1622,6 +1689,16 @@ class AppViewModel : ViewModel() {
     private val reactionRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
+    
+    // Track receipt movements for animation - userId -> (previousEventId, currentEventId, timestamp)
+    private val receiptMovements = mutableMapOf<String, Triple<String?, String, Long>>()
+    var receiptAnimationTrigger by mutableStateOf(0L)
+        private set
+    
+    // Track new message animations - eventId -> timestamp when animation should start
+    private val newMessageAnimations = mutableMapOf<String, Long>()
+    var newMessageAnimationTrigger by mutableStateOf(0L)
+        private set
     private val pendingInvites = mutableMapOf<String, RoomInvite>() // roomId -> RoomInvite
     private val roomSummaryRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val joinRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
@@ -3708,7 +3785,17 @@ class AppViewModel : ViewModel() {
                 val receipts = data.optJSONObject("receipts")
                 if (receipts != null) {
                     android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts from timeline response for room: $roomId")
-                    ReceiptFunctions.processReadReceipts(receipts, readReceipts) { updateCounter++ }
+                    ReceiptFunctions.processReadReceipts(
+                        receipts, 
+                        readReceipts, 
+                        { readReceiptsUpdateCounter++ },
+                        { userId, previousEventId, newEventId ->
+                            // Track receipt movement for animation
+                            receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
+                            receiptAnimationTrigger = System.currentTimeMillis()
+                            android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
+                        }
+                    )
                 }
             }
             else -> {
@@ -4159,11 +4246,21 @@ class AppViewModel : ViewModel() {
                         processSyncEventsArray(events, roomId)
                     }
                     
-                    // Process read receipts
+                    // Process read receipts (optimized to only update UI if receipts actually changed)
                     val receipts = roomData.optJSONObject("receipts")
                     if (receipts != null) {
                         android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts for room: $roomId - found ${receipts.length()} event receipts")
-                        ReceiptFunctions.processReadReceipts(receipts, readReceipts) { updateCounter++ }
+                        ReceiptFunctions.processReadReceipts(
+                            receipts, 
+                            readReceipts, 
+                            { readReceiptsUpdateCounter++ },
+                            { userId, previousEventId, newEventId ->
+                                // Track receipt movement for animation
+                                receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
+                                receiptAnimationTrigger = System.currentTimeMillis()
+                                android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
+                            }
+                        )
                     } else {
                         android.util.Log.d("Andromuks", "AppViewModel: No receipts found in sync for room: $roomId")
                     }
@@ -4263,8 +4360,7 @@ class AppViewModel : ViewModel() {
                     android.util.Log.d("Andromuks", "AppViewModel: Redaction sender ${event.sender} already in cache: ${memberMap[event.sender]?.displayName}")
                 }
                 
-                // Trigger UI update
-                updateCounter++
+                // OPTIMIZED: UI update will be triggered by buildTimelineFromChain() at the end of processSyncEventsArray
             } else if (event.type == "m.reaction") {
                 // Process reaction events (don't add to timeline)
                 val content = event.content
@@ -4639,10 +4735,58 @@ class AppViewModel : ViewModel() {
         }
         
         // Sort by timestamp and update timeline
-        this.timelineEvents = timelineEvents.sortedBy { it.timestamp }
+        val sortedTimelineEvents = timelineEvents.sortedBy { it.timestamp }
+        
+        // Detect new messages for animation
+        val previousEventIds = this.timelineEvents.map { it.eventId }.toSet()
+        val newEventIds = sortedTimelineEvents.map { it.eventId }.toSet()
+        val actuallyNewMessages = newEventIds - previousEventIds
+        
+        // Check if this is initial room loading (when previous timeline was empty)
+        val isInitialRoomLoad = this.timelineEvents.isEmpty() && sortedTimelineEvents.isNotEmpty()
+        
+        // Track new messages for slide-up animation with 500ms delay
+        if (actuallyNewMessages.isNotEmpty()) {
+            val currentTime = System.currentTimeMillis()
+            val animationStartTime = currentTime + 500L // 500ms delay for receipt processing
+            
+            // Check if any of the new messages are from other users (not our own messages)
+            var shouldPlaySound = false
+            actuallyNewMessages.forEach { eventId ->
+                newMessageAnimations[eventId] = animationStartTime
+                android.util.Log.d("Andromuks", "AppViewModel: Added new message animation for $eventId (starts at ${animationStartTime})")
+                
+                // Check if this message is from another user (not our own message)
+                val newEvent = sortedTimelineEvents.find { it.eventId == eventId }
+                val isFromOtherUser = newEvent?.let { event ->
+                    // Only play sound for message events from other users in the current room
+                    (event.type == "m.room.message" || event.type == "m.room.encrypted") && 
+                    event.sender != currentUserId &&
+                    event.roomId == currentRoomId
+                } ?: false
+                
+                if (isFromOtherUser) {
+                    shouldPlaySound = true
+                }
+            }
+            
+            // Play sound for new messages from other users in the current room
+            // BUT NOT during initial room loading (when opening a room for the first time)
+            if (shouldPlaySound && isAppVisible && currentRoomId.isNotEmpty() && !isInitialRoomLoad) {
+                android.util.Log.d("Andromuks", "AppViewModel: Playing notification sound for new messages from other users in current room: $currentRoomId")
+                playNewMessageSound()
+            } else if (isInitialRoomLoad && shouldPlaySound) {
+                android.util.Log.d("Andromuks", "AppViewModel: Skipping sound during initial room load - would have played for ${actuallyNewMessages.size} messages")
+            }
+            
+            // Trigger animation system update
+            newMessageAnimationTrigger = currentTime
+        }
+        
+        this.timelineEvents = sortedTimelineEvents
         updateCounter++
         
-        android.util.Log.d("Andromuks", "AppViewModel: Built timeline with ${timelineEvents.size} events from chain")
+        android.util.Log.d("Andromuks", "AppViewModel: Built timeline with ${timelineEvents.size} events from chain, ${actuallyNewMessages.size} new messages detected")
     }
     
     private fun mergePaginationEvents(newEvents: List<TimelineEvent>) {
