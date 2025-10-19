@@ -151,6 +151,10 @@ class AppViewModel : ViewModel() {
     var typingUsers by mutableStateOf(listOf<String>())
         private set
     
+    // PERFORMANCE: Rate limiting for typing indicators to reduce WebSocket traffic
+    private val lastTypingSent = mutableMapOf<String, Long>() // roomId -> timestamp
+    private val TYPING_SEND_INTERVAL = 3000L // 3 seconds instead of 1 second
+    
     // Message reactions: eventId -> list of reactions
     var messageReactions by mutableStateOf(mapOf<String, List<MessageReaction>>())
         private set
@@ -1762,8 +1766,14 @@ class AppViewModel : ViewModel() {
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> userId
     private val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
+    
+    // PERFORMANCE: Track pending profile requests to prevent duplicate WebSocket commands
+    private val pendingProfileRequests = mutableSetOf<String>() // userId that have pending requests
     private val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    
+    // PERFORMANCE: Track pending room state requests to prevent duplicate WebSocket commands
+    private val pendingRoomStateRequests = mutableSetOf<String>() // roomId that have pending state requests
     private val reactionRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
@@ -1795,6 +1805,9 @@ class AppViewModel : ViewModel() {
     private val joinRoomCallbacks = mutableMapOf<Int, (Pair<String?, String?>?) -> Unit>() // requestId -> callback
     private val roomSpecificStateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_specific_room_state requests)
     private val fullMemberListRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_room_state with include_members requests)
+    
+    // PERFORMANCE: Track pending full member list requests to prevent duplicate WebSocket commands
+    private val pendingFullMemberListRequests = mutableSetOf<String>() // roomId that have pending full member list requests
     
     // Pagination state
     private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
@@ -2239,12 +2252,29 @@ class AppViewModel : ViewModel() {
     }
 
     fun requestUserProfile(userId: String, roomId: String? = null) {
+        // PERFORMANCE: Prevent duplicate profile requests for the same user
+        if (pendingProfileRequests.contains(userId)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Profile request already pending for $userId, skipping duplicate")
+            return
+        }
+        
+        // Check if already in cache to avoid unnecessary requests
+        val cachedProfile = getUserProfile(userId, roomId)
+        if (cachedProfile != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Profile already cached for $userId, skipping request")
+            return
+        }
+        
         val ws = webSocket ?: return
         val reqId = requestIdCounter++
+        
+        // Track this request to prevent duplicates
+        pendingProfileRequests.add(userId)
         profileRequests[reqId] = userId
         if (roomId != null) {
             profileRequestRooms[reqId] = roomId
         }
+        
         val json = org.json.JSONObject()
         json.put("command", "get_profile")
         json.put("request_id", reqId)
@@ -2280,8 +2310,8 @@ class AppViewModel : ViewModel() {
             val hasAvatar = !profile?.avatarUrl.isNullOrBlank()
             
             if (!hasDisplayName || !hasAvatar) {
-                // Only request if we haven't already requested this user's profile (avoid duplicates)
-                if (!profileRequests.values.contains(sender)) {
+                // PERFORMANCE: Only request if we haven't already requested this user's profile (avoid duplicates)
+                if (!pendingProfileRequests.contains(sender)) {
                     usersToRequest.add(sender)
                     android.util.Log.d("Andromuks", "AppViewModel: Missing profile data for $sender - displayName: $hasDisplayName, avatar: $hasAvatar")
                 }
@@ -2650,9 +2680,19 @@ class AppViewModel : ViewModel() {
     }
     
     fun requestRoomState(roomId: String) {
+        // PERFORMANCE: Prevent duplicate room state requests for the same room
+        if (pendingRoomStateRequests.contains(roomId)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Room state request already pending for $roomId, skipping duplicate")
+            return
+        }
+        
         android.util.Log.d("Andromuks", "AppViewModel: Requesting room state for room: $roomId")
         val stateRequestId = requestIdCounter++
+        
+        // Track this request to prevent duplicates
+        pendingRoomStateRequests.add(roomId)
         roomStateRequests[stateRequestId] = roomId
+        
         sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
             "room_id" to roomId,
             "include_members" to false,
@@ -2764,6 +2804,12 @@ class AppViewModel : ViewModel() {
      * Should be called when opening a room if the member cache is empty or incomplete.
      */
     fun requestFullMemberList(roomId: String) {
+        // PERFORMANCE: Prevent duplicate full member list requests for the same room
+        if (pendingFullMemberListRequests.contains(roomId)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Full member list request already pending for $roomId, skipping duplicate")
+            return
+        }
+        
         android.util.Log.d("Andromuks", "AppViewModel: Requesting full member list for room: $roomId")
         
         // Check if WebSocket is connected
@@ -2773,6 +2819,9 @@ class AppViewModel : ViewModel() {
         }
         
         val requestId = requestIdCounter++
+        
+        // Track this request to prevent duplicates
+        pendingFullMemberListRequests.add(roomId)
         fullMemberListRequests[requestId] = roomId
         
         sendWebSocketCommand("get_room_state", requestId, mapOf(
@@ -2786,6 +2835,14 @@ class AppViewModel : ViewModel() {
     }
     
     fun sendTyping(roomId: String) {
+        // PERFORMANCE: Rate limit typing indicators to reduce WebSocket traffic
+        val currentTime = System.currentTimeMillis()
+        val lastSent = lastTypingSent[roomId] ?: 0L
+        if (currentTime - lastSent < TYPING_SEND_INTERVAL) {
+            android.util.Log.d("Andromuks", "AppViewModel: Typing indicator rate limited for room: $roomId (last sent ${currentTime - lastSent}ms ago)")
+            return
+        }
+        
         android.util.Log.d("Andromuks", "AppViewModel: Sending typing indicator for room: $roomId")
         val typingRequestId = requestIdCounter++
         val result = sendWebSocketCommand("set_typing", typingRequestId, mapOf(
@@ -2793,7 +2850,9 @@ class AppViewModel : ViewModel() {
             "timeout" to 10000
         ))
         
-        if (result != WebSocketResult.SUCCESS) {
+        if (result == WebSocketResult.SUCCESS) {
+            lastTypingSent[roomId] = currentTime
+        } else {
             android.util.Log.d("Andromuks", "AppViewModel: Typing indicator failed (result: $result), skipping")
         }
     }
@@ -3526,6 +3585,13 @@ class AppViewModel : ViewModel() {
             markReadRequests.remove(requestId)
             // Invoke completion callback to prevent UI stalling
             notificationActionCompletionCallbacks.remove(requestId)?.invoke()
+        } else if (roomStateRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Room state error for requestId=$requestId: $errorMessage")
+            val roomId = roomStateRequests.remove(requestId)
+            // PERFORMANCE: Remove from pending requests set on error
+            if (roomId != null) {
+                pendingRoomStateRequests.remove(roomId)
+            }
         } else if (roomSummaryRequests.containsKey(requestId)) {
             android.util.Log.w("Andromuks", "AppViewModel: Room summary error for requestId=$requestId: $errorMessage")
             roomSummaryRequests.remove(requestId)
@@ -3572,7 +3638,11 @@ class AppViewModel : ViewModel() {
             roomSpecificStateRequests.remove(requestId)
         } else if (fullMemberListRequests.containsKey(requestId)) {
             android.util.Log.w("Andromuks", "AppViewModel: Full member list error for requestId=$requestId: $errorMessage")
-            fullMemberListRequests.remove(requestId)
+            val roomId = fullMemberListRequests.remove(requestId)
+            // PERFORMANCE: Remove from pending requests set on error
+            if (roomId != null) {
+                pendingFullMemberListRequests.remove(roomId)
+            }
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
@@ -3581,6 +3651,9 @@ class AppViewModel : ViewModel() {
     private fun handleProfileError(requestId: Int, errorMessage: String) {
         val userId = profileRequests.remove(requestId) ?: return
         val requestingRoomId = profileRequestRooms.remove(requestId)
+        
+        // PERFORMANCE: Remove from pending requests set even on error
+        pendingProfileRequests.remove(userId)
         android.util.Log.d("Andromuks", "AppViewModel: Profile not found for $userId: $errorMessage")
         
         // If profile not found, use username part of Matrix ID
@@ -3613,6 +3686,9 @@ class AppViewModel : ViewModel() {
     private fun handleProfileResponse(requestId: Int, data: Any) {
         val userId = profileRequests.remove(requestId) ?: return
         val requestingRoomId = profileRequestRooms.remove(requestId)
+        
+        // PERFORMANCE: Remove from pending requests set
+        pendingProfileRequests.remove(userId)
         val obj = data as? JSONObject ?: return
         val avatar = obj.optString("avatar_url")?.takeIf { it.isNotBlank() }
         val display = obj.optString("displayname")?.takeIf { it.isNotBlank() }
@@ -4063,6 +4139,9 @@ class AppViewModel : ViewModel() {
     
     private fun handleRoomStateResponse(requestId: Int, data: Any) {
         val roomId = roomStateRequests.remove(requestId) ?: return
+        
+        // PERFORMANCE: Remove from pending requests set
+        pendingRoomStateRequests.remove(roomId)
         android.util.Log.d("Andromuks", "AppViewModel: Handling room state response for room: $roomId")
         
         when (data) {
@@ -4310,6 +4389,9 @@ class AppViewModel : ViewModel() {
     
     private fun handleFullMemberListResponse(requestId: Int, data: Any) {
         val roomId = fullMemberListRequests.remove(requestId) ?: return
+        
+        // PERFORMANCE: Remove from pending requests set
+        pendingFullMemberListRequests.remove(roomId)
         android.util.Log.d("Andromuks", "AppViewModel: Handling full member list response for room: $roomId")
         
         when (data) {

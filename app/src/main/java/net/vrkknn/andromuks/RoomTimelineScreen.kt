@@ -402,11 +402,12 @@ fun RoomTimelineScreen(
         }
     }
 
-    // Typing detection with debouncing
+    // PERFORMANCE: Typing detection with debouncing - UI level rate limiting removed 
+    // since AppViewModel.sendTyping() now handles rate limiting internally (3 seconds)
     LaunchedEffect(draft) {
         if (draft.isNotBlank()) {
             val currentTime = System.currentTimeMillis()
-            if (currentTime - lastTypingTime > 1000) { // Send typing every 1 second
+            if (currentTime - lastTypingTime > 3000) { // Reduced frequency: every 3 seconds
                 appViewModel.sendTyping(roomId)
                 lastTypingTime = currentTime
             }
