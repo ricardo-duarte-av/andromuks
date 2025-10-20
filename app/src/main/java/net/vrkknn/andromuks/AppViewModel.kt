@@ -902,23 +902,28 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    fun processReactionEvent(reactionEvent: ReactionEvent) {
+    fun processReactionEvent(reactionEvent: ReactionEvent, isHistorical: Boolean = false) {
         // Create a unique key for this logical reaction (sender + emoji + target message)
         // This prevents the same logical reaction from being processed twice even if it comes
         // from both send_complete and sync_complete with different event IDs
         val reactionKey = "${reactionEvent.sender}_${reactionEvent.emoji}_${reactionEvent.relatesToEventId}"
         
-        // Check if we've already processed this logical reaction recently
-        if (processedReactions.contains(reactionKey)) {
+        // Only apply duplicate detection to live reactions, not historical reactions
+        // Historical reactions should always be processed as they may have been previously
+        // processed during app startup but need to be displayed in the current room context
+        if (!isHistorical && processedReactions.contains(reactionKey)) {
             android.util.Log.d("Andromuks", "AppViewModel: Skipping duplicate logical reaction: $reactionKey (eventId: ${reactionEvent.eventId})")
             return
         }
         
-        // Mark this logical reaction as processed (temporarily, will be cleaned up)
-        processedReactions.add(reactionKey)
+        // Only mark live reactions as processed to prevent duplicates
+        if (!isHistorical) {
+            processedReactions.add(reactionKey)
+        }
         
         // Clean up old processed reactions to prevent memory leaks (keep only last 100)
-        if (processedReactions.size > 100) {
+        // Only do cleanup for live reactions since historical reactions don't add to processedReactions
+        if (!isHistorical && processedReactions.size > 100) {
             val toRemove = processedReactions.take(processedReactions.size - 100)
             processedReactions.removeAll(toRemove)
         }
@@ -2979,6 +2984,20 @@ class AppViewModel : ViewModel() {
                 markRoomAsRead(roomId, mostRecentEvent.eventId)
             }
             
+            // IMPORTANT: Request historical reactions even when using cache
+            // The cache filters out reaction events, so we need a paginate request to load them
+            val reactionRequestId = requestIdCounter++
+            backgroundPrefetchRequests[reactionRequestId] = roomId
+            val effectiveMaxTimelineId = if (smallestCached > 0) smallestCached else 0L
+            android.util.Log.d("Andromuks", "AppViewModel: About to send reaction request - currentRoomId: $currentRoomId")
+            sendWebSocketCommand("paginate", reactionRequestId, mapOf(
+                "room_id" to roomId,
+                "max_timeline_id" to effectiveMaxTimelineId,
+                "limit" to 100,
+                "reset" to false
+            ))
+            android.util.Log.d("Andromuks", "AppViewModel: ✅ Sent reaction request for cached room: $roomId (requestId: $reactionRequestId, smallestCached: $smallestCached, effectiveMaxTimelineId: $effectiveMaxTimelineId, currentRoomId: $currentRoomId)")
+            
             return // Exit early - room is already rendered from cache
         }
         
@@ -3174,6 +3193,9 @@ class AppViewModel : ViewModel() {
      */
     fun refreshRoomTimeline(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Refreshing timeline for room: $roomId (clearing cache and requesting fresh data)")
+        
+        // Set current room ID to ensure reaction processing works correctly
+        currentRoomId = roomId
         
         // 1. Drop all cache for this room
         roomTimelineCache.clearRoomCache(roomId)
@@ -4073,7 +4095,7 @@ class AppViewModel : ViewModel() {
         } else if (eventRequests.containsKey(requestId)) {
             handleEventResponse(requestId, data)
         } else if (backgroundPrefetchRequests.containsKey(requestId)) {
-            android.util.Log.d("Andromuks", "AppViewModel: Routing background prefetch response to handleTimelineResponse")
+            android.util.Log.d("Andromuks", "AppViewModel: Routing background prefetch response to handleTimelineResponse (requestId: $requestId)")
             handleTimelineResponse(requestId, data)
         } else if (paginateRequests.containsKey(requestId)) {
             android.util.Log.d("Andromuks", "AppViewModel: Routing pagination response to handleTimelineResponse")
@@ -4442,13 +4464,16 @@ class AppViewModel : ViewModel() {
         val isBackgroundPrefetchRequest = backgroundPrefetchRequests.containsKey(requestId)
         android.util.Log.d("Andromuks", "AppViewModel: Handling timeline response for room: $roomId, requestId: $requestId, isPaginate: $isPaginateRequest, isBackgroundPrefetch: $isBackgroundPrefetchRequest, data type: ${data::class.java.simpleName}")
 
-        fun processEventsArray(eventsArray: JSONArray) {
+        var totalReactionsProcessed = 0
+        
+        fun processEventsArray(eventsArray: JSONArray): Int {
             android.util.Log.d("Andromuks", "AppViewModel: processEventsArray called with ${eventsArray.length()} events from server")
             val timelineList = mutableListOf<TimelineEvent>()
             val allEvents = mutableListOf<TimelineEvent>()  // For version processing
             val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
             
             var ownMessageCount = 0
+            var reactionProcessedCount = 0
             for (i in 0 until eventsArray.length()) {
                 val eventJson = eventsArray.optJSONObject(i)
                 if (eventJson != null) {
@@ -4478,6 +4503,7 @@ class AppViewModel : ViewModel() {
                     } else {
                         // Process reaction events from paginate
                         if (event.type == "m.reaction") {
+                            android.util.Log.d("Andromuks", "AppViewModel: Found reaction event in handleTimelineResponse: ${event.eventId}, isPaginate: $isPaginateRequest, isBackgroundPrefetch: $isBackgroundPrefetchRequest")
                             val content = event.content
                             if (content != null) {
                                 val relatesTo = content.optJSONObject("m.relates_to")
@@ -4497,7 +4523,9 @@ class AppViewModel : ViewModel() {
                                                 relatesToEventId = relatesToEventId,
                                                 timestamp = event.timestamp
                                             )
-                                            processReactionEvent(reactionEvent)
+                                            android.util.Log.d("Andromuks", "AppViewModel: About to process historical reaction: $emoji from ${event.sender} to $relatesToEventId, currentRoomId: $currentRoomId")
+                                            processReactionEvent(reactionEvent, isHistorical = true)
+                                            reactionProcessedCount++
                                             android.util.Log.d("Andromuks", "AppViewModel: Processed historical reaction: $emoji from ${event.sender} to $relatesToEventId")
                                         } else {
                                             android.util.Log.d("Andromuks", "AppViewModel: Skipping redacted historical reaction: $emoji from ${event.sender} to $relatesToEventId")
@@ -4512,9 +4540,12 @@ class AppViewModel : ViewModel() {
                     }
                 }
             }
-            android.util.Log.d("Andromuks", "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}, ownMessages=$ownMessageCount")
+            android.util.Log.d("Andromuks", "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}, ownMessages=$ownMessageCount, reactions=$reactionProcessedCount")
             if (ownMessageCount > 0) {
                 android.util.Log.d("Andromuks", "AppViewModel: ★★★ PAGINATE RESPONSE CONTAINS $ownMessageCount OF YOUR OWN MESSAGES ★★★")
+            }
+            if (reactionProcessedCount > 0) {
+                android.util.Log.d("Andromuks", "AppViewModel: ★★★ PROCESSED $reactionProcessedCount REACTIONS FROM PAGINATE RESPONSE ★★★")
             }
             
             // OPTIMIZED: Process versioned messages (edits, redactions) - O(n)
@@ -4527,25 +4558,22 @@ class AppViewModel : ViewModel() {
                 paginateRequests.remove(requestId)
                 backgroundPrefetchRequests.remove(requestId)
                 isPaginating = false
-                return
+                return reactionProcessedCount
             }
             
             if (timelineList.isNotEmpty()) {
                 // Handle background prefetch requests first - before any UI processing
                 if (backgroundPrefetchRequests.containsKey(requestId)) {
                     // This is a background prefetch request - silently add to cache without affecting UI
-                    android.util.Log.d("Andromuks", "AppViewModel: Processing background prefetch request, silently adding ${timelineList.size} events to cache")
+                    android.util.Log.d("Andromuks", "AppViewModel: Processing background prefetch request, silently adding ${timelineList.size} events to cache (requestId: $requestId, roomId: $roomId, currentRoomId: $currentRoomId)")
                     
                     // Add events to cache silently (merge with existing cache)
                     roomTimelineCache.mergePaginatedEvents(roomId, timelineList)
                     
-                    // Clean up the background prefetch request
-                    backgroundPrefetchRequests.remove(requestId)
-                    
                     val newCacheCount = roomTimelineCache.getCachedEventCount(roomId)
                     android.util.Log.d("Andromuks", "AppViewModel: ✅ Background prefetch completed - cache now has $newCacheCount events for room $roomId")
                     
-                    return // Exit early - don't process edit chains or UI updates for background prefetch
+                    return reactionProcessedCount // Exit early - don't process edit chains or UI updates for background prefetch
                 }
                 
                 // Store smallest rowId for pagination (only for initial paginate, not pagination requests)
@@ -4621,16 +4649,18 @@ class AppViewModel : ViewModel() {
                     }
                 }
             }
+            
+            return reactionProcessedCount
         }
 
         when (data) {
             is JSONArray -> {
-                processEventsArray(data)
+                totalReactionsProcessed = processEventsArray(data)
             }
             is JSONObject -> {
                 val eventsArray = data.optJSONArray("events")
                 if (eventsArray != null) {
-                    processEventsArray(eventsArray)
+                    totalReactionsProcessed = processEventsArray(eventsArray)
                 } else {
                     android.util.Log.d("Andromuks", "AppViewModel: JSONObject did not contain 'events' array")
                 }
@@ -4666,6 +4696,12 @@ class AppViewModel : ViewModel() {
             else -> {
                 android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleTimelineResponse: ${data::class.java.simpleName}")
             }
+        }
+
+        // IMPORTANT: If we processed reactions in background prefetch, trigger UI update
+        if (isBackgroundPrefetchRequest && totalReactionsProcessed > 0) {
+            android.util.Log.d("Andromuks", "AppViewModel: Triggering UI update for $totalReactionsProcessed reactions processed in background prefetch")
+            reactionUpdateCounter++ // Trigger UI recomposition for reactions
         }
 
         timelineRequests.remove(requestId)
