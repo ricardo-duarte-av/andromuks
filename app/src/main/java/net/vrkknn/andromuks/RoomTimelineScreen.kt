@@ -643,6 +643,7 @@ fun RoomTimelineScreen(
         }
     }
 
+
     // Mention detection and handling functions
     fun detectMention(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
@@ -779,6 +780,11 @@ fun RoomTimelineScreen(
             }
             items
         }
+
+    // Get member map that observes memberUpdateCounter and includes global cache fallback for TimelineEventItem profile updates
+    val memberMap = remember(roomId, appViewModel.memberUpdateCounter, sortedEvents) {
+        appViewModel.getMemberMapWithFallback(roomId, sortedEvents)
+    }
 
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
@@ -1226,7 +1232,7 @@ fun RoomTimelineScreen(
                                             timelineEvents = timelineEvents,
                                             homeserverUrl = homeserverUrl,
                                             authToken = authToken,
-                                            userProfileCache = appViewModel.getMemberMap(roomId),
+                                            userProfileCache = memberMap,
                                             isMine = isMine,
                                             myUserId = myUserId,
                                             isConsecutive = isConsecutive,

@@ -246,6 +246,11 @@ fun ThreadViewerScreen(
         }
     }
 
+    // Get member map that observes memberUpdateCounter for TimelineEventItem profile updates
+    val memberMap = remember(roomId, appViewModel.memberUpdateCounter) {
+        appViewModel.getMemberMap(roomId)
+    }
+
     // Mention detection and handling functions
     fun detectMention(text: String, cursorPosition: Int): Pair<String, Int>? {
         if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
@@ -447,7 +452,7 @@ fun ThreadViewerScreen(
                                         timelineEvents = threadMessages,
                                         homeserverUrl = homeserverUrl,
                                         authToken = authToken,
-                                        userProfileCache = appViewModel.getMemberMap(roomId),
+                                        userProfileCache = memberMap,
                                         isMine = isMine,
                                         myUserId = myUserId,
                                         isConsecutive = isConsecutive,

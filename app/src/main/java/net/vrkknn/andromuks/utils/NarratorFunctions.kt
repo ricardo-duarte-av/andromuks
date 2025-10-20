@@ -495,6 +495,11 @@ private fun PinnedEventNarration(
     var event by remember { mutableStateOf<TimelineEvent?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
+    // Get member map that observes memberUpdateCounter for TimelineEventItem profile updates
+    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+        appViewModel?.getMemberMap(roomId) ?: emptyMap()
+    }
+
     Column(
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -556,7 +561,7 @@ private fun PinnedEventNarration(
                             timelineEvents = listOf(event!!),
                             homeserverUrl = homeserverUrl,
                             authToken = authToken,
-                            userProfileCache = appViewModel?.getMemberMap(roomId) ?: emptyMap(),
+                            userProfileCache = memberMap,
                             isMine = false,
                             myUserId = appViewModel?.currentUserId
                         )

@@ -125,7 +125,7 @@ fun RoomInfoScreen(
         }
     }
     
-    val memberMap = remember(roomStateInfo?.roomId, roomStateInfo?.members) {
+    val memberMap = remember(roomId, appViewModel.memberUpdateCounter) {
         appViewModel.getMemberMap(roomId)
     }
 

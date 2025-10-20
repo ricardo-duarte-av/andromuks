@@ -1019,6 +1019,31 @@ class AppViewModel : ViewModel() {
         return memberMap
     }
     
+    /**
+     * Enhanced getMemberMap that includes global cache fallback for users in timeline events
+     */
+    fun getMemberMapWithFallback(roomId: String, timelineEvents: List<TimelineEvent>? = null): Map<String, MemberProfile> {
+        val memberMap = getMemberMap(roomId).toMutableMap()
+        
+        // If timeline events are provided, add fallback profiles from global cache for users in events
+        timelineEvents?.let { events ->
+            for (event in events) {
+                val sender = event.sender
+                if (!memberMap.containsKey(sender)) {
+                    // Check global cache and add to member map if found
+                    val globalProfileRef = globalProfileCache[sender]
+                    val globalProfile = globalProfileRef?.get()
+                    if (globalProfile != null) {
+                        memberMap[sender] = globalProfile
+                        android.util.Log.d("Andromuks", "AppViewModel: Added global profile fallback for $sender in room $roomId")
+                    }
+                }
+            }
+        }
+        
+        return memberMap
+    }
+    
     fun isMemberCacheEmpty(roomId: String): Boolean {
         // MEMORY MANAGEMENT: Check if any flattened entries exist for this room
         val hasFlattenedEntries = flattenedMemberCache.keys.any { it.startsWith("$roomId:") }
@@ -2799,13 +2824,14 @@ class AppViewModel : ViewModel() {
      * @param timelineEvents List of timeline events to check for missing user data
      */
     fun validateAndRequestMissingProfiles(roomId: String, timelineEvents: List<TimelineEvent>) {
-        val memberMap = roomMemberCache[roomId] ?: return
         val usersToRequest = mutableSetOf<String>()
         
         // Check each timeline event for missing user profile data
         for (event in timelineEvents) {
             val sender = event.sender
-            val profile = memberMap[sender]
+            
+            // Use getUserProfile to check all caches (flattened, legacy room cache, global cache)
+            val profile = getUserProfile(sender, roomId)
             
             // Check if we have incomplete profile data
             val hasDisplayName = !profile?.displayName.isNullOrBlank()
@@ -2823,7 +2849,7 @@ class AppViewModel : ViewModel() {
         // Request profiles for users with missing data
         for (userId in usersToRequest) {
             android.util.Log.d("Andromuks", "AppViewModel: Requesting missing profile for $userId")
-            requestUserProfile(userId)
+            requestUserProfile(userId, roomId)
         }
     }
     
@@ -2867,6 +2893,22 @@ class AppViewModel : ViewModel() {
     fun requestRoomTimeline(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId")
         currentRoomId = roomId
+        
+        // Ensure room state and member data are requested immediately to fix header display issues
+        // This is especially important when opening rooms via shortcuts
+        // Use include_members: true to populate both room state and member cache in one request
+        if (webSocket != null && !pendingFullMemberListRequests.contains(roomId)) {
+            val stateRequestId = requestIdCounter++
+            fullMemberListRequests[stateRequestId] = roomId
+            pendingFullMemberListRequests.add(roomId)
+            android.util.Log.d("Andromuks", "AppViewModel: Requesting room state with members for header display and member cache (reqId: $stateRequestId)")
+            sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
+                "room_id" to roomId,
+                "include_members" to true,
+                "fetch_members" to false,
+                "refetch" to false
+            ))
+        }
         
         // NAVIGATION PERFORMANCE: Check cached navigation state and use partial loading
         val navigationState = getRoomNavigationState(roomId)
@@ -4279,8 +4321,10 @@ class AppViewModel : ViewModel() {
         // Check if this is part of a full user info request
         val fullUserInfoCallback = fullUserInfoCallbacks.remove(requestId)
         if (fullUserInfoCallback != null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Invoking full user info callback for profile")
+            android.util.Log.d("Andromuks", "AppViewModel: Invoking full user info callback for profile (requestId: $requestId, userId: $userId)")
             fullUserInfoCallback(obj)
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: Profile response received but no full user info callback found (requestId: $requestId)")
         }
         
         // SYNC OPTIMIZATION: Schedule member update instead of immediate counter increment
@@ -5022,6 +5066,11 @@ class AppViewModel : ViewModel() {
                             
                             val newProfile = MemberProfile(displayName, avatarUrl)
                             memberMap[stateKey] = newProfile
+                            
+                            // MEMORY MANAGEMENT: Add to flattened cache for efficient getMemberMap lookups
+                            val flattenedKey = "$roomId:$stateKey"
+                            flattenedMemberCache[flattenedKey] = newProfile
+                            
                             // PERFORMANCE: Also add to global cache for O(1) lookups
                             globalProfileCache[stateKey] = WeakReference(newProfile)
                             
@@ -5036,7 +5085,9 @@ class AppViewModel : ViewModel() {
                         "leave", "ban" -> {
                             // Remove members who left or were banned
                             val wasRemoved = memberMap.remove(stateKey) != null
-                            if (wasRemoved) {
+                            val flattenedKey = "$roomId:$stateKey"
+                            val wasRemovedFromFlattened = flattenedMemberCache.remove(flattenedKey) != null
+                            if (wasRemoved || wasRemovedFromFlattened) {
                                 android.util.Log.d("Andromuks", "AppViewModel: Removed $stateKey from room $roomId (membership: $membership)")
                                 updatedMembers++
                             }
@@ -5052,6 +5103,9 @@ class AppViewModel : ViewModel() {
             // Trigger UI update since member cache changed
             updateCounter++
         }
+        
+        // Also parse room state metadata (name, alias, topic, avatar) for header display
+        parseRoomStateFromEvents(roomId, events)
     }
     
     private fun parseMemberEventsForProfileUpdate(roomId: String, events: JSONArray) {
@@ -6432,7 +6486,7 @@ class AppViewModel : ViewModel() {
             json.put("request_id", requestId)
             json.put("data", org.json.JSONObject(data))
             val jsonString = json.toString()
-            //android.util.Log.d("Andromuks", "AppViewModel: Sending immediate command: $jsonString")
+            android.util.Log.d("Andromuks", "Websocket: $command (reqId: $requestId) -> $jsonString")
             webSocket?.send(jsonString)
             WebSocketResult.SUCCESS
         } catch (e: Exception) {
@@ -6473,6 +6527,7 @@ class AppViewModel : ViewModel() {
                 val batchString = batchJson.toString()
                 
                 android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Flushing ${commandsToFlush.size} batched commands")
+                android.util.Log.d("Andromuks", "Websocket: BATCH (${commandsToFlush.size} commands) -> $batchString")
                 webSocket?.send(batchString)
                 
             } catch (e: Exception) {
@@ -6748,13 +6803,23 @@ class AppViewModel : ViewModel() {
         var encryptionInfo: net.vrkknn.andromuks.utils.UserEncryptionInfo? = null
         var mutualRooms: List<String> = emptyList()
         
-        var completedRequests = 0
-        val totalRequests = 3
+        var profileCompleted = false
+        var encryptionCompleted = false
+        var mutualRoomsCompleted = false
         var hasError = false
         
         fun checkCompletion() {
-            completedRequests++
-            if (completedRequests >= totalRequests && !hasError) {
+            val isSelfUser = userId == currentUserId
+            
+            val completedCount = (if (profileCompleted) 1 else 0) + 
+                                (if (encryptionCompleted) 1 else 0) + 
+                                (if (mutualRoomsCompleted) 1 else 0)
+            
+            val expectedRequests = if (isSelfUser) 2 else 3
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Full user info progress - profile: $profileCompleted, encryption: $encryptionCompleted, mutualRooms: $mutualRoomsCompleted (expected: $expectedRequests, completed: $completedCount)")
+            
+            if (completedCount >= expectedRequests && !hasError) {
                 val profileInfo = net.vrkknn.andromuks.utils.UserProfileInfo(
                     userId = userId,
                     displayName = displayName,
@@ -6763,7 +6828,10 @@ class AppViewModel : ViewModel() {
                     encryptionInfo = encryptionInfo,
                     mutualRooms = mutualRooms
                 )
+                android.util.Log.d("Andromuks", "AppViewModel: Full user info completed for $userId")
                 callback(profileInfo, null)
+            } else if (!hasError) {
+                android.util.Log.d("Andromuks", "AppViewModel: Full user info still waiting for requests to complete (${completedCount}/$expectedRequests)")
             }
         }
         
@@ -6788,6 +6856,7 @@ class AppViewModel : ViewModel() {
                 // Don't treat as critical error - encryption info might not be available
             }
             encryptionInfo = encInfo
+            encryptionCompleted = true
             checkCompletion()
         }
         
@@ -6796,6 +6865,7 @@ class AppViewModel : ViewModel() {
         if (userId == currentUserId) {
             android.util.Log.d("Andromuks", "AppViewModel: Skipping mutual rooms request for self")
             mutualRooms = emptyList()
+            mutualRoomsCompleted = true
             checkCompletion()
         } else {
             requestMutualRooms(userId) { rooms, error ->
@@ -6806,6 +6876,7 @@ class AppViewModel : ViewModel() {
                     return@requestMutualRooms
                 }
                 mutualRooms = rooms ?: emptyList()
+                mutualRoomsCompleted = true
                 checkCompletion()
             }
         }
@@ -6816,12 +6887,39 @@ class AppViewModel : ViewModel() {
                 displayName = profileData.optString("displayname")?.takeIf { it.isNotBlank() }
                 avatarUrl = profileData.optString("avatar_url")?.takeIf { it.isNotBlank() }
                 timezone = profileData.optString("us.cloke.msc4175.tz")?.takeIf { it.isNotBlank() }
+                android.util.Log.d("Andromuks", "AppViewModel: Profile data received for $userId - display: $displayName, avatar: ${avatarUrl != null}, timezone: $timezone")
+            } else {
+                android.util.Log.w("Andromuks", "AppViewModel: Profile data is null for $userId")
             }
+            profileCompleted = true
             checkCompletion()
         }
         
         // Store this callback for later
         fullUserInfoCallbacks[profileRequestId] = tempProfileCallback
+        
+        // Add timeout mechanism to prevent hanging
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(10000) // 10 second timeout
+            if (!profileCompleted || !encryptionCompleted || (!mutualRoomsCompleted && userId != currentUserId)) {
+                android.util.Log.w("Andromuks", "AppViewModel: Full user info request timed out for $userId")
+                // Clean up callbacks
+                fullUserInfoCallbacks.remove(profileRequestId)
+                if (!hasError) {
+                    // Create a partial result with what we have
+                    val profileInfo = net.vrkknn.andromuks.utils.UserProfileInfo(
+                        userId = userId,
+                        displayName = displayName,
+                        avatarUrl = avatarUrl,
+                        timezone = timezone,
+                        encryptionInfo = encryptionInfo,
+                        mutualRooms = mutualRooms
+                    )
+                    android.util.Log.d("Andromuks", "AppViewModel: Returning partial user info after timeout for $userId")
+                    callback(profileInfo, null)
+                }
+            }
+        }
     }
     
     // Temporary storage for full user info profile callbacks
