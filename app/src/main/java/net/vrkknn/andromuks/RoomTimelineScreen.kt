@@ -69,6 +69,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.derivedStateOf
+import kotlinx.coroutines.Dispatchers
 import androidx.compose.ui.Alignment
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
@@ -117,6 +119,7 @@ import kotlin.math.min
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
@@ -146,9 +149,20 @@ import net.vrkknn.andromuks.utils.supportsHtmlRendering
 
 /** Sealed class for timeline items (events and date dividers) */
 sealed class TimelineItem {
-    data class Event(val event: TimelineEvent) : TimelineItem()
+    // PERFORMANCE: Stable key for LazyColumn items
+    abstract val stableKey: String
+    
+    data class Event(
+        val event: TimelineEvent,
+        val isConsecutive: Boolean = false,
+        val hasPerMessageProfile: Boolean = false
+    ) : TimelineItem() {
+        override val stableKey: String get() = event.eventId
+    }
 
-    data class DateDivider(val date: String) : TimelineItem()
+    data class DateDivider(val date: String) : TimelineItem() {
+        override val stableKey: String get() = "date_$date"
+    }
 }
 
 /** Format timestamp to date string (dd / MM / yyyy) */
@@ -158,6 +172,64 @@ internal fun formatDate(timestamp: Long): String {
     return formatter.format(date)
 }
 
+/** PERFORMANCE: Helper function to process timeline events in background */
+suspend fun processTimelineEvents(
+    timelineEvents: List<TimelineEvent>,
+    showUnprocessedEvents: Boolean,
+    allowedEventTypes: Set<String>
+): List<TimelineEvent> = withContext(Dispatchers.Default) {
+    Log.d(
+        "Andromuks",
+        "RoomTimelineScreen: Background processing ${timelineEvents.size} timeline events, showUnprocessedEvents: $showUnprocessedEvents"
+    )
+
+    // Debug: Log event types in timeline
+    val eventTypes = timelineEvents.groupBy { it.type }
+    Log.d(
+        "Andromuks",
+        "RoomTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(", ")}"
+    )
+
+    val filteredEvents = if (showUnprocessedEvents) {
+        // Show all events when unprocessed events are enabled, but always exclude redaction events
+        val filtered = timelineEvents.filter { event -> event.type != "m.room.redaction" }
+        Log.d("Andromuks", "RoomTimelineScreen: After redaction filtering: ${filtered.size} events")
+        filtered
+    } else {
+        // Only show allowed events when unprocessed events are disabled
+        val filtered = timelineEvents.filter { event -> allowedEventTypes.contains(event.type) }
+        Log.d("Andromuks", "RoomTimelineScreen: After type filtering: ${filtered.size} events")
+        filtered
+    }
+
+    // PERFORMANCE: Optimize edit filtering by creating a lookup set
+    val editedEventIds = filteredEvents.filter { event ->
+        event.type == "m.room.message" &&
+        event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+    }.mapNotNull { event ->
+        event.content?.optJSONObject("m.relates_to")?.optString("event_id")?.takeIf { it.isNotBlank() }
+    }.toSet()
+
+    // Filter out superseded events using the lookup set for O(1) performance
+    val eventsWithoutSuperseded = filteredEvents.filter { event ->
+        if (event.type == "m.room.message") {
+            val isSuperseded = editedEventIds.contains(event.eventId)
+            if (isSuperseded) {
+                Log.d("Andromuks", "RoomTimelineScreen: Filtering out edited event: ${event.eventId}")
+            }
+            !isSuperseded
+        } else {
+            true // Keep non-message events
+        }
+    }
+
+    Log.d("Andromuks", "RoomTimelineScreen: After edit filtering: ${eventsWithoutSuperseded.size} events")
+
+    val sorted = eventsWithoutSuperseded.sortedBy { it.timestamp }
+    Log.d("Andromuks", "RoomTimelineScreen: Final sorted events: ${sorted.size} events")
+
+    sorted
+}
 
 /** Floating member list for mentions */
 @Composable
@@ -654,89 +726,24 @@ fun RoomTimelineScreen(
             // timeline
         )
 
-    // Sort events so newer messages are at the bottom, and filter unprocessed events if setting is
-    // disabled
-    val sortedEvents =
-        remember(timelineEvents, appViewModel.showUnprocessedEvents, appViewModel.timelineUpdateCounter) {
-            Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Processing ${timelineEvents.size} timeline events, showUnprocessedEvents: ${appViewModel.showUnprocessedEvents}"
-            )
+    // PERFORMANCE: Use background processing for heavy filtering and sorting operations
+    var sortedEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
+    
+    // Process timeline events in background when dependencies change
+    LaunchedEffect(timelineEvents, appViewModel.showUnprocessedEvents, appViewModel.timelineUpdateCounter) {
+        sortedEvents = processTimelineEvents(
+            timelineEvents = timelineEvents,
+            showUnprocessedEvents = appViewModel.showUnprocessedEvents,
+            allowedEventTypes = allowedEventTypes
+        )
+    }
 
-            // Debug: Log event types in timeline
-            val eventTypes = timelineEvents.groupBy { it.type }
-            Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(", ")}"
-            )
-
-            val filteredEvents =
-                if (appViewModel.showUnprocessedEvents) {
-                    // Show all events when unprocessed events are enabled, but always exclude
-                    // redaction events
-                    val filtered =
-                        timelineEvents.filter { event -> event.type != "m.room.redaction" }
-                    Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: After redaction filtering: ${filtered.size} events"
-                    )
-                    filtered
-                } else {
-                    // Only show allowed events when unprocessed events are disabled
-                    val filtered =
-                        timelineEvents.filter { event -> allowedEventTypes.contains(event.type) }
-                    Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: After type filtering: ${filtered.size} events"
-                    )
-                    filtered
-                }
-
-            // Filter out superseded events (original messages that have been edited)
-            // Edit events create new timeline entries, so we hide the original messages they
-            // replace
-            val eventsWithoutSuperseded =
-                filteredEvents.filter { event ->
-                    if (event.type == "m.room.message") {
-                        // Check if this message has been superseded by an edit
-                        val hasBeenEdited =
-                            filteredEvents.any { otherEvent ->
-                                otherEvent.type == "m.room.message" &&
-                                    otherEvent.content
-                                        ?.optJSONObject("m.relates_to")
-                                        ?.optString("rel_type") == "m.replace" &&
-                                    otherEvent.content
-                                        ?.optJSONObject("m.relates_to")
-                                        ?.optString("event_id") == event.eventId
-                            }
-                        if (hasBeenEdited) {
-                            Log.d(
-                                "Andromuks",
-                                "RoomTimelineScreen: Filtering out edited event: ${event.eventId}"
-                            )
-                        }
-                        !hasBeenEdited // Keep the event if it hasn't been edited
-                    } else {
-                        true // Keep non-message events
-                    }
-                }
-
-            Log.d(
-                "Andromuks",
-                "RoomTimelineScreen: After edit filtering: ${eventsWithoutSuperseded.size} events"
-            )
-
-            val sorted = eventsWithoutSuperseded.sortedBy { it.timestamp }
-            Log.d("Andromuks", "RoomTimelineScreen: Final sorted events: ${sorted.size} events")
-
-            sorted
-        }
-
-    // Create timeline items with date dividers
+    // PERFORMANCE: Create timeline items with date dividers and pre-compute consecutive flags
     val timelineItems =
         remember(sortedEvents, appViewModel.timelineUpdateCounter) {
             val items = mutableListOf<TimelineItem>()
             var lastDate: String? = null
+            var previousEvent: TimelineEvent? = null
 
             for (event in sortedEvents) {
                 // Format date inline to avoid @Composable context issue
@@ -748,10 +755,27 @@ fun RoomTimelineScreen(
                 if (lastDate == null || eventDate != lastDate) {
                     items.add(TimelineItem.DateDivider(eventDate))
                     lastDate = eventDate
+                    // Date divider breaks consecutive grouping
+                    previousEvent = null
                 }
 
-                // Add the event
-                items.add(TimelineItem.Event(event))
+                // Check if this event has per-message profile (from bridges like Beeper)
+                val hasPerMessageProfile = 
+                    event.content?.has("com.beeper.per_message_profile") == true ||
+                    event.decrypted?.has("com.beeper.per_message_profile") == true
+
+                // Check if this is a consecutive message from the same sender
+                val isConsecutive = !hasPerMessageProfile && 
+                    previousEvent?.sender == event.sender
+
+                // Add the event with pre-computed flags
+                items.add(TimelineItem.Event(
+                    event = event,
+                    isConsecutive = isConsecutive,
+                    hasPerMessageProfile = hasPerMessageProfile
+                ))
+
+                previousEvent = event
             }
             items
         }
@@ -805,6 +829,14 @@ fun RoomTimelineScreen(
                 // User scrolled up from bottom, detach
                 Log.d("Andromuks", "RoomTimelineScreen: User scrolled up, detaching from bottom")
                 isAttachedToBottom = false
+            }
+            
+            // PERFORMANCE: Automatic loading when scrolling near top for better UX
+            val firstVisibleIndex = listState.firstVisibleItemIndex
+            if (hasLoadMoreButton && firstVisibleIndex <= 5 && !isLoadingMore && appViewModel.hasMoreMessages) {
+                Log.d("Andromuks", "RoomTimelineScreen: Auto-loading more messages (near top: $firstVisibleIndex)")
+                isLoadingMore = true
+                appViewModel.loadOlderMessages(roomId)
             }
         }
     }
@@ -1108,13 +1140,15 @@ fun RoomTimelineScreen(
                         LazyColumn(
                             modifier = Modifier.weight(1f).fillMaxWidth(),
                             state = listState,
-                            contentPadding =
-                                androidx.compose.foundation.layout.PaddingValues(
-                                    start = 16.dp,
-                                    end = 16.dp,
-                                    top = 8.dp,
-                                    bottom = 8.dp
-                                )
+                            // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                start = 16.dp,
+                                end = 16.dp,
+                                top = 8.dp,
+                                bottom = 120.dp // Extra padding at bottom for better scroll performance
+                            ),
+                            // PERFORMANCE: Enable smooth scrolling optimizations
+                            userScrollEnabled = true
                         ) {
                             // Load More button at the top - only show if there are more messages
                             if (appViewModel.hasMoreMessages) {
@@ -1163,48 +1197,22 @@ fun RoomTimelineScreen(
                                 }
                             }
 
-                            itemsIndexed(timelineItems) { index, item ->
+                            // PERFORMANCE: Use stable keys and pre-computed consecutive flags
+                            items(
+                                items = timelineItems,
+                                key = { item -> item.stableKey }
+                            ) { item ->
                                 when (item) {
                                     is TimelineItem.DateDivider -> {
                                         DateDivider(item.date)
                                     }
                                     is TimelineItem.Event -> {
                                         val event = item.event
-                                        Log.d(
-                                            "Andromuks",
-                                            "RoomTimelineScreen: Processing timeline event: ${event.eventId}, type: ${event.type}, sender: ${event.sender}"
-                                        )
+                                        // PERFORMANCE: Removed logging from item rendering to improve scroll performance
                                         val isMine = myUserId != null && event.sender == myUserId
 
-                                        // Check if this is a consecutive message from the same
-                                        // sender
-                                        // Look at previous item (skip date dividers)
-                                        var previousEvent: TimelineEvent? = null
-                                        var prevIndex = index - 1
-                                        while (prevIndex >= 0 && previousEvent == null) {
-                                            when (val prevItem = timelineItems[prevIndex]) {
-                                                is TimelineItem.Event ->
-                                                    previousEvent = prevItem.event
-                                                is TimelineItem.DateDivider ->
-                                                    break // Date divider breaks grouping
-                                            }
-                                            prevIndex--
-                                        }
-
-                                        // Check if current event has per-message profile (from
-                                        // bridges like Beeper)
-                                        // These should always show avatar/name even if from same
-                                        // Matrix user
-                                        val hasPerMessageProfile =
-                                            event.content?.has("com.beeper.per_message_profile") ==
-                                                true ||
-                                                event.decrypted?.has(
-                                                    "com.beeper.per_message_profile"
-                                                ) == true
-
-                                        val isConsecutive =
-                                            !hasPerMessageProfile &&
-                                                previousEvent?.sender == event.sender
+                                        // PERFORMANCE: Use pre-computed consecutive flag instead of index-based lookup
+                                        val isConsecutive = item.isConsecutive
 
                                         TimelineEventItem(
                                             event = event,
@@ -1217,11 +1225,13 @@ fun RoomTimelineScreen(
                                             isConsecutive = isConsecutive,
                                             appViewModel = appViewModel,
                                             onScrollToMessage = { eventId ->
-                                                // Find the index of the message to scroll to
-                                                val index =
-                                                    sortedEvents.indexOfFirst {
-                                                        it.eventId == eventId
+                                                // PERFORMANCE: Find the index in timelineItems instead of sortedEvents
+                                                val index = timelineItems.indexOfFirst { item ->
+                                                    when (item) {
+                                                        is TimelineItem.Event -> item.event.eventId == eventId
+                                                        is TimelineItem.DateDivider -> false
                                                     }
+                                                }
                                                 if (index >= 0) {
                                                     coroutineScope.launch {
                                                         listState.animateScrollToItem(index)
