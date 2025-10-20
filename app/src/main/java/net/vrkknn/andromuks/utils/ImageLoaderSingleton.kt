@@ -14,11 +14,16 @@ import okhttp3.Interceptor
 
 /**
  * Singleton ImageLoader for the entire app
- * Configured with larger memory cache to reduce reloading of avatars
+ * Configured with optimized memory and disk cache for avatar performance
  */
 object ImageLoaderSingleton {
     @Volatile
     private var instance: ImageLoader? = null
+    
+    // AVATAR LOADING OPTIMIZATION: Constants for cache management
+    private const val MEMORY_CACHE_PERCENT = 0.20 // 20% for better balance with other memory usage
+    private const val DISK_CACHE_SIZE_MB = 150L // Increased to 150MB for better avatar caching
+    private const val MAX_DISK_CACHE_ENTRIES = 1000 // Limit number of cached images
     
     fun get(context: Context): ImageLoader {
         return instance ?: synchronized(this) {
@@ -50,17 +55,17 @@ object ImageLoaderSingleton {
             }
             .memoryCache {
                 MemoryCache.Builder(context)
-                    // Use 25% of available memory for image cache (default is 20%)
-                    .maxSizePercent(0.25)
-                    // Keep strong references to prevent GC from clearing cache too quickly
+                    // AVATAR LOADING OPTIMIZATION: Optimized memory cache size
+                    .maxSizePercent(MEMORY_CACHE_PERCENT)
+                    // Keep strong references for frequently accessed avatars
                     .strongReferencesEnabled(true)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
                     .directory(context.cacheDir.resolve("image_cache"))
-                    // 100 MB disk cache
-                    .maxSizeBytes(100 * 1024 * 1024)
+                    // AVATAR LOADING OPTIMIZATION: Larger disk cache with size limits
+                    .maxSizeBytes(DISK_CACHE_SIZE_MB * 1024 * 1024)
                     .build()
             }
             // Default cache policies - enable both memory and disk cache

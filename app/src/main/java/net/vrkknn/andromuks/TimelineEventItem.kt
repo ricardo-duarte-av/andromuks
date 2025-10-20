@@ -2130,7 +2130,9 @@ fun TimelineEventItem(
                     fallbackText = (displayName ?: event.sender).take(1),
                     size = 24.dp,
                     userId = event.sender,
-                    displayName = displayName
+                    displayName = displayName,
+                    // AVATAR LOADING OPTIMIZATION: Enable lazy loading for timeline performance
+                    isVisible = true // Timeline items are visible when rendered
                 )
             }
             Spacer(modifier = Modifier.width(8.dp))

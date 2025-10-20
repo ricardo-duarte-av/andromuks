@@ -622,7 +622,9 @@ fun RoomListItem(
             fallbackText = room.name,
             size = 48.dp,
             userId = room.id,
-            displayName = room.name
+            displayName = room.name,
+            // AVATAR LOADING OPTIMIZATION: Enable lazy loading for room list performance
+            isVisible = true // Room list items are visible when rendered in LazyColumn
         )
         
         Spacer(modifier = Modifier.width(12.dp))

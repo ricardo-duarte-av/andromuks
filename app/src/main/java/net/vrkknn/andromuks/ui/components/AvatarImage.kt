@@ -17,6 +17,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
@@ -32,8 +34,12 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.runtime.derivedStateOf
 
 
 @Composable
@@ -45,7 +51,9 @@ fun AvatarImage(
     modifier: Modifier = Modifier,
     size: Dp = 48.dp,
     userId: String? = null,
-    displayName: String? = null
+    displayName: String? = null,
+    blurHash: String? = null, // AVATAR LOADING OPTIMIZATION: BlurHash for placeholder
+    isVisible: Boolean = true // AVATAR LOADING OPTIMIZATION: Lazy loading control
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -60,6 +68,26 @@ fun AvatarImage(
     
     // Track if the image failed to load
     var imageLoadFailed by remember(avatarUrl) { mutableStateOf(false) }
+    
+    // AVATAR LOADING OPTIMIZATION: Lazy loading state - only load when visible
+    var shouldLoadImage by remember(isVisible, avatarUrl) { mutableStateOf(false) }
+    
+    // AVATAR LOADING OPTIMIZATION: Initialize lazy loading with LaunchedEffect
+    LaunchedEffect(isVisible, avatarUrl) {
+        if (isVisible && avatarUrl != null) {
+            // Small delay to avoid loading while scrolling
+            kotlinx.coroutines.delay(50)
+            shouldLoadImage = true
+        }
+    }
+    
+    // AVATAR LOADING OPTIMIZATION: Generate placeholder from BlurHash if available
+    val placeholderBitmap = remember(blurHash, size) {
+        if (blurHash != null && blurHash.isNotBlank()) {
+            val pixelSize = size.value.toInt()
+            BlurHashUtils.blurHashToImageBitmap(blurHash, pixelSize, pixelSize)
+        } else null
+    }
     
     // Compute fallback info
     val fallbackLetter = remember(displayName, userId, fallbackText) {
@@ -93,62 +121,78 @@ fun AvatarImage(
             ),
         contentAlignment = Alignment.Center
     ) {
-        // Show text fallback if no URL or if image failed to load
-        if (avatarUrl == null || imageLoadFailed) {
-            Text(
-                text = fallbackLetter,
-                style = MaterialTheme.typography.titleMedium,
-                color = Color.White
-            )
-        } else {
-            // We have an avatar URL and haven't failed yet - try to load it
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(avatarUrl)
-                    .apply {
-                        // Only add auth header for HTTP URLs, not for file:// URIs
-                        if (avatarUrl.startsWith("http")) {
-                            addHeader("Cookie", "gomuks_auth=$authToken")
-                        }
-                    }
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .build(),
-                imageLoader = imageLoader,
-                contentDescription = "Avatar",
-                modifier = Modifier
-                    .size(size)
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop,
-                onSuccess = {
-                    imageLoadFailed = false
-                    // Cache to MediaCache for notification system access
-                    // Only if it's an HTTP URL and not already in MediaCache
-                    if (mxcUrl != null && avatarUrl.startsWith("http")) {
-                        coroutineScope.launch {
-                            // Check if already cached to avoid redundant downloads
-                            if (MediaCache.getCachedFile(context, mxcUrl) == null) {
-                                MediaCache.downloadAndCache(context, mxcUrl, avatarUrl, authToken)
-                                MediaCache.cleanupCache(context)
+        // AVATAR LOADING OPTIMIZATION: Show placeholder, fallback, or image based on state
+        when {
+            // Show placeholder image if available and we haven't loaded the real image yet
+            placeholderBitmap != null && !shouldLoadImage -> {
+                Image(
+                    bitmap = placeholderBitmap,
+                    contentDescription = "Avatar placeholder",
+                    modifier = Modifier
+                        .size(size)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            }
+            // Show text fallback if no URL, failed to load, or not visible yet
+            avatarUrl == null || imageLoadFailed || !shouldLoadImage -> {
+                Text(
+                    text = fallbackLetter,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White
+                )
+            }
+            // Load the actual avatar image with lazy loading optimization
+            else -> {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(avatarUrl)
+                        .apply {
+                            // AVATAR LOADING OPTIMIZATION: Set size for better caching
+                            size(size = size.value.toInt())
+                            // Only add auth header for HTTP URLs, not for file:// URIs
+                            if (avatarUrl.startsWith("http")) {
+                                addHeader("Cookie", "gomuks_auth=$authToken")
                             }
                         }
+                        .memoryCachePolicy(CachePolicy.ENABLED)
+                        .diskCachePolicy(CachePolicy.ENABLED)
+                        .build(),
+                    imageLoader = imageLoader,
+                    contentDescription = "Avatar",
+                    modifier = Modifier
+                        .size(size)
+                        .clip(CircleShape),
+                    contentScale = ContentScale.Crop,
+                    onSuccess = {
+                        imageLoadFailed = false
+                        // AVATAR LOADING OPTIMIZATION: Background caching with cleanup
+                        if (mxcUrl != null && avatarUrl.startsWith("http")) {
+                            coroutineScope.launch {
+                                // Check if already cached to avoid redundant downloads
+                                if (MediaCache.getCachedFile(context, mxcUrl) == null) {
+                                    MediaCache.downloadAndCache(context, mxcUrl, avatarUrl, authToken)
+                                    MediaCache.cleanupCache(context)
+                                }
+                            }
+                        }
+                    },
+                    onError = { state ->
+                        // Mark as failed so fallback shows
+                        imageLoadFailed = true
+                        
+                        if (state is coil.request.ErrorResult) {
+                            // Handle cache invalidation for permanent errors
+                            net.vrkknn.andromuks.utils.CacheUtils.handleImageLoadError(
+                                imageUrl = avatarUrl,
+                                throwable = state.throwable,
+                                imageLoader = imageLoader,
+                                context = "Avatar"
+                            )
+                        }
                     }
-                },
-                onError = { state ->
-                    // Mark as failed so fallback shows
-                    imageLoadFailed = true
-                    
-                    if (state is coil.request.ErrorResult) {
-                        // Handle cache invalidation for permanent errors
-                        net.vrkknn.andromuks.utils.CacheUtils.handleImageLoadError(
-                            imageUrl = avatarUrl,
-                            throwable = state.throwable,
-                            imageLoader = imageLoader,
-                            context = "Avatar"
-                        )
-                    }
-                }
-            )
+                )
+            }
         }
     }
 }
