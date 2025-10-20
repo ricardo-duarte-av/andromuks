@@ -26,6 +26,8 @@ import android.media.AudioManager
 import android.os.Vibrator
 import android.os.VibrationEffect
 import android.os.Build
+import java.lang.ref.WeakReference
+import java.util.concurrent.ConcurrentHashMap
 
 data class MemberProfile(
     val displayName: String?,
@@ -72,6 +74,13 @@ class AppViewModel : ViewModel() {
     companion object {
         // File name for user profile disk cache (used in SharedPreferences)
         private const val PROFILE_CACHE_FILE = "user_profiles_cache.json"
+        
+        // MEMORY MANAGEMENT: Constants for cache limits and cleanup
+        private const val MAX_TIMELINE_EVENTS_PER_ROOM = 1000
+        private const val MAX_ANIMATION_STATES = 50
+        private const val MAX_MEMBER_CACHE_SIZE = 5000
+        private const val ANIMATION_STATE_CLEANUP_INTERVAL_MS = 30000L // 30 seconds
+        private const val MAX_MESSAGE_VERSIONS_PER_EVENT = 50
     }
     var isLoading by mutableStateOf(false)
     var homeserverUrl by mutableStateOf("")
@@ -298,6 +307,11 @@ class AppViewModel : ViewModel() {
             currentPosition = newPosition ?: currentState?.currentPosition
         )
         roomAnimationStates = roomAnimationStates + (roomId to updatedState)
+        
+        // MEMORY MANAGEMENT: Cleanup old animation states if we have too many
+        if (roomAnimationStates.size > MAX_ANIMATION_STATES) {
+            performAnimationStateCleanup()
+        }
     }
     
     /**
@@ -312,6 +326,24 @@ class AppViewModel : ViewModel() {
      */
     fun clearRoomAnimationState(roomId: String) {
         roomAnimationStates = roomAnimationStates - roomId
+    }
+    
+    /**
+     * MEMORY MANAGEMENT: Cleanup old animation states to prevent memory leaks
+     */
+    private fun performAnimationStateCleanup() {
+        val currentTime = System.currentTimeMillis()
+        val cutoffTime = currentTime - ANIMATION_STATE_CLEANUP_INTERVAL_MS
+        
+        // Remove old animation states that are no longer animating and haven't been updated recently
+        val statesToRemove = roomAnimationStates.filter { (_, state) ->
+            !state.isAnimating && state.lastUpdateTime < cutoffTime
+        }.keys
+        
+        if (statesToRemove.isNotEmpty()) {
+            roomAnimationStates = roomAnimationStates - statesToRemove.toSet()
+            android.util.Log.d("Andromuks", "AppViewModel: Cleaned up ${statesToRemove.size} old animation states")
+        }
     }
     
     fun restartWebSocketConnection(reason: String = "Manual reconnection") {
@@ -878,12 +910,15 @@ class AppViewModel : ViewModel() {
     private val roomMap = mutableMapOf<String, RoomItem>()
     private var syncMessageCount = 0
 
-    // Per-room member cache: roomId -> (userId -> MemberProfile)
-    private val roomMemberCache = mutableMapOf<String, MutableMap<String, MemberProfile>>()
+    // MEMORY MANAGEMENT: Flattened member cache for better memory usage and performance
+    // Using roomId:userId as key instead of nested maps to reduce memory fragmentation
+    private val flattenedMemberCache = ConcurrentHashMap<String, MemberProfile>() // Key: "roomId:userId"
     
-    // Global user profile cache for O(1) lookups (performance optimization)
-    // This avoids scanning all room caches when looking up a profile
-    private val globalProfileCache = mutableMapOf<String, MemberProfile>()
+    // Global user profile cache with weak references to allow garbage collection
+    private val globalProfileCache = ConcurrentHashMap<String, WeakReference<MemberProfile>>()
+    
+    // Legacy room member cache (deprecated, kept for compatibility)
+    private val roomMemberCache = mutableMapOf<String, MutableMap<String, MemberProfile>>()
     
     // OPTIMIZED EDIT/REDACTION SYSTEM - O(1) lookups for all operations
     // Maps original event ID to its complete version history
@@ -896,15 +931,82 @@ class AppViewModel : ViewModel() {
     private val redactionCache = mutableMapOf<String, TimelineEvent>()
 
     fun getMemberProfile(roomId: String, userId: String): MemberProfile? {
+        // MEMORY MANAGEMENT: Try flattened cache first for better performance
+        val flattenedKey = "$roomId:$userId"
+        val flattenedProfile = flattenedMemberCache[flattenedKey]
+        if (flattenedProfile != null) {
+            return flattenedProfile
+        }
+        
+        // Fallback to legacy cache (for compatibility during transition)
         return roomMemberCache[roomId]?.get(userId)
     }
 
     fun getMemberMap(roomId: String): Map<String, MemberProfile> {
-        return roomMemberCache[roomId] ?: emptyMap()
+        // MEMORY MANAGEMENT: Build map from flattened cache for better memory efficiency
+        val memberMap = mutableMapOf<String, MemberProfile>()
+        flattenedMemberCache.forEach { (key, profile) ->
+            if (key.startsWith("$roomId:")) {
+                val userId = key.substringAfter("$roomId:")
+                memberMap[userId] = profile
+            }
+        }
+        
+        // If no flattened data, fallback to legacy cache
+        if (memberMap.isEmpty() && roomMemberCache.containsKey(roomId)) {
+            roomMemberCache[roomId]?.let { legacyMap ->
+                memberMap.putAll(legacyMap)
+            }
+        }
+        
+        return memberMap
     }
     
     fun isMemberCacheEmpty(roomId: String): Boolean {
+        // MEMORY MANAGEMENT: Check if any flattened entries exist for this room
+        val hasFlattenedEntries = flattenedMemberCache.keys.any { it.startsWith("$roomId:") }
+        if (hasFlattenedEntries) {
+            return false
+        }
+        
+        // Fallback to legacy cache
         return roomMemberCache[roomId]?.isEmpty() ?: true
+    }
+    
+    /**
+     * MEMORY MANAGEMENT: Helper method to store member profile in both flattened and legacy caches
+     */
+    private fun storeMemberProfile(roomId: String, userId: String, profile: MemberProfile) {
+        // Store in flattened cache for better memory efficiency
+        val flattenedKey = "$roomId:$userId"
+        flattenedMemberCache[flattenedKey] = profile
+        
+        // Also maintain legacy cache for compatibility
+        val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+        memberMap[userId] = profile
+        
+        // Store in global cache with weak reference for memory management
+        globalProfileCache[userId] = WeakReference(profile)
+        
+        // MEMORY MANAGEMENT: Cleanup if cache gets too large
+        if (flattenedMemberCache.size > MAX_MEMBER_CACHE_SIZE) {
+            performMemberCacheCleanup()
+        }
+    }
+    
+    /**
+     * MEMORY MANAGEMENT: Cleanup old member cache entries to prevent memory pressure
+     */
+    private fun performMemberCacheCleanup() {
+        val currentTime = System.currentTimeMillis()
+        val cutoffTime = currentTime - (24 * 60 * 60 * 1000) // 24 hours ago
+        
+        // Clean up stale global profile cache entries
+        globalProfileCache.entries.removeAll { (_, weakRef) ->
+            weakRef.get() == null // Remove cleared weak references
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Performed member cache cleanup - flattened: ${flattenedMemberCache.size}, global: ${globalProfileCache.size}")
     }
     
     /**
@@ -958,8 +1060,15 @@ class AppViewModel : ViewModel() {
      * @return MemberProfile if found in cache, null otherwise (UI should show fallback)
      */
     fun getUserProfile(userId: String, roomId: String? = null): MemberProfile? {
-        // Check room member cache first if roomId is provided (most specific)
+        // MEMORY MANAGEMENT: Try flattened cache first if roomId is provided
         if (roomId != null) {
+            val flattenedKey = "$roomId:$userId"
+            val flattenedProfile = flattenedMemberCache[flattenedKey]
+            if (flattenedProfile != null) {
+                return flattenedProfile
+            }
+            
+            // Fallback to legacy room member cache
             val roomMember = roomMemberCache[roomId]?.get(userId)
             if (roomMember != null) {
                 return roomMember
@@ -974,10 +1083,14 @@ class AppViewModel : ViewModel() {
             )
         }
         
-        // PERFORMANCE: Check global profile cache (O(1) lookup instead of scanning all rooms)
-        val globalProfile = globalProfileCache[userId]
+        // MEMORY MANAGEMENT: Check global profile cache with weak references
+        val globalProfileRef = globalProfileCache[userId]
+        val globalProfile = globalProfileRef?.get()
         if (globalProfile != null) {
             return globalProfile
+        } else if (globalProfileRef != null) {
+            // Weak reference was cleared, remove the stale entry
+            globalProfileCache.remove(userId)
         }
         
         // NOT FOUND - Return null immediately (don't block UI)
@@ -1079,8 +1192,15 @@ class AppViewModel : ViewModel() {
                             val updatedVersions = (versioned.versions + newVersion)
                                 .sortedByDescending { it.timestamp }
                             
+                            // MEMORY MANAGEMENT: Limit versions per message to prevent memory leaks
+                            val limitedVersions = if (updatedVersions.size > MAX_MESSAGE_VERSIONS_PER_EVENT) {
+                                updatedVersions.take(MAX_MESSAGE_VERSIONS_PER_EVENT)
+                            } else {
+                                updatedVersions
+                            }
+                            
                             messageVersions[originalEventId] = versioned.copy(
-                                versions = updatedVersions
+                                versions = limitedVersions
                             )
                             
                             android.util.Log.d("Andromuks", "AppViewModel: Added edit ${event.eventId} to original $originalEventId (total versions: ${updatedVersions.size})")
@@ -1174,7 +1294,7 @@ class AppViewModel : ViewModel() {
                                 val profile = MemberProfile(displayName, avatarUrl)
                                 memberMap[userId] = profile
                                 // PERFORMANCE: Also add to global cache for O(1) lookups
-                                globalProfileCache[userId] = profile
+                                globalProfileCache[userId] = WeakReference(profile)
                                 //android.util.Log.d("Andromuks", "AppViewModel: Cached joined member '$userId' in room '$roomId' -> displayName: '$displayName'")
                             }
                             "invite" -> {
@@ -1184,7 +1304,7 @@ class AppViewModel : ViewModel() {
                                 val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
                                 
                                 val profile = MemberProfile(displayName, avatarUrl)
-                                globalProfileCache[userId] = profile
+                                globalProfileCache[userId] = WeakReference(profile)
                                 //android.util.Log.d("Andromuks", "AppViewModel: Cached invited member '$userId' profile in global cache only -> displayName: '$displayName'")
                             }
                             "leave", "ban" -> {
@@ -3661,7 +3781,7 @@ class AppViewModel : ViewModel() {
         val memberProfile = MemberProfile(username, null)
         
         // PERFORMANCE: Add to global cache first
-        globalProfileCache[userId] = memberProfile
+        globalProfileCache[userId] = WeakReference(memberProfile)
         
         // If we know which room requested the profile, add it to that room's cache
         if (requestingRoomId != null) {
@@ -3696,7 +3816,7 @@ class AppViewModel : ViewModel() {
         val memberProfile = MemberProfile(display, avatar)
         
         // PERFORMANCE: Add to global profile cache first (O(1) access)
-        globalProfileCache[userId] = memberProfile
+        globalProfileCache[userId] = WeakReference(memberProfile)
         
         // If we know which room requested the profile, add it to that room's cache
         if (requestingRoomId != null) {
@@ -3938,7 +4058,7 @@ class AppViewModel : ViewModel() {
                         val profile = MemberProfile(displayName, avatarUrl)
                         memberMap[userId] = profile
                         // PERFORMANCE: Also add to global cache for O(1) lookups
-                        globalProfileCache[userId] = profile
+                        globalProfileCache[userId] = WeakReference(profile)
                     } else {
                         // Process reaction events from paginate
                         if (event.type == "m.reaction") {
@@ -4437,7 +4557,7 @@ class AppViewModel : ViewModel() {
                             val newProfile = MemberProfile(displayName, avatarUrl)
                             memberMap[stateKey] = newProfile
                             // PERFORMANCE: Also add to global cache for O(1) lookups
-                            globalProfileCache[stateKey] = newProfile
+                            globalProfileCache[stateKey] = WeakReference(newProfile)
                             
                             android.util.Log.d("Andromuks", "AppViewModel: Added member $stateKey to room $roomId - displayName: '$displayName', avatarUrl: '$avatarUrl'")
                             updatedMembers++
@@ -4499,7 +4619,7 @@ class AppViewModel : ViewModel() {
                             
                             memberMap[stateKey] = newProfile
                             // PERFORMANCE: Also add to global cache for O(1) lookups
-                            globalProfileCache[stateKey] = newProfile
+                            globalProfileCache[stateKey] = WeakReference(newProfile)
                             
                             android.util.Log.d("Andromuks", "AppViewModel: Updated profile for $stateKey - displayName: '$displayName', avatarUrl: '$avatarUrl'")
                             updatedProfiles++
@@ -4682,7 +4802,7 @@ class AppViewModel : ViewModel() {
                         val profile = MemberProfile(displayName, avatarUrl)
                         memberMap[userId] = profile
                         // PERFORMANCE: Also add to global cache for O(1) lookups
-                        globalProfileCache[userId] = profile
+                        globalProfileCache[userId] = WeakReference(profile)
                         android.util.Log.d("Andromuks", "AppViewModel: [SYNC] ✓ Updated member cache for $userId: displayName='$displayName' (NOT added to timeline - correct)")
                     }
                 }
@@ -5153,7 +5273,15 @@ class AppViewModel : ViewModel() {
             newMessageAnimationTrigger = currentTime
         }
         
-        this.timelineEvents = sortedTimelineEvents
+        // MEMORY MANAGEMENT: Limit timeline events to prevent memory pressure
+        val limitedTimelineEvents = if (sortedTimelineEvents.size > MAX_TIMELINE_EVENTS_PER_ROOM) {
+            // Keep the most recent events (sorted by timestamp, newest first in the list)
+            sortedTimelineEvents.sortedByDescending { it.timestamp }.take(MAX_TIMELINE_EVENTS_PER_ROOM).sortedBy { it.timestamp }
+        } else {
+            sortedTimelineEvents
+        }
+        
+        this.timelineEvents = limitedTimelineEvents
         timelineUpdateCounter++
         updateCounter++ // Keep for backward compatibility temporarily
         
@@ -5195,7 +5323,17 @@ class AppViewModel : ViewModel() {
         }
         
         // Sort chronologically by timestamp
-        this.timelineEvents = currentEvents.sortedBy { it.timestamp }
+        val sortedEvents = currentEvents.sortedBy { it.timestamp }
+        
+        // MEMORY MANAGEMENT: Limit timeline events to prevent memory pressure
+        val limitedTimelineEvents = if (sortedEvents.size > MAX_TIMELINE_EVENTS_PER_ROOM) {
+            // Keep the most recent events
+            sortedEvents.sortedByDescending { it.timestamp }.take(MAX_TIMELINE_EVENTS_PER_ROOM).sortedBy { it.timestamp }
+        } else {
+            sortedEvents
+        }
+        
+        this.timelineEvents = limitedTimelineEvents
         timelineUpdateCounter++
         updateCounter++ // Keep for backward compatibility temporarily
         
@@ -6289,6 +6427,60 @@ class AppViewModel : ViewModel() {
             }
         } else {
             callback(Pair(null, null))
+        }
+    }
+    
+    /**
+     * MEMORY MANAGEMENT: Initialize periodic cleanup to prevent memory leaks
+     */
+    init {
+        // Start periodic cleanup job
+        viewModelScope.launch {
+            while (isActive) {
+                delay(5 * 60 * 1000) // Run every 5 minutes
+                performPeriodicMemoryCleanup()
+            }
+        }
+    }
+    
+    /**
+     * MEMORY MANAGEMENT: Periodic cleanup of stale data to prevent memory pressure
+     */
+    private fun performPeriodicMemoryCleanup() {
+        try {
+            // Clean up stale animation states
+            performAnimationStateCleanup()
+            
+            // Clean up stale member cache entries
+            performMemberCacheCleanup()
+            
+            // Clean up stale message versions (keep only recent ones)
+            val currentTime = System.currentTimeMillis()
+            val cutoffTime = currentTime - (7 * 24 * 60 * 60 * 1000) // 7 days ago
+            
+            val versionsToRemove = messageVersions.filter { (_, versioned) ->
+                versioned.versions.isNotEmpty() && 
+                versioned.versions.first().timestamp < cutoffTime
+            }.keys
+            
+            if (versionsToRemove.isNotEmpty()) {
+                versionsToRemove.forEach { eventId ->
+                    messageVersions.remove(eventId)
+                    editToOriginal.remove(eventId)
+                    redactionCache.remove(eventId)
+                }
+                android.util.Log.d("Andromuks", "AppViewModel: Cleaned up ${versionsToRemove.size} old message versions")
+            }
+            
+            // Clean up old processed reactions
+            if (processedReactions.size > 200) {
+                val toRemove = processedReactions.take(processedReactions.size - 100)
+                processedReactions.removeAll(toRemove)
+                android.util.Log.d("Andromuks", "AppViewModel: Cleaned up ${toRemove.size} old processed reactions")
+            }
+            
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Error during periodic memory cleanup", e)
         }
     }
 }
