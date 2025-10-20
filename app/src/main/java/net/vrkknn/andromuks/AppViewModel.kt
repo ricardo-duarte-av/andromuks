@@ -199,6 +199,21 @@ class AppViewModel : ViewModel() {
     var roomStateUpdateCounter by mutableStateOf(0)
         private set
     
+    // SYNC OPTIMIZATION: Batched update mechanism
+    private var pendingUIUpdates = mutableSetOf<String>() // Track which UI sections need updates
+    private var batchUpdateJob: Job? = null // Job for batching UI updates
+    
+    // SYNC OPTIMIZATION: Diff-based update tracking
+    private var lastRoomStateHash: String = ""
+    private var lastTimelineStateHash: String = ""
+    private var lastMemberStateHash: String = ""
+    
+    // SYNC OPTIMIZATION: Selective update flags
+    private var needsRoomListUpdate = false
+    private var needsTimelineUpdate = false
+    private var needsMemberUpdate = false
+    private var needsReactionUpdate = false
+    
     // Read receipts update counter - separate from main updateCounter to reduce unnecessary UI updates
     var readReceiptsUpdateCounter by mutableStateOf(0)
         private set
@@ -249,12 +264,18 @@ class AppViewModel : ViewModel() {
     var spacesLoaded by mutableStateOf(false)
         private set
 
-    fun setSpaces(spaces: List<SpaceItem>) {
+    fun setSpaces(spaces: List<SpaceItem>, skipCounterUpdate: Boolean = false) {
         android.util.Log.d("Andromuks", "AppViewModel: setSpaces called with ${spaces.size} spaces")
         spaceList = spaces
-        roomListUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
-        android.util.Log.d("Andromuks", "AppViewModel: spaceList set to ${spaceList.size} spaces, roomListUpdateCounter: $roomListUpdateCounter")
+        
+        // SYNC OPTIMIZATION: Allow skipping immediate counter updates for batched updates
+        if (!skipCounterUpdate) {
+            roomListUpdateCounter++
+            updateCounter++ // Keep for backward compatibility temporarily
+            android.util.Log.d("Andromuks", "AppViewModel: spaceList set to ${spaceList.size} spaces, roomListUpdateCounter: $roomListUpdateCounter")
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: spaceList updated (counter update skipped for batching)")
+        }
     }
     
     fun updateAllSpaces(spaces: List<SpaceItem>) {
@@ -1347,12 +1368,93 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    // SYNC OPTIMIZATION: Helper functions for diff-based and batched updates
+    
+    /**
+     * Generate a hash for room state to detect actual changes
+     */
+    private fun generateRoomStateHash(rooms: List<RoomItem>): String {
+        return rooms.joinToString("|") { "${it.id}:${it.name}:${it.unreadCount}:${it.messagePreview}:${it.messageSender}:${it.sortingTimestamp}" }
+    }
+    
+    /**
+     * Generate a hash for timeline state to detect actual changes
+     */
+    private fun generateTimelineStateHash(events: List<TimelineEvent>): String {
+        return events.takeLast(50).joinToString("|") { "${it.eventId}:${it.timestamp}:${it.content?.toString()}" }
+    }
+    
+    /**
+     * Generate a hash for member state to detect actual changes
+     */
+    private fun generateMemberStateHash(): String {
+        return flattenedMemberCache.entries.take(100).joinToString("|") { "${it.key}:${it.value.displayName}:${it.value.avatarUrl}" }
+    }
+    
+    /**
+     * Schedule a batched UI update to prevent excessive recompositions
+     */
+    private fun scheduleUIUpdate(updateType: String) {
+        pendingUIUpdates.add(updateType)
+        
+        // Cancel existing batch job if any
+        batchUpdateJob?.cancel()
+        
+        // Schedule new batch update with small delay to batch multiple rapid updates
+        batchUpdateJob = viewModelScope.launch {
+            delay(16) // ~60fps batching
+            
+            if (pendingUIUpdates.isNotEmpty()) {
+                performBatchedUIUpdates()
+                pendingUIUpdates.clear()
+            }
+        }
+    }
+    
+    /**
+     * Perform batched UI updates only for changed sections
+     */
+    private fun performBatchedUIUpdates() {
+        // Only update counters for sections that actually need updates
+        if (needsRoomListUpdate) {
+            roomListUpdateCounter++
+            needsRoomListUpdate = false
+            android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room list update triggered")
+        }
+        
+        if (needsTimelineUpdate) {
+            timelineUpdateCounter++
+            needsTimelineUpdate = false
+            android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Timeline update triggered")
+        }
+        
+        if (needsMemberUpdate) {
+            memberUpdateCounter++
+            needsMemberUpdate = false
+            android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Member update triggered")
+        }
+        
+        if (needsReactionUpdate) {
+            reactionUpdateCounter++
+            needsReactionUpdate = false
+            android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Reaction update triggered")
+        }
+        
+        // Keep for backward compatibility temporarily
+        updateCounter++
+        
+        android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Batched UI update completed")
+    }
+
     fun updateRoomsFromSyncJson(syncJson: JSONObject) {
         // Update last sync timestamp for notification display
         lastSyncTimestamp = System.currentTimeMillis()
         
-        // First, populate member cache from sync data
+        // First, populate member cache from sync data and check for changes
+        val oldMemberStateHash = generateMemberStateHash()
         populateMemberCacheFromSync(syncJson)
+        val newMemberStateHash = generateMemberStateHash()
+        val memberStateChanged = newMemberStateHash != oldMemberStateHash
         
         // Process account_data for recent emojis
         processAccountData(syncJson)
@@ -1440,45 +1542,68 @@ class AppViewModel : ViewModel() {
         // Always cache timeline events (lightweight, needed for instant room opening)
         cacheTimelineEventsFromSync(syncJson)
         
+        // SYNC OPTIMIZATION: Always update data first, then check for diff-based UI updates
+        val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+        
+        // Update low priority rooms set for notification filtering (always needed)
+        updateLowPriorityRooms(sortedRooms)
+        
+        // Diff-based update: Only update UI if room state actually changed
+        val newRoomStateHash = generateRoomStateHash(sortedRooms)
+        val roomStateChanged = newRoomStateHash != lastRoomStateHash
+        
         // BATTERY OPTIMIZATION: Skip expensive UI updates when app is in background
         if (isAppVisible) {
             // Trigger timestamp update on sync (only for visible UI)
             triggerTimestampUpdate()
             
-            // Update the UI with the current room list
-            val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
-            android.util.Log.d("Andromuks", "AppViewModel: Updating spaceList with ${sortedRooms.size} rooms (app visible)")
-            
-            // Update animation states with new positions
-            sortedRooms.forEachIndexed { index, room ->
-                updateRoomAnimationState(room.id, isAnimating = false, newPosition = index)
+            // SYNC OPTIMIZATION: Selective updates - only update what actually changed
+            if (roomStateChanged) {
+                android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room state changed, scheduling UI update")
+                
+                // Update animation states with new positions
+                sortedRooms.forEachIndexed { index, room ->
+                    updateRoomAnimationState(room.id, isAnimating = false, newPosition = index)
+                }
+                
+                setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)), skipCounterUpdate = true)
+                allRooms = sortedRooms // Update allRooms for filtering
+                invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
+                
+                // Mark for batched UI update
+                needsRoomListUpdate = true
+                scheduleUIUpdate("roomList")
+                
+                lastRoomStateHash = newRoomStateHash
+                android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room list update scheduled")
+                
+                // Update conversation shortcuts (only when visible)
+                conversationsApi?.updateConversationShortcuts(sortedRooms)
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room state unchanged, skipping UI update")
             }
             
-            setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
-            allRooms = sortedRooms // Update allRooms for filtering
+            // Always update allRooms for data consistency
+            allRooms = sortedRooms
             invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
             
-            // Update low priority rooms set for notification filtering
-            updateLowPriorityRooms(sortedRooms)
+            // SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
+            checkAndUpdateCurrentRoomTimelineOptimized(syncJson)
             
-            android.util.Log.d("Andromuks", "AppViewModel: spaceList updated, current size: ${spaceList.size}")
-            
-            // Update conversation shortcuts (only when visible)
-            conversationsApi?.updateConversationShortcuts(sortedRooms)
-            
-            // Check if current room needs timeline update (only if a room is open)
-            checkAndUpdateCurrentRoomTimeline(syncJson)
+            // SYNC OPTIMIZATION: Schedule member update if member cache actually changed
+            if (memberStateChanged) {
+                android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update")
+                needsMemberUpdate = true
+                scheduleUIUpdate("member")
+                lastMemberStateHash = newMemberStateHash
+            }
         } else {
             // App is in background - minimal processing for battery saving
             android.util.Log.d("Andromuks", "AppViewModel: BATTERY SAVE MODE - App in background, skipping UI updates")
             
             // Still update allRooms for data consistency (needed for notifications)
-            val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
             allRooms = sortedRooms
             invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
-            
-            // Update low priority rooms set for notification filtering
-            updateLowPriorityRooms(sortedRooms)
             
             // Update shortcuts less frequently in background (every 10 sync messages)
             if (syncMessageCount % 10 == 0) {
@@ -3798,9 +3923,9 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Trigger UI update since member cache changed
-        memberUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
+        // SYNC OPTIMIZATION: Schedule member update instead of immediate counter increment
+        needsMemberUpdate = true
+        scheduleUIUpdate("member")
     }
     
     private fun handleProfileResponse(requestId: Int, data: Any) {
@@ -3845,9 +3970,9 @@ class AppViewModel : ViewModel() {
             fullUserInfoCallback(obj)
         }
         
-        // Trigger UI update since member cache changed
-        memberUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
+        // SYNC OPTIMIZATION: Schedule member update instead of immediate counter increment
+        needsMemberUpdate = true
+        scheduleUIUpdate("member")
     }
     
     /**
@@ -4646,6 +4771,35 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedProfiles profiles in room $roomId")
             // Trigger UI update since member cache changed
             updateCounter++
+        }
+    }
+    
+    /**
+     * SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
+     */
+    private fun checkAndUpdateCurrentRoomTimelineOptimized(syncJson: JSONObject) {
+        val data = syncJson.optJSONObject("data")
+        if (data != null) {
+            val rooms = data.optJSONObject("rooms")
+            if (rooms != null && currentRoomId != null && rooms.has(currentRoomId)) {
+                android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Checking timeline diff for room: $currentRoomId")
+                
+                // Update timeline data first
+                updateTimelineFromSync(syncJson, currentRoomId!!)
+                
+                // Check if timeline actually changed using diff-based detection
+                val newTimelineStateHash = generateTimelineStateHash(timelineEvents)
+                val timelineStateChanged = newTimelineStateHash != lastTimelineStateHash
+                
+                if (timelineStateChanged) {
+                    android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Timeline state changed, scheduling UI update")
+                    needsTimelineUpdate = true
+                    scheduleUIUpdate("timeline")
+                    lastTimelineStateHash = newTimelineStateHash
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Timeline state unchanged, skipping UI update")
+                }
+            }
         }
     }
     
