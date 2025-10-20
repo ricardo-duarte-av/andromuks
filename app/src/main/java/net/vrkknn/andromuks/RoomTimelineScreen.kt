@@ -1102,12 +1102,6 @@ fun RoomTimelineScreen(
                                     Modifier
                                 }
                             )
-                            .clickable {
-                                // Close attachment menu when tapping outside
-                                if (showAttachmentMenu) {
-                                    showAttachmentMenu = false
-                                }
-                            }
                 ) {
                     // 1. Room Header (always visible at the top, below status bar)
                     RoomHeader(
@@ -1129,17 +1123,30 @@ fun RoomTimelineScreen(
                     )
 
                     // 2. Timeline (compressible, scrollable content)
-                    if (isLoading) {
-                        Box(
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("Loading timeline...")
-                        }
-                    } else {
-                        LazyColumn(
-                            modifier = Modifier.weight(1f).fillMaxWidth(),
-                            state = listState,
+                    Box(
+                        modifier = Modifier.weight(1f).fillMaxWidth()
+                            .then(
+                                if (showAttachmentMenu) {
+                                    Modifier.clickable {
+                                        // Close attachment menu when tapping outside
+                                        showAttachmentMenu = false
+                                    }
+                                } else {
+                                    Modifier
+                                }
+                            )
+                    ) {
+                        if (isLoading) {
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("Loading timeline...")
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                state = listState,
                             // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                                 start = 16.dp,
@@ -1301,6 +1308,7 @@ fun RoomTimelineScreen(
                                 }
                             }
                         }
+                    }
                     }
                     
                     // 3. Typing notification area (stacks naturally above text box)
@@ -2126,7 +2134,8 @@ fun RoomHeader(
                     fallbackText = roomState?.name ?: fallbackName,
                     size = 48.dp,
                     userId = roomId ?: roomState?.roomId,
-                    displayName = roomState?.name ?: fallbackName
+                    displayName = roomState?.name ?: fallbackName,
+                    isVisible = true // Always visible for room header
                 )
             }
 

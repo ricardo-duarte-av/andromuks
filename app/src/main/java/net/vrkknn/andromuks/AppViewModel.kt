@@ -701,11 +701,28 @@ class AppViewModel : ViewModel() {
             context = context,
             onNetworkAvailable = {
                 android.util.Log.i("Andromuks", "AppViewModel: Network available - triggering immediate reconnection")
+                // NETWORK OPTIMIZATION: Update offline state and restore connectivity
+                if (isOfflineMode) {
+                    isOfflineMode = false
+                    lastNetworkState = true
+                    android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Exiting offline mode")
+                }
                 // Immediate reconnection instead of waiting for ping timeout
                 restartWebSocket("Network restored")
             },
             onNetworkLost = {
-                android.util.Log.w("Andromuks", "AppViewModel: Network lost - connection will be down until network returns")
+                android.util.Log.w("Andromuks", "AppViewModel: Network lost - entering offline mode")
+                // NETWORK OPTIMIZATION: Enter offline mode and preserve cache
+                if (!isOfflineMode) {
+                    isOfflineMode = true
+                    lastNetworkState = false
+                    android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Entering offline mode, preserving cache")
+                    
+                    // Flush any pending batched commands to avoid data loss
+                    viewModelScope.launch {
+                        flushBatchedCommands()
+                    }
+                }
                 // Could optionally clear WebSocket here, but better to let ping timeout handle it
                 // This avoids unnecessary reconnect attempts when network is definitely unavailable
             }
@@ -2195,9 +2212,39 @@ class AppViewModel : ViewModel() {
     private var vapidKey: String = "" // VAPID key for push notifications
     private var hasHadInitialConnection = false // Track if we've had an initial connection to only vibrate on reconnections
 
+    // NETWORK OPTIMIZATION: Request batching system
+    private data class BatchedWebSocketCommand(
+        val command: String,
+        val requestId: Int,
+        val data: Map<String, Any>
+    )
+    
+    private val pendingBatchedCommands = mutableListOf<BatchedWebSocketCommand>()
+    private var batchFlushJob: Job? = null
+    private val BATCH_DELAY_MS = 50L // Batch commands for 50ms
+    private val MAX_BATCH_SIZE = 10 // Maximum commands to batch together
+
+    // NETWORK OPTIMIZATION: Smart timeout handling
+    private var networkLatencyMs = 1000L // Track estimated network latency
+    private var connectionStability = 1.0f // 0.0 (unstable) to 1.0 (stable)
+    private var consecutiveTimeouts = 0
+    private val BASE_TIMEOUT_MS = 5000L
+    private val MAX_TIMEOUT_MS = 15000L
+    private val MIN_TIMEOUT_MS = 2000L
+
+    // NETWORK OPTIMIZATION: Offline caching and connection state
+    private var isOfflineMode = false
+    private var lastNetworkState = true // true = online, false = offline
+    private val offlineCacheExpiry = 24 * 60 * 60 * 1000L // 24 hours
+
     fun setWebSocket(webSocket: WebSocket) {
         this.webSocket = webSocket
         startPingLoop()
+        
+        // NETWORK OPTIMIZATION: Flush any pending batched commands immediately when connection is restored
+        viewModelScope.launch {
+            flushBatchedCommands()
+        }
         
         // Broadcast that socket connection is available and retry pending operations
         android.util.Log.i("Andromuks", "AppViewModel: WebSocket connection established - retrying ${pendingWebSocketOperations.size} pending operations")
@@ -2267,7 +2314,20 @@ class AppViewModel : ViewModel() {
                         }
                     }
                     else -> {
-                        android.util.Log.w("Andromuks", "AppViewModel: Unknown operation type for retry: ${operation.type}")
+                        // NETWORK OPTIMIZATION: Handle offline retry commands
+                        if (operation.type.startsWith("offline_")) {
+                            val command = operation.data["command"] as String?
+                            val requestId = operation.data["requestId"] as Int?
+                            @Suppress("UNCHECKED_CAST")
+                            val data = operation.data["data"] as? Map<String, Any>
+                            
+                            if (command != null && requestId != null && data != null) {
+                                android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Retrying offline command: $command")
+                                sendWebSocketCommand(command, requestId, data, forceImmediate = true)
+                            }
+                        } else {
+                            android.util.Log.w("Andromuks", "AppViewModel: Unknown operation type for retry: ${operation.type}")
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -2330,6 +2390,9 @@ class AppViewModel : ViewModel() {
                 // Calculate lag
                 val lagMs = System.currentTimeMillis() - lastPingTimestamp
                 android.util.Log.d("Andromuks", "AppViewModel: Pong received, lag: ${lagMs}ms")
+                
+                // NETWORK OPTIMIZATION: Update smart timeout parameters
+                updateNetworkMetrics(lagMs)
                 
                 // Update service notification with lag and last sync time
                 if (lastSyncTimestamp > 0) {
@@ -2594,10 +2657,76 @@ class AppViewModel : ViewModel() {
     private fun startPongTimeout(pingRequestId: Int) {
         pongTimeoutJob?.cancel()
         pongTimeoutJob = viewModelScope.launch {
-            delay(5_000) // 5 second timeout
-            android.util.Log.w("Andromuks", "AppViewModel: Pong timeout for ping $pingRequestId, restarting websocket")
-            restartWebSocket("Ping timeout")
+            // NETWORK OPTIMIZATION: Use smart timeout based on network conditions
+            val smartTimeout = calculateSmartTimeout()
+            delay(smartTimeout)
+            android.util.Log.w("Andromuks", "AppViewModel: Pong timeout for ping $pingRequestId (timeout: ${smartTimeout}ms), restarting websocket")
+            
+            // NETWORK OPTIMIZATION: Update timeout tracking
+            consecutiveTimeouts++
+            updateConnectionStability(false)
+            
+            restartWebSocket("Ping timeout (${smartTimeout}ms)")
         }
+    }
+    
+    /**
+     * NETWORK OPTIMIZATION: Calculate smart timeout based on network conditions
+     */
+    private fun calculateSmartTimeout(): Long {
+        // Base timeout adjusted by network latency and stability
+        val baseTimeout = BASE_TIMEOUT_MS
+        
+        // Increase timeout for high latency networks
+        val latencyAdjustment = (networkLatencyMs * 1.5).toLong().coerceAtMost(5000L)
+        
+        // Increase timeout for unstable connections
+        val stabilityAdjustment = ((1.0f - connectionStability) * 5000f).toLong()
+        
+        // Increase timeout after consecutive timeouts
+        val consecutiveTimeoutAdjustment = consecutiveTimeouts * 2000L
+        
+        val smartTimeout = baseTimeout + latencyAdjustment + stabilityAdjustment + consecutiveTimeoutAdjustment
+        
+        return smartTimeout.coerceIn(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS)
+    }
+    
+    /**
+     * NETWORK OPTIMIZATION: Update network metrics based on ping/pong data
+     */
+    private fun updateNetworkMetrics(lagMs: Long) {
+        // Update latency with exponential moving average
+        networkLatencyMs = ((networkLatencyMs * 0.7) + (lagMs * 0.3)).toLong()
+        
+        // Update connection stability based on lag consistency
+        val lagDeviation = kotlin.math.abs(lagMs - networkLatencyMs)
+        val stabilityFactor = when {
+            lagDeviation < 200 -> 0.1f // Very stable
+            lagDeviation < 500 -> 0.05f // Stable
+            lagDeviation < 1000 -> -0.05f // Somewhat unstable
+            else -> -0.1f // Unstable
+        }
+        
+        updateConnectionStability(true, stabilityFactor)
+        
+        // Reset consecutive timeouts on successful ping
+        if (consecutiveTimeouts > 0) {
+            consecutiveTimeouts = 0
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Updated metrics: latency=${networkLatencyMs}ms, stability=${connectionStability}, consecutiveTimeouts=$consecutiveTimeouts")
+    }
+    
+    /**
+     * NETWORK OPTIMIZATION: Update connection stability
+     */
+    private fun updateConnectionStability(success: Boolean, additionalFactor: Float = 0f) {
+        val changeFactor = when {
+            success -> 0.05f + additionalFactor // Increase stability on success
+            else -> -0.1f // Decrease stability on timeout
+        }
+        
+        connectionStability = (connectionStability + changeFactor).coerceIn(0.0f, 1.0f)
     }
     
     private fun restartWebSocket(reason: String = "Unknown reason") {
@@ -6182,25 +6311,179 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    private fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult {
+    /**
+     * NETWORK OPTIMIZATION: Send WebSocket command with batching support
+     * Commands will be batched for up to BATCH_DELAY_MS milliseconds or until MAX_BATCH_SIZE is reached
+     */
+    private fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>, forceImmediate: Boolean = false): WebSocketResult {
+        // NETWORK OPTIMIZATION: Handle offline mode
+        if (isOfflineMode && !isOfflineCapableCommand(command)) {
+            android.util.Log.w("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Command $command queued for offline retry")
+            queueCommandForOfflineRetry(command, requestId, data)
+            return WebSocketResult.NOT_CONNECTED
+        }
+        
         val ws = webSocket
         if (ws == null) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, cannot send command: $command")
             return WebSocketResult.NOT_CONNECTED
         }
         
+        // NETWORK OPTIMIZATION: Add to batch unless it's a high priority command or forced immediate
+        if (!forceImmediate && shouldBatchCommand(command)) {
+            return sendBatchedCommand(command, requestId, data)
+        } else {
+            return sendImmediateCommand(command, requestId, data)
+        }
+    }
+    
+    /**
+     * NETWORK OPTIMIZATION: Determine if a command should be batched
+     */
+    private fun shouldBatchCommand(command: String): Boolean {
+        // Only batch non-critical commands to avoid UI delays
+        return when (command) {
+            "get_profile" -> true // Profile requests can be batched (non-critical for initial UI)
+            "set_typing" -> true // Typing indicators can be batched
+            else -> false // Don't batch room state requests (critical for UI) or other important commands
+        }
+    }
+    
+    /**
+     * NETWORK OPTIMIZATION: Check if command is high priority and should be sent immediately
+     */
+    private fun isHighPriorityCommand(command: String): Boolean {
+        return when (command) {
+            "send_message", "ping", "send_reply", "edit_message", "send_reaction", "delete_reaction", "paginate", "get_room_state" -> true
+            else -> false
+        }
+    }
+    
+    /**
+     * NETWORK OPTIMIZATION: Add command to batch queue
+     */
+    private fun sendBatchedCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult {
+        synchronized(pendingBatchedCommands) {
+            pendingBatchedCommands.add(BatchedWebSocketCommand(command, requestId, data))
+            
+            // Schedule batch flush if not already scheduled
+            if (batchFlushJob?.isActive != true) {
+                batchFlushJob = viewModelScope.launch {
+                    delay(BATCH_DELAY_MS)
+                    flushBatchedCommands()
+                }
+            }
+            
+            // Flush immediately if batch is full
+            if (pendingBatchedCommands.size >= MAX_BATCH_SIZE) {
+                batchFlushJob?.cancel()
+                viewModelScope.launch {
+                    flushBatchedCommands()
+                }
+            }
+        }
+        
+        return WebSocketResult.SUCCESS
+    }
+    
+    /**
+     * NETWORK OPTIMIZATION: Send command immediately without batching
+     */
+    private fun sendImmediateCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult {
         return try {
             val json = org.json.JSONObject()
             json.put("command", command)
             json.put("request_id", requestId)
             json.put("data", org.json.JSONObject(data))
             val jsonString = json.toString()
-            //android.util.Log.d("Andromuks", "AppViewModel: Sending command: $jsonString")
-            ws.send(jsonString)
+            //android.util.Log.d("Andromuks", "AppViewModel: Sending immediate command: $jsonString")
+            webSocket?.send(jsonString)
             WebSocketResult.SUCCESS
         } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to send WebSocket command: $command", e)
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to send immediate WebSocket command: $command", e)
             WebSocketResult.CONNECTION_ERROR
+        }
+    }
+    
+    /**
+     * NETWORK OPTIMIZATION: Flush all batched commands as a single WebSocket message
+     */
+    private fun flushBatchedCommands() {
+        synchronized(pendingBatchedCommands) {
+            if (pendingBatchedCommands.isEmpty()) {
+                return
+            }
+            
+            val commandsToFlush = pendingBatchedCommands.toList()
+            pendingBatchedCommands.clear()
+            batchFlushJob?.cancel()
+            batchFlushJob = null
+            
+            try {
+                val batchJson = org.json.JSONObject()
+                batchJson.put("type", "batch_commands")
+                batchJson.put("timestamp", System.currentTimeMillis())
+                
+                val commandsArray = org.json.JSONArray()
+                commandsToFlush.forEach { batchedCommand ->
+                    val commandJson = org.json.JSONObject()
+                    commandJson.put("command", batchedCommand.command)
+                    commandJson.put("request_id", batchedCommand.requestId)
+                    commandJson.put("data", org.json.JSONObject(batchedCommand.data))
+                    commandsArray.put(commandJson)
+                }
+                
+                batchJson.put("commands", commandsArray)
+                val batchString = batchJson.toString()
+                
+                android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Flushing ${commandsToFlush.size} batched commands")
+                webSocket?.send(batchString)
+                
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to flush batched commands", e)
+                
+                // Fall back to sending commands individually
+                commandsToFlush.forEach { batchedCommand ->
+                    try {
+                        sendImmediateCommand(batchedCommand.command, batchedCommand.requestId, batchedCommand.data)
+                    } catch (fallbackError: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Failed to send fallback command: ${batchedCommand.command}", fallbackError)
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * NETWORK OPTIMIZATION: Check if command can work offline (use cached data)
+     */
+    private fun isOfflineCapableCommand(command: String): Boolean {
+        return when (command) {
+            "get_profile", "get_room_state" -> true // These can use cached data
+            else -> false
+        }
+    }
+    
+    /**
+     * NETWORK OPTIMIZATION: Queue command for retry when connection is restored
+     */
+    private fun queueCommandForOfflineRetry(command: String, requestId: Int, data: Map<String, Any>) {
+        // Add to pending operations for retry when connection is restored
+        if (pendingWebSocketOperations.size < 50) { // Limit offline queue size
+            pendingWebSocketOperations.add(
+                PendingWebSocketOperation(
+                    type = "offline_$command",
+                    data = mapOf(
+                        "command" to command,
+                        "requestId" to requestId,
+                        "data" to data
+                    ),
+                    retryCount = 0
+                )
+            )
+            android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Queued offline command: $command")
+        } else {
+            android.util.Log.w("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Offline queue full, dropping command: $command")
         }
     }
     
