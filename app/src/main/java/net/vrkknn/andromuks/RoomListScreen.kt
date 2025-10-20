@@ -42,7 +42,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
@@ -1020,7 +1022,36 @@ fun RoomListContent(
         }
     }
     
+    // NAVIGATION PERFORMANCE: Add scroll state for prefetching
+    val listState = rememberLazyListState()
+    
+    // NAVIGATION PERFORMANCE: Observe scroll state and trigger prefetching for visible rooms
+    LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) {
+        if (filteredRooms.isNotEmpty()) {
+            // Get visible room IDs for prefetching
+            val visibleItemIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
+            val visibleRoomIds = visibleItemIndices
+                .filter { it < filteredRooms.size }
+                .map { filteredRooms[it].id }
+            
+            // Also prefetch nearby rooms (current visible + 3 items above and below)
+            val nearbyIndices = (listState.firstVisibleItemIndex - 3).coerceAtLeast(0)..
+                (listState.firstVisibleItemIndex + listState.layoutInfo.visibleItemsInfo.size + 3).coerceAtMost(filteredRooms.size - 1)
+            val nearbyRoomIds = nearbyIndices
+                .filter { it >= 0 && it < filteredRooms.size }
+                .map { filteredRooms[it].id }
+                .distinct()
+            
+            // Trigger prefetching if we have rooms to prefetch
+            if (nearbyRoomIds.isNotEmpty()) {
+                appViewModel.prefetchRoomData(nearbyRoomIds, listState.firstVisibleItemIndex)
+                android.util.Log.d("Andromuks", "RoomListScreen: NAVIGATION OPTIMIZATION - Triggered prefetch for ${nearbyRoomIds.size} nearby rooms")
+            }
+        }
+    }
+    
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Top,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(

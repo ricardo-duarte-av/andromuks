@@ -214,6 +214,11 @@ class AppViewModel : ViewModel() {
     private var needsMemberUpdate = false
     private var needsReactionUpdate = false
     
+    // NAVIGATION PERFORMANCE: Prefetch and caching system
+    private val prefetchedRooms = mutableSetOf<String>() // Track which rooms have been prefetched
+    private val navigationCache = mutableMapOf<String, RoomNavigationState>() // Cache room navigation state
+    private var lastRoomListScrollPosition = 0 // Track scroll position for prefetching
+    
     // Read receipts update counter - separate from main updateCounter to reduce unnecessary UI updates
     var readReceiptsUpdateCounter by mutableStateOf(0)
         private set
@@ -256,6 +261,15 @@ class AppViewModel : ViewModel() {
         val type: String, // "sendMessage", "sendReply", "markRoomAsRead", etc.
         val data: Map<String, Any>,
         val retryCount: Int = 0
+    )
+    
+    // NAVIGATION PERFORMANCE: Room navigation state cache
+    data class RoomNavigationState(
+        val roomId: String,
+        val essentialDataLoaded: Boolean = false,
+        val memberDataLoaded: Boolean = false,
+        val timelineDataLoaded: Boolean = false,
+        val lastPrefetchTime: Long = System.currentTimeMillis()
     )
     
     private val pendingWebSocketOperations = mutableListOf<PendingWebSocketOperation>()
@@ -1446,6 +1460,115 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Batched UI update completed")
     }
 
+    // NAVIGATION PERFORMANCE: Helper functions for prefetching and navigation caching
+    
+    /**
+     * Prefetch essential room data for rooms visible or near visible in the room list
+     */
+    fun prefetchRoomData(visibleRoomIds: List<String>, scrollPosition: Int = 0) {
+        // NAVIGATION PERFORMANCE: Update scroll position for prefetch tracking
+        lastRoomListScrollPosition = scrollPosition
+        
+        // Only prefetch if we haven't done it recently (avoid excessive requests)
+        val currentTime = System.currentTimeMillis()
+        val prefetchThreshold = 30 * 1000L // 30 seconds
+        
+        visibleRoomIds.forEach { roomId ->
+            val navigationState = navigationCache[roomId]
+            val shouldPrefetch = when {
+                navigationState == null -> true // Never prefetched
+                currentTime - navigationState.lastPrefetchTime > prefetchThreshold -> true // Stale data
+                !navigationState.essentialDataLoaded -> true // Essential data missing
+                else -> false
+            }
+            
+            if (shouldPrefetch && !prefetchedRooms.contains(roomId)) {
+                android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Prefetching room data for: $roomId")
+                prefetchEssentialRoomData(roomId)
+            }
+        }
+    }
+    
+    /**
+     * Prefetch essential room data (basic state, timeline cache check)
+     */
+    private fun prefetchEssentialRoomData(roomId: String) {
+        prefetchedRooms.add(roomId)
+        
+        // Initialize navigation state if not exists
+        if (!navigationCache.containsKey(roomId)) {
+            navigationCache[roomId] = RoomNavigationState(roomId)
+        }
+        
+        // NAVIGATION PERFORMANCE: Load essential data first (room state without members)
+        if (!pendingRoomStateRequests.contains(roomId)) {
+            requestRoomState(roomId)
+            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Prefetched room state for: $roomId")
+        }
+        
+        // Check if we have enough timeline cache, if not, do a lightweight prefetch
+        val cachedEventCount = roomTimelineCache.getCachedEventCount(roomId)
+        if (cachedEventCount < 20) {
+            // Lightweight timeline prefetch (smaller limit)
+            val prefetchRequestId = requestIdCounter++
+            backgroundPrefetchRequests[prefetchRequestId] = roomId
+            sendWebSocketCommand("paginate", prefetchRequestId, mapOf(
+                "room_id" to roomId,
+                "max_timeline_id" to 0,
+                "limit" to 25, // Smaller limit for prefetching
+                "reset" to false
+            ))
+            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Prefetched timeline for: $roomId")
+        }
+        
+        // Update navigation state
+        val currentState = navigationCache[roomId] ?: RoomNavigationState(roomId)
+        navigationCache[roomId] = currentState.copy(
+            essentialDataLoaded = true,
+            lastPrefetchTime = System.currentTimeMillis()
+        )
+    }
+    
+    /**
+     * Load additional room details (members, full timeline) after essential data
+     */
+    private fun loadRoomDetails(roomId: String, navigationState: RoomNavigationState) {
+        // NAVIGATION PERFORMANCE: Load member data if we have essential data but not members
+        if (navigationState.essentialDataLoaded && !navigationState.memberDataLoaded) {
+            if (!pendingFullMemberListRequests.contains(roomId)) {
+                requestFullMemberList(roomId)
+                android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Loading member details for: $roomId")
+            }
+            
+            navigationCache[roomId] = navigationState.copy(memberDataLoaded = true)
+        }
+        
+        // Load additional timeline data if needed
+        if (navigationState.essentialDataLoaded && !navigationState.timelineDataLoaded) {
+            val cachedEventCount = roomTimelineCache.getCachedEventCount(roomId)
+            if (cachedEventCount < 50) {
+                val prefetchRequestId = requestIdCounter++
+                backgroundPrefetchRequests[prefetchRequestId] = roomId
+                sendWebSocketCommand("paginate", prefetchRequestId, mapOf(
+                    "room_id" to roomId,
+                    "max_timeline_id" to 0,
+                    "limit" to 50,
+                    "reset" to false
+                ))
+                android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Loading timeline details for: $roomId")
+            }
+            
+            navigationCache[roomId] = navigationState.copy(timelineDataLoaded = true)
+        }
+    }
+    
+    /**
+     * Get cached navigation state for a room
+     */
+    fun getRoomNavigationState(roomId: String): RoomNavigationState? {
+        return navigationCache[roomId]
+    }
+
     fun updateRoomsFromSyncJson(syncJson: JSONObject) {
         // Update last sync timestamp for notification display
         lastSyncTimestamp = System.currentTimeMillis()
@@ -2611,6 +2734,15 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId")
         currentRoomId = roomId
         
+        // NAVIGATION PERFORMANCE: Check cached navigation state and use partial loading
+        val navigationState = getRoomNavigationState(roomId)
+        if (navigationState != null && navigationState.essentialDataLoaded) {
+            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Using cached navigation state for: $roomId")
+            
+            // Load additional details in background if needed
+            loadRoomDetails(roomId, navigationState)
+        }
+        
         // Check if we're opening from a notification (for optimized cache handling)
         val openingFromNotification = isPendingNavigationFromNotification && pendingRoomNavigation == roomId
         
@@ -2691,18 +2823,26 @@ class AppViewModel : ViewModel() {
                 isPendingNavigationFromNotification = false
             }
             
-            // Request room state (doesn't affect timeline rendering)
-            requestRoomState(roomId)
+            // NAVIGATION PERFORMANCE: Only request missing data for cached room opening
+            val currentNavigationState = getRoomNavigationState(roomId)
             
-            // Send get_room_state command for member updates
-            val stateRequestId = requestIdCounter++
-            timelineRequests[stateRequestId] = roomId
-            sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
-                "room_id" to roomId,
-                "include_members" to true,
-                "fetch_members" to false,
-                "refetch" to false
-            ))
+            // Only request essential room state if not already loaded
+            if (currentNavigationState?.essentialDataLoaded != true && !pendingRoomStateRequests.contains(roomId)) {
+                requestRoomState(roomId)
+            }
+            
+            // Only request member data if not already loaded
+            if (currentNavigationState?.memberDataLoaded != true && !pendingFullMemberListRequests.contains(roomId)) {
+                val stateRequestId = requestIdCounter++
+                timelineRequests[stateRequestId] = roomId
+                sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
+                    "room_id" to roomId,
+                    "include_members" to true,
+                    "fetch_members" to false,
+                    "refetch" to false
+                ))
+                android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Cache hit, requesting member data")
+            }
             
             // Mark as read
             val mostRecentEvent = cachedEvents.maxByOrNull { it.timestamp }
@@ -2784,18 +2924,26 @@ class AppViewModel : ViewModel() {
                     isPendingNavigationFromNotification = false
                 }
                 
-                // Request room state (doesn't affect timeline rendering)
-                requestRoomState(roomId)
+                // NAVIGATION PERFORMANCE: Only request missing data for partial cache opening
+                val partialNavigationState = getRoomNavigationState(roomId)
                 
-                // Send get_room_state command for member updates
-                val stateRequestId = requestIdCounter++
-                timelineRequests[stateRequestId] = roomId
-                sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
-                    "room_id" to roomId,
-                    "include_members" to true,
-                    "fetch_members" to false,
-                    "refetch" to false
-                ))
+                // Only request essential room state if not already loaded
+                if (partialNavigationState?.essentialDataLoaded != true && !pendingRoomStateRequests.contains(roomId)) {
+                    requestRoomState(roomId)
+                }
+                
+                // Only request member data if not already loaded
+                if (partialNavigationState?.memberDataLoaded != true && !pendingFullMemberListRequests.contains(roomId)) {
+                    val stateRequestId = requestIdCounter++
+                    timelineRequests[stateRequestId] = roomId
+                    sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
+                        "room_id" to roomId,
+                        "include_members" to true,
+                        "fetch_members" to false,
+                        "refetch" to false
+                    ))
+                    android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Partial cache, requesting member data")
+                }
                 
                 // Mark as read
                 val mostRecentEvent = partialCachedEvents.maxByOrNull { it.timestamp }
@@ -2852,29 +3000,43 @@ class AppViewModel : ViewModel() {
             roomMemberCache[roomId] = mutableMapOf()
         }
         
-        // Request room state (including encryption status)
-        requestRoomState(roomId)
+        // NAVIGATION PERFORMANCE: Partial loading - only request what's not already available
+        val missNavigationState = getRoomNavigationState(roomId)
         
-        // Send get_room_state command with include_members = true
-        val stateRequestId = requestIdCounter++
-        timelineRequests[stateRequestId] = roomId
-        sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
-            "room_id" to roomId,
-            "include_members" to true,
-            "fetch_members" to false,
-            "refetch" to false
-        ))
+        // Load essential data first (room state without members) - only if not already loaded
+        if (missNavigationState?.essentialDataLoaded != true && !pendingRoomStateRequests.contains(roomId)) {
+            requestRoomState(roomId)
+            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Requested essential room state")
+        }
         
-        // Send paginate command to fetch timeline from server
-        val paginateRequestId = requestIdCounter++
-        timelineRequests[paginateRequestId] = roomId
-        sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-            "room_id" to roomId,
-            "max_timeline_id" to 0,
-            "limit" to 100,
-            "reset" to false
-        ))
-        android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request_id=$paginateRequestId for room=$roomId")
+        // NAVIGATION PERFORMANCE: Only request member data if not already loaded
+        if (missNavigationState?.memberDataLoaded != true && !pendingFullMemberListRequests.contains(roomId)) {
+            val stateRequestId = requestIdCounter++
+            timelineRequests[stateRequestId] = roomId
+            sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
+                "room_id" to roomId,
+                "include_members" to true,
+                "fetch_members" to false,
+                "refetch" to false
+            ))
+            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Requested member data")
+        }
+        
+        // NAVIGATION PERFORMANCE: Only request timeline if not already cached
+        val currentCachedCount = roomTimelineCache.getCachedEventCount(roomId)
+        if (currentCachedCount < 20) {
+            val paginateRequestId = requestIdCounter++
+            timelineRequests[paginateRequestId] = roomId
+            sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                "room_id" to roomId,
+                "max_timeline_id" to 0,
+                "limit" to 100,
+                "reset" to false
+            ))
+            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Requested timeline data, cachedCount: $currentCachedCount")
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Skipped timeline request, already cached: $currentCachedCount")
+        }
     }
     
     /**
@@ -4389,6 +4551,13 @@ class AppViewModel : ViewModel() {
         pendingRoomStateRequests.remove(roomId)
         android.util.Log.d("Andromuks", "AppViewModel: Handling room state response for room: $roomId")
         
+        // NAVIGATION PERFORMANCE: Update navigation state cache when essential data is loaded
+        val currentState = navigationCache[roomId] ?: RoomNavigationState(roomId)
+        navigationCache[roomId] = currentState.copy(
+            essentialDataLoaded = true,
+            lastPrefetchTime = System.currentTimeMillis()
+        )
+        
         when (data) {
             is JSONArray -> {
                 // Server returns events array directly
@@ -4638,6 +4807,13 @@ class AppViewModel : ViewModel() {
         // PERFORMANCE: Remove from pending requests set
         pendingFullMemberListRequests.remove(roomId)
         android.util.Log.d("Andromuks", "AppViewModel: Handling full member list response for room: $roomId")
+        
+        // NAVIGATION PERFORMANCE: Update navigation state cache when member data is loaded
+        val currentState = navigationCache[roomId] ?: RoomNavigationState(roomId)
+        navigationCache[roomId] = currentState.copy(
+            memberDataLoaded = true,
+            lastPrefetchTime = System.currentTimeMillis()
+        )
         
         when (data) {
             is JSONArray -> {
