@@ -59,7 +59,6 @@ class FCMService : FirebaseMessagingService() {
         // Notification action constants
         private const val ACTION_REPLY = "action_reply"
         private const val ACTION_MARK_READ = "action_mark_read"
-        private const val KEY_REPLY_TEXT = "key_reply_text"
         private const val EXTRA_ROOM_ID = "extra_room_id"
         private const val EXTRA_EVENT_ID = "extra_event_id"
         private const val EXTRA_NOTIFICATION_ID = "extra_notification_id"
@@ -351,34 +350,6 @@ class FCMService : FirebaseMessagingService() {
     // Note: onStartCommand is final in FirebaseMessagingService, so we handle actions differently
     // The reply and mark read actions will be handled via the notification actions directly
     
-    private fun getReplyText(intent: Intent): String? {
-        return androidx.core.app.RemoteInput.getResultsFromIntent(intent)
-            ?.getCharSequence(KEY_REPLY_TEXT)
-            ?.toString()
-    }
-    
-    private fun sendReplyMessage(roomId: String, text: String) {
-        Log.d(TAG, "Sending reply message to room $roomId: $text")
-        
-        // Send a broadcast to the main app to handle the WebSocket command
-        val intent = Intent("net.vrkknn.andromuks.SEND_MESSAGE").apply {
-            putExtra("room_id", roomId)
-            putExtra("message_text", text)
-        }
-        sendBroadcast(intent)
-    }
-    
-    private fun markMessageAsRead(roomId: String, eventId: String?) {
-        Log.d(TAG, "Marking message as read in room $roomId, event: $eventId")
-        
-        // Send a broadcast to the main app to handle the WebSocket command
-        val intent = Intent("net.vrkknn.andromuks.MARK_READ").apply {
-            putExtra("room_id", roomId)
-            putExtra("event_id", eventId)
-        }
-        sendBroadcast(intent)
-    }
-
     override fun onNewToken(token: String) {
         super.onNewToken(token)
         

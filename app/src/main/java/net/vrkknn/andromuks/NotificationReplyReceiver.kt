@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import androidx.core.app.RemoteInput
+import android.os.Bundle
 
 /**
  * Global broadcast receiver for handling notification reply actions
@@ -14,6 +15,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
     
     companion object {
         private const val TAG = "NotificationReplyReceiver"
+        private const val KEY_REPLY_TEXT = "key_reply_text"
     }
     
     override fun onReceive(context: Context, intent: Intent) {
@@ -34,14 +36,26 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             return
         }
         
-        // Send broadcast to MainActivity with explicit package
-        val broadcastIntent = Intent("net.vrkknn.andromuks.SEND_MESSAGE").apply {
+        // Delegate to the same action flow used by PendingIntent so we don't double-send
+        val forwardIntent = Intent("net.vrkknn.andromuks.ACTION_REPLY").apply {
             setPackage(context.packageName)
             putExtra("room_id", roomId)
-            putExtra("message_text", replyText)
+            putExtra("event_id", intent.getStringExtra("event_id"))
+            putExtra("from_reply_receiver", true)
+            addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
         }
-        context.sendBroadcast(broadcastIntent)
-        Log.d(TAG, "Sent reply broadcast to package: ${context.packageName} - roomId: $roomId, text: $replyText")
+
+        val resultsBundle = Bundle().apply {
+            putCharSequence(KEY_REPLY_TEXT, replyText)
+        }
+        RemoteInput.addResultsToIntent(
+            arrayOf(RemoteInput.Builder(KEY_REPLY_TEXT).setLabel("Reply").build()),
+            forwardIntent,
+            resultsBundle
+        )
+        
+        context.sendOrderedBroadcast(forwardIntent, null)
+        Log.d(TAG, "Forwarded reply via ordered ACTION_REPLY broadcast for roomId: $roomId")
     }
     
     private fun getReplyText(intent: Intent): String? {
@@ -54,7 +68,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             return null
         }
         
-        val replyText = remoteInputResults.getCharSequence("key_reply_text")?.toString()
+        val replyText = remoteInputResults.getCharSequence(KEY_REPLY_TEXT)?.toString()
         Log.d(TAG, "Extracted reply text: '$replyText'")
         return replyText
     }
