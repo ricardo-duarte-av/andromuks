@@ -807,6 +807,9 @@ fun RoomTimelineScreen(
 
     // Monitor scroll position to detect if user is at bottom or has detached
     LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) {
+        if (!hasInitialSnapCompleted) {
+            return@LaunchedEffect
+        }
         if (sortedEvents.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
             // Check if Load More button is present (affects index calculations)
             val hasLoadMoreButton = appViewModel.hasMoreMessages
@@ -841,6 +844,8 @@ fun RoomTimelineScreen(
             val firstVisibleIndex = listState.firstVisibleItemIndex
             if (hasLoadMoreButton && firstVisibleIndex <= 5 && !isLoadingMore && appViewModel.hasMoreMessages) {
                 Log.d("Andromuks", "RoomTimelineScreen: Auto-loading more messages (near top: $firstVisibleIndex)")
+                firstVisibleItemIndexBeforeLoad = listState.firstVisibleItemIndex
+                firstVisibleItemScrollOffsetBeforeLoad = listState.firstVisibleItemScrollOffset
                 isLoadingMore = true
                 appViewModel.loadOlderMessages(roomId)
             }
@@ -904,11 +909,14 @@ fun RoomTimelineScreen(
             return@LaunchedEffect
         }
 
+        val allAnimationsCompleted = !appViewModel.isBubbleAnimationRunning()
+
         if (
             hasNewItems &&
                 isAttachedToBottom &&
                 lastEventId != null &&
-                lastEventId != lastKnownTimelineEventId
+                lastEventId != lastKnownTimelineEventId &&
+                allAnimationsCompleted
         ) {
             coroutineScope.launch {
                 listState.animateScrollToItem(timelineItems.lastIndex + buttonOffset)

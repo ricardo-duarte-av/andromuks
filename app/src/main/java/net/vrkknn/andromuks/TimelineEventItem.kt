@@ -28,8 +28,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.platform.LocalContext
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -2079,36 +2079,51 @@ fun TimelineEventItem(
     
     // Check if this message should animate in (new message with slide-up effect)
     val newMessageAnimations = appViewModel?.getNewMessageAnimations() ?: emptyMap()
-    val animationTrigger = appViewModel?.newMessageAnimationTrigger ?: 0L
-    val shouldAnimate = newMessageAnimations.containsKey(event.eventId)
-    var shouldShowAnimation by remember(event.eventId, animationTrigger) { 
-        mutableStateOf(!shouldAnimate) // Start as visible for non-animating messages
+    val animationCompletionTime = newMessageAnimations[event.eventId]
+    val shouldAnimate = animationCompletionTime != null
+    val animationProgress = remember(event.eventId) {
+        Animatable(if (shouldAnimate) 0f else 1f)
     }
-    
+
     // Launch animation when this message is marked for animation
-    LaunchedEffect(event.eventId, animationTrigger) {
-        if (shouldAnimate && !shouldShowAnimation) {
-            kotlinx.coroutines.delay(500) // 500ms delay for receipt processing
-            shouldShowAnimation = true
+    LaunchedEffect(event.eventId, animationCompletionTime) {
+        try {
+            if (!shouldAnimate) {
+                animationProgress.snapTo(1f)
+            } else {
+                animationProgress.snapTo(0f)
+                val startTime = animationCompletionTime!! - AppViewModel.NEW_MESSAGE_ANIMATION_DURATION_MS
+                val delayMs = startTime - System.currentTimeMillis()
+                if (delayMs > 0) {
+                    kotlinx.coroutines.delay(delayMs)
+                }
+                animationProgress.animateTo(
+                    targetValue = 1f,
+                    animationSpec = tween(
+                        durationMillis = AppViewModel.NEW_MESSAGE_ANIMATION_DURATION_MS.toInt(),
+                        easing = FastOutSlowInEasing
+                    )
+                )
+            }
+        } finally {
+            appViewModel?.notifyMessageAnimationFinished(event.eventId)
         }
     }
-    
+
     // Animate slide-up effect for new messages
-    val animatedOffsetY by animateFloatAsState(
-        targetValue = if (shouldShowAnimation || !shouldAnimate) 0f else 120f, // Start 120dp below for new messages
-        animationSpec = spring(
-            dampingRatio = 0.8f,
-            stiffness = 300f
-        ),
-        label = "slide_up_${event.eventId}_$animationTrigger"
-    )
+    val animatedOffsetY = if (shouldAnimate) {
+        val eased = FastOutSlowInEasing.transform(animationProgress.value)
+        (1f - eased) * 120f
+    } else {
+        0f
+    }
     
     // Animate alpha for smooth fade-in
-    val animatedAlpha by animateFloatAsState(
-        targetValue = if (shouldShowAnimation || !shouldAnimate) 1f else 0.3f, // Start semi-transparent for new messages
-        animationSpec = tween(durationMillis = 400),
-        label = "fade_in_${event.eventId}_$animationTrigger"
-    )
+    val animatedAlpha = if (shouldAnimate) {
+        0.3f + 0.7f * animationProgress.value
+    } else {
+        1f
+    }
     
     Row(
         modifier = Modifier

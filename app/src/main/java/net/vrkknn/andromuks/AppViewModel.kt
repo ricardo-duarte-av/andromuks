@@ -81,6 +81,8 @@ class AppViewModel : ViewModel() {
         private const val MAX_MEMBER_CACHE_SIZE = 5000
         private const val ANIMATION_STATE_CLEANUP_INTERVAL_MS = 30000L // 30 seconds
         private const val MAX_MESSAGE_VERSIONS_PER_EVENT = 50
+        const val NEW_MESSAGE_ANIMATION_DURATION_MS = 450L
+        const val NEW_MESSAGE_ANIMATION_DELAY_MS = 500L
     }
     var isLoading by mutableStateOf(false)
     var homeserverUrl by mutableStateOf("")
@@ -479,13 +481,21 @@ class AppViewModel : ViewModel() {
      * Get new message animations for slide-up effect
      * @return Map of eventId -> timestamp when animation should start
      */
-    fun getNewMessageAnimations(): Map<String, Long> {
-        // Clean up old animations (older than 3 seconds) to prevent memory leaks
-        val currentTime = System.currentTimeMillis()
-        newMessageAnimations.entries.removeAll { (_, timestamp) ->
-            currentTime - timestamp > 3000
-        }
-        return newMessageAnimations.toMap()
+    /**
+     * @return snapshot of bubble animation completion times (eventId -> millis when animation ends)
+     */
+    fun getNewMessageAnimations(): Map<String, Long> = newMessageAnimations.toMap()
+
+    /**
+     * Whether any message bubble animations are still running.
+     */
+    fun isBubbleAnimationRunning(): Boolean = runningBubbleAnimations.isNotEmpty()
+
+    /**
+     * Called by the UI when a bubble animation finishes so the timeline can proceed to scroll.
+     */
+    fun notifyMessageAnimationFinished(eventId: String) {
+        runningBubbleAnimations.remove(eventId)
     }
     
     /**
@@ -2198,8 +2208,9 @@ class AppViewModel : ViewModel() {
     var receiptAnimationTrigger by mutableStateOf(0L)
         private set
     
-    // Track new message animations - eventId -> timestamp when animation should start
+        // Track new message animations - eventId -> timestamp when animation should complete
     private val newMessageAnimations = mutableMapOf<String, Long>()
+    private val runningBubbleAnimations = mutableSetOf<String>()
     var newMessageAnimationTrigger by mutableStateOf(0L)
         private set
     private val pendingInvites = mutableMapOf<String, RoomInvite>() // roomId -> RoomInvite
@@ -5787,13 +5798,14 @@ class AppViewModel : ViewModel() {
         // Track new messages for slide-up animation with 500ms delay
         if (actuallyNewMessages.isNotEmpty()) {
             val currentTime = System.currentTimeMillis()
-            val animationStartTime = currentTime + 500L // 500ms delay for receipt processing
+            val animationEndTime = currentTime + NEW_MESSAGE_ANIMATION_DELAY_MS + NEW_MESSAGE_ANIMATION_DURATION_MS // Bubble anim starts after delay and runs to completion
             
             // Check if any of the new messages are from other users (not our own messages)
             var shouldPlaySound = false
             actuallyNewMessages.forEach { eventId ->
-                newMessageAnimations[eventId] = animationStartTime
-                android.util.Log.d("Andromuks", "AppViewModel: Added new message animation for $eventId (starts at ${animationStartTime})")
+                newMessageAnimations[eventId] = animationEndTime
+                runningBubbleAnimations.add(eventId)
+                android.util.Log.d("Andromuks", "AppViewModel: Added new message animation for $eventId (ends at ${animationEndTime})")
                 
                 // Check if this message is from another user (not our own message)
                 val newEvent = sortedTimelineEvents.find { it.eventId == eventId }
