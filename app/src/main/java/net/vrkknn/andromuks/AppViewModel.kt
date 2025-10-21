@@ -495,7 +495,9 @@ class AppViewModel : ViewModel() {
      * Called by the UI when a bubble animation finishes so the timeline can proceed to scroll.
      */
     fun notifyMessageAnimationFinished(eventId: String) {
-        runningBubbleAnimations.remove(eventId)
+        if (runningBubbleAnimations.remove(eventId)) {
+            bubbleAnimationCompletionCounter++
+        }
     }
     
     /**
@@ -2211,6 +2213,8 @@ class AppViewModel : ViewModel() {
         // Track new message animations - eventId -> timestamp when animation should complete
     private val newMessageAnimations = mutableMapOf<String, Long>()
     private val runningBubbleAnimations = mutableSetOf<String>()
+    var bubbleAnimationCompletionCounter by mutableStateOf(0L)
+        private set
     var newMessageAnimationTrigger by mutableStateOf(0L)
         private set
     private val pendingInvites = mutableMapOf<String, RoomInvite>() // roomId -> RoomInvite

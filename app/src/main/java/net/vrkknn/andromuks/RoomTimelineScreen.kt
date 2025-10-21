@@ -853,7 +853,7 @@ fun RoomTimelineScreen(
     }
 
     // Auto-scroll to bottom only when attached (initial load or new messages while at bottom)
-    LaunchedEffect(timelineItems.size, isLoading) {
+    LaunchedEffect(timelineItems.size, isLoading, appViewModel.bubbleAnimationCompletionCounter) {
         Log.d(
             "Andromuks",
             "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, hasInitialSnapCompleted: $hasInitialSnapCompleted"
