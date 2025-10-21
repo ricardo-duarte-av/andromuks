@@ -4930,12 +4930,16 @@ class AppViewModel : ViewModel() {
             powerLevels = powerLevels
         )
         
-        // Update current room state
-        currentRoomState = roomState
-        roomStateUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
-        
-        android.util.Log.d("Andromuks", "AppViewModel: Parsed room state - Name: $name, Alias: $canonicalAlias, Topic: $topic, Avatar: $avatarUrl, Encrypted: $isEncrypted")
+        // ✓ FIX: Only update currentRoomState if this is the currently open room
+        // This prevents the room header from flashing through all rooms during shortcut loading
+        if (roomId == currentRoomId) {
+            currentRoomState = roomState
+            roomStateUpdateCounter++
+            updateCounter++ // Keep for backward compatibility temporarily
+            android.util.Log.d("Andromuks", "AppViewModel: ✓ Updated current room state - Name: $name, Alias: $canonicalAlias, Topic: $topic, Avatar: $avatarUrl, Encrypted: $isEncrypted")
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: Parsed room state for $roomId (not current room) - Name: $name")
+        }
     }
     
     private fun handleMessageResponse(requestId: Int, data: Any) {
@@ -5331,8 +5335,13 @@ class AppViewModel : ViewModel() {
                                 avatarUrl = avatarUrl,
                                 powerLevels = currentRoomState?.powerLevels // Preserve existing power levels
                             )
-                            currentRoomState = roomState
-                            android.util.Log.d("Andromuks", "AppViewModel: Updated room state from sync: $roomState")
+                            // ✓ Safety check: Only update if this is the currently open room
+                            if (roomId == currentRoomId) {
+                                currentRoomState = roomState
+                                android.util.Log.d("Andromuks", "AppViewModel: Updated room state from sync: $roomState")
+                            } else {
+                                android.util.Log.d("Andromuks", "AppViewModel: Skipped updating currentRoomState from sync - roomId mismatch ($roomId != $currentRoomId)")
+                            }
                         }
                     }
                     
