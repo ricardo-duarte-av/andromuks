@@ -4614,10 +4614,25 @@ class AppViewModel : ViewModel() {
             
             // Handle empty pagination responses
             if ((paginateRequests.containsKey(requestId) || backgroundPrefetchRequests.containsKey(requestId)) && timelineList.isEmpty()) {
-                android.util.Log.d("Andromuks", "AppViewModel: Empty pagination/prefetch response - no more messages to load")
+                android.util.Log.w("Andromuks", "AppViewModel: ========================================")
+                android.util.Log.w("Andromuks", "AppViewModel: ⚠️ EMPTY PAGINATION RESPONSE (requestId: $requestId)")
+                android.util.Log.w("Andromuks", "AppViewModel: Backend returned 0 events")
+                
+                // Mark as no more messages and show toast for user-initiated pagination
+                if (paginateRequests.containsKey(requestId)) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Setting hasMoreMessages to FALSE")
+                    hasMoreMessages = false
+                    appContext?.let { context ->
+                        android.widget.Toast.makeText(context, "No more messages available", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+                
                 paginateRequests.remove(requestId)
                 backgroundPrefetchRequests.remove(requestId)
                 isPaginating = false
+                
+                android.util.Log.w("Andromuks", "AppViewModel: isPaginating set to FALSE")
+                android.util.Log.w("Andromuks", "AppViewModel: ========================================")
                 return reactionProcessedCount
             }
             
@@ -4678,15 +4693,27 @@ class AppViewModel : ViewModel() {
                 
                 if (paginateRequests.containsKey(requestId)) {
                     // This is a pagination request - merge with existing timeline
-                    android.util.Log.d("Andromuks", "AppViewModel: Processing pagination request, merging with existing timeline")
-                    android.util.Log.d("Andromuks", "AppViewModel: Timeline list size before merge: ${timelineList.size}")
+                    android.util.Log.d("Andromuks", "AppViewModel: ========================================")
+                    android.util.Log.d("Andromuks", "AppViewModel: PAGINATION RESPONSE RECEIVED (requestId: $requestId)")
+                    android.util.Log.d("Andromuks", "AppViewModel: Received ${timelineList.size} events from backend")
+                    android.util.Log.d("Andromuks", "AppViewModel: Timeline events BEFORE merge: ${timelineEvents.size}")
+                    android.util.Log.d("Andromuks", "AppViewModel: Cache BEFORE merge: ${roomTimelineCache.getCachedEventCount(roomId)} events")
+                    
                     roomTimelineCache.mergePaginatedEvents(roomId, timelineList)
                     mergePaginationEvents(timelineList)
                     paginateRequests.remove(requestId)
                     isPaginating = false
-                    android.util.Log.d("Andromuks", "AppViewModel: Pagination completed, isPaginating set to false")
-                    android.util.Log.d("Andromuks", "AppViewModel: Timeline events count after merge: ${timelineEvents.size}")
-                    smallestRowId = roomTimelineCache.getOldestCachedEventRowId(roomId)
+                    
+                    android.util.Log.d("Andromuks", "AppViewModel: Timeline events AFTER merge: ${timelineEvents.size}")
+                    android.util.Log.d("Andromuks", "AppViewModel: Cache AFTER merge: ${roomTimelineCache.getCachedEventCount(roomId)} events")
+                    
+                    val newSmallestRowId = roomTimelineCache.getOldestCachedEventRowId(roomId)
+                    android.util.Log.d("Andromuks", "AppViewModel: smallestRowId BEFORE: $smallestRowId")
+                    android.util.Log.d("Andromuks", "AppViewModel: smallestRowId AFTER: $newSmallestRowId")
+                    smallestRowId = newSmallestRowId
+                    
+                    android.util.Log.d("Andromuks", "AppViewModel: isPaginating set to FALSE")
+                    android.util.Log.d("Andromuks", "AppViewModel: ========================================")
                 } else {
                     // This is an initial paginate - build timeline from chain mapping
                     buildTimelineFromChain()
@@ -4725,9 +4752,27 @@ class AppViewModel : ViewModel() {
                 // Parse has_more field for pagination (but not for background prefetch)
                 if (paginateRequests.containsKey(requestId)) {
                     val hasMore = data.optBoolean("has_more", true) // Default to true if not present
+                    val fromServer = data.optBoolean("from_server", false)
+                    
+                    android.util.Log.d("Andromuks", "AppViewModel: ========================================")
+                    android.util.Log.d("Andromuks", "AppViewModel: PARSING PAGINATION METADATA")
+                    android.util.Log.d("Andromuks", "AppViewModel:    has_more: $hasMore")
+                    android.util.Log.d("Andromuks", "AppViewModel:    from_server: $fromServer")
+                    android.util.Log.d("Andromuks", "AppViewModel:    hasMoreMessages BEFORE: $hasMoreMessages")
+                    
                     hasMoreMessages = hasMore
-                    android.util.Log.d("Andromuks", "AppViewModel: Parsed has_more: $hasMore from pagination response")
+                    
+                    android.util.Log.d("Andromuks", "AppViewModel:    hasMoreMessages AFTER: $hasMoreMessages")
                     android.util.Log.d("Andromuks", "AppViewModel: Full pagination response data keys: ${data.keys().asSequence().toList()}")
+                    android.util.Log.d("Andromuks", "AppViewModel: ========================================")
+                    
+                    // Show toast when reaching the end
+                    if (!hasMore) {
+                        android.util.Log.w("Andromuks", "AppViewModel: 🏁 REACHED END OF MESSAGE HISTORY (has_more=false)")
+                        appContext?.let { context ->
+                            android.widget.Toast.makeText(context, "No more messages available", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 } else if (backgroundPrefetchRequests.containsKey(requestId)) {
                     // For background prefetch, we don't update hasMoreMessages to avoid affecting UI
                     android.util.Log.d("Andromuks", "AppViewModel: Skipping has_more parsing for background prefetch request")
@@ -5926,16 +5971,38 @@ class AppViewModel : ViewModel() {
     }
     
     fun loadOlderMessages(roomId: String) {
-        android.util.Log.d("Andromuks", "AppViewModel: loadOlderMessages called for room: $roomId")
-        android.util.Log.d("Andromuks", "AppViewModel: Current state - isPaginating: $isPaginating, smallestRowId: $smallestRowId, hasMoreMessages: $hasMoreMessages, webSocket connected: ${webSocket != null}")
+        val cacheSize = roomTimelineCache.getCachedEventCount(roomId)
+        android.util.Log.d("Andromuks", "AppViewModel: ========================================")
+        android.util.Log.d("Andromuks", "AppViewModel: loadOlderMessages CALLED for room: $roomId")
+        android.util.Log.d("Andromuks", "AppViewModel: Current cache size: $cacheSize events")
+        android.util.Log.d("Andromuks", "AppViewModel: Current state - isPaginating: $isPaginating, smallestRowId: $smallestRowId, hasMoreMessages: $hasMoreMessages, webSocket: ${webSocket != null}")
         
-        if (isPaginating || smallestRowId <= 0 || !hasMoreMessages) {
-            android.util.Log.d("Andromuks", "AppViewModel: Pagination blocked - isPaginating: $isPaginating, smallestRowId: $smallestRowId, hasMoreMessages: $hasMoreMessages")
+        // Don't load if already loading
+        if (isPaginating) {
+            android.util.Log.w("Andromuks", "AppViewModel: ❌ BLOCKED - Pagination already in progress")
+            return
+        }
+        
+        // Don't load if backend says there's nothing more
+        if (!hasMoreMessages) {
+            android.util.Log.w("Andromuks", "AppViewModel: ❌ BLOCKED - No more messages (has_more=false)")
+            appContext?.let { context ->
+                android.widget.Toast.makeText(context, "No more messages to load", android.widget.Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        
+        // Get the actual oldest event from cache
+        val oldestRowId = roomTimelineCache.getOldestCachedEventRowId(roomId)
+        android.util.Log.d("Andromuks", "AppViewModel: Oldest cached event timeline_rowid: $oldestRowId")
+        
+        if (oldestRowId <= 0) {
+            android.util.Log.e("Andromuks", "AppViewModel: ❌ BLOCKED - Cannot paginate, no valid timeline_rowid in cache (got $oldestRowId)")
             return
         }
         
         if (webSocket == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot load older messages")
+            android.util.Log.e("Andromuks", "AppViewModel: ❌ BLOCKED - WebSocket not connected")
             return
         }
         
@@ -5943,11 +6010,22 @@ class AppViewModel : ViewModel() {
         val paginateRequestId = requestIdCounter++
         paginateRequests[paginateRequestId] = roomId
         
-        android.util.Log.d("Andromuks", "AppViewModel: Sending pagination request with requestId: $paginateRequestId, max_timeline_id: $smallestRowId")
+        android.util.Log.d("Andromuks", "AppViewModel: ✅ SENDING PAGINATION REQUEST")
+        android.util.Log.d("Andromuks", "AppViewModel:    requestId: $paginateRequestId")
+        android.util.Log.d("Andromuks", "AppViewModel:    room_id: $roomId")
+        android.util.Log.d("Andromuks", "AppViewModel:    max_timeline_id: $oldestRowId")
+        android.util.Log.d("Andromuks", "AppViewModel:    limit: 100")
+        android.util.Log.d("Andromuks", "AppViewModel: ========================================")
+        
+        // Show "Loading more..." toast
+        appContext?.let { context ->
+            android.widget.Toast.makeText(context, "Loading more messages...", android.widget.Toast.LENGTH_SHORT).show()
+        }
+        
         sendWebSocketCommand("paginate", paginateRequestId, mapOf(
             "room_id" to roomId,
-            "max_timeline_id" to smallestRowId,
-            "limit" to 50,
+            "max_timeline_id" to oldestRowId,
+            "limit" to 100,
             "reset" to false
         ))
         

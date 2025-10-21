@@ -842,13 +842,25 @@ fun RoomTimelineScreen(
             
             // AUTO-PAGINATION: Trigger when near the top (first 5 items visible)
             val firstVisibleIndex = listState.firstVisibleItemIndex
+            val totalItems = timelineItems.size
+            
             val shouldTriggerPagination = firstVisibleIndex <= 5 && 
                                           appViewModel.hasMoreMessages && 
                                           !appViewModel.isPaginating &&
                                           !pendingScrollRestoration
             
+            // Only log when near the top to avoid spam
+            if (firstVisibleIndex <= 10) {
+                Log.d("Andromuks", "RoomTimelineScreen: [PAGINATION CHECK] firstVisible=$firstVisibleIndex/$totalItems, hasMore=${appViewModel.hasMoreMessages}, isPaginating=${appViewModel.isPaginating}, pendingRestore=$pendingScrollRestoration, shouldTrigger=$shouldTriggerPagination")
+            }
+            
+            if (firstVisibleIndex <= 5 && !shouldTriggerPagination) {
+                // Debug why pagination didn't trigger
+                Log.w("Andromuks", "RoomTimelineScreen: ⚠️ PAGINATION BLOCKED at index $firstVisibleIndex - hasMore=${appViewModel.hasMoreMessages}, isPaginating=${appViewModel.isPaginating}, pendingRestore=$pendingScrollRestoration")
+            }
+            
             if (shouldTriggerPagination) {
-                Log.d("Andromuks", "RoomTimelineScreen: Near top (index $firstVisibleIndex), auto-triggering pagination")
+                Log.d("Andromuks", "RoomTimelineScreen: ✅✅✅ AUTO-PAGINATION TRIGGERED at index $firstVisibleIndex/$totalItems ✅✅✅")
                 
                 // Find the first visible event to use as anchor
                 var anchorEventId: String? = null

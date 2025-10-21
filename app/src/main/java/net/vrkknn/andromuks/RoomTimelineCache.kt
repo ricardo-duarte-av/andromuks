@@ -19,7 +19,7 @@ import org.json.JSONObject
 class RoomTimelineCache {
     companion object {
         private const val TAG = "RoomTimelineCache"
-        private const val MAX_EVENTS_PER_ROOM = 150 // Keep more than paginate limit (100) for safety
+        private const val MAX_EVENTS_PER_ROOM = 5000 // Allow loading many historical messages (increased from 150)
         private const val TARGET_EVENTS_FOR_INSTANT_RENDER = 100 // Minimum events to skip paginate
     }
     
@@ -148,10 +148,21 @@ class RoomTimelineCache {
      * Returns -1 if no cached events or if the oldest event has no timeline_rowid
      */
     fun getOldestCachedEventRowId(roomId: String): Long {
-        val cache = roomEventsCache[roomId] ?: return -1L
-        if (cache.events.isEmpty()) return -1L
+        val cache = roomEventsCache[roomId] ?: run {
+            Log.d(TAG, "getOldestCachedEventRowId: No cache for room $roomId")
+            return -1L
+        }
         
-        return cache.events.firstOrNull { it.timelineRowid > 0 }?.timelineRowid ?: -1L
+        if (cache.events.isEmpty()) {
+            Log.d(TAG, "getOldestCachedEventRowId: Cache is empty for room $roomId")
+            return -1L
+        }
+        
+        val oldestEvent = cache.events.firstOrNull { it.timelineRowid > 0 }
+        val result = oldestEvent?.timelineRowid ?: -1L
+        
+        Log.d(TAG, "getOldestCachedEventRowId for $roomId: $result (cache has ${cache.events.size} events, oldest event: ${oldestEvent?.eventId})")
+        return result
     }
     
     /**
