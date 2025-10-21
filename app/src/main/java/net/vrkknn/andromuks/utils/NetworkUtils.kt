@@ -167,6 +167,19 @@ fun connectToWebsocket(
             Log.d("Andromuks", "NetworkUtils: onOpen: ws opened on "+response.message)
             appViewModel.setWebSocket(webSocket)
             Log.d("Andromuks", "NetworkUtils: connectToWebsocket using AppViewModel instance: $appViewModel")
+            
+            // Reset reconnection tracking on successful connection
+            appViewModel.resetReconnectionState()
+        }
+        
+        override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            Log.e("Andromuks", "NetworkUtils: WebSocket connection failed", t)
+            Log.e("Andromuks", "NetworkUtils: Failure reason: ${t.message}, response: ${response?.code}")
+            
+            appViewModel.clearWebSocket()
+            
+            // Trigger reconnection with exponential backoff
+            appViewModel.scheduleReconnection(reason = "Connection failure: ${t.message}")
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -276,12 +289,35 @@ fun connectToWebsocket(
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             Log.d("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
-            if (code != 1000 && code != 1001) { // 1000 = normal, 1001 = going away
-                appViewModel.viewModelScope.launch {
-                    Log.w("Andromuks", "NetworkUtils: WebSocket closed unexpectedly while potentially active.")
+            
+            appViewModel.clearWebSocket()
+            
+            // Trigger reconnection for abnormal closures
+            when (code) {
+                1000 -> {
+                    // Normal closure - don't reconnect
+                    Log.d("Andromuks", "NetworkUtils: Normal WebSocket closure")
+                }
+                1001 -> {
+                    // Going away - reconnect after delay
+                    Log.w("Andromuks", "NetworkUtils: Server going away, scheduling reconnection")
+                    appViewModel.scheduleReconnection(reason = "Server going away (1001)")
+                }
+                1006 -> {
+                    // Abnormal closure (no close frame) - immediate reconnect attempt
+                    Log.e("Andromuks", "NetworkUtils: Abnormal WebSocket closure (1006)")
+                    appViewModel.scheduleReconnection(reason = "Abnormal closure (1006)")
+                }
+                else -> {
+                    // Other errors - reconnect with backoff
+                    Log.w("Andromuks", "NetworkUtils: WebSocket closed with code $code: $reason")
+                    appViewModel.scheduleReconnection(reason = "Close code $code: $reason")
                 }
             }
-            // Clear socket so ping loop stops
+        }
+        
+        override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+            Log.d("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
             appViewModel.clearWebSocket()
         }
     }

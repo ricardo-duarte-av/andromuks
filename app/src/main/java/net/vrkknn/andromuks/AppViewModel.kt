@@ -719,6 +719,12 @@ class AppViewModel : ViewModel() {
                     lastNetworkState = true
                     android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Exiting offline mode")
                 }
+                // RECONNECTION: Reset backoff state on network restoration (fresh start)
+                reconnectionAttempts = 0
+                reconnectionJob?.cancel()
+                reconnectionJob = null
+                android.util.Log.d("Andromuks", "AppViewModel: Reset reconnection state due to network restoration")
+                
                 // Immediate reconnection instead of waiting for ping timeout
                 restartWebSocket("Network restored")
             },
@@ -2144,6 +2150,7 @@ class AppViewModel : ViewModel() {
         
         // Cancel any pending jobs
         appInvisibleJob?.cancel()
+        reconnectionJob?.cancel()
         
         // Stop network monitoring
         networkMonitor?.stopMonitoring()
@@ -2266,6 +2273,13 @@ class AppViewModel : ViewModel() {
     private var lastNetworkState = true // true = online, false = offline
     private val offlineCacheExpiry = 24 * 60 * 60 * 1000L // 24 hours
 
+    // RECONNECTION: Exponential backoff state
+    private var reconnectionAttempts = 0
+    private var reconnectionJob: Job? = null
+    private val BASE_RECONNECTION_DELAY_MS = 1000L // 1 second
+    private val MAX_RECONNECTION_DELAY_MS = 60000L // 60 seconds
+    private val MAX_RECONNECTION_ATTEMPTS = 10 // Give up after 10 attempts
+
     fun setWebSocket(webSocket: WebSocket) {
         this.webSocket = webSocket
         startPingLoop()
@@ -2281,6 +2295,59 @@ class AppViewModel : ViewModel() {
         }
         
         retryPendingWebSocketOperations()
+    }
+    
+    /**
+     * RECONNECTION: Reset reconnection state after successful connection
+     */
+    fun resetReconnectionState() {
+        android.util.Log.d("Andromuks", "AppViewModel: Resetting reconnection state (successful connection)")
+        reconnectionAttempts = 0
+        reconnectionJob?.cancel()
+        reconnectionJob = null
+    }
+    
+    /**
+     * RECONNECTION: Schedule WebSocket reconnection with exponential backoff
+     * 
+     * This method implements exponential backoff to avoid overwhelming the server
+     * during outages and to be more battery efficient.
+     * 
+     * @param reason Human-readable reason for reconnection (for logging)
+     */
+    fun scheduleReconnection(reason: String) {
+        // Cancel any existing reconnection job
+        reconnectionJob?.cancel()
+        
+        // Check if we've exceeded max attempts
+        if (reconnectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
+            android.util.Log.e("Andromuks", "AppViewModel: Max reconnection attempts ($MAX_RECONNECTION_ATTEMPTS) reached, giving up")
+            android.util.Log.e("Andromuks", "AppViewModel: User must manually restart app or wait for network change")
+            return
+        }
+        
+        // Calculate delay with exponential backoff
+        // Formula: min(base * 2^attempts, max)
+        val delay = kotlin.math.min(
+            BASE_RECONNECTION_DELAY_MS * (1 shl reconnectionAttempts), // 2^attempts
+            MAX_RECONNECTION_DELAY_MS
+        )
+        
+        reconnectionAttempts++
+        
+        android.util.Log.w("Andromuks", "AppViewModel: Scheduling reconnection attempt #$reconnectionAttempts in ${delay}ms")
+        android.util.Log.w("Andromuks", "AppViewModel: Reason: $reason")
+        
+        reconnectionJob = viewModelScope.launch {
+            delay(delay)
+            
+            if (isActive) {
+                android.util.Log.d("Andromuks", "AppViewModel: Executing reconnection attempt #$reconnectionAttempts")
+                
+                // Trigger reconnection via callback
+                onRestartWebSocket?.invoke("Reconnection attempt #$reconnectionAttempts: $reason")
+            }
+        }
     }
     
     fun isWebSocketConnected(): Boolean {
