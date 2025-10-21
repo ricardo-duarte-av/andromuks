@@ -356,6 +356,7 @@ private fun AnnotatedString.Builder.appendHtmlTag(
         "code" -> appendStyledChildren(tag, baseStyle.copy(fontFamily = FontFamily.Monospace), inlineImages, inlineMatrixUsers)
         "span" -> appendStyledChildren(tag, baseStyle, inlineImages, inlineMatrixUsers)
         "br" -> append("\n")
+        "h1", "h2", "h3", "h4", "h5", "h6" -> appendHeader(tag, baseStyle, inlineImages, inlineMatrixUsers)
         "p", "div" -> appendBlock(tag, baseStyle, inlineImages, inlineMatrixUsers)
         "blockquote" -> appendBlockQuote(tag, baseStyle, inlineImages, inlineMatrixUsers)
         "ul" -> appendUnorderedList(tag, baseStyle, inlineImages, inlineMatrixUsers)
@@ -386,6 +387,24 @@ private fun AnnotatedString.Builder.appendBlock(
     append("\n")
 }
 
+private fun AnnotatedString.Builder.appendHeader(
+    tag: HtmlNode.Tag,
+    baseStyle: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData>,
+    inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
+) {
+    if (length > 0 && !endsWithNewline()) append("\n")
+    
+    // Apply header styling - bold text
+    // Note: We use just bold for now to avoid fontSize issues with TextUnit.Unspecified
+    val headerStyle = baseStyle.copy(
+        fontWeight = FontWeight.Bold
+    )
+    
+    tag.children.forEach { appendHtmlNode(it, headerStyle, inlineImages, inlineMatrixUsers) }
+    append("\n")
+}
+
 private fun AnnotatedString.Builder.endsWithNewline(): Boolean {
     if (length == 0) return false
     return this.toAnnotatedString().text.last() == '\n'
@@ -397,9 +416,41 @@ private fun AnnotatedString.Builder.appendBlockQuote(
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
 ) {
-    append("\n")
-    append("> ")
-    tag.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers) }
+    if (length > 0 && !endsWithNewline()) append("\n")
+    
+    // Style for quoted text - italic and slightly muted
+    val quoteStyle = baseStyle.copy(
+        fontStyle = FontStyle.Italic,
+        color = baseStyle.color.copy(alpha = 0.8f)
+    )
+    
+    // Add quote marker with styling
+    withStyle(quoteStyle) {
+        append("│ ")  // Use a vertical bar for a more elegant look
+        
+        // Collect all text from children without adding extra newlines
+        val quoteText = buildString {
+            fun collectText(node: HtmlNode) {
+                when (node) {
+                    is HtmlNode.Text -> {
+                        val normalized = node.content.replace(Regex("\\s+"), " ")
+                        append(normalized)
+                    }
+                    is HtmlNode.LineBreak -> append(" ")
+                    is HtmlNode.Tag -> {
+                        // For block elements inside blockquote, add space between them
+                        if (node.name in setOf("p", "div") && this.isNotEmpty()) {
+                            append(" ")
+                        }
+                        node.children.forEach { collectText(it) }
+                    }
+                }
+            }
+            tag.children.forEach { collectText(it) }
+        }.trim()
+        
+        append(quoteText)
+    }
     append("\n")
 }
 
@@ -1040,14 +1091,42 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
                             )
                         }
                         "br" -> builder.append("\n")
+                        "h1", "h2", "h3", "h4", "h5", "h6" -> {
+                            if (builder.isNotEmpty() && !builder.toString().endsWith("\n")) builder.append("\n")
+                            node.children.forEach { appendNodeToSpannable(it) }
+                            // Make headers bold
+                            builder.setSpan(
+                                android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                                startIndex,
+                                builder.length,
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                            builder.append("\n")
+                        }
                         "p", "div" -> {
                             if (builder.isNotEmpty() && !builder.toString().endsWith("\n")) builder.append("\n")
                             node.children.forEach { appendNodeToSpannable(it) }
                             builder.append("\n")
                         }
                         "blockquote" -> {
-                            builder.append("\n> ")
-                            node.children.forEach { appendNodeToSpannable(it) }
+                            if (builder.isNotEmpty() && !builder.toString().endsWith("\n")) builder.append("\n")
+                            builder.append("│ ")
+                            val quoteStart = builder.length
+                            node.children.forEach { child ->
+                                // Skip adding extra newlines from nested <p> tags in blockquotes
+                                if (child is HtmlNode.Tag && child.name in setOf("p", "div")) {
+                                    child.children.forEach { appendNodeToSpannable(it) }
+                                } else {
+                                    appendNodeToSpannable(child)
+                                }
+                            }
+                            // Make the quoted text italic
+                            builder.setSpan(
+                                android.text.style.StyleSpan(android.graphics.Typeface.ITALIC),
+                                quoteStart,
+                                builder.length,
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
                             builder.append("\n")
                         }
                         "ul" -> {
