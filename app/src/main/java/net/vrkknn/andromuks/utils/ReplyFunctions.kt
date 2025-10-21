@@ -611,7 +611,7 @@ fun MessageBubbleWithMenu(
         myPowerLevel > senderPowerLevel && myPowerLevel >= redactPowerLevel
     }
     
-    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, senderPL=$senderPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")
+    //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, senderPL=$senderPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")
     
     Box {
         Surface(
@@ -619,7 +619,7 @@ fun MessageBubbleWithMenu(
                 .onGloballyPositioned { layoutCoordinates ->
                     // Capture the bubble's position on screen
                     bubbleBounds = layoutCoordinates.boundsInWindow()
-                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Bubble bounds: $bubbleBounds")
+                    //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Bubble bounds: $bubbleBounds")
                 }
                 .pointerInput(showMenu) {
                     detectTapGestures(

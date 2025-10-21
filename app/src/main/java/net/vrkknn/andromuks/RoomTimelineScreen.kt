@@ -802,25 +802,22 @@ fun RoomTimelineScreen(
     var hasInitialSnapCompleted by remember { mutableStateOf(false) }
     var lastKnownTimelineEventId by remember { mutableStateOf<String?>(null) }
     var hasCompletedInitialLayout by remember { mutableStateOf(false) }
-    var firstVisibleItemIndexBeforeLoad by remember { mutableStateOf(0) }
-    var firstVisibleItemScrollOffsetBeforeLoad by remember { mutableStateOf(0) }
     
-    // Track if we're waiting to restore scroll position after pagination
+    // Track scroll position using event ID anchor (more robust than index)
+    var anchorEventIdForRestore by remember { mutableStateOf<String?>(null) }
+    var anchorScrollOffsetForRestore by remember { mutableStateOf(0) }
     var pendingScrollRestoration by remember { mutableStateOf(false) }
 
     // Monitor scroll position to detect if user is at bottom or has detached
+    // Also trigger automatic pagination when near the top
     LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) {
         if (!hasInitialSnapCompleted) {
             return@LaunchedEffect
         }
         if (sortedEvents.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
-            // Check if Load More button or spinner is present
-            val hasLoadMoreButton = appViewModel.hasMoreMessages || appViewModel.isPaginating
-            val buttonOffset = if (hasLoadMoreButton) 1 else 0
-
             // Check if we're at the very bottom (last item is visible)
             val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
-            val lastTimelineItemIndex = timelineItems.lastIndex + buttonOffset
+            val lastTimelineItemIndex = timelineItems.lastIndex
             val isAtBottom = lastVisibleIndex >= lastTimelineItemIndex - 1 // Within last item
 
             if (!hasCompletedInitialLayout) {
@@ -836,49 +833,87 @@ fun RoomTimelineScreen(
                     hasInitialSnapCompleted = true
                 }
             } else if (
-                !isAtBottom && isAttachedToBottom && listState.firstVisibleItemIndex > buttonOffset
+                !isAtBottom && isAttachedToBottom && listState.firstVisibleItemIndex > 0
             ) {
                 // User scrolled up from bottom, detach
                 Log.d("Andromuks", "RoomTimelineScreen: User scrolled up, detaching from bottom")
                 isAttachedToBottom = false
             }
             
+            // AUTO-PAGINATION: Trigger when near the top (first 5 items visible)
+            val firstVisibleIndex = listState.firstVisibleItemIndex
+            val shouldTriggerPagination = firstVisibleIndex <= 5 && 
+                                          appViewModel.hasMoreMessages && 
+                                          !appViewModel.isPaginating &&
+                                          !pendingScrollRestoration
+            
+            if (shouldTriggerPagination) {
+                Log.d("Andromuks", "RoomTimelineScreen: Near top (index $firstVisibleIndex), auto-triggering pagination")
+                
+                // Find the first visible event to use as anchor
+                var anchorEventId: String? = null
+                var anchorOffset = 0
+                
+                // Search visible items for the first actual event
+                for (visibleItem in listState.layoutInfo.visibleItemsInfo) {
+                    val item = timelineItems.getOrNull(visibleItem.index)
+                    if (item is TimelineItem.Event) {
+                        anchorEventId = item.event.eventId
+                        anchorOffset = visibleItem.offset
+                        Log.d(
+                            "Andromuks",
+                            "RoomTimelineScreen: Auto-pagination anchor - index ${visibleItem.index}, " +
+                            "eventId: $anchorEventId, offset: $anchorOffset"
+                        )
+                        break
+                    }
+                }
+                
+                if (anchorEventId != null) {
+                    // Save anchor and trigger pagination
+                    anchorEventIdForRestore = anchorEventId
+                    anchorScrollOffsetForRestore = anchorOffset
+                    isLoadingMore = true
+                    pendingScrollRestoration = true
+                    
+                    Log.d("Andromuks", "RoomTimelineScreen: Triggering auto-pagination with anchor $anchorEventId")
+                    appViewModel.loadOlderMessages(roomId)
+                }
+            }
         }
     }
 
     // Detect when pagination completes and trigger scroll restoration
-    LaunchedEffect(appViewModel.isPaginating, timelineItems.size) {
-        // When pagination finishes and we were loading more
-        if (!appViewModel.isPaginating && isLoadingMore && pendingScrollRestoration) {
-            Log.d("Andromuks", "RoomTimelineScreen: Pagination completed, restoring scroll position")
+    LaunchedEffect(timelineItems.size) {
+        // When pagination finishes and we have an anchor event to restore to
+        if (!appViewModel.isPaginating && pendingScrollRestoration && anchorEventIdForRestore != null) {
+            Log.d("Andromuks", "RoomTimelineScreen: Pagination completed, restoring scroll to anchor event: $anchorEventIdForRestore")
             
-            // Calculate how many new items were added
-            val newItemsCount = timelineItems.size - previousItemCount
+            // Find the index of the anchor event in the new list
+            val anchorIndex = timelineItems.indexOfFirst { item ->
+                (item as? TimelineItem.Event)?.event?.eventId == anchorEventIdForRestore
+            }
             
-            if (newItemsCount > 0) {
-                // The item that was at firstVisibleItemIndexBeforeLoad is now shifted down by newItemsCount
-                val targetIndex = firstVisibleItemIndexBeforeLoad + newItemsCount
+            if (anchorIndex >= 0) {
+                val targetIndex = anchorIndex
                 
                 Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Restoring scroll position - " +
-                    "previousCount: $previousItemCount, newCount: ${timelineItems.size}, " +
-                    "newItemsAdded: $newItemsCount, " +
-                    "oldIndex: $firstVisibleItemIndexBeforeLoad, newIndex: $targetIndex, " +
-                    "offset: $firstVisibleItemScrollOffsetBeforeLoad"
+                    "RoomTimelineScreen: Found anchor event at index $targetIndex, " +
+                    "restoring with offset $anchorScrollOffsetForRestore"
                 )
                 
-                coroutineScope.launch {
-                    // Use scrollToItem (instant) to maintain exact position without animation
-                    listState.scrollToItem(targetIndex, firstVisibleItemScrollOffsetBeforeLoad)
-                    Log.d("Andromuks", "RoomTimelineScreen: Scroll position restored to index $targetIndex")
-                }
-                
-                previousItemCount = timelineItems.size
+                // Scroll immediately (we're in a LaunchedEffect coroutine context)
+                listState.scrollToItem(targetIndex, anchorScrollOffsetForRestore)
+                Log.d("Andromuks", "RoomTimelineScreen: ✅ Scroll position restored to event at index $targetIndex")
+            } else {
+                Log.w("Andromuks", "RoomTimelineScreen: ⚠️ Could not find anchor event $anchorEventIdForRestore in new timeline")
             }
             
-            isLoadingMore = false
+            // Clear restoration state
             pendingScrollRestoration = false
+            anchorEventIdForRestore = null
+            isLoadingMore = false
         }
     }
 
@@ -893,13 +928,11 @@ fun RoomTimelineScreen(
             return@LaunchedEffect
         }
 
-        val hasLoadMoreButton = appViewModel.hasMoreMessages || appViewModel.isPaginating
-        val buttonOffset = if (hasLoadMoreButton) 1 else 0
         val lastEventId = (timelineItems.lastOrNull() as? TimelineItem.Event)?.event?.eventId
 
         if (!hasInitialSnapCompleted) {
             coroutineScope.launch {
-                listState.scrollToItem(timelineItems.lastIndex + buttonOffset)
+                listState.scrollToItem(timelineItems.lastIndex)
                 hasInitialSnapCompleted = true
                 hasLoadedInitialBatch = true
                 isAttachedToBottom = true
@@ -927,7 +960,7 @@ fun RoomTimelineScreen(
                 allAnimationsCompleted
         ) {
             coroutineScope.launch {
-                listState.animateScrollToItem(timelineItems.lastIndex + buttonOffset)
+                listState.animateScrollToItem(timelineItems.lastIndex)
             }
             lastKnownTimelineEventId = lastEventId
         }
@@ -946,6 +979,7 @@ fun RoomTimelineScreen(
         // Reset state for new room
         isLoadingMore = false
         pendingScrollRestoration = false
+        anchorEventIdForRestore = null
         hasLoadedInitialBatch = false
         isAttachedToBottom = true
         isInitialLoad = true
@@ -1095,9 +1129,7 @@ fun RoomTimelineScreen(
             // If keyboard is opening and user was at bottom, maintain bottom position
             if (isKeyboardOpening && wasAtBottomBeforeKeyboard) {
                 // Animate scroll to ensure last item is fully visible as keyboard opens
-            val hasLoadMoreButton = appViewModel.hasMoreMessages || appViewModel.isPaginating
-                val buttonOffset = if (hasLoadMoreButton) 1 else 0
-                val lastIndex = timelineItems.lastIndex + buttonOffset
+                val lastIndex = timelineItems.lastIndex
                 
                 if (lastIndex >= 0) {
                     // Use animateScrollToItem for smooth scrolling that matches keyboard animation
@@ -1182,59 +1214,17 @@ fun RoomTimelineScreen(
                             // PERFORMANCE: Enable smooth scrolling optimizations
                             userScrollEnabled = true
                         ) {
-                            // Load More button at the top - only show if there are more messages
-                            if (appViewModel.hasMoreMessages || appViewModel.isPaginating) {
-                                item(key = "load_more_button") {
+                            // Show loading indicator at the top when paginating
+                            if (appViewModel.isPaginating) {
+                                item(key = "loading_indicator") {
                                     Box(
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        if (appViewModel.isPaginating) {
-                                            androidx.compose.material3.CircularProgressIndicator(
-                                                modifier = Modifier.size(32.dp)
-                                            )
-                                        } else {
-                                            // Show "Load More" button
-                                            Button(
-                                                onClick = {
-                                                    Log.d(
-                                                        "Andromuks",
-                                                        "RoomTimelineScreen: Load More button clicked"
-                                                    )
-                                                    if (!appViewModel.isPaginating) {
-                                                        // Capture current scroll position before loading
-                                                        firstVisibleItemIndexBeforeLoad = listState.firstVisibleItemIndex
-                                                        firstVisibleItemScrollOffsetBeforeLoad = listState.firstVisibleItemScrollOffset
-                                                        
-                                                        // Save current item count for calculating new items
-                                                        previousItemCount = timelineItems.size
-                                                        
-                                                        Log.d(
-                                                            "Andromuks",
-                                                            "RoomTimelineScreen: Saved scroll position - " +
-                                                            "index: $firstVisibleItemIndexBeforeLoad, " +
-                                                            "offset: $firstVisibleItemScrollOffsetBeforeLoad, " +
-                                                            "itemCount: $previousItemCount"
-                                                        )
-                                                        
-                                                        isLoadingMore = true
-                                                        pendingScrollRestoration = true
-                                                        appViewModel.loadOlderMessages(roomId)
-                                                    }
-                                                },
-                                                colors =
-                                                    ButtonDefaults.buttonColors(
-                                                        containerColor =
-                                                            MaterialTheme.colorScheme
-                                                                .secondaryContainer,
-                                                        contentColor =
-                                                            MaterialTheme.colorScheme
-                                                                .onSecondaryContainer
-                                                    )
-                                            ) {
-                                                Text("Load More")
-                                            }
-                                        }
+                                        androidx.compose.material3.CircularProgressIndicator(
+                                            modifier = Modifier.size(24.dp),
+                                            strokeWidth = 2.dp
+                                        )
                                     }
                                 }
                             }
@@ -1697,11 +1687,7 @@ fun RoomTimelineScreen(
                         onClick = {
                             coroutineScope.launch {
                                 // Scroll to bottom and re-attach
-                                // Account for Load More button if present
-                                val buttonOffset = if (appViewModel.hasMoreMessages) 1 else 0
-                                listState.animateScrollToItem(
-                                    timelineItems.lastIndex + buttonOffset
-                                )
+                                listState.animateScrollToItem(timelineItems.lastIndex)
                                 isAttachedToBottom = true
                                 Log.d(
                                     "Andromuks",
