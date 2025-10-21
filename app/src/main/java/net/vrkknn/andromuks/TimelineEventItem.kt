@@ -467,7 +467,10 @@ private fun RoomMessageContent(
                             eventId = event.eventId,
                             reactions = reactions,
                             homeserverUrl = homeserverUrl,
-                            authToken = authToken
+                            authToken = authToken,
+                            onReactionClick = { emoji ->
+                                appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                            }
                         )
                     }
                 }
@@ -793,7 +796,10 @@ private fun RoomMediaMessageContent(
                         eventId = event.eventId,
                         reactions = reactions,
                         homeserverUrl = homeserverUrl,
-                        authToken = authToken
+                        authToken = authToken,
+                        onReactionClick = { emoji ->
+                            appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                        }
                     )
                 }
             }
@@ -1108,7 +1114,10 @@ private fun RoomTextMessageContent(
                     eventId = event.eventId,
                     reactions = reactions,
                     homeserverUrl = homeserverUrl,
-                    authToken = authToken
+                    authToken = authToken,
+                    onReactionClick = { emoji ->
+                        appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                    }
                 )
             }
         }
@@ -1197,7 +1206,10 @@ private fun EncryptedMessageContent(
                                 eventId = event.eventId,
                                 reactions = reactions,
                                 homeserverUrl = homeserverUrl,
-                                authToken = authToken
+                                authToken = authToken,
+                                onReactionClick = { emoji ->
+                                    appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                                }
                             )
                         }
                     }
@@ -1438,7 +1450,10 @@ private fun EncryptedMessageContent(
                                 eventId = event.eventId,
                                 reactions = reactions,
                                 homeserverUrl = homeserverUrl,
-                                authToken = authToken
+                                authToken = authToken,
+                                onReactionClick = { emoji ->
+                                    appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                                }
                             )
                         }
                     }
@@ -1520,7 +1535,10 @@ private fun EncryptedMessageContent(
                                 eventId = event.eventId,
                                 reactions = reactions,
                                 homeserverUrl = homeserverUrl,
-                                authToken = authToken
+                                authToken = authToken,
+                                onReactionClick = { emoji ->
+                                    appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                                }
                             )
                         }
                     }
@@ -1766,7 +1784,10 @@ private fun EncryptedMessageContent(
                             eventId = event.eventId,
                             reactions = reactions,
                             homeserverUrl = homeserverUrl,
-                            authToken = authToken
+                            authToken = authToken,
+                            onReactionClick = { emoji ->
+                                appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                            }
                         )
                     }
                 }
@@ -1907,7 +1928,10 @@ private fun StickerMessageContent(
                         eventId = event.eventId,
                         reactions = reactions,
                         homeserverUrl = homeserverUrl,
-                        authToken = authToken
+                        authToken = authToken,
+                        onReactionClick = { emoji ->
+                            appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
+                        }
                     )
                 }
             }

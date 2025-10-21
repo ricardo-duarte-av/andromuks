@@ -2,6 +2,7 @@ package net.vrkknn.andromuks.utils
 
 import android.os.Build
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
@@ -42,18 +43,22 @@ import net.vrkknn.andromuks.utils.MediaUtils
  * @param count The number of users who reacted with this emoji
  * @param homeserverUrl The homeserver URL for MXC conversion
  * @param authToken The authentication token for MXC URL downloads
+ * @param onClick Callback invoked when the reaction badge is clicked
  */
 @Composable
 fun ReactionBadge(
     emoji: String,
     count: Int,
     homeserverUrl: String,
-    authToken: String
+    authToken: String,
+    onClick: () -> Unit = {}
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
         color = MaterialTheme.colorScheme.surfaceVariant,
-        modifier = Modifier.height(20.dp),
+        modifier = Modifier
+            .height(20.dp)
+            .clickable(onClick = onClick),
         shadowElevation = 2.dp
     ) {
         Row(
@@ -166,6 +171,7 @@ fun ImageReaction(
  * @param reactions List of MessageReaction objects containing emoji and count data
  * @param homeserverUrl The homeserver URL for MXC conversion
  * @param authToken The authentication token for MXC URL downloads
+ * @param onReactionClick Callback invoked when a reaction is clicked, receives the emoji/text/mxc:// string
  * @param modifier Modifier to apply to the reaction badges container
  */
 @Composable
@@ -174,6 +180,7 @@ fun ReactionBadges(
     reactions: List<MessageReaction>,
     homeserverUrl: String,
     authToken: String,
+    onReactionClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (reactions.isNotEmpty()) {
@@ -186,7 +193,8 @@ fun ReactionBadges(
                     emoji = reaction.emoji,
                     count = reaction.count,
                     homeserverUrl = homeserverUrl,
-                    authToken = authToken
+                    authToken = authToken,
+                    onClick = { onReactionClick(reaction.emoji) }
                 )
             }
         }
