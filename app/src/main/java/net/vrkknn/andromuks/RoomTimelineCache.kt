@@ -23,11 +23,63 @@ class RoomTimelineCache {
         private const val TARGET_EVENTS_FOR_INSTANT_RENDER = 100 // Minimum events to skip paginate
     }
     
-    // Per-room cache: roomId -> List of TimelineEvents (sorted by timestamp, newest last)
-    private val roomEventsCache = mutableMapOf<String, MutableList<TimelineEvent>>()
+    private data class RoomCache(
+        val events: MutableList<TimelineEvent> = mutableListOf(),
+        val eventIds: MutableSet<String> = mutableSetOf()
+    )
+
+    // Per-room cache: roomId -> RoomCache
+    private val roomEventsCache = mutableMapOf<String, RoomCache>()
     
     // Track which rooms have received their initial paginate (to avoid duplicate caching)
     private val roomsInitialized = mutableSetOf<String>()
+
+    /**
+     * Adds events into the in-memory cache for a room. Performs deduplication, keeps events ordered
+     * by timeline_rowid (and timestamp fallback), and enforces max size limits.
+     */
+    private fun addEventsToCache(roomId: String, incomingEvents: List<TimelineEvent>): Int {
+        if (incomingEvents.isEmpty()) return 0
+
+        val cache = roomEventsCache.getOrPut(roomId) { RoomCache() }
+
+        var addedCount = 0
+        for (event in incomingEvents) {
+            if (event.eventId.isBlank()) continue
+            if (cache.eventIds.add(event.eventId)) {
+                cache.events.add(event)
+                addedCount++
+            }
+        }
+
+        if (addedCount == 0) {
+            return 0
+        }
+
+        // Ensure deterministic ordering: primary by timeline_rowid (ascending), fallback to timestamp, then eventId
+        cache.events.sortWith { a, b ->
+            when {
+                a.timelineRowid > 0 && b.timelineRowid > 0 -> a.timelineRowid.compareTo(b.timelineRowid)
+                a.timelineRowid > 0 -> -1
+                b.timelineRowid > 0 -> 1
+                else -> {
+                    val tsCompare = a.timestamp.compareTo(b.timestamp)
+                    if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                }
+            }
+        }
+
+        // Trim to max size (keep newest events)
+        if (cache.events.size > MAX_EVENTS_PER_ROOM) {
+            val toRemove = cache.events.size - MAX_EVENTS_PER_ROOM
+            Log.d(TAG, "Trimming cache for room $roomId: removing $toRemove old events")
+            val removed = cache.events.subList(0, toRemove)
+            removed.forEach { cache.eventIds.remove(it.eventId) }
+            removed.clear()
+        }
+
+        return addedCount
+    }
     
     /**
      * Add events from sync_complete to the cache for a specific room
@@ -43,33 +95,12 @@ class RoomTimelineCache {
         Log.d(TAG, "Adding ${events.size} events from sync for room $roomId")
         
         // Get or create cache for this room
-        val cache = roomEventsCache.getOrPut(roomId) { mutableListOf() }
-        
-        // DEDUPLICATION: Filter out events that already exist in cache
-        val existingEventIds = cache.map { it.eventId }.toSet()
-        val newEvents = events.filter { !existingEventIds.contains(it.eventId) }
-        
-        if (newEvents.isEmpty()) {
+        val added = addEventsToCache(roomId, events)
+        if (added == 0) {
             Log.d(TAG, "All ${events.size} events already in cache, skipping")
             return
         }
-        
-        Log.d(TAG, "Adding ${newEvents.size} new events (${events.size - newEvents.size} duplicates skipped)")
-        
-        // Add only new events
-        cache.addAll(newEvents)
-        
-        // Sort by timestamp to maintain chronological order
-        cache.sortBy { it.timestamp }
-        
-        // Trim to max size (keep most recent events)
-        if (cache.size > MAX_EVENTS_PER_ROOM) {
-            val eventsToRemove = cache.size - MAX_EVENTS_PER_ROOM
-            Log.d(TAG, "Trimming cache for room $roomId: removing $eventsToRemove old events")
-            cache.subList(0, eventsToRemove).clear()
-        }
-        
-        Log.d(TAG, "Room $roomId cache now has ${cache.size} events")
+        Log.d(TAG, "Added $added new events to cache (total=${getCachedEventCount(roomId)})")
     }
     
     /**
@@ -79,11 +110,11 @@ class RoomTimelineCache {
     fun getCachedEvents(roomId: String): List<TimelineEvent>? {
         val cache = roomEventsCache[roomId] ?: return null
         
-        return if (cache.size >= TARGET_EVENTS_FOR_INSTANT_RENDER) {
-            Log.d(TAG, "Cache hit for room $roomId: ${cache.size} events available (>= $TARGET_EVENTS_FOR_INSTANT_RENDER)")
-            cache.toList() // Return a copy
+        return if (cache.events.size >= TARGET_EVENTS_FOR_INSTANT_RENDER) {
+            Log.d(TAG, "Cache hit for room $roomId: ${cache.events.size} events available (>= $TARGET_EVENTS_FOR_INSTANT_RENDER)")
+            cache.events.toList() // Return a copy
         } else {
-            Log.d(TAG, "Cache miss for room $roomId: only ${cache.size} events (need >= $TARGET_EVENTS_FOR_INSTANT_RENDER)")
+            Log.d(TAG, "Cache miss for room $roomId: only ${cache.events.size} events (need >= $TARGET_EVENTS_FOR_INSTANT_RENDER)")
             null
         }
     }
@@ -96,11 +127,11 @@ class RoomTimelineCache {
     fun getCachedEventsForNotification(roomId: String): List<TimelineEvent>? {
         val cache = roomEventsCache[roomId] ?: return null
         
-        return if (cache.size >= 10) { // Lower threshold for notification scenarios
-            Log.d(TAG, "Cache hit for notification room $roomId: ${cache.size} events available (>= 10)")
-            cache.toList() // Return a copy
+        return if (cache.events.size >= 10) { // Lower threshold for notification scenarios
+            Log.d(TAG, "Cache hit for notification room $roomId: ${cache.events.size} events available (>= 10)")
+            cache.events.toList() // Return a copy
         } else {
-            Log.d(TAG, "Cache miss for notification room $roomId: only ${cache.size} events (need >= 10)")
+            Log.d(TAG, "Cache miss for notification room $roomId: only ${cache.events.size} events (need >= 10)")
             null
         }
     }
@@ -109,7 +140,7 @@ class RoomTimelineCache {
      * Get the number of cached events for a room
      */
     fun getCachedEventCount(roomId: String): Int {
-        return roomEventsCache[roomId]?.size ?: 0
+        return roomEventsCache[roomId]?.events?.size ?: 0
     }
     
     /**
@@ -118,10 +149,9 @@ class RoomTimelineCache {
      */
     fun getOldestCachedEventRowId(roomId: String): Long {
         val cache = roomEventsCache[roomId] ?: return -1L
-        if (cache.isEmpty()) return -1L
+        if (cache.events.isEmpty()) return -1L
         
-        // Events are sorted by timestamp, newest last, so first event is oldest
-        return cache.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
+        return cache.events.firstOrNull { it.timelineRowid > 0 }?.timelineRowid ?: -1L
     }
     
     /**
@@ -155,17 +185,14 @@ class RoomTimelineCache {
     fun seedCacheWithPaginatedEvents(roomId: String, events: List<TimelineEvent>) {
         Log.d(TAG, "Seeding cache for room $roomId with ${events.size} paginated events")
         
-        val cache = roomEventsCache.getOrPut(roomId) { mutableListOf() }
-        
-        // Clear old cache and add paginated events
-        cache.clear()
-        cache.addAll(events)
-        cache.sortBy { it.timestamp }
-        
+        val cache = roomEventsCache.getOrPut(roomId) { RoomCache() }
+        cache.events.clear()
+        cache.eventIds.clear()
+        addEventsToCache(roomId, events)
+
         // Mark as initialized
         markRoomInitialized(roomId)
-        
-        Log.d(TAG, "Room $roomId cache seeded and initialized with ${cache.size} events")
+        Log.d(TAG, "Room $roomId cache seeded and initialized with ${getCachedEventCount(roomId)} events")
     }
     
     /**
@@ -178,29 +205,8 @@ class RoomTimelineCache {
         
         Log.d(TAG, "Merging ${newEvents.size} paginated events into cache for room $roomId")
         
-        val cache = roomEventsCache.getOrPut(roomId) { mutableListOf() }
-        
-        // Add new events
-        cache.addAll(newEvents)
-        
-        // Remove duplicates by event ID
-        val uniqueEvents = cache.distinctBy { it.eventId }.toMutableList()
-        
-        // Sort by timestamp
-        uniqueEvents.sortBy { it.timestamp }
-        
-        // Update cache
-        cache.clear()
-        cache.addAll(uniqueEvents)
-        
-        // Trim if needed
-        if (cache.size > MAX_EVENTS_PER_ROOM) {
-            val eventsToRemove = cache.size - MAX_EVENTS_PER_ROOM
-            Log.d(TAG, "Trimming cache for room $roomId after merge: removing $eventsToRemove old events")
-            cache.subList(0, eventsToRemove).clear()
-        }
-        
-        Log.d(TAG, "Room $roomId cache after merge: ${cache.size} events")
+        val added = addEventsToCache(roomId, newEvents)
+        Log.d(TAG, "Room $roomId cache after merge: ${getCachedEventCount(roomId)} events (added $added)")
     }
     
     /**
@@ -228,8 +234,8 @@ class RoomTimelineCache {
         return mapOf(
             "total_rooms_cached" to roomEventsCache.size,
             "total_rooms_initialized" to roomsInitialized.size,
-            "total_events_cached" to roomEventsCache.values.sumOf { it.size },
-            "cache_details" to roomEventsCache.mapValues { it.value.size }
+            "total_events_cached" to roomEventsCache.values.sumOf { it.events.size },
+            "cache_details" to roomEventsCache.mapValues { it.value.events.size }
         )
     }
     

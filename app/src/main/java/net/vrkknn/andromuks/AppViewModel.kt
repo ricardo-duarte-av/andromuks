@@ -2241,7 +2241,8 @@ class AppViewModel : ViewModel() {
     
     // Pagination state
     private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
-    private var isPaginating: Boolean = false // Prevent multiple pagination requests
+    var isPaginating by mutableStateOf(false)
+        private set
     var hasMoreMessages by mutableStateOf(true) // Whether there are more messages to load
     
     
@@ -3139,15 +3140,15 @@ class AppViewModel : ViewModel() {
                 
                 // Only request member data if not already loaded
                 if (partialNavigationState?.memberDataLoaded != true && !pendingFullMemberListRequests.contains(roomId)) {
-                    val stateRequestId = requestIdCounter++
-                    timelineRequests[stateRequestId] = roomId
-                    sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
-                        "room_id" to roomId,
-                        "include_members" to true,
-                        "fetch_members" to false,
-                        "refetch" to false
-                    ))
-                    android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Partial cache, requesting member data")
+                val stateRequestId = requestIdCounter++
+                timelineRequests[stateRequestId] = roomId
+                sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
+                    "room_id" to roomId,
+                    "include_members" to true,
+                    "fetch_members" to false,
+                    "refetch" to false
+                ))
+                android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Partial cache, requesting member data")
                 }
                 
                 // Mark as read
@@ -4623,18 +4624,14 @@ class AppViewModel : ViewModel() {
             if (timelineList.isNotEmpty()) {
                 // Handle background prefetch requests first - before any UI processing
                 if (backgroundPrefetchRequests.containsKey(requestId)) {
-                    // This is a background prefetch request - silently add to cache without affecting UI
                     android.util.Log.d("Andromuks", "AppViewModel: Processing background prefetch request, silently adding ${timelineList.size} events to cache (requestId: $requestId, roomId: $roomId, currentRoomId: $currentRoomId)")
-                    
-                    // Add events to cache silently (merge with existing cache)
                     roomTimelineCache.mergePaginatedEvents(roomId, timelineList)
-                    
                     val newCacheCount = roomTimelineCache.getCachedEventCount(roomId)
                     android.util.Log.d("Andromuks", "AppViewModel: ✅ Background prefetch completed - cache now has $newCacheCount events for room $roomId")
-                    
-                    return reactionProcessedCount // Exit early - don't process edit chains or UI updates for background prefetch
+                    smallestRowId = roomTimelineCache.getOldestCachedEventRowId(roomId)
+                    return reactionProcessedCount
                 }
-                
+
                 // Store smallest rowId for pagination (only for initial paginate, not pagination requests)
                 if (!paginateRequests.containsKey(requestId)) {
                     val currentSmallest = timelineList.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
@@ -4683,20 +4680,21 @@ class AppViewModel : ViewModel() {
                     // This is a pagination request - merge with existing timeline
                     android.util.Log.d("Andromuks", "AppViewModel: Processing pagination request, merging with existing timeline")
                     android.util.Log.d("Andromuks", "AppViewModel: Timeline list size before merge: ${timelineList.size}")
+                    roomTimelineCache.mergePaginatedEvents(roomId, timelineList)
                     mergePaginationEvents(timelineList)
                     paginateRequests.remove(requestId)
                     isPaginating = false
                     android.util.Log.d("Andromuks", "AppViewModel: Pagination completed, isPaginating set to false")
                     android.util.Log.d("Andromuks", "AppViewModel: Timeline events count after merge: ${timelineEvents.size}")
+                    smallestRowId = roomTimelineCache.getOldestCachedEventRowId(roomId)
                 } else {
                     // This is an initial paginate - build timeline from chain mapping
                     buildTimelineFromChain()
                     isTimelineLoading = false
                     android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
-                    
-                    // Seed the cache with these paginated events for future instant opens
                     android.util.Log.d("Andromuks", "AppViewModel: Seeding cache with ${timelineList.size} paginated events for room $roomId")
                     roomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineList)
+                    smallestRowId = roomTimelineCache.getOldestCachedEventRowId(roomId)
                 }
                 
                 // Mark room as read when timeline is successfully loaded - use most recent event by timestamp
@@ -5861,11 +5859,17 @@ class AppViewModel : ViewModel() {
         val redactionEvents = newEvents.filter { it.type == "m.room.redaction" }
         val regularEvents = newEvents.filter { it.type != "m.room.redaction" }
         
-        // Add regular events to existing timeline
-        val currentEvents = timelineEvents.toMutableList()
-        currentEvents.addAll(regularEvents)
-        
-        android.util.Log.d("Andromuks", "AppViewModel: Combined timeline has ${currentEvents.size} events before sorting (${redactionEvents.size} redactions to process)")
+        // Merge regular events, preserving existing entries when duplicates are encountered
+        val combinedMap = LinkedHashMap<String, TimelineEvent>(timelineEvents.size + regularEvents.size)
+        timelineEvents.forEach { existing ->
+            combinedMap[existing.eventId] = existing
+        }
+        for (event in regularEvents) {
+            if (!combinedMap.containsKey(event.eventId)) {
+                combinedMap[event.eventId] = event
+            }
+        }
+        android.util.Log.d("Andromuks", "AppViewModel: Combined timeline has ${combinedMap.size} unique events before redaction processing (${redactionEvents.size} redactions)")
         
         // Process redactions from paginated events
         for (redactionEvent in redactionEvents) {
@@ -5874,12 +5878,9 @@ class AppViewModel : ViewModel() {
             if (redactsEventId != null) {
                 android.util.Log.d("Andromuks", "AppViewModel: Pagination redaction ${redactionEvent.eventId} targets $redactsEventId")
                 
-                // Find and mark the target event as redacted
-                val targetIndex = currentEvents.indexOfFirst { it.eventId == redactsEventId }
-                if (targetIndex >= 0) {
-                    val targetEvent = currentEvents[targetIndex]
-                    val redactedEvent = targetEvent.copy(redactedBy = redactionEvent.eventId)
-                    currentEvents[targetIndex] = redactedEvent
+                val targetEvent = combinedMap[redactsEventId]
+                if (targetEvent != null) {
+                    combinedMap[redactsEventId] = targetEvent.copy(redactedBy = redactionEvent.eventId)
                     android.util.Log.d("Andromuks", "AppViewModel: Marked paginated event $redactsEventId as redacted by ${redactionEvent.eventId}")
                 } else {
                     android.util.Log.w("Andromuks", "AppViewModel: Could not find target event $redactsEventId for pagination redaction")
@@ -5887,8 +5888,17 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Sort chronologically by timestamp
-        val sortedEvents = currentEvents.sortedBy { it.timestamp }
+        val sortedEvents = combinedMap.values.sortedWith { a, b ->
+            when {
+                a.timelineRowid > 0 && b.timelineRowid > 0 -> a.timelineRowid.compareTo(b.timelineRowid)
+                a.timelineRowid > 0 -> -1
+                b.timelineRowid > 0 -> 1
+                else -> {
+                    val tsCompare = a.timestamp.compareTo(b.timestamp)
+                    if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                }
+            }
+        }
         
         // MEMORY MANAGEMENT: Limit timeline events to prevent memory pressure
         val limitedTimelineEvents = if (sortedEvents.size > MAX_TIMELINE_EVENTS_PER_ROOM) {
