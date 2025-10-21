@@ -173,42 +173,6 @@ fun connectToWebsocket(
             //Log.d("Andromuks", "NetworkUtils: WebSocket TextMessage: $text")
             val jsonObject = try { JSONObject(text) } catch (e: Exception) { null }
             if (jsonObject != null) {
-                // NETWORK OPTIMIZATION: Handle batch responses first
-                val messageType = jsonObject.optString("type")
-                if (messageType == "batch_responses") {
-                    val responsesArray = jsonObject.optJSONArray("responses")
-                    if (responsesArray != null) {
-                        Log.d("Andromuks", "NetworkUtils: NETWORK OPTIMIZATION - Received batch responses with ${responsesArray.length()} responses")
-                        appViewModel.viewModelScope.launch(Dispatchers.Main) {
-                            for (i in 0 until responsesArray.length()) {
-                                val responseJson = responsesArray.optJSONObject(i)
-                                if (responseJson != null) {
-                                    val requestId = responseJson.optInt("request_id")
-                                    val data = responseJson.opt("data")
-                                    val command = responseJson.optString("command")
-                                    
-                                    // Track request_id for ping purposes
-                                    if (requestId != 0) {
-                                        appViewModel.noteIncomingRequestId(requestId)
-                                    }
-                                    
-                                    // Handle the response based on command type
-                                    when (command) {
-                                        "response" -> {
-                                            appViewModel.handleResponse(requestId, data ?: Any())
-                                        }
-                                        "error" -> {
-                                            val errorMessage = responseJson.optString("error_message", "Unknown error")
-                                            appViewModel.handleError(requestId, errorMessage)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        return@onMessage // Skip normal processing for batch responses
-                    }
-                }
-                
                 // Track last received request_id for ping purposes
                 val receivedReqId = jsonObject.optInt("request_id", 0)
                 if (receivedReqId != 0) {

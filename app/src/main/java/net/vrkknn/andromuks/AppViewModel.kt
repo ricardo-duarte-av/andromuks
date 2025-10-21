@@ -729,11 +729,6 @@ class AppViewModel : ViewModel() {
                     isOfflineMode = true
                     lastNetworkState = false
                     android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Entering offline mode, preserving cache")
-                    
-                    // Flush any pending batched commands to avoid data loss
-                    viewModelScope.launch {
-                        flushBatchedCommands()
-                    }
                 }
                 // Could optionally clear WebSocket here, but better to let ping timeout handle it
                 // This avoids unnecessary reconnect attempts when network is definitely unavailable
@@ -2258,18 +2253,6 @@ class AppViewModel : ViewModel() {
     private var vapidKey: String = "" // VAPID key for push notifications
     private var hasHadInitialConnection = false // Track if we've had an initial connection to only vibrate on reconnections
 
-    // NETWORK OPTIMIZATION: Request batching system
-    private data class BatchedWebSocketCommand(
-        val command: String,
-        val requestId: Int,
-        val data: Map<String, Any>
-    )
-    
-    private val pendingBatchedCommands = mutableListOf<BatchedWebSocketCommand>()
-    private var batchFlushJob: Job? = null
-    private val BATCH_DELAY_MS = 50L // Batch commands for 50ms
-    private val MAX_BATCH_SIZE = 10 // Maximum commands to batch together
-
     // NETWORK OPTIMIZATION: Smart timeout handling
     private var networkLatencyMs = 1000L // Track estimated network latency
     private var connectionStability = 1.0f // 0.0 (unstable) to 1.0 (stable)
@@ -2286,11 +2269,6 @@ class AppViewModel : ViewModel() {
     fun setWebSocket(webSocket: WebSocket) {
         this.webSocket = webSocket
         startPingLoop()
-        
-        // NETWORK OPTIMIZATION: Flush any pending batched commands immediately when connection is restored
-        viewModelScope.launch {
-            flushBatchedCommands()
-        }
         
         // Broadcast that socket connection is available and retry pending operations
         android.util.Log.i("Andromuks", "AppViewModel: WebSocket connection established - retrying ${pendingWebSocketOperations.size} pending operations")
@@ -2369,7 +2347,7 @@ class AppViewModel : ViewModel() {
                             
                             if (command != null && requestId != null && data != null) {
                                 android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Retrying offline command: $command")
-                                sendWebSocketCommand(command, requestId, data, forceImmediate = true)
+                                sendWebSocketCommand(command, requestId, data)
                             }
                         } else {
                             android.util.Log.w("Andromuks", "AppViewModel: Unknown operation type for retry: ${operation.type}")
@@ -6515,11 +6493,11 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * NETWORK OPTIMIZATION: Send WebSocket command with batching support
-     * Commands will be batched for up to BATCH_DELAY_MS milliseconds or until MAX_BATCH_SIZE is reached
+     * Send WebSocket command to the backend
+     * Commands are sent individually with sequential request IDs
      */
-    private fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>, forceImmediate: Boolean = false): WebSocketResult {
-        // NETWORK OPTIMIZATION: Handle offline mode
+    private fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult {
+        // Handle offline mode
         if (isOfflineMode && !isOfflineCapableCommand(command)) {
             android.util.Log.w("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Command $command queued for offline retry")
             queueCommandForOfflineRetry(command, requestId, data)
@@ -6532,67 +6510,7 @@ class AppViewModel : ViewModel() {
             return WebSocketResult.NOT_CONNECTED
         }
         
-        // NETWORK OPTIMIZATION: Add to batch unless it's a high priority command or forced immediate
-        if (!forceImmediate && shouldBatchCommand(command)) {
-            return sendBatchedCommand(command, requestId, data)
-        } else {
-            return sendImmediateCommand(command, requestId, data)
-        }
-    }
-    
-    /**
-     * NETWORK OPTIMIZATION: Determine if a command should be batched
-     */
-    private fun shouldBatchCommand(command: String): Boolean {
-        // Only batch non-critical commands to avoid UI delays
-        return when (command) {
-            "get_profile" -> true // Profile requests can be batched (non-critical for initial UI)
-            "set_typing" -> true // Typing indicators can be batched
-            else -> false // Don't batch room state requests (critical for UI) or other important commands
-        }
-    }
-    
-    /**
-     * NETWORK OPTIMIZATION: Check if command is high priority and should be sent immediately
-     */
-    private fun isHighPriorityCommand(command: String): Boolean {
-        return when (command) {
-            "send_message", "ping", "send_reply", "edit_message", "send_reaction", "delete_reaction", "paginate", "get_room_state" -> true
-            else -> false
-        }
-    }
-    
-    /**
-     * NETWORK OPTIMIZATION: Add command to batch queue
-     */
-    private fun sendBatchedCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult {
-        synchronized(pendingBatchedCommands) {
-            pendingBatchedCommands.add(BatchedWebSocketCommand(command, requestId, data))
-            
-            // Schedule batch flush if not already scheduled
-            if (batchFlushJob?.isActive != true) {
-                batchFlushJob = viewModelScope.launch {
-                    delay(BATCH_DELAY_MS)
-                    flushBatchedCommands()
-                }
-            }
-            
-            // Flush immediately if batch is full
-            if (pendingBatchedCommands.size >= MAX_BATCH_SIZE) {
-                batchFlushJob?.cancel()
-                viewModelScope.launch {
-                    flushBatchedCommands()
-                }
-            }
-        }
-        
-        return WebSocketResult.SUCCESS
-    }
-    
-    /**
-     * NETWORK OPTIMIZATION: Send command immediately without batching
-     */
-    private fun sendImmediateCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult {
+        // Send command immediately
         return try {
             val json = org.json.JSONObject()
             json.put("command", command)
@@ -6603,58 +6521,8 @@ class AppViewModel : ViewModel() {
             webSocket?.send(jsonString)
             WebSocketResult.SUCCESS
         } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to send immediate WebSocket command: $command", e)
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to send WebSocket command: $command", e)
             WebSocketResult.CONNECTION_ERROR
-        }
-    }
-    
-    /**
-     * NETWORK OPTIMIZATION: Flush all batched commands as a single WebSocket message
-     */
-    private fun flushBatchedCommands() {
-        synchronized(pendingBatchedCommands) {
-            if (pendingBatchedCommands.isEmpty()) {
-                return
-            }
-            
-            val commandsToFlush = pendingBatchedCommands.toList()
-            pendingBatchedCommands.clear()
-            batchFlushJob?.cancel()
-            batchFlushJob = null
-            
-            try {
-                val batchJson = org.json.JSONObject()
-                batchJson.put("type", "batch_commands")
-                batchJson.put("timestamp", System.currentTimeMillis())
-                
-                val commandsArray = org.json.JSONArray()
-                commandsToFlush.forEach { batchedCommand ->
-                    val commandJson = org.json.JSONObject()
-                    commandJson.put("command", batchedCommand.command)
-                    commandJson.put("request_id", batchedCommand.requestId)
-                    commandJson.put("data", org.json.JSONObject(batchedCommand.data))
-                    commandsArray.put(commandJson)
-                }
-                
-                batchJson.put("commands", commandsArray)
-                val batchString = batchJson.toString()
-                
-                android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Flushing ${commandsToFlush.size} batched commands")
-                android.util.Log.d("Andromuks", "Websocket: BATCH (${commandsToFlush.size} commands) -> $batchString")
-                webSocket?.send(batchString)
-                
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to flush batched commands", e)
-                
-                // Fall back to sending commands individually
-                commandsToFlush.forEach { batchedCommand ->
-                    try {
-                        sendImmediateCommand(batchedCommand.command, batchedCommand.requestId, batchedCommand.data)
-                    } catch (fallbackError: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Failed to send fallback command: ${batchedCommand.command}", fallbackError)
-                    }
-                }
-            }
         }
     }
     
