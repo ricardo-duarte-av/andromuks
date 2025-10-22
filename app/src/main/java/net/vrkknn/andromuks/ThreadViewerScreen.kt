@@ -348,25 +348,31 @@ fun ThreadViewerScreen(
         }
     }
 
-    // Request updated profile information for users in the room
-    // This happens after the timeline loads to refresh potentially stale profile data
+    // OPPORTUNISTIC PROFILE LOADING: Only request profiles when actually needed for rendering
+    // This prevents loading 15,000+ profiles upfront for large rooms
     LaunchedEffect(threadMessages, roomId) {
-        // Always request fresh member list when opening a thread to ensure accurate membership status
-        // This cleans up any stale invite members or other invalid entries in the cache
         Log.d(
             "Andromuks",
-            "ThreadViewerScreen: Requesting fresh member list for $roomId to ensure accurate membership"
+            "ThreadViewerScreen: Using opportunistic profile loading for $roomId (no bulk loading)"
         )
-        appViewModel.requestFullMemberList(roomId)
         
+        // Only request profiles for users that are actually visible in the thread
+        // This dramatically reduces memory usage for large rooms
         if (threadMessages.isNotEmpty()) {
+            val visibleUsers = threadMessages.take(30) // Only first 30 events for thread
+                .map { it.sender }
+                .distinct()
+                .filter { it != appViewModel.currentUserId }
+            
             Log.d(
                 "Andromuks",
-                "ThreadViewerScreen: Requesting updated profiles for ${threadMessages.size} thread events"
+                "ThreadViewerScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${threadMessages.size} events)"
             )
-            // Request updated profile information from the server for all users in the timeline
-            // This will not block rendering - it happens in the background and updates UI as data arrives
-            appViewModel.requestUpdatedRoomProfiles(roomId, threadMessages)
+            
+            // Request profiles one by one as needed
+            visibleUsers.forEach { userId ->
+                appViewModel.requestUserProfileOnDemand(userId, roomId)
+            }
         }
     }
 

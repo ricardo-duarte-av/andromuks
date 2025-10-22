@@ -19,6 +19,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import android.content.Context
 import android.media.MediaPlayer
@@ -1593,13 +1594,10 @@ class AppViewModel : ViewModel() {
      * Load additional room details (members, full timeline) after essential data
      */
     private fun loadRoomDetails(roomId: String, navigationState: RoomNavigationState) {
-        // NAVIGATION PERFORMANCE: Load member data if we have essential data but not members
+        // OPPORTUNISTIC PROFILE LOADING: Skip bulk member loading to prevent OOM
+        // Profiles will be loaded on-demand when actually needed for rendering
         if (navigationState.essentialDataLoaded && !navigationState.memberDataLoaded) {
-            if (!pendingFullMemberListRequests.contains(roomId)) {
-                requestFullMemberList(roomId)
-                android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Loading member details for: $roomId")
-            }
-            
+            android.util.Log.d("Andromuks", "AppViewModel: SKIPPING bulk member loading for $roomId (using opportunistic loading)")
             navigationCache[roomId] = navigationState.copy(memberDataLoaded = true)
         }
         
@@ -2193,11 +2191,7 @@ class AppViewModel : ViewModel() {
     
     fun getAndIncrementRequestId(): Int = requestIdCounter++
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
-    private val profileRequests = mutableMapOf<Int, String>() // requestId -> userId
     private val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
-    
-    // PERFORMANCE: Track pending profile requests to prevent duplicate WebSocket commands
-    private val pendingProfileRequests = mutableSetOf<String>() // userId that have pending requests
     private val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
     
@@ -2240,6 +2234,10 @@ class AppViewModel : ViewModel() {
     
     // PERFORMANCE: Track pending full member list requests to prevent duplicate WebSocket commands
     private val pendingFullMemberListRequests = mutableSetOf<String>() // roomId that have pending full member list requests
+    
+    // OPPORTUNISTIC PROFILE LOADING: Track pending on-demand profile requests
+    private val pendingProfileRequests = mutableSetOf<String>() // "roomId:userId" keys for pending profile requests
+    private val profileRequests = mutableMapOf<Int, String>() // requestId -> "roomId:userId" for on-demand profile requests
     
     // Pagination state
     private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
@@ -2955,17 +2953,16 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId")
         currentRoomId = roomId
         
-        // Ensure room state and member data are requested immediately to fix header display issues
-        // This is especially important when opening rooms via shortcuts
-        // Use include_members: true to populate both room state and member cache in one request
-        if (webSocket != null && !pendingFullMemberListRequests.contains(roomId)) {
+        // OPPORTUNISTIC PROFILE LOADING: Only request room state without members to prevent OOM
+        // Member profiles will be loaded on-demand when actually needed for rendering
+        if (webSocket != null && !pendingRoomStateRequests.contains(roomId)) {
             val stateRequestId = requestIdCounter++
-            fullMemberListRequests[stateRequestId] = roomId
-            pendingFullMemberListRequests.add(roomId)
-            android.util.Log.d("Andromuks", "AppViewModel: Requesting room state with members for header display and member cache (reqId: $stateRequestId)")
+            roomStateRequests[stateRequestId] = roomId
+            pendingRoomStateRequests.add(roomId)
+            android.util.Log.d("Andromuks", "AppViewModel: Requesting room state WITHOUT members to prevent OOM (reqId: $stateRequestId)")
             sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
                 "room_id" to roomId,
-                "include_members" to true,
+                "include_members" to false,  // CRITICAL: Don't load all members
                 "fetch_members" to false,
                 "refetch" to false
             ))
@@ -3068,17 +3065,12 @@ class AppViewModel : ViewModel() {
                 requestRoomState(roomId)
             }
             
-            // Only request member data if not already loaded
-            if (currentNavigationState?.memberDataLoaded != true && !pendingFullMemberListRequests.contains(roomId)) {
-                val stateRequestId = requestIdCounter++
-                timelineRequests[stateRequestId] = roomId
-                sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
-                    "room_id" to roomId,
-                    "include_members" to true,
-                    "fetch_members" to false,
-                    "refetch" to false
-                ))
-                android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Cache hit, requesting member data")
+            // OPPORTUNISTIC PROFILE LOADING: Skip member data loading to prevent OOM
+            // Member profiles will be loaded on-demand when actually needed for rendering
+            if (currentNavigationState?.memberDataLoaded != true) {
+                android.util.Log.d("Andromuks", "AppViewModel: SKIPPING member data loading (using opportunistic loading)")
+                // Mark as loaded to prevent repeated attempts
+                navigationCache[roomId] = currentNavigationState?.copy(memberDataLoaded = true) ?: RoomNavigationState(roomId, memberDataLoaded = true)
             }
             
             // Mark as read
@@ -3183,17 +3175,12 @@ class AppViewModel : ViewModel() {
                     requestRoomState(roomId)
                 }
                 
-                // Only request member data if not already loaded
-                if (partialNavigationState?.memberDataLoaded != true && !pendingFullMemberListRequests.contains(roomId)) {
-                val stateRequestId = requestIdCounter++
-                timelineRequests[stateRequestId] = roomId
-                sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
-                    "room_id" to roomId,
-                    "include_members" to true,
-                    "fetch_members" to false,
-                    "refetch" to false
-                ))
-                android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Partial cache, requesting member data")
+                // OPPORTUNISTIC PROFILE LOADING: Skip member data loading to prevent OOM
+                // Member profiles will be loaded on-demand when actually needed for rendering
+                if (partialNavigationState?.memberDataLoaded != true) {
+                    android.util.Log.d("Andromuks", "AppViewModel: SKIPPING member data loading (using opportunistic loading)")
+                    // Mark as loaded to prevent repeated attempts
+                    navigationCache[roomId] = partialNavigationState?.copy(memberDataLoaded = true) ?: RoomNavigationState(roomId, memberDataLoaded = true)
                 }
                 
                 // Mark as read
@@ -3260,17 +3247,12 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Requested essential room state")
         }
         
-        // NAVIGATION PERFORMANCE: Only request member data if not already loaded
-        if (missNavigationState?.memberDataLoaded != true && !pendingFullMemberListRequests.contains(roomId)) {
-            val stateRequestId = requestIdCounter++
-            timelineRequests[stateRequestId] = roomId
-            sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
-                "room_id" to roomId,
-                "include_members" to true,
-                "fetch_members" to false,
-                "refetch" to false
-            ))
-            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Requested member data")
+        // OPPORTUNISTIC PROFILE LOADING: Skip member data loading to prevent OOM
+        // Member profiles will be loaded on-demand when actually needed for rendering
+        if (missNavigationState?.memberDataLoaded != true) {
+            android.util.Log.d("Andromuks", "AppViewModel: SKIPPING member data loading (using opportunistic loading)")
+            // Mark as loaded to prevent repeated attempts
+            navigationCache[roomId] = missNavigationState?.copy(memberDataLoaded = true) ?: RoomNavigationState(roomId, memberDataLoaded = true)
         }
         
         // NAVIGATION PERFORMANCE: Only request timeline if not already cached
@@ -3389,6 +3371,51 @@ class AppViewModel : ViewModel() {
             "refetch" to false
         ))
         android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $stateRequestId")
+    }
+    
+    /**
+     * OPPORTUNISTIC PROFILE LOADING: Request profile for a single user only when needed for rendering.
+     * This prevents loading 15,000+ profiles upfront and only loads what's actually displayed.
+     */
+    fun requestUserProfileOnDemand(userId: String, roomId: String) {
+        // Check if we already have this profile in cache
+        val existingProfile = getUserProfile(userId, roomId)
+        if (existingProfile != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Profile already cached for $userId, skipping request")
+            return
+        }
+        
+        // Check if we're already requesting this profile to avoid duplicates
+        val requestKey = "$roomId:$userId"
+        if (pendingProfileRequests.contains(requestKey)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Profile request already pending for $userId, skipping duplicate")
+            return
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Requesting profile on-demand for $userId in room $roomId")
+        
+        // Check if WebSocket is connected
+        if (webSocket == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, skipping on-demand profile request")
+            return
+        }
+        
+        val requestId = requestIdCounter++
+        
+        // Track this request to prevent duplicates
+        pendingProfileRequests.add(requestKey)
+        profileRequests[requestId] = requestKey
+        
+        // Request specific room state for this user
+        sendWebSocketCommand("get_specific_room_state", requestId, mapOf(
+            "keys" to listOf(mapOf(
+                "room_id" to roomId,
+                "type" to "m.room.member",
+                "state_key" to userId
+            ))
+        ))
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sent on-demand profile request with ID $requestId for $userId")
     }
     
     /**
@@ -4217,6 +4244,8 @@ class AppViewModel : ViewModel() {
             handleGetRoomSummaryResponse(requestId, data)
         } else if (joinRoomCallbacks.containsKey(requestId)) {
             handleJoinRoomCallbackResponse(requestId, data)
+        } else if (profileRequests.containsKey(requestId)) {
+            handleOnDemandProfileResponse(requestId, data)
         } else if (roomSpecificStateRequests.containsKey(requestId)) {
             handleRoomSpecificStateResponse(requestId, data)
         } else if (fullMemberListRequests.containsKey(requestId)) {
@@ -4424,21 +4453,160 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    // Database-based profile management
+    private val pendingProfileSaves = mutableMapOf<String, MemberProfile>()
+    private var profileSaveJob: kotlinx.coroutines.Job? = null
+    private var profileRepository: net.vrkknn.andromuks.database.ProfileRepository? = null
+    
+    /**
+     * Manages global profile cache size to prevent memory issues.
+     */
+    private fun manageGlobalCacheSize() {
+        if (globalProfileCache.size > 1000) {
+            // Clear oldest entries to make room - much more aggressive
+            val keysToRemove = globalProfileCache.keys.take(500)
+            keysToRemove.forEach { globalProfileCache.remove(it) }
+            android.util.Log.w("Andromuks", "AppViewModel: Cleared ${keysToRemove.size} old entries from global cache")
+        }
+    }
+    
+    /**
+     * Manages room member cache size to prevent memory issues.
+     */
+    private fun manageRoomMemberCacheSize(roomId: String) {
+        val memberMap = roomMemberCache[roomId]
+        if (memberMap != null && memberMap.size > 500) {
+            // Clear oldest entries to make room
+            val keysToRemove = memberMap.keys.take(250)
+            keysToRemove.forEach { memberMap.remove(it) }
+            android.util.Log.w("Andromuks", "AppViewModel: Cleared ${keysToRemove.size} old entries from room $roomId cache")
+        }
+    }
+    
+    /**
+     * Manages flattened member cache size to prevent memory issues.
+     */
+    private fun manageFlattenedMemberCacheSize() {
+        if (flattenedMemberCache.size > 2000) {
+            // Clear oldest entries to make room
+            val keysToRemove = flattenedMemberCache.keys.take(1000)
+            keysToRemove.forEach { flattenedMemberCache.remove(it) }
+            android.util.Log.w("Andromuks", "AppViewModel: Cleared ${keysToRemove.size} old entries from flattened cache")
+        }
+    }
+    
+    /**
+     * Queues a profile for batch saving to database. This prevents blocking the main thread
+     * with individual disk I/O operations when processing large member lists.
+     * 
+     * @param userId The Matrix user ID to save the profile for
+     * @param profile The MemberProfile object containing display name and avatar URL
+     */
+    private fun queueProfileForBatchSave(userId: String, profile: MemberProfile) {
+        // Aggressive memory management: Much smaller batch size to prevent OOM
+        if (pendingProfileSaves.size >= 50) {
+            android.util.Log.w("Andromuks", "AppViewModel: Too many pending profile saves (${pendingProfileSaves.size}), forcing immediate save")
+            viewModelScope.launch(Dispatchers.IO) {
+                performBatchProfileSave()
+            }
+        }
+        
+        pendingProfileSaves[userId] = profile
+        
+        // Start batch save job if not already running
+        if (profileSaveJob?.isActive != true) {
+            profileSaveJob = viewModelScope.launch(Dispatchers.IO) {
+                // Much shorter delay to save more frequently
+                delay(50)
+                performBatchProfileSave()
+            }
+        }
+    }
+    
+    /**
+     * Performs batch saving of all queued profiles to database.
+     * This significantly reduces disk I/O when processing large member lists.
+     */
+    private suspend fun performBatchProfileSave() {
+        if (pendingProfileSaves.isEmpty()) return
+        
+        val startTime = System.currentTimeMillis()
+        val profilesToSave = pendingProfileSaves.toMap()
+        pendingProfileSaves.clear()
+        
+        try {
+            // Initialize repository if needed
+            if (profileRepository == null) {
+                appContext?.let { context ->
+                    profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
+                }
+            }
+            
+            // Save profiles to database
+            profileRepository?.saveProfiles(profilesToSave)
+            
+            val duration = System.currentTimeMillis() - startTime
+            android.util.Log.d("Andromuks", "AppViewModel: Batch saved ${profilesToSave.size} profiles to database in ${duration}ms")
+            
+            // Aggressive cleanup after every save to prevent memory buildup
+            profileRepository?.cleanupOldProfiles()
+            
+            // Force garbage collection to free memory
+            System.gc()
+            
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to batch save profiles to database", e)
+        }
+    }
+    
+    /**
+     * Forces immediate saving of all pending profiles to disk.
+     * This should be called when the app is being paused or closed to ensure
+     * no profile data is lost.
+     */
+    fun flushPendingProfileSaves() {
+        if (pendingProfileSaves.isNotEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: Flushing ${pendingProfileSaves.size} pending profile saves")
+            viewModelScope.launch(Dispatchers.IO) {
+                performBatchProfileSave()
+            }
+        }
+    }
+    
     /**
      * Loads a user profile from disk cache
      */
-    private fun loadProfileFromDisk(context: android.content.Context, userId: String): MemberProfile? {
+    /**
+     * Loads a user profile from database cache
+     */
+    private suspend fun loadProfileFromDatabase(userId: String): MemberProfile? {
         return try {
-            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-            val profileJsonString = sharedPrefs.getString("profile_$userId", null) ?: return null
+            // Initialize repository if needed
+            if (profileRepository == null) {
+                appContext?.let { context ->
+                    profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
+                }
+            }
             
-            val profileJson = JSONObject(profileJsonString)
-            val displayName = profileJson.optString("displayName").takeIf { it.isNotBlank() }
-            val avatarUrl = profileJson.optString("avatarUrl").takeIf { it.isNotBlank() }
-            
-            MemberProfile(displayName, avatarUrl)
+            profileRepository?.loadProfile(userId)
         } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to load profile from disk for $userId", e)
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to load profile from database for $userId", e)
+            null
+        }
+    }
+    
+    /**
+     * Legacy function for backward compatibility - now uses database
+     */
+    private fun loadProfileFromDisk(context: android.content.Context, userId: String): MemberProfile? {
+        // This is now a blocking call to maintain compatibility
+        // In the future, this should be updated to use coroutines
+        return try {
+            runBlocking {
+                loadProfileFromDatabase(userId)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to load profile for $userId", e)
             null
         }
     }
@@ -5099,6 +5267,34 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    private fun handleOnDemandProfileResponse(requestId: Int, data: Any) {
+        val requestKey = profileRequests.remove(requestId) ?: return
+        val (roomId, userId) = requestKey.split(":", limit = 2)
+        
+        // Remove from pending requests
+        pendingProfileRequests.remove(requestKey)
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Handling on-demand profile response for $userId in room $roomId")
+        
+        when (data) {
+            is JSONArray -> {
+                if (data.length() > 0) {
+                    // Parse the single member event
+                    parseMemberEventsForProfileUpdate(roomId, data)
+                    android.util.Log.d("Andromuks", "AppViewModel: Successfully loaded profile for $userId")
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: No profile data found for $userId")
+                }
+            }
+            is JSONObject -> {
+                android.util.Log.d("Andromuks", "AppViewModel: On-demand profile response is JSONObject, expected JSONArray")
+            }
+            else -> {
+                android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleOnDemandProfileResponse: ${data::class.java.simpleName}")
+            }
+        }
+    }
+    
     private fun handleRoomSpecificStateResponse(requestId: Int, data: Any) {
         val roomId = roomSpecificStateRequests.remove(requestId) ?: return
         android.util.Log.d("Andromuks", "AppViewModel: Handling room specific state response for room: $roomId")
@@ -5143,6 +5339,7 @@ class AppViewModel : ViewModel() {
     }
     
     private fun parseFullMemberListFromRoomState(roomId: String, events: JSONArray) {
+        val startTime = System.currentTimeMillis()
         android.util.Log.d("Andromuks", "AppViewModel: Parsing full member list from ${events.length()} room state events for room: $roomId")
         
         val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
@@ -5179,14 +5376,36 @@ class AppViewModel : ViewModel() {
                             flattenedMemberCache[flattenedKey] = newProfile
                             
                             // PERFORMANCE: Also add to global cache for O(1) lookups
+                            manageGlobalCacheSize()
+                            manageRoomMemberCacheSize(roomId)
+                            manageFlattenedMemberCacheSize()
                             globalProfileCache[stateKey] = WeakReference(newProfile)
                             
                             android.util.Log.d("Andromuks", "AppViewModel: Added member $stateKey to room $roomId - displayName: '$displayName', avatarUrl: '$avatarUrl'")
                             updatedMembers++
                             
-                            // Save to disk for persistence
-                            appContext?.let { context ->
-                                saveProfileToDisk(context, stateKey, newProfile)
+                            // For large member lists, save immediately to prevent OOM
+                            if (updatedMembers > 100) {
+                                // Immediate save for large lists to prevent memory buildup
+                                appContext?.let { context ->
+                                    if (profileRepository == null) {
+                                        profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
+                                    }
+                                    viewModelScope.launch(Dispatchers.IO) {
+                                        profileRepository?.saveProfile(stateKey, newProfile)
+                                    }
+                                }
+                                
+                                // For very large lists, clear caches aggressively
+                                if (updatedMembers > 500) {
+                                    // Clear all caches to prevent OOM
+                                    globalProfileCache.clear()
+                                    flattenedMemberCache.clear()
+                                    android.util.Log.w("Andromuks", "AppViewModel: Cleared all caches due to large member list ($updatedMembers members)")
+                                }
+                            } else {
+                                // Queue for batch saving for smaller lists
+                                queueProfileForBatchSave(stateKey, newProfile)
                             }
                         }
                         "leave", "ban" -> {
@@ -5206,7 +5425,8 @@ class AppViewModel : ViewModel() {
         }
         
         if (updatedMembers > 0) {
-            android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedMembers members in full member list for room $roomId")
+            val duration = System.currentTimeMillis() - startTime
+            android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedMembers members in full member list for room $roomId in ${duration}ms")
             // Trigger UI update since member cache changed
             updateCounter++
         }
@@ -5216,6 +5436,7 @@ class AppViewModel : ViewModel() {
     }
     
     private fun parseMemberEventsForProfileUpdate(roomId: String, events: JSONArray) {
+        val startTime = System.currentTimeMillis()
         android.util.Log.d("Andromuks", "AppViewModel: Parsing ${events.length()} member events for profile update in room: $roomId")
         
         val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
@@ -5246,14 +5467,36 @@ class AppViewModel : ViewModel() {
                             
                             memberMap[stateKey] = newProfile
                             // PERFORMANCE: Also add to global cache for O(1) lookups
+                            manageGlobalCacheSize()
+                            manageRoomMemberCacheSize(roomId)
+                            manageFlattenedMemberCacheSize()
                             globalProfileCache[stateKey] = WeakReference(newProfile)
                             
                             android.util.Log.d("Andromuks", "AppViewModel: Updated profile for $stateKey - displayName: '$displayName', avatarUrl: '$avatarUrl'")
                             updatedProfiles++
                             
-                            // Save updated profile to disk
-                            appContext?.let { context ->
-                                saveProfileToDisk(context, stateKey, newProfile)
+                            // For large member lists, save immediately to prevent OOM
+                            if (updatedProfiles > 100) {
+                                // Immediate save for large lists to prevent memory buildup
+                                appContext?.let { context ->
+                                    if (profileRepository == null) {
+                                        profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
+                                    }
+                                    viewModelScope.launch(Dispatchers.IO) {
+                                        profileRepository?.saveProfile(stateKey, newProfile)
+                                    }
+                                }
+                                
+                                // For very large lists, clear caches aggressively
+                                if (updatedProfiles > 500) {
+                                    // Clear all caches to prevent OOM
+                                    globalProfileCache.clear()
+                                    flattenedMemberCache.clear()
+                                    android.util.Log.w("Andromuks", "AppViewModel: Cleared all caches due to large profile update ($updatedProfiles profiles)")
+                                }
+                            } else {
+                                // Queue for batch saving for smaller lists
+                                queueProfileForBatchSave(stateKey, newProfile)
                             }
                         }
                     } else if (membership == "leave" || membership == "ban") {
@@ -5270,7 +5513,8 @@ class AppViewModel : ViewModel() {
         }
         
         if (updatedProfiles > 0) {
-            android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedProfiles profiles in room $roomId")
+            val duration = System.currentTimeMillis() - startTime
+            android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedProfiles profiles in room $roomId in ${duration}ms")
             // Trigger UI update since member cache changed
             updateCounter++
         }

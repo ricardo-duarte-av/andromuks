@@ -1965,6 +1965,18 @@ fun TimelineEventItem(
     onThreadClick: (TimelineEvent) -> Unit = {}
 ) {
     val context = LocalContext.current
+    
+    // OPPORTUNISTIC PROFILE LOADING: Request profile only when this event is actually rendered
+    LaunchedEffect(event.sender, event.roomId) {
+        if (appViewModel != null && event.sender != myUserId) {
+            // Check if we already have the profile
+            val existingProfile = appViewModel.getUserProfile(event.sender, event.roomId)
+            if (existingProfile == null) {
+                Log.d("Andromuks", "TimelineEventItem: Requesting profile on-demand for ${event.sender}")
+                appViewModel.requestUserProfileOnDemand(event.sender, event.roomId)
+            }
+        }
+    }
 
     // Check for per-message profile (e.g., from Beeper bridge)
     // This can be in either the content (for regular messages) or decrypted content (for encrypted

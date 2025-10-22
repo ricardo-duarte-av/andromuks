@@ -484,24 +484,31 @@ fun ChatBubbleScreen(
     }
     
     // Request updated profile information for users in the room
-    // This happens after the timeline loads to refresh potentially stale profile data
+    // OPPORTUNISTIC PROFILE LOADING: Only request profiles when actually needed for rendering
+    // This prevents loading 15,000+ profiles upfront for large rooms
     LaunchedEffect(sortedEvents, roomId) {
-        // Always request fresh member list when opening a room to ensure accurate membership status
-        // This cleans up any stale invite members or other invalid entries in the cache
         Log.d(
             "Andromuks",
-            "ChatBubbleScreen: Requesting fresh member list for $roomId to ensure accurate membership"
+            "ChatBubbleScreen: Using opportunistic profile loading for $roomId (no bulk loading)"
         )
-        appViewModel.requestFullMemberList(roomId)
         
+        // Only request profiles for users that are actually visible in the timeline
+        // This dramatically reduces memory usage for large rooms
         if (sortedEvents.isNotEmpty()) {
+            val visibleUsers = sortedEvents.take(20) // Only first 20 events for bubble
+                .map { it.sender }
+                .distinct()
+                .filter { it != appViewModel.currentUserId }
+            
             Log.d(
                 "Andromuks",
-                "ChatBubbleScreen: Requesting updated profiles for ${sortedEvents.size} timeline events"
+                "ChatBubbleScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${sortedEvents.size} events)"
             )
-            // Request updated profile information from the server for all users in the timeline
-            // This will not block rendering - it happens in the background and updates UI as data arrives
-            appViewModel.requestUpdatedRoomProfiles(roomId, sortedEvents)
+            
+            // Request profiles one by one as needed
+            visibleUsers.forEach { userId ->
+                appViewModel.requestUserProfileOnDemand(userId, roomId)
+            }
         }
     }
     
