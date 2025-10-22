@@ -522,11 +522,23 @@ fun RoomTimelineScreen(
         rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) {
             uri: Uri? ->
             uri?.let {
-                selectedMediaUri = it
-                // Detect if this is a video or image
+                // Check if this is an image or video file
                 val mimeType = context.contentResolver.getType(it)
-                selectedMediaIsVideo = mimeType?.startsWith("video/") == true
-                showMediaPreview = true
+                val isImageOrVideo = mimeType?.startsWith("image/") == true || mimeType?.startsWith("video/") == true
+                
+                if (isImageOrVideo) {
+                    selectedMediaUri = it
+                    // Detect if this is a video or image
+                    selectedMediaIsVideo = mimeType?.startsWith("video/") == true
+                    showMediaPreview = true
+                } else {
+                    // Show error message for non-image/video files
+                    android.widget.Toast.makeText(
+                        context,
+                        "Please select an image or video file",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
     
@@ -546,6 +558,9 @@ fun RoomTimelineScreen(
             uri: Uri? ->
             uri?.let {
                 selectedFileUri = it
+                // Detect if this is a video file
+                val mimeType = context.contentResolver.getType(it)
+                selectedMediaIsVideo = mimeType?.startsWith("video/") == true
                 showMediaPreview = true
             }
         }
@@ -1806,7 +1821,7 @@ fun RoomTimelineScreen(
                                     IconButton(
                                         onClick = {
                                             showAttachmentMenu = false
-                                            launchPickerWithPermission("image", "image/*,video/*")
+                                            launchPickerWithPermission("image", "*/*")
                                         },
                                         modifier = Modifier.fillMaxSize()
                                     ) {
@@ -1930,7 +1945,7 @@ fun RoomTimelineScreen(
                     
                     MediaPreviewDialog(
                         uri = currentUri,
-                        isVideo = selectedMediaIsVideo && !isAudio && !isFile,
+                        isVideo = selectedMediaIsVideo,
                         isAudio = isAudio,
                         isFile = isFile,
                         onDismiss = {
@@ -1949,6 +1964,51 @@ fun RoomTimelineScreen(
                             coroutineScope.launch {
                                 try {
                                     when {
+                                        selectedMediaIsVideo -> {
+                                            // Upload video with thumbnail
+                                            Log.d("Andromuks", "RoomTimelineScreen: Starting video upload")
+                                            val videoResult = VideoUploadUtils.uploadVideo(
+                                                context = context,
+                                                uri = currentUri,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                isEncrypted = false
+                                            )
+                                            
+                                            if (videoResult != null) {
+                                                Log.d("Andromuks", "RoomTimelineScreen: Video upload successful, sending message")
+                                                // Send video message with metadata
+                                                appViewModel.sendVideoMessage(
+                                                    roomId = roomId,
+                                                    videoMxcUrl = videoResult.videoMxcUrl,
+                                                    thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
+                                                    width = videoResult.width,
+                                                    height = videoResult.height,
+                                                    duration = videoResult.duration,
+                                                    size = videoResult.size,
+                                                    mimeType = videoResult.mimeType,
+                                                    thumbnailBlurHash = videoResult.thumbnailBlurHash,
+                                                    thumbnailWidth = videoResult.thumbnailWidth,
+                                                    thumbnailHeight = videoResult.thumbnailHeight,
+                                                    thumbnailSize = videoResult.thumbnailSize,
+                                                    caption = caption.takeIf { it.isNotBlank() }
+                                                )
+                                                
+                                                // Clear state
+                                                selectedMediaUri = null
+                                                selectedFileUri = null
+                                                selectedMediaIsVideo = false
+                                                isUploading = false
+                                            } else {
+                                                Log.e("Andromuks", "RoomTimelineScreen: Video upload failed")
+                                                isUploading = false
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "Failed to upload video",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
+                                            }
+                                        }
                                         isAudio -> {
                                             // Upload audio
                                             Log.d("Andromuks", "RoomTimelineScreen: Starting audio upload")
@@ -2018,50 +2078,6 @@ fun RoomTimelineScreen(
                                                 android.widget.Toast.makeText(
                                                     context,
                                                     "Failed to upload file",
-                                                    android.widget.Toast.LENGTH_SHORT
-                                                ).show()
-                                            }
-                                        }
-                                        selectedMediaIsVideo -> {
-                                            // Upload video with thumbnail
-                                            Log.d("Andromuks", "RoomTimelineScreen: Starting video upload")
-                                            val videoResult = VideoUploadUtils.uploadVideo(
-                                                context = context,
-                                                uri = selectedMediaUri!!,
-                                                homeserverUrl = homeserverUrl,
-                                                authToken = authToken,
-                                                isEncrypted = false
-                                            )
-                                            
-                                            if (videoResult != null) {
-                                                Log.d("Andromuks", "RoomTimelineScreen: Video upload successful, sending message")
-                                                // Send video message with metadata
-                                                appViewModel.sendVideoMessage(
-                                                    roomId = roomId,
-                                                    videoMxcUrl = videoResult.videoMxcUrl,
-                                                    thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
-                                                    width = videoResult.width,
-                                                    height = videoResult.height,
-                                                    duration = videoResult.duration,
-                                                    size = videoResult.size,
-                                                    mimeType = videoResult.mimeType,
-                                                    thumbnailBlurHash = videoResult.thumbnailBlurHash,
-                                                    thumbnailWidth = videoResult.thumbnailWidth,
-                                                    thumbnailHeight = videoResult.thumbnailHeight,
-                                                    thumbnailSize = videoResult.thumbnailSize,
-                                                    caption = caption.takeIf { it.isNotBlank() }
-                                                )
-                                                
-                                                // Clear state
-                                                selectedMediaUri = null
-                                                selectedMediaIsVideo = false
-                                                isUploading = false
-                                            } else {
-                                                Log.e("Andromuks", "RoomTimelineScreen: Video upload failed")
-                                                isUploading = false
-                                                android.widget.Toast.makeText(
-                                                    context,
-                                                    "Failed to upload video",
                                                     android.widget.Toast.LENGTH_SHORT
                                                 ).show()
                                             }

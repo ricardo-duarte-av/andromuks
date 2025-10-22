@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.BackHandler
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -1475,49 +1476,61 @@ fun VideoPlayerDialog(
     isEncrypted: Boolean,
     onDismiss: () -> Unit
 ) {
+    // Video player container
+    val context = LocalContext.current
+    
+    // Convert MXC URL to HTTP URL
+    val videoHttpUrl = remember(mediaMessage.url, isEncrypted) {
+        val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+        if (isEncrypted) {
+            "$httpUrl?encrypted=true"
+        } else {
+            httpUrl ?: ""
+        }
+    }
+    
+    // ExoPlayer instance
+    val exoPlayer = remember {
+        androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
+            // Create MediaItem with authentication headers
+            val mediaItem = androidx.media3.common.MediaItem.Builder()
+                .setUri(videoHttpUrl)
+                .build()
+            
+            setMediaItem(mediaItem)
+            prepare()
+            playWhenReady = true
+        }
+    }
+    
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = {
+            // Stop the player before dismissing the dialog
+            exoPlayer.stop()
+            onDismiss()
+        },
         properties = DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = false,
             usePlatformDefaultWidth = false
         )
     ) {
+        // Handle back button/gesture to stop video and dismiss
+        BackHandler {
+            exoPlayer.stop()
+            onDismiss()
+        }
+        
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
-            // Video player container
-            val context = LocalContext.current
             
-            // Convert MXC URL to HTTP URL
-            val videoHttpUrl = remember(mediaMessage.url, isEncrypted) {
-                val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-                if (isEncrypted) {
-                    "$httpUrl?encrypted=true"
-                } else {
-                    httpUrl ?: ""
-                }
-            }
-            
-            // ExoPlayer instance
-            val exoPlayer = remember {
-                androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
-                    // Create MediaItem with authentication headers
-                    val mediaItem = androidx.media3.common.MediaItem.Builder()
-                        .setUri(videoHttpUrl)
-                        .build()
-                    
-                    setMediaItem(mediaItem)
-                    prepare()
-                    playWhenReady = true
-                }
-            }
-            
-            // Dispose player when dialog is dismissed
+            // Stop and dispose player when dialog is dismissed
             androidx.compose.runtime.DisposableEffect(Unit) {
                 onDispose {
+                    exoPlayer.stop()
                     exoPlayer.release()
                 }
             }
@@ -1559,7 +1572,11 @@ fun VideoPlayerDialog(
             
             // Close button overlay (top-right corner)
             IconButton(
-                onClick = onDismiss,
+                onClick = {
+                    // Stop the player before dismissing
+                    exoPlayer.stop()
+                    onDismiss()
+                },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(16.dp)
