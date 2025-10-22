@@ -72,6 +72,7 @@ import coil.request.ImageRequest
 import net.vrkknn.andromuks.MediaMessage
 import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.MediaUtils
+import net.vrkknn.andromuks.AppViewModel
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
@@ -229,7 +230,8 @@ private fun MediaCaption(
     homeserverUrl: String,
     authToken: String,
     onUserClick: (String) -> Unit = {},
-    isCompactMedia: Boolean = false // For audio and file messages
+    isCompactMedia: Boolean = false, // For audio and file messages
+    appViewModel: AppViewModel? = null
 ) {
     // Check if the event supports HTML rendering (has sanitized_html or formatted_body)
     val supportsHtml = event != null && supportsHtmlRendering(event)
@@ -249,7 +251,8 @@ private fun MediaCaption(
             authToken = authToken,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = padding,
-            onMatrixUserClick = onUserClick
+            onMatrixUserClick = onUserClick,
+            appViewModel = appViewModel
         )
     } else {
         // Fallback to plain text
@@ -411,7 +414,8 @@ fun MediaMessage(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         onUserClick = onUserClick,
-                        isCompactMedia = mediaMessage.msgType == "m.audio" || mediaMessage.msgType == "m.file"
+                        isCompactMedia = mediaMessage.msgType == "m.audio" || mediaMessage.msgType == "m.file",
+                        appViewModel = appViewModel
                     )
                     
                     // Timestamp (for consecutive messages)
@@ -460,7 +464,8 @@ fun MediaMessage(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         onUserClick = onUserClick,
-                        isCompactMedia = mediaMessage.msgType == "m.audio" || mediaMessage.msgType == "m.file"
+                        isCompactMedia = mediaMessage.msgType == "m.audio" || mediaMessage.msgType == "m.file",
+                        appViewModel = appViewModel
                     )
                     
                     // Timestamp (for consecutive messages)

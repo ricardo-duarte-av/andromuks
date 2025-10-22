@@ -148,7 +148,8 @@ fun AdaptiveMessageText(
             color = textColor,
             modifier = modifier,
             onMatrixUserClick = onMatrixUserClick,
-            onRoomLinkClick = onRoomLinkClick
+            onRoomLinkClick = onRoomLinkClick,
+            appViewModel = appViewModel
         )
     } else {
         // Fallback to plain text for redacted messages or when HTML is not available
@@ -948,6 +949,7 @@ private fun RoomTextMessageContent(
                 appViewModel = appViewModel,
                 messageSender = event.sender,
                 eventId = event.eventId,
+                roomId = event.roomId,
                 onUserClick = onUserClick
             )
             Spacer(modifier = Modifier.width(8.dp))
@@ -1094,6 +1096,7 @@ private fun RoomTextMessageContent(
                 appViewModel = appViewModel,
                 messageSender = event.sender,
                 eventId = event.eventId,
+                roomId = event.roomId,
                 onUserClick = onUserClick
             )
         }
@@ -1616,6 +1619,7 @@ private fun EncryptedMessageContent(
                         appViewModel = appViewModel,
                         messageSender = event.sender,
                         eventId = event.eventId,
+                        roomId = event.roomId,
                         onUserClick = onUserClick
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1764,6 +1768,7 @@ private fun EncryptedMessageContent(
                             appViewModel = appViewModel,
                             messageSender = event.sender,
                             eventId = event.eventId,
+                            roomId = event.roomId,
                             onUserClick = onUserClick
                         )
                 }
@@ -1869,6 +1874,7 @@ private fun StickerMessageContent(
                     appViewModel = appViewModel,
                     messageSender = event.sender,
                     eventId = event.eventId,
+                    roomId = event.roomId,
                     onUserClick = onUserClick
                 )
                 Spacer(modifier = Modifier.width(8.dp))
@@ -1908,6 +1914,7 @@ private fun StickerMessageContent(
                     appViewModel = appViewModel,
                     messageSender = event.sender,
                     eventId = event.eventId,
+                    roomId = event.roomId,
                     onUserClick = onUserClick
                 )
             }

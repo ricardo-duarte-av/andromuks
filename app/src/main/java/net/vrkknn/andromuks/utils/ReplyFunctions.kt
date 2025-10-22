@@ -152,7 +152,7 @@ fun ReplyPreview(
     } ?: "Message not found"
     
     val memberProfile = userProfileCache[originalSender]
-    val senderName = memberProfile?.displayName ?: originalSender.substringAfterLast(":")
+    val senderName = memberProfile?.displayName ?: originalSender
     
     // Replied-to message bubble (no outer wrapper - the parent MessageBubbleWithMenu provides the main bubble)
     // Use a semi-transparent overlay to blend with the outer bubble color
@@ -184,7 +184,8 @@ fun ReplyPreview(
                     authToken = authToken,
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier,
-                    onMatrixUserClick = onMatrixUserClick
+                    onMatrixUserClick = onMatrixUserClick,
+                    appViewModel = appViewModel
                 )
             } else {
                 Text(

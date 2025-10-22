@@ -67,6 +67,7 @@ import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.extractRoomLink
 import net.vrkknn.andromuks.utils.RoomLink
+import net.vrkknn.andromuks.AppViewModel
 
 private val matrixUserRegex = Regex("matrix:(?:/+)?(?:u|user)/(@?.+)")
 
@@ -306,7 +307,13 @@ private fun extractMatrixUserId(href: String): String? {
     if (trimmed.startsWith("matrix:")) {
         val match = matrixUserRegex.find(trimmed)
         val raw = match?.groupValues?.getOrNull(1) ?: return null
-        val decoded = runCatching { URLDecoder.decode(raw.removePrefix("@"), Charsets.UTF_8.name()) }.getOrNull() ?: raw.removePrefix("@")
+        // Handle both @user:server.com and user:server.com formats
+        val userId = if (raw.startsWith("@")) {
+            raw
+        } else {
+            "@${raw}"
+        }
+        val decoded = runCatching { URLDecoder.decode(userId.removePrefix("@"), Charsets.UTF_8.name()) }.getOrNull() ?: userId.removePrefix("@")
         return "@${decoded}"
     }
     return null
@@ -661,6 +668,47 @@ fun supportsHtmlRendering(event: TimelineEvent): Boolean {
 }
 
 /**
+ * Extract Matrix user IDs from HTML nodes for opportunistic profile loading
+ */
+private fun extractMatrixUserIdsFromNodes(nodes: List<HtmlNode>): Set<String> {
+    val userIds = mutableSetOf<String>()
+    
+    fun processNode(node: HtmlNode) {
+        when (node) {
+            is HtmlNode.Text -> {
+                // Check for Matrix user links in text content
+                val matrixUserRegex = Regex("""https://matrix\.to/#/(@[^)]+)""")
+                matrixUserRegex.findAll(node.content).forEach { match ->
+                    val encoded = match.groupValues[1]
+                    val decoded = runCatching { URLDecoder.decode(encoded, Charsets.UTF_8.name()) }.getOrNull()
+                    if (decoded != null && decoded.startsWith("@")) {
+                        userIds.add(decoded)
+                    }
+                }
+            }
+            is HtmlNode.Tag -> {
+                // Check for Matrix user links in anchor tags
+                if (node.name == "a") {
+                    val href = node.attributes["href"] ?: ""
+                    val matrixUser = extractMatrixUserId(href)
+                    if (matrixUser != null) {
+                        userIds.add(matrixUser)
+                    }
+                }
+                // Process children recursively
+                node.children.forEach { processNode(it) }
+            }
+            is HtmlNode.LineBreak -> {
+                // No user IDs in line breaks
+            }
+        }
+    }
+    
+    nodes.forEach { processNode(it) }
+    return userIds
+}
+
+/**
  * Composable function to render HTML content from an event
  */
 @Composable
@@ -671,7 +719,8 @@ fun HtmlMessageText(
     modifier: Modifier = Modifier,
     color: Color = Color.Unspecified,
     onMatrixUserClick: (String) -> Unit = {},
-    onRoomLinkClick: (RoomLink) -> Unit = {}
+    onRoomLinkClick: (RoomLink) -> Unit = {},
+    appViewModel: AppViewModel? = null
 ) {
     // Don't render HTML for redacted messages
     // The parent composable should handle showing the deletion message
@@ -708,6 +757,21 @@ fun HtmlMessageText(
         } catch (e: Exception) {
             Log.e("Andromuks", "HtmlMessageText: Failed to parse HTML", e)
             emptyList()
+        }
+    }
+    
+    // OPPORTUNISTIC PROFILE LOADING: Extract Matrix user IDs from HTML and request profiles
+    LaunchedEffect(nodes, event.roomId) {
+        if (appViewModel != null && nodes.isNotEmpty()) {
+            val userIds = extractMatrixUserIdsFromNodes(nodes)
+            userIds.forEach { userId ->
+                // Check if we already have the profile
+                val existingProfile = appViewModel.getUserProfile(userId, event.roomId)
+                if (existingProfile == null) {
+                    Log.d("Andromuks", "HtmlMessageText: Requesting profile on-demand for $userId from HTML")
+                    appViewModel.requestUserProfileOnDemand(userId, event.roomId)
+                }
+            }
         }
     }
     

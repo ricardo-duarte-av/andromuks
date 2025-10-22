@@ -178,7 +178,7 @@ fun SystemEventNarrator(
                                 mxcUrl = invitedAvatarUrl,
                                 homeserverUrl = homeserverUrl,
                                 authToken = authToken,
-                                fallbackText = invitedDisplayName ?: invitedUserId?.substringAfterLast(":") ?: "?",
+                                fallbackText = invitedDisplayName ?: invitedUserId ?: "?",
                                 size = 16.dp,
                                 userId = invitedUserId,
                                 displayName = invitedDisplayName
@@ -188,7 +188,7 @@ fun SystemEventNarrator(
                             Text(
                                 text = buildAnnotatedString {
                                     withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                        append(invitedDisplayName ?: invitedUserId?.substringAfterLast(":") ?: "Unknown")
+                                        append(invitedDisplayName ?: invitedUserId ?: "Unknown")
                                     }
                                     // Safe null check for reason string
                                     if (!reason.isNullOrEmpty()) {

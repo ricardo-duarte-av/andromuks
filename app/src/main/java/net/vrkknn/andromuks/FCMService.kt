@@ -416,7 +416,7 @@ class FCMService : FirebaseMessagingService() {
         // If room_name != sender_display_name, it's a group room
         // If room_name == sender_display_name or room_name is null, it's a DM
         val roomName = data["room_name"]
-        val senderDisplayName = data["sender_display_name"] ?: data["sender"]?.substringAfterLast(":")
+        val senderDisplayName = data["sender_display_name"] ?: data["sender"]
         val isLikelyGroupRoom = when {
             roomName != null && senderDisplayName != null -> roomName != senderDisplayName
             roomName != null -> true // If we have room name but no sender name, assume group

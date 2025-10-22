@@ -116,7 +116,7 @@ class NotificationDataParser {
                 }
                 else -> {
                     // Fallback to sender ID
-                    data.sender.substringAfterLast(":")
+                    data.sender
                 }
             }
         }

@@ -257,7 +257,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Always create messagePerson, even for DMs
             val messagePerson = Person.Builder()
                 .setKey(notificationData.sender)
-                .setName(notificationData.senderDisplayName ?: notificationData.sender.substringAfterLast(":"))
+                .setName(notificationData.senderDisplayName ?: notificationData.sender)
                 .setIcon(senderAvatarIcon)
                 .build()
             
@@ -398,9 +398,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     val roomList = listOf(
                         RoomItem(
                             id = notificationData.roomId,
-                            name = notificationData.roomName ?: notificationData.roomId.substringAfterLast(":"),
+                            name = notificationData.roomName ?: notificationData.roomId,
                             messagePreview = notificationData.body,
-                            messageSender = notificationData.senderDisplayName ?: notificationData.sender.substringAfterLast(":"),
+                            messageSender = notificationData.senderDisplayName ?: notificationData.sender,
                             unreadCount = 1,
                             highlightCount = 0,
                             avatarUrl = notificationData.roomAvatarUrl,
@@ -432,7 +432,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
             
             // Create conversation channel for this room
-            createConversationChannel(notificationData.roomId, notificationData.roomName ?: notificationData.roomId.substringAfterLast(":"), isGroupRoom)
+            createConversationChannel(notificationData.roomId, notificationData.roomName ?: notificationData.roomId, isGroupRoom)
             
             // Use conversation channel for all notifications
             val channelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
