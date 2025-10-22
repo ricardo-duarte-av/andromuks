@@ -72,12 +72,25 @@ class ChatBubbleActivity : ComponentActivity() {
                         appViewModel.setBubbleVisible(true)
                         Log.d("Andromuks", "ChatBubbleActivity: Marked bubble as visible (lightweight)")
                         
-                        // Get room ID from intent
+                        // OPTIMIZATION #2: Optimized intent processing for ChatBubbleActivity
                         val roomId = intent.getStringExtra("room_id")
+                        val directNavigation = intent.getBooleanExtra("direct_navigation", false)
+                        val bubbleMode = intent.getBooleanExtra("bubble_mode", false)
                         val matrixUri = intent.data
-                        Log.d("Andromuks", "ChatBubbleActivity: onCreate - roomId extra: $roomId, matrixUri: $matrixUri")
-                        val extractedRoomId = roomId ?: extractRoomIdFromMatrixUri(matrixUri)
-                        Log.d("Andromuks", "ChatBubbleActivity: onCreate - extractedRoomId: $extractedRoomId")
+                        
+                        Log.d("Andromuks", "ChatBubbleActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, bubbleMode: $bubbleMode, matrixUri: $matrixUri")
+                        
+                        val extractedRoomId = if (directNavigation && roomId != null) {
+                            // OPTIMIZATION #2: Fast path - room ID already extracted
+                            Log.d("Andromuks", "ChatBubbleActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
+                            roomId
+                        } else {
+                            // Fallback to URI parsing for legacy intents
+                            val uriRoomId = extractRoomIdFromMatrixUri(matrixUri)
+                            Log.d("Andromuks", "ChatBubbleActivity: onCreate - Fallback URI parsing: $uriRoomId")
+                            uriRoomId
+                        }
+                        
                         if (extractedRoomId != null) {
                             appViewModel.setPendingBubbleNavigation(extractedRoomId)
                         }

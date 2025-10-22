@@ -462,9 +462,9 @@ fun ChatBubbleScreen(
         Log.d("Andromuks", "ChatBubbleScreen:   Is loading: $isLoading")
         Log.d("Andromuks", "ChatBubbleScreen:   WebSocket: ${appViewModel.isWebSocketConnected()}")
         
-        // Request room state and timeline (will use cache if available)
+        // OPTIMIZATION #4: Use cache-first navigation for instant loading
         appViewModel.requestRoomState(roomId)
-        appViewModel.requestRoomTimeline(roomId)
+        appViewModel.navigateToRoomWithCache(roomId)
         
         // Wait a bit and log the result
         kotlinx.coroutines.delay(500)

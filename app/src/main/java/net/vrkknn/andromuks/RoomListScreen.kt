@@ -169,12 +169,26 @@ fun RoomListScreen(
         (context as? ComponentActivity)?.moveTaskToBack(true)
     }
     
-    // Check for pending room navigation (e.g., from app resume with saved room)
+    // OPTIMIZATION #1 + #4: Check for direct room navigation first (faster path) with cache-first loading
     LaunchedEffect(Unit) {
+        val directRoomId = appViewModel.getDirectRoomNavigation()
+        if (directRoomId != null) {
+            android.util.Log.d("Andromuks", "RoomListScreen: OPTIMIZATION #1 + #4 - Direct navigation with cache-first loading to: $directRoomId")
+            appViewModel.clearDirectRoomNavigation()
+            // OPTIMIZATION #4: Use cache-first navigation for instant loading
+            appViewModel.navigateToRoomWithCache(directRoomId)
+            // Navigate directly to the room
+            navController.navigate("room_timeline/$directRoomId")
+            return@LaunchedEffect
+        }
+        
+        // Fallback to pending room navigation (legacy path)
         val pendingRoomId = appViewModel.getPendingRoomNavigation()
         if (pendingRoomId != null) {
             android.util.Log.d("Andromuks", "RoomListScreen: Detected pending room navigation to: $pendingRoomId")
             appViewModel.clearPendingRoomNavigation()
+            // OPTIMIZATION #4: Use cache-first navigation for pending navigation too
+            appViewModel.navigateToRoomWithCache(pendingRoomId)
             // Navigate to the pending room
             navController.navigate("room_timeline/$pendingRoomId")
         }
@@ -1109,6 +1123,8 @@ fun RoomListContent(
                 onRoomClick = { 
                     // Add haptic feedback for room click
                     hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    // OPTIMIZATION #4: Use cache-first navigation for instant loading
+                    appViewModel.navigateToRoomWithCache(roomIdForNavigation)
                     // Use captured roomIdForNavigation to prevent race conditions
                     navController.navigate("room_timeline/$roomIdForNavigation")
                 },

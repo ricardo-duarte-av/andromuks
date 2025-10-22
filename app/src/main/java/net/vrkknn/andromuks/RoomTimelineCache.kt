@@ -5,9 +5,9 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * RoomTimelineCache - Caches timeline events from sync_complete messages
+ * RoomTimelineCache - Singleton cache for timeline events from sync_complete messages
  * 
- * This class stores timeline events received via sync_complete for all rooms.
+ * This singleton stores timeline events received via sync_complete for all rooms.
  * When opening a room, if we have enough cached events (>= target count),
  * we can render immediately without waiting for a paginate request.
  * 
@@ -15,13 +15,12 @@ import org.json.JSONObject
  * - Instant room opening if events are already in cache
  * - Reduces unnecessary paginate requests
  * - Better UX with always-on WebSocket
+ * - Persistent across AppViewModel instances (crucial for shortcut navigation)
  */
-class RoomTimelineCache {
-    companion object {
-        private const val TAG = "RoomTimelineCache"
-        private const val MAX_EVENTS_PER_ROOM = 5000 // Allow loading many historical messages (increased from 150)
-        private const val TARGET_EVENTS_FOR_INSTANT_RENDER = 100 // Minimum events to skip paginate
-    }
+object RoomTimelineCache {
+    private const val TAG = "RoomTimelineCache"
+    private const val MAX_EVENTS_PER_ROOM = 5000 // Allow loading many historical messages (increased from 150)
+    private const val TARGET_EVENTS_FOR_INSTANT_RENDER = 100 // Minimum events to skip paginate
     
     private data class RoomCache(
         val events: MutableList<TimelineEvent> = mutableListOf(),

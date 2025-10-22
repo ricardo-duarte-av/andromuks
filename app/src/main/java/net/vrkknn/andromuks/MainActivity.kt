@@ -49,16 +49,30 @@ class MainActivity : ComponentActivity() {
                         // This restores previously saved user profile data from disk
                         appViewModel.loadCachedProfiles(this)
                         
-                        // Check if we were launched from a conversation shortcut or matrix: URI
+                        // OPTIMIZATION #2: Optimized intent processing
                         val roomId = intent.getStringExtra("room_id")
+                        val directNavigation = intent.getBooleanExtra("direct_navigation", false)
+                        val fromNotification = intent.getBooleanExtra("from_notification", false)
                         val matrixUri = intent.data
-                        Log.d("Andromuks", "MainActivity: onCreate - roomId extra: $roomId, matrixUri: $matrixUri")
-                        val extractedRoomId = roomId ?: extractRoomIdFromMatrixUri(matrixUri)
-                        Log.d("Andromuks", "MainActivity: onCreate - extractedRoomId: $extractedRoomId")
+                        
+                        Log.d("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
+                        
+                        val extractedRoomId = if (directNavigation && roomId != null) {
+                            // OPTIMIZATION #2: Fast path - room ID already extracted
+                            Log.d("Andromuks", "MainActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
+                            roomId
+                        } else {
+                            // Fallback to URI parsing for legacy intents
+                            val uriRoomId = extractRoomIdFromMatrixUri(matrixUri)
+                            Log.d("Andromuks", "MainActivity: onCreate - Fallback URI parsing: $uriRoomId")
+                            uriRoomId
+                        }
+                        
                         if (extractedRoomId != null) {
-                            // This is from a notification click if we have roomId or matrixUri (from notification intent)
-                            val fromNotification = roomId != null || matrixUri != null
-                            appViewModel.setPendingRoomNavigation(extractedRoomId, fromNotification)
+                            // OPTIMIZATION #1: Direct navigation instead of pending state
+                            Log.d("Andromuks", "MainActivity: onCreate - Direct navigation to room: $extractedRoomId")
+                            // Store for immediate navigation once UI is ready
+                            appViewModel.setDirectRoomNavigation(extractedRoomId)
                         }
                         
                         // Register broadcast receiver for notification actions
@@ -247,18 +261,30 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         
-        // Handle room navigation from notification clicks or matrix: URIs
+        // OPTIMIZATION #2: Optimized intent processing for onNewIntent
         val roomId = intent.getStringExtra("room_id")
+        val directNavigation = intent.getBooleanExtra("direct_navigation", false)
+        val fromNotification = intent.getBooleanExtra("from_notification", false)
         val matrixUri = intent.data
-        Log.d("Andromuks", "MainActivity: onNewIntent - roomId extra: $roomId, matrixUri: $matrixUri")
-        val extractedRoomId = roomId ?: extractRoomIdFromMatrixUri(matrixUri)
-        Log.d("Andromuks", "MainActivity: onNewIntent - extractedRoomId: $extractedRoomId")
+        
+        Log.d("Andromuks", "MainActivity: onNewIntent - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
+        
+        val extractedRoomId = if (directNavigation && roomId != null) {
+            // OPTIMIZATION #2: Fast path - room ID already extracted
+            Log.d("Andromuks", "MainActivity: onNewIntent - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
+            roomId
+        } else {
+            // Fallback to URI parsing for legacy intents
+            val uriRoomId = extractRoomIdFromMatrixUri(matrixUri)
+            Log.d("Andromuks", "MainActivity: onNewIntent - Fallback URI parsing: $uriRoomId")
+            uriRoomId
+        }
+        
         extractedRoomId?.let { roomId ->
             if (::appViewModel.isInitialized) {
-                Log.d("Andromuks", "MainActivity: onNewIntent - Navigating to room: $roomId")
-                // This is from a notification if we have roomId or matrixUri
-                val fromNotification = intent.getStringExtra("room_id") != null || intent.data != null
-                appViewModel.setPendingRoomNavigation(roomId, fromNotification)
+                Log.d("Andromuks", "MainActivity: onNewIntent - Direct navigation to room: $roomId")
+                // OPTIMIZATION #1: Direct navigation instead of pending state
+                appViewModel.setDirectRoomNavigation(roomId)
                 // Force navigation if app is already running
                 if (appViewModel.spacesLoaded) {
                     // App is already initialized, trigger navigation directly

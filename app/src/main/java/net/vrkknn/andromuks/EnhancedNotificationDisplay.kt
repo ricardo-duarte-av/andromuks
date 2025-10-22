@@ -569,9 +569,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     private fun createRoomIntent(notificationData: NotificationData): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
-            data = android.net.Uri.parse("matrix:roomid/${notificationData.roomId.substring(1)}${notificationData.eventId?.let { "/e/${it.substring(1)}" } ?: ""}")
+            // OPTIMIZATION #2: Store room ID directly instead of complex URI parsing
             putExtra("room_id", notificationData.roomId)
             putExtra("event_id", notificationData.eventId)
+            putExtra("direct_navigation", true) // Flag for optimized processing
+            putExtra("from_notification", true) // Flag to identify notification source
+            // Keep URI for compatibility but make it simpler
+            data = android.net.Uri.parse("matrix:roomid/${notificationData.roomId.substring(1)}${notificationData.eventId?.let { "/e/${it.substring(1)}" } ?: ""}")
         }
         
         return PendingIntent.getActivity(
@@ -588,8 +592,14 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     private fun createBubbleIntent(notificationData: NotificationData): PendingIntent {
         val intent = Intent(context, ChatBubbleActivity::class.java).apply {
             action = Intent.ACTION_VIEW
-            data = android.net.Uri.parse("matrix://bubble/${notificationData.roomId.substring(1)}")
+            // OPTIMIZATION #2: Store room ID directly for bubble intents too
             putExtra("room_id", notificationData.roomId)
+            putExtra("event_id", notificationData.eventId)
+            putExtra("direct_navigation", true) // Flag for optimized processing
+            putExtra("from_notification", true) // Flag to identify notification source
+            putExtra("bubble_mode", true) // Flag for bubble UI
+            // Keep URI for compatibility
+            data = android.net.Uri.parse("matrix://bubble/${notificationData.roomId.substring(1)}")
             flags = Intent.FLAG_ACTIVITY_NEW_DOCUMENT or
                     Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
                     Intent.FLAG_ACTIVITY_RETAIN_IN_RECENTS or
