@@ -1037,7 +1037,7 @@ fun ChatBubbleEventItem(
                     Text(
                         text = displayName ?: event.sender,
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
+                        color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(event.sender)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(

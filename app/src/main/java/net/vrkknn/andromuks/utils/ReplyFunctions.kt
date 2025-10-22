@@ -171,7 +171,7 @@ fun ReplyPreview(
             Text(
                 text = senderName,
                 style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
+                color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(originalSender),
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.padding(bottom = 2.dp)
             )
@@ -377,7 +377,7 @@ fun ReplyPreviewInput(
                 Text(
                     text = displayName,
                     style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(event.sender),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )

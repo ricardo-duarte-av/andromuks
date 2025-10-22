@@ -28,6 +28,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -2208,25 +2212,78 @@ fun TimelineEventItem(
                     horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
                 ) {
                     // Show per-message profile name and bridge sender info
-                    val headerText =
-                        if (
-                            (hasPerMessageProfile || hasEncryptedPerMessageProfile) &&
-                                bridgeSender != null
-                        ) {
-                            // Get bridge sender display name for better readability
-                            val bridgeProfile = userProfileCache[bridgeSender]
-                            val bridgeDisplayName = bridgeProfile?.displayName ?: bridgeSender
-                            "${displayName ?: "Unknown"}, sent by ${bridgeDisplayName}"
-                        } else {
-                            displayName ?: event.sender
+                    val (headerText, headerAnnotatedString) = if (
+                        (hasPerMessageProfile || hasEncryptedPerMessageProfile) &&
+                            bridgeSender != null
+                    ) {
+                        // Get bridge sender display name for better readability
+                        val bridgeProfile = userProfileCache[bridgeSender]
+                        val bridgeDisplayName = bridgeProfile?.displayName ?: bridgeSender
+                        val fakeDisplayName = displayName ?: "Unknown"
+                        
+                        // Get the fake sender's user ID from the per-message profile
+                        val fakeSenderId = when {
+                            hasEncryptedPerMessageProfile -> {
+                                encryptedPerMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
+                            }
+                            hasPerMessageProfile -> {
+                                perMessageProfile?.optString("id")?.takeIf { it.isNotBlank() }
+                            }
+                            else -> null
+                        } ?: fakeDisplayName // Fallback to display name if no ID
+                        
+                        val plainText = "$fakeDisplayName, sent by $bridgeDisplayName"
+                        
+                        // Create annotated string with different colors for each part
+                        val annotatedString = buildAnnotatedString {
+                            // Fake display name (bridge name) - use fake sender's color
+                            withStyle(
+                                style = SpanStyle(
+                                    color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(fakeSenderId)
+                                )
+                            ) {
+                                append(fakeDisplayName)
+                            }
+                            
+                            // ", sent by " text - use Material3 colors
+                            withStyle(
+                                style = SpanStyle(
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            ) {
+                                append(", sent by ")
+                            }
+                            
+                            // Real display name (actual sender) - use real sender's color
+                            withStyle(
+                                style = SpanStyle(
+                                    color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(bridgeSender)
+                                )
+                            ) {
+                                append(bridgeDisplayName)
+                            }
                         }
+                        
+                        Pair(plainText, annotatedString)
+                    } else {
+                        val plainText = displayName ?: event.sender
+                        Pair(plainText, null)
+                    }
 
-                    Text(
-                        text = headerText,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clickable { onUserClick(event.sender) }
-                    )
+                    if (headerAnnotatedString != null) {
+                        Text(
+                            text = headerAnnotatedString,
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier.clickable { onUserClick(event.sender) }
+                        )
+                    } else {
+                        Text(
+                            text = headerText,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(event.sender),
+                            modifier = Modifier.clickable { onUserClick(event.sender) }
+                        )
+                    }
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text =
