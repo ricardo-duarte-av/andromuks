@@ -2552,6 +2552,10 @@ class AppViewModel : ViewModel() {
     fun getLastReceivedId(): Int = lastReceivedSyncId
     
     /**
+     * Check if an event is pinned in the current room
+     */
+    
+    /**
      * Gets the next request ID for outgoing commands
      * This should be used by all components that send WebSocket commands
      */
@@ -5234,6 +5238,7 @@ class AppViewModel : ViewModel() {
         var avatarUrl: String? = null
         var isEncrypted = false
         var powerLevels: PowerLevelsInfo? = null
+        val pinnedEventIds = mutableListOf<String>()
         
         android.util.Log.d("Andromuks", "AppViewModel: Parsing room state for room: $roomId, events count: ${events.length()}")
         
@@ -5298,6 +5303,19 @@ class AppViewModel : ViewModel() {
                         )
                         android.util.Log.d("Andromuks", "AppViewModel: Found power levels - users: ${usersMap.size}, usersDefault: $usersDefault, redact: $redact")
                     }
+                    "m.room.pinned_events" -> {
+                        pinnedEventIds.clear()
+                        val pinnedArray = content?.optJSONArray("pinned")
+                        if (pinnedArray != null) {
+                            for (j in 0 until pinnedArray.length()) {
+                                val eventId = pinnedArray.optString(j)
+                                if (!eventId.isNullOrBlank()) {
+                                    pinnedEventIds.add(eventId)
+                                }
+                            }
+                        }
+                        android.util.Log.d("Andromuks", "AppViewModel: Found pinned events: ${pinnedEventIds.size}")
+                    }
                 }
             }
         }
@@ -5310,7 +5328,8 @@ class AppViewModel : ViewModel() {
             topic = topic,
             avatarUrl = avatarUrl,
             isEncrypted = isEncrypted,
-            powerLevels = powerLevels
+            powerLevels = powerLevels,
+            pinnedEventIds = pinnedEventIds
         )
         
         // ✓ FIX: Only update currentRoomState if this is the currently open room
@@ -5816,7 +5835,8 @@ class AppViewModel : ViewModel() {
                                 canonicalAlias = canonicalAlias,
                                 topic = topic,
                                 avatarUrl = avatarUrl,
-                                powerLevels = currentRoomState?.powerLevels // Preserve existing power levels
+                                powerLevels = currentRoomState?.powerLevels, // Preserve existing power levels
+                                pinnedEventIds = currentRoomState?.pinnedEventIds ?: emptyList() // Preserve existing pinned events
                             )
                             // ✓ Safety check: Only update if this is the currently open room
                             if (roomId == currentRoomId) {
@@ -6021,6 +6041,10 @@ class AppViewModel : ViewModel() {
                     android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] ✓ Adding event ${event.eventId} to timeline chain (sender=${event.sender})")
                     addNewEventToChain(event)
                 }
+            } else if (event.type == "m.room.pinned_events" || event.type == "m.room.name" || event.type == "m.room.topic" || event.type == "m.room.avatar") {
+                // System events that should appear in timeline
+                android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processing system event: ${event.type} eventId=${event.eventId} sender=${event.sender}")
+                addNewEventToChain(event)
             } else {
                 // Unknown event type - log it so we can see what's being skipped
                 android.util.Log.w("Andromuks", "AppViewModel: [LIVE SYNC] ✗ UNHANDLED event type: ${event.type} eventId=${event.eventId} sender=${event.sender} timelineRowid=${event.timelineRowid}")
@@ -6034,7 +6058,8 @@ class AppViewModel : ViewModel() {
         val addedToTimeline = events.count { event ->
             (event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") ||
             (event.type == "m.room.member" && event.timelineRowid >= 0L) ||
-            (event.type == "m.room.redaction")
+            (event.type == "m.room.redaction") ||
+            (event.type == "m.room.pinned_events" || event.type == "m.room.name" || event.type == "m.room.topic" || event.type == "m.room.avatar")
         }
         val memberStateUpdates = events.count { event ->
             event.type == "m.room.member" && event.timelineRowid == -1L

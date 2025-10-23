@@ -80,6 +80,11 @@ data class TimelineEvent(
     }
     
     /**
+     * Check if this event is pinned
+     * Note: This requires the AppViewModel to check against room state
+     */
+    
+    /**
      * Get thread information from this event
      * Returns ThreadInfo if this is a thread message, null otherwise
      */

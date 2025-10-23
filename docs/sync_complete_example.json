@@ -1,0 +1,174 @@
+// Top-level command name identifying this RPC message as a sync completion update.
+{
+  // "command": the RPC command name; always "sync_complete" for this message type.
+  "command": "sync_complete",
+  // "request_id": numeric id used to correlate replies to requests (0 if not used).
+  "request_id": 0,
+  // "data": the actual sync payload described by SyncCompleteData.
+  "data": {
+    // "since": optional token string representing the sync token from the server (used to continue incremental syncs).
+    "since": "s123_456_789",
+    // "clear_state": optional boolean indicating the client should clear any previous local state before applying this payload.
+    "clear_state": false,
+    // "account_data": optional map of global account-level account data events keyed by event type.
+    "account_data": {
+      // Each key is an EventType string (e.g. "m.push_rules"), value is the account data object.
+      "m.push_rules": {
+        // AccountData fields are represented here in a simplified form (actual shape may vary).
+        "type": "m.push_rules",
+        "content": {
+          // Example push rules content (simplified).
+          "global": {
+            "rooms": {}
+          }
+        }
+      },
+      "m.direct": {
+        "type": "m.direct",
+        "content": {
+          // Example mapping of direct-chat user -> list of room IDs.
+          "@alice:example.com": ["!roomid:example.com"]
+        }
+      }
+    },
+    // "rooms": optional map of RoomID -> SyncRoom (rooms the user is in or visible to the client).
+    "rooms": {
+      // Example room id key; real keys will be room IDs like "!abcdef:server".
+      "!roomid1:example.com": {
+        // "meta": room metadata (database.Room) including id, name, membership and similar properties.
+        "meta": {
+          // Room unique identifier.
+          "id": "!roomid1:example.com",
+          // Human-readable name of the room (optional).
+          "name": "Example Room",
+          // Room topic (optional).
+          "topic": "A test room",
+          // Membership of local user in this room (e.g. "join", "invite", "leave").
+          "membership": "join",
+          // Number of joined members (optional/approximate).
+          "num_joined_members": 42,
+          // Visibility (optional, e.g. "public" or "private").
+          "visibility": "public"
+        },
+        // "timeline": optional array of timeline tuples (TimelineRowTuple) representing recent events/timeline items.
+        "timeline": [
+          // Timeline entries are simplified here; actual tuple contains rowid and event tuple.
+          {
+            // internal DB row id for timeline item.
+            "rowid": 12345,
+            // The raw event object (database.Event / RawDBEvent) for this timeline item.
+            "event": {
+              "event_id": "$event1:example.com",
+              "type": "m.room.message",
+              "sender": "@bob:example.com",
+              "origin_server_ts": 1698000000000,
+              "content": {
+                "body": "Hello world",
+                "msgtype": "m.text"
+              }
+            }
+          },
+          {
+            "rowid": 12346,
+            "event": {
+              "event_id": "$event2:example.com",
+              "type": "m.room.message",
+              "sender": "@alice:example.com",
+              "origin_server_ts": 1698000005000,
+              "content": {
+                "body": "Reply",
+                "msgtype": "m.text"
+              }
+            }
+          }
+        ],
+        // "state": optional map of event type -> (state_key -> EventRowID) for current room state.
+        "state": {
+          // Example: mapping for m.room.name (state event without state_key uses empty string).
+          "m.room.name": {
+            "": 111
+          },
+          // member state mapping from user_id -> event row id.
+          "m.room.member": {
+            "@alice:example.com": 112,
+            "@bob:example.com": 113
+          }
+        },
+        // "account_data": optional per-room account data keyed by event type (DBRoomAccountData).
+        "account_data": {
+          "m.room.settings": {
+            "type": "m.room.settings",
+            "content": {
+              "theme": "dark"
+            }
+          }
+        },
+        // "events": optional array of RawDBEvent / database.Event objects, e.g. preview events or additional events to show.
+        "events": [
+          {
+            "event_id": "$event1:example.com",
+            "type": "m.room.message",
+            "sender": "@bob:example.com",
+            "origin_server_ts": 1698000000000,
+            "content": {
+              "body": "Hello world",
+              "msgtype": "m.text"
+            },
+            // "unsigned" and other fields may be present depending on stored DB event shape.
+            "unsigned": {}
+          }
+        ],
+        // "reset": boolean indicating the timeline was reset (e.g. because of an initial sync or timeline gap).
+        "reset": false,
+        // "receipts": optional map of EventID -> array of receipt objects (who has read up to that event).
+        "receipts": {
+          "$event1:example.com": [
+            {
+              // Receiver / user who sent receipt.
+              "user_id": "@alice:example.com",
+              // Receipt data (timestamp etc).
+              "data": {
+                "ts": 1698000001000
+              }
+            },
+            {
+              "user_id": "@carol:example.com",
+              "data": {
+                "ts": 1698000002000
+              }
+            }
+          ]
+        },
+        // "dismiss_notifications": boolean flag if notifications were dismissed for the room.
+        "dismiss_notifications": false,
+        // "notifications": optional array of SyncNotification objects describing notification rows.
+        "notifications": [
+          {
+            // event_rowid: DB row id of the event that produced the notification.
+            "event_rowid": 12345,
+            // sound: whether notification should play sound.
+            "sound": true,
+            // highlight: whether notification is a highlight (e.g. mention).
+            "highlight": false
+          }
+        ]
+      },
+      // Example of another room with different properties (reset true, empty lists).
+      "!roomid2:example.com": {
+        "meta": {
+          "id": "!roomid2:example.com",
+          "name": "Another Room",
+          "membership": "invite"
+        },
+        "timeline": [],
+        "state": {},
+        "account_data": {},
+        "events": [],
+        "reset": true,
+        "receipts": {},
+        "dismiss_notifications": true,
+        "notifications": []
+      }
+    },
+    // "left_rooms": optional array of RoomID strings which the user has left (present so UI can remove them).
+    "left

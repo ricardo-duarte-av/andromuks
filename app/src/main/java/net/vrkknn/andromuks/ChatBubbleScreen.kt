@@ -1350,7 +1350,7 @@ fun ChatBubbleEventItem(
                                         bottomStart = 8.dp
                                     )
                                 }
-                                val bubbleColor = if (actualIsMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+                            val bubbleColor = if (actualIsMine) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
                                 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),

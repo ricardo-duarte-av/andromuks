@@ -913,6 +913,7 @@ private fun RoomTextMessageContent(
     // Check if this is a thread message
     val isThreadMessage = event.isThreadMessage()
     
+    
     val bubbleColor =
         if (isThreadMessage) {
             if (actualIsMine) MaterialTheme.colorScheme.tertiaryContainer
@@ -1579,6 +1580,7 @@ private fun EncryptedMessageContent(
             
             // Check if this is a thread message
             val isThreadMessage = event.isThreadMessage()
+            
             
             val bubbleColor =
                 if (isThreadMessage) {
