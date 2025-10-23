@@ -12,10 +12,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
+import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ui.components.AvatarImage
 
@@ -31,6 +33,7 @@ import net.vrkknn.andromuks.ui.components.AvatarImage
  * @param homeserverUrl Base URL of the Matrix homeserver for MXC URL conversion
  * @param authToken Authentication token for accessing media
  * @param userProfileCache Map of user IDs to MemberProfile objects for avatar and display name data
+ * @param appViewModel AppViewModel instance for opportunistic profile loading
  */
 @Composable
 fun TypingNotificationArea(
@@ -39,8 +42,31 @@ fun TypingNotificationArea(
     homeserverUrl: String,
     authToken: String,
     userProfileCache: Map<String, MemberProfile>,
+    appViewModel: AppViewModel? = null,
     modifier: Modifier = Modifier
 ) {
+    // OPPORTUNISTIC PROFILE LOADING: Request profiles for typing users when they start typing
+    LaunchedEffect(typingUsers, roomId, appViewModel?.memberUpdateCounter) {
+        if (appViewModel != null && roomId.isNotEmpty() && typingUsers.isNotEmpty()) {
+            android.util.Log.d("Andromuks", "TypingNotificationArea: LaunchedEffect triggered - typing users: ${typingUsers.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel.memberUpdateCounter}")
+            android.util.Log.d("Andromuks", "TypingNotificationArea: Requesting profiles for ${typingUsers.size} typing users")
+            typingUsers.forEach { userId ->
+                android.util.Log.d("Andromuks", "TypingNotificationArea: Processing typing user: $userId")
+                val existingProfile = appViewModel.getUserProfile(userId, roomId)
+                android.util.Log.d("Andromuks", "TypingNotificationArea: Profile check for $userId - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}")
+                if (existingProfile == null) {
+                    android.util.Log.d("Andromuks", "TypingNotificationArea: Profile not cached for $userId, requesting...")
+                    appViewModel.requestUserProfileOnDemand(userId, roomId)
+                    android.util.Log.d("Andromuks", "TypingNotificationArea: Profile request sent for $userId")
+                } else {
+                    android.util.Log.d("Andromuks", "TypingNotificationArea: Profile already cached for $userId - displayName: ${existingProfile.displayName}")
+                }
+            }
+        } else {
+            android.util.Log.d("Andromuks", "TypingNotificationArea: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, typingUsers: ${typingUsers.size}")
+        }
+    }
+
     // Always reserve space for typing area
     Box(
         modifier = Modifier
@@ -56,7 +82,8 @@ fun TypingNotificationArea(
             ) {
                 // Show mini avatars for all typing users
                 typingUsers.forEachIndexed { index, user ->
-                    val profile = userProfileCache[user]
+                    // Prioritize AppViewModel profile over cache
+                    val profile = appViewModel?.getUserProfile(user, roomId) ?: userProfileCache[user]
                     val avatarUrl = profile?.avatarUrl
                     val displayName = profile?.displayName
                     
@@ -83,7 +110,7 @@ fun TypingNotificationArea(
                     text = when {
                         typingUsers.size == 1 -> {
                             val user = typingUsers.first()
-                            val profile = userProfileCache[user]
+                            val profile = appViewModel?.getUserProfile(user, roomId) ?: userProfileCache[user]
                             val displayName = profile?.displayName
                             val userName = displayName ?: user.substringAfter("@").substringBefore(":")
                             "$userName is typing..."
@@ -91,7 +118,7 @@ fun TypingNotificationArea(
                         else -> {
                             // Build comma-separated list of user names
                             val userNames = typingUsers.map { user ->
-                                val profile = userProfileCache[user]
+                                val profile = appViewModel?.getUserProfile(user, roomId) ?: userProfileCache[user]
                                 profile?.displayName ?: user.substringAfter("@").substringBefore(":")
                             }
                             

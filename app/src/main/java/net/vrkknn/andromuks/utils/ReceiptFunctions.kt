@@ -314,7 +314,9 @@ fun InlineReadReceiptAvatars(
             onUserClick = { userId ->
                 showReceiptDialog = false
                 onUserClick(userId)
-            }
+            },
+            appViewModel = appViewModel,
+            roomId = roomId
         )
     }
     
@@ -475,7 +477,9 @@ fun AnimatedInlineReadReceiptAvatars(
             onUserClick = { userId ->
                 showReceiptDialog = false
                 onUserClick(userId)
-            }
+            },
+            appViewModel = appViewModel,
+            roomId = roomId
         )
     }
     
@@ -574,8 +578,32 @@ fun ReadReceiptDetailsDialog(
     homeserverUrl: String,
     authToken: String,
     onDismiss: () -> Unit,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
+    appViewModel: AppViewModel? = null,
+    roomId: String? = null
 ) {
+    // OPPORTUNISTIC PROFILE LOADING: Request profiles for read receipt users when dialog opens
+    LaunchedEffect(receipts.map { it.userId }, roomId, appViewModel?.memberUpdateCounter) {
+        if (appViewModel != null && roomId != null && receipts.isNotEmpty()) {
+            Log.d("Andromuks", "ReadReceiptDetailsDialog: LaunchedEffect triggered - receipts: ${receipts.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel.memberUpdateCounter}")
+            Log.d("Andromuks", "ReadReceiptDetailsDialog: Requesting profiles for ${receipts.size} read receipt users")
+            receipts.forEach { receipt ->
+                Log.d("Andromuks", "ReadReceiptDetailsDialog: Processing receipt for user: ${receipt.userId}")
+                val existingProfile = appViewModel.getUserProfile(receipt.userId, roomId)
+                Log.d("Andromuks", "ReadReceiptDetailsDialog: Profile check for ${receipt.userId} - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}")
+                if (existingProfile == null) {
+                    Log.d("Andromuks", "ReadReceiptDetailsDialog: Profile not cached for ${receipt.userId}, requesting...")
+                    appViewModel.requestUserProfileOnDemand(receipt.userId, roomId)
+                    Log.d("Andromuks", "ReadReceiptDetailsDialog: Profile request sent for ${receipt.userId}")
+                } else {
+                    Log.d("Andromuks", "ReadReceiptDetailsDialog: Profile already cached for ${receipt.userId} - displayName: ${existingProfile.displayName}")
+                }
+            }
+        } else {
+            Log.d("Andromuks", "ReadReceiptDetailsDialog: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, receipts: ${receipts.size}")
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -605,9 +633,11 @@ fun ReadReceiptDetailsDialog(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     receipts.forEach { receipt ->
+                        // Prioritize AppViewModel profile over cache
+                        val userProfile = appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
                         ReadReceiptItem(
                             receipt = receipt,
-                            userProfile = userProfileCache[receipt.userId],
+                            userProfile = userProfile,
                             homeserverUrl = homeserverUrl,
                             authToken = authToken,
                             onUserClick = onUserClick

@@ -1375,7 +1375,8 @@ fun RoomTimelineScreen(
                         roomId = roomId,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
-                        userProfileCache = appViewModel.getMemberMap(roomId)
+                        userProfileCache = appViewModel.getMemberMap(roomId),
+                        appViewModel = appViewModel
                     )
 
                     // 4. Text box (always at the bottom, above keyboard/nav bar)
