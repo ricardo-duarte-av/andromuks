@@ -24,8 +24,6 @@ import kotlinx.coroutines.withContext
 import android.content.Context
 import android.media.MediaPlayer
 import android.media.AudioManager
-import android.os.Vibrator
-import android.os.VibrationEffect
 import android.os.Build
 import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
@@ -2307,6 +2305,40 @@ class AppViewModel : ViewModel() {
     private var isOfflineMode = false
     private var lastNetworkState = true // true = online, false = offline
     private val offlineCacheExpiry = 24 * 60 * 60 * 1000L // 24 hours
+    
+    // WebSocket reconnection log
+    data class ReconnectionLogEntry(
+        val timestamp: Long,
+        val reason: String
+    )
+    
+    private val reconnectionLog = mutableListOf<ReconnectionLogEntry>()
+    private val maxLogEntries = 100 // Keep last 100 entries
+    
+    /**
+     * Log a WebSocket reconnection event
+     */
+    private fun logReconnection(reason: String) {
+        val entry = ReconnectionLogEntry(
+            timestamp = System.currentTimeMillis(),
+            reason = reason
+        )
+        reconnectionLog.add(entry)
+        
+        // Keep only the last maxLogEntries entries
+        if (reconnectionLog.size > maxLogEntries) {
+            reconnectionLog.removeAt(0)
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Logged reconnection - $reason")
+    }
+    
+    /**
+     * Get the reconnection log for display
+     */
+    fun getReconnectionLog(): List<ReconnectionLogEntry> {
+        return reconnectionLog.toList()
+    }
 
     // RECONNECTION: Exponential backoff state
     private var reconnectionAttempts = 0
@@ -2322,10 +2354,8 @@ class AppViewModel : ViewModel() {
         // Broadcast that socket connection is available and retry pending operations
         android.util.Log.i("Andromuks", "AppViewModel: WebSocket connection established - retrying ${pendingWebSocketOperations.size} pending operations")
         
-        // Only vibrate on reconnections, not initial connection
-        if (hasHadInitialConnection) {
-            performReconnectionHaptic()
-        } else {
+        // Track if we've had an initial connection (no longer needed for vibration)
+        if (!hasHadInitialConnection) {
             hasHadInitialConnection = true
         }
         
@@ -2467,34 +2497,6 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Finished retrying pending operations, ${pendingWebSocketOperations.size} remain queued")
     }
     
-    /**
-     * Perform a subtle haptic vibration to indicate WebSocket reconnection
-     */
-    private fun performReconnectionHaptic() {
-        appContext?.let { context ->
-            // Ensure vibration happens on main thread
-            viewModelScope.launch(Dispatchers.Main) {
-                try {
-                    val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator?
-                    if (vibrator?.hasVibrator() == true) {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            // Modern API - use VibrationEffect for more control
-                            val effect = VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE)
-                            vibrator.vibrate(effect)
-                        } else {
-                            // Legacy API
-                            vibrator.vibrate(100)
-                        }
-                        android.util.Log.d("Andromuks", "AppViewModel: Performed reconnection haptic feedback")
-                    } else {
-                        android.util.Log.d("Andromuks", "AppViewModel: Device does not support vibration")
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.w("Andromuks", "AppViewModel: Failed to perform haptic feedback", e)
-                }
-            }
-        }
-    }
 
     fun noteIncomingRequestId(requestId: Int) {
         if (requestId != 0) {
@@ -2861,6 +2863,9 @@ class AppViewModel : ViewModel() {
     
     private fun restartWebSocket(reason: String = "Unknown reason") {
         android.util.Log.d("Andromuks", "AppViewModel: Restarting websocket connection - Reason: $reason")
+        
+        // Log the reconnection event
+        logReconnection(reason)
         
         // Show toast notification to user
         appContext?.let { context ->

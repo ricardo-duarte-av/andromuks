@@ -93,6 +93,44 @@ fun SettingsScreen(
             
             FCMInfoSection(appViewModel = appViewModel)
 
+            // WebSocket Debug Section
+            Text(
+                text = "WebSocket Debug",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+            
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Reconnection Log",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "View WebSocket reconnection history and reasons",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    Button(
+                        onClick = { navController.navigate("reconnection_log") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("View Reconnection Log")
+                    }
+                }
+            }
+
             // About Section
             Text(
                 text = "About",

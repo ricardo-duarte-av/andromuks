@@ -504,6 +504,12 @@ fun AppNavigation(
                 navController = navController
             )
         }
+        composable("reconnection_log") {
+            ReconnectionLogScreen(
+                appViewModel = appViewModel,
+                navController = navController
+            )
+        }
         composable(
             route = "room_info/{roomId}",
             arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
