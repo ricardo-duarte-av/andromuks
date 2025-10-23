@@ -1076,7 +1076,8 @@ fun ChatBubbleEventItem(
                             onReply = { /* No reply in chat bubbles */ },
                             onReact = { /* No reactions in chat bubbles */ },
                             onEdit = { /* No edit in chat bubbles */ },
-                            onDelete = { /* No delete in chat bubbles */ }
+                            onDelete = { /* No delete in chat bubbles */ },
+                            onUserClick = { /* No user navigation in chat bubbles */ }
                         )
                         return
                     }
@@ -1265,7 +1266,8 @@ fun ChatBubbleEventItem(
                                 onReply = { /* No reply in chat bubbles */ },
                                 onReact = { /* No reactions in chat bubbles */ },
                                 onEdit = { /* No edit in chat bubbles */ },
-                                onDelete = { /* No delete in chat bubbles */ }
+                                onDelete = { /* No delete in chat bubbles */ },
+                                onUserClick = { /* No user navigation in chat bubbles */ }
                             )
                             return
                         }

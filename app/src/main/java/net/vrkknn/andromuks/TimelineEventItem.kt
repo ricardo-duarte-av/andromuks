@@ -455,7 +455,8 @@ private fun RoomMessageContent(
                 onReply = { onReply(event) },
                 onReact = { onReact(event) },
                 onEdit = { onEdit(event) },
-                onDelete = { onDelete(event) }
+                onDelete = { onDelete(event) },
+                onUserClick = onUserClick
             )
             
             // Add reaction badges for emote messages
@@ -1196,7 +1197,8 @@ private fun EncryptedMessageContent(
                     onReply = { onReply(event) },
                     onReact = { onReact(event) },
                     onEdit = { onEdit(event) },
-                    onDelete = { onDelete(event) }
+                    onDelete = { onDelete(event) },
+                    onUserClick = onUserClick
                 )
                 
                 // Add reaction badges for encrypted emote messages
@@ -2083,7 +2085,8 @@ fun TimelineEventItem(
             homeserverUrl = homeserverUrl,
             authToken = authToken,
             appViewModel = appViewModel,
-            roomId = event.roomId
+            roomId = event.roomId,
+            onUserClick = onUserClick
         )
         return
     }

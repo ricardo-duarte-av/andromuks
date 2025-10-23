@@ -39,7 +39,8 @@ fun SystemEventNarrator(
     homeserverUrl: String,
     authToken: String,
     appViewModel: AppViewModel? = null,
-    roomId: String
+    roomId: String,
+    onUserClick: (String) -> Unit = {}
 ) {
     val content = event.content
     val eventType = event.type
@@ -57,7 +58,7 @@ fun SystemEventNarrator(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.weight(1f)
         ) {
-            // Small avatar for the actor
+            // Small avatar for the actor (clickable)
             AvatarImage(
                 mxcUrl = avatarUrl,
                 homeserverUrl = homeserverUrl,
@@ -65,7 +66,8 @@ fun SystemEventNarrator(
                 fallbackText = displayName,
                 size = 20.dp,
                 userId = event.sender,
-                displayName = displayName
+                displayName = displayName,
+                modifier = Modifier.clickable { onUserClick(event.sender) }
             )
         
         // Narrator text
@@ -275,26 +277,101 @@ fun SystemEventNarrator(
             }
             "m.room.pinned_events" -> {
                 val pinnedArray = content?.optJSONArray("pinned")
-                val pinnedEventId = pinnedArray?.optString(0)
-                if (pinnedEventId != null) {
-                    PinnedEventNarration(
-                        displayName = displayName,
-                        avatarUrl = avatarUrl,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        pinnedEventId = pinnedEventId,
-                        appViewModel = appViewModel,
-                        roomId = roomId
-                    )
-                } else {
-                    NarratorText(
-                        text = buildAnnotatedString {
-                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                append(displayName)
-                            }
-                            append(" pinned an event")
+                val unsigned = event.unsigned
+                val prevContent = unsigned?.optJSONObject("prev_content")
+                val prevPinnedArray = prevContent?.optJSONArray("pinned")
+                
+                // Convert arrays to sets for easier comparison
+                val currentPinned = pinnedArray?.let { array ->
+                    (0 until array.length()).mapNotNull { array.optString(it).takeIf { it.isNotBlank() } }.toSet()
+                } ?: emptySet()
+                
+                val previousPinned = prevPinnedArray?.let { array ->
+                    (0 until array.length()).mapNotNull { array.optString(it).takeIf { it.isNotBlank() } }.toSet()
+                } ?: emptySet()
+                
+                // Find newly pinned events (in current but not in previous)
+                val newlyPinned = currentPinned - previousPinned
+                
+                // Find unpinned events (in previous but not in current)
+                val unpinned = previousPinned - currentPinned
+                
+                // Handle the changes
+                when {
+                    newlyPinned.isNotEmpty() && unpinned.isEmpty() -> {
+                        // Only new pins, no unpins
+                        if (newlyPinned.size == 1) {
+                            // Single event pinned
+                            PinnedEventNarration(
+                                displayName = displayName,
+                                avatarUrl = avatarUrl,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                pinnedEventId = newlyPinned.first(),
+                                appViewModel = appViewModel,
+                                roomId = roomId,
+                                onUserClick = onUserClick
+                            )
+                        } else {
+                            // Multiple events pinned
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" pinned ${newlyPinned.size} events")
+                                }
+                            )
                         }
-                    )
+                    }
+                    unpinned.isNotEmpty() && newlyPinned.isEmpty() -> {
+                        // Only unpins, no new pins
+                        if (unpinned.size == 1) {
+                            // Single event unpinned - show which event
+                            UnpinnedEventNarration(
+                                displayName = displayName,
+                                avatarUrl = avatarUrl,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                unpinnedEventId = unpinned.first(),
+                                appViewModel = appViewModel,
+                                roomId = roomId,
+                                onUserClick = onUserClick
+                            )
+                        } else {
+                            // Multiple events unpinned
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" unpinned ${unpinned.size} events")
+                                }
+                            )
+                        }
+                    }
+                    newlyPinned.isNotEmpty() && unpinned.isNotEmpty() -> {
+                        // Both pins and unpins
+                        NarratorText(
+                            text = buildAnnotatedString {
+                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                    append(displayName)
+                                }
+                                append(" updated pinned events")
+                            }
+                        )
+                    }
+                    else -> {
+                        // No changes detected (shouldn't happen, but fallback)
+                        NarratorText(
+                            text = buildAnnotatedString {
+                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                    append(displayName)
+                                }
+                                append(" updated pinned events")
+                            }
+                        )
+                    }
                 }
             }
             else -> {
@@ -312,7 +389,7 @@ fun SystemEventNarrator(
         
         // Right side - timestamp
         Text(
-            text = formatTimestamp(event.timestamp),
+            text = formatSmartTimestamp(event.timestamp),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontStyle = FontStyle.Italic
@@ -351,6 +428,33 @@ private fun formatTimestamp(timestamp: Long): String {
 }
 
 /**
+ * Smart time formatting: shows time for today, date and time for other days
+ */
+private fun formatSmartTimestamp(timestamp: Long): String {
+    val eventDate = java.util.Date(timestamp)
+    val today = java.util.Date()
+    
+    val eventCalendar = java.util.Calendar.getInstance()
+    val todayCalendar = java.util.Calendar.getInstance()
+    
+    eventCalendar.time = eventDate
+    todayCalendar.time = today
+    
+    val isToday = eventCalendar.get(java.util.Calendar.YEAR) == todayCalendar.get(java.util.Calendar.YEAR) &&
+                  eventCalendar.get(java.util.Calendar.DAY_OF_YEAR) == todayCalendar.get(java.util.Calendar.DAY_OF_YEAR)
+    
+    return if (isToday) {
+        // Show time for today
+        val timeFormatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        timeFormatter.format(eventDate)
+    } else {
+        // Show date and time for other days
+        val dateTimeFormatter = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale.getDefault())
+        dateTimeFormatter.format(eventDate)
+    }
+}
+
+/**
  * Renders an emote message (m.emote) in narrator style.
  * Format: "[Display name] [action text]"
  * Example: "Alice really likes onions"
@@ -365,7 +469,8 @@ fun EmoteEventNarrator(
     onReply: () -> Unit = {},
     onReact: () -> Unit = {},
     onEdit: () -> Unit = {},
-    onDelete: () -> Unit = {}
+    onDelete: () -> Unit = {},
+    onUserClick: (String) -> Unit = {}
 ) {
     // For encrypted messages, prioritize decrypted content, otherwise use regular content
     val content = if (event.type == "m.room.encrypted" && event.decrypted != null) {
@@ -394,7 +499,7 @@ fun EmoteEventNarrator(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.weight(1f)
         ) {
-            // Small avatar for the actor
+            // Small avatar for the actor (clickable)
             AvatarImage(
                 mxcUrl = avatarUrl,
                 homeserverUrl = homeserverUrl,
@@ -402,7 +507,8 @@ fun EmoteEventNarrator(
                 fallbackText = displayName,
                 size = 20.dp,
                 userId = event.sender,
-                displayName = displayName
+                displayName = displayName,
+                modifier = Modifier.clickable { onUserClick(event.sender) }
             )
             
             // Emote text
@@ -419,7 +525,7 @@ fun EmoteEventNarrator(
         
         // Right side - timestamp
         Text(
-            text = formatTimestamp(event.timestamp),
+            text = formatSmartTimestamp(event.timestamp),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontStyle = FontStyle.Italic
@@ -488,7 +594,8 @@ private fun PinnedEventNarration(
     authToken: String,
     pinnedEventId: String,
     appViewModel: AppViewModel?,
-    roomId: String
+    roomId: String,
+    onUserClick: (String) -> Unit = {}
 ) {
     var showDialog by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
@@ -563,7 +670,110 @@ private fun PinnedEventNarration(
                             authToken = authToken,
                             userProfileCache = memberMap,
                             isMine = false,
-                            myUserId = appViewModel?.currentUserId
+                            myUserId = appViewModel?.currentUserId,
+                            onUserClick = onUserClick
+                        )
+                    }
+                    else -> {
+                        Text("Event data not available.")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun UnpinnedEventNarration(
+    displayName: String,
+    avatarUrl: String?,
+    homeserverUrl: String,
+    authToken: String,
+    unpinnedEventId: String,
+    appViewModel: AppViewModel?,
+    roomId: String,
+    onUserClick: (String) -> Unit = {}
+) {
+    var showDialog by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var event by remember { mutableStateOf<TimelineEvent?>(null) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Get member map that observes memberUpdateCounter for TimelineEventItem profile updates
+    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+        appViewModel?.getMemberMap(roomId) ?: emptyMap()
+    }
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        NarratorText(
+            text = buildAnnotatedString {
+                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                    append(displayName)
+                }
+                append(" unpinned an event: ")
+            }
+        )
+
+        Text(
+            text = unpinnedEventId,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.clickable {
+                if (event == null && !isLoading && appViewModel != null) {
+                    isLoading = true
+                    errorMessage = null
+                    appViewModel.getEvent(roomId, unpinnedEventId) { fetchedEvent ->
+                        event = fetchedEvent
+                        if (fetchedEvent == null) {
+                            errorMessage = "Unable to load event (404)."
+                        }
+                        isLoading = false
+                        showDialog = true
+                    }
+                } else {
+                    showDialog = true
+                }
+            }
+        )
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showDialog = false
+            },
+            title = { Text("Unpinned Event") },
+            text = {
+                when {
+                    isLoading -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                    errorMessage != null -> {
+                        Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
+                    }
+                    event != null -> {
+                        TimelineEventItem(
+                            event = event!!,
+                            timelineEvents = listOf(event!!),
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            userProfileCache = memberMap,
+                            isMine = false,
+                            myUserId = appViewModel?.currentUserId,
+                            onUserClick = onUserClick
                         )
                     }
                     else -> {
