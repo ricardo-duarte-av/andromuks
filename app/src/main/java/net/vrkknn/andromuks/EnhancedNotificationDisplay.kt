@@ -567,9 +567,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Create room intent with Matrix URI scheme
      */
     private fun createRoomIntent(notificationData: NotificationData): PendingIntent {
-        val intent = Intent(context, ShortcutActivity::class.java).apply {
+        val intent = Intent(context, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
-            // OPTIMIZATION #3: Use ShortcutActivity for direct room navigation
+            // OPTIMIZATION #2: Store room ID directly instead of complex URI parsing
             putExtra("room_id", notificationData.roomId)
             putExtra("event_id", notificationData.eventId)
             putExtra("direct_navigation", true) // Flag for optimized processing

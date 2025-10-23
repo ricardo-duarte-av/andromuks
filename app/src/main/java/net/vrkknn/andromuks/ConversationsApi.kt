@@ -411,6 +411,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             action = android.content.Intent.ACTION_VIEW
             data = android.net.Uri.parse(matrixUri)
             putExtra("room_id", shortcut.roomId)
+            putExtra("direct_navigation", true) // Flag for optimized processing
             flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         
@@ -487,6 +488,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             action = android.content.Intent.ACTION_VIEW
             data = android.net.Uri.parse(matrixUri)
             putExtra("room_id", shortcut.roomId)
+            putExtra("direct_navigation", true) // Flag for optimized processing
             flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         
