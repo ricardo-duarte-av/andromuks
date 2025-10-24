@@ -7146,6 +7146,27 @@ class AppViewModel : ViewModel() {
     // Settings functions
     fun toggleShowUnprocessedEvents() {
         showUnprocessedEvents = !showUnprocessedEvents
+        
+        // Save setting to SharedPreferences
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("show_unprocessed_events", showUnprocessedEvents)
+                .apply()
+            android.util.Log.d("Andromuks", "AppViewModel: Saved showUnprocessedEvents setting: $showUnprocessedEvents")
+        }
+    }
+    
+    /**
+     * Load settings from SharedPreferences
+     */
+    fun loadSettings(context: Context? = null) {
+        val contextToUse = context ?: appContext
+        contextToUse?.let { ctx ->
+            val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            showUnprocessedEvents = prefs.getBoolean("show_unprocessed_events", true) // Default to true
+            android.util.Log.d("Andromuks", "AppViewModel: Loaded showUnprocessedEvents setting: $showUnprocessedEvents")
+        }
     }
 
     /**

@@ -49,6 +49,9 @@ class MainActivity : ComponentActivity() {
                         // This restores previously saved user profile data from disk
                         appViewModel.loadCachedProfiles(this)
                         
+                        // Load app settings from SharedPreferences
+                        appViewModel.loadSettings(this)
+                        
                         // OPTIMIZATION #2: Optimized intent processing
                         val roomId = intent.getStringExtra("room_id")
                         val directNavigation = intent.getBooleanExtra("direct_navigation", false)
