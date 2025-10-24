@@ -108,6 +108,8 @@ class AppViewModel : ViewModel() {
     // Settings
     var showUnprocessedEvents by mutableStateOf(true)
         private set
+    var enableCompression by mutableStateOf(true)
+        private set
 
 
     // List of spaces, each with their rooms
@@ -7157,6 +7159,23 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    fun toggleCompression() {
+        enableCompression = !enableCompression
+        
+        // Save setting to SharedPreferences
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("enable_compression", enableCompression)
+                .apply()
+            android.util.Log.d("Andromuks", "AppViewModel: Saved enableCompression setting: $enableCompression")
+        }
+        
+        // Restart WebSocket with new compression setting
+        android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket due to compression setting change")
+        restartWebSocket("Compression setting changed")
+    }
+    
     /**
      * Load settings from SharedPreferences
      */
@@ -7165,7 +7184,9 @@ class AppViewModel : ViewModel() {
         contextToUse?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             showUnprocessedEvents = prefs.getBoolean("show_unprocessed_events", true) // Default to true
+            enableCompression = prefs.getBoolean("enable_compression", true) // Default to true
             android.util.Log.d("Andromuks", "AppViewModel: Loaded showUnprocessedEvents setting: $showUnprocessedEvents")
+            android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
         }
     }
 

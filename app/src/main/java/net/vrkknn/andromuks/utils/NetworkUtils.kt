@@ -18,8 +18,69 @@ import okio.ByteString
 import okio.IOException
 import org.json.JSONObject
 import net.vrkknn.andromuks.AppViewModel
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.Inflater
+import java.util.zip.InflaterInputStream
+import java.util.concurrent.ConcurrentLinkedQueue
 import net.vrkknn.andromuks.TimelineEvent
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.*
+
+/**
+ * Streaming DEFLATE decompressor that maintains state across multiple frames
+ * Similar to JavaScript's DecompressionStream("deflate-raw")
+ */
+class StreamingDeflateDecompressor {
+    private val inflater = Inflater(true) // Raw DEFLATE
+    private val outputBuffer = ByteArrayOutputStream()
+    private val inputBuffer = ByteArrayOutputStream()
+    private var isFinished = false
+    
+    fun write(data: ByteArray) {
+        if (isFinished) return
+        
+        inputBuffer.write(data)
+        inflater.setInput(inputBuffer.toByteArray())
+        
+        val buffer = ByteArray(4096)
+        try {
+            while (!inflater.finished() && !inflater.needsInput()) {
+                val count = inflater.inflate(buffer)
+                if (count > 0) {
+                    outputBuffer.write(buffer, 0, count)
+                }
+            }
+            
+            // Remove processed data from input buffer
+            val remaining = inflater.remaining
+            if (remaining > 0) {
+                val currentInput = inputBuffer.toByteArray()
+                inputBuffer.reset()
+                inputBuffer.write(currentInput, currentInput.size - remaining, remaining)
+            } else {
+                inputBuffer.reset()
+            }
+            
+        } catch (e: Exception) {
+            Log.e("Andromuks", "StreamingDeflateDecompressor: Decompression failed", e)
+            throw e
+        }
+    }
+    
+    fun readAvailable(): String? {
+        val data = outputBuffer.toByteArray()
+        if (data.isEmpty()) return null
+        
+        outputBuffer.reset()
+        return String(data, Charsets.UTF_8)
+    }
+    
+    fun close() {
+        inflater.end()
+        isFinished = true
+    }
+}
 
 fun buildAuthHttpUrl(rawUrl: String): String {
     var authUrl = rawUrl.lowercase().trim()
@@ -130,6 +191,8 @@ fun connectToWebsocket(
     reason: String = "Initial connection"
 ) {
     Log.d("NetworkUtils", "connectToWebsocket: Initializing... Reason: $reason")
+    
+    var streamingDecompressor: StreamingDeflateDecompressor? = null
 
     val webSocketUrl = trimWebsocketHost(url)
     
@@ -137,18 +200,28 @@ fun connectToWebsocket(
     val runId = appViewModel.getCurrentRunId()
     val lastReceivedId = appViewModel.getLastReceivedId()
     
+    // Check if compression is enabled
+    val compressionEnabled = appViewModel.enableCompression
+    val compressionParam = if (compressionEnabled) "&compress=1" else ""
+    
+    // Initialize streaming decompressor if compression is enabled
+    if (compressionEnabled) {
+        streamingDecompressor = StreamingDeflateDecompressor()
+        Log.d("NetworkUtils", "Streaming DEFLATE decompressor initialized")
+    }
+    
     val finalWebSocketUrl = if (runId.isNotEmpty() && lastReceivedId != 0) {
         // Reconnecting with run_id and last_received_id
-        Log.d("NetworkUtils", "Reconnecting with run_id: $runId, last_received_id: $lastReceivedId")
-        "$webSocketUrl?run_id=$runId&last_received_id=$lastReceivedId"
+        Log.d("NetworkUtils", "Reconnecting with run_id: $runId, last_received_id: $lastReceivedId, compression: $compressionEnabled")
+        "$webSocketUrl?run_id=$runId&last_received_id=$lastReceivedId$compressionParam"
     } else if (runId.isNotEmpty() && lastReceivedId == 0) {
         // Force refresh: reconnecting with run_id but NO last_received_id (full payload)
-        Log.d("NetworkUtils", "FORCE REFRESH: Reconnecting with run_id: $runId but last_received_id=0 (full payload)")
-        "$webSocketUrl?run_id=$runId"
+        Log.d("NetworkUtils", "FORCE REFRESH: Reconnecting with run_id: $runId but last_received_id=0 (full payload), compression: $compressionEnabled")
+        "$webSocketUrl?run_id=$runId$compressionParam"
     } else {
         // First connection
-        Log.d("NetworkUtils", "First connection to websocket")
-        webSocketUrl
+        Log.d("NetworkUtils", "First connection to websocket, compression: $compressionEnabled")
+        if (compressionEnabled) "$webSocketUrl?compress=1" else webSocketUrl
     }
 
     val request = Request.Builder()
@@ -284,7 +357,92 @@ fun connectToWebsocket(
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-            Log.d("Andromuks", "NetworkUtils: WebSocket ByteMessage: ${bytes.hex()}")
+            Log.d("Andromuks", "NetworkUtils: WebSocket ByteMessage received (${bytes.size} bytes)")
+            
+            try {
+                if (streamingDecompressor != null) {
+                    // Use streaming decompressor for stateful DEFLATE decompression
+                    streamingDecompressor!!.write(bytes.toByteArray())
+                    val decompressedText = streamingDecompressor!!.readAvailable()
+                    
+                    if (decompressedText != null) {
+                        Log.d("Andromuks", "NetworkUtils: Decompressed message: $decompressedText")
+                        
+                        // Handle multiple JSON objects that may be concatenated in one frame
+                        val jsonObjects = parseMultipleJsonObjects(decompressedText)
+                        
+                        for (jsonObject in jsonObjects) {
+                            // Track last received request_id for ping purposes
+                            val receivedReqId = jsonObject.optInt("request_id", 0)
+                            if (receivedReqId != 0) {
+                                appViewModel.noteIncomingRequestId(receivedReqId)
+                            }
+                            val command = jsonObject.optString("command")
+                            when (command) {
+                                "run_id" -> {
+                                    val runId = jsonObject.optString("data")
+                                    val vapidKey = jsonObject.optString("vapid_key")
+                                    Log.d("Andromuks", "NetworkUtils: Received run_id: $runId, vapid_key: ${vapidKey?.take(20)}...")
+                                    appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                                        appViewModel.handleRunId(runId ?: "", vapidKey ?: "")
+                                    }
+                                }
+                                "sync_complete" -> {
+                                    Log.d("Andromuks", "NetworkUtils: Processing compressed sync_complete message")
+                                    appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                                        appViewModel.updateRoomsFromSyncJson(jsonObject)
+                                    }
+                                }
+                                "init_complete" -> {
+                                    Log.d("Andromuks", "NetworkUtils: Received compressed init_complete - initialization finished")
+                                    appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                                        Log.d("Andromuks", "NetworkUtils: Calling onInitComplete on main thread")
+                                        appViewModel.onInitComplete()
+                                    }
+                                }
+                                "client_state" -> {
+                                    val data = jsonObject.optJSONObject("data")
+                                    val userId = data?.optString("user_id")
+                                    val deviceId = data?.optString("device_id")
+                                    val hs = data?.optString("homeserver_url")
+                                    Log.d("Andromuks", "NetworkUtils: client_state user=$userId device=$deviceId homeserver=$hs")
+                                    appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                                        appViewModel.handleClientState(userId, deviceId, hs)
+                                    }
+                                }
+                                "image_auth_token" -> {
+                                    val token = jsonObject.optString("data", "")
+                                    Log.d("Andromuks", "NetworkUtils: Received image auth token")
+                                    appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                                        appViewModel.updateImageAuthToken(token)
+                                    }
+                                }
+                                 "typing" -> {
+                                     val data = jsonObject.optJSONObject("data")
+                                     val roomId = data?.optString("room_id")
+                                     val userIds = data?.optJSONArray("user_ids")?.let { array ->
+                                         (0 until array.length()).mapNotNull { array.optString(it).takeIf { it.isNotEmpty() } }
+                                     } ?: emptyList()
+                                     Log.d("Andromuks", "NetworkUtils: Received compressed typing event for room=$roomId, users=$userIds")
+                                     appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                                         appViewModel.updateTypingUsers(roomId ?: "", userIds)
+                                     }
+                                 }
+                                 "response" -> {
+                                     val requestId = jsonObject.optInt("request_id")
+                                     val data = jsonObject.opt("data")
+                                     Log.d("Andromuks", "NetworkUtils: Routing compressed response, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
+                                     appViewModel.viewModelScope.launch(Dispatchers.Main) {
+                                         appViewModel.handleResponse(requestId, data ?: Any())
+                                     }
+                                 }
+                             }
+                         }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("Andromuks", "NetworkUtils: Failed to decompress WebSocket message", e)
+            }
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -318,6 +476,7 @@ fun connectToWebsocket(
         
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             Log.d("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
+            streamingDecompressor?.close()
             appViewModel.clearWebSocket()
         }
     }
@@ -334,4 +493,64 @@ fun trimWebsocketHost(url: String): String {
     }
     wsHost = wsHost.split("/").firstOrNull() ?: ""
     return "wss://$wsHost/_gomuks/websocket"
+}
+
+
+/**
+ * Parse multiple JSON objects from a single string
+ * The server may concatenate multiple JSON objects in one frame
+ */
+fun parseMultipleJsonObjects(jsonText: String): List<JSONObject> {
+    val jsonObjects = mutableListOf<JSONObject>()
+    var currentPos = 0
+    var braceCount = 0
+    var startPos = 0
+    var inString = false
+    var escapeNext = false
+    
+    for (i in jsonText.indices) {
+        val char = jsonText[i]
+        
+        if (escapeNext) {
+            escapeNext = false
+            continue
+        }
+        
+        if (char == '\\') {
+            escapeNext = true
+            continue
+        }
+        
+        if (char == '"' && !escapeNext) {
+            inString = !inString
+            continue
+        }
+        
+        if (!inString) {
+            when (char) {
+                '{' -> {
+                    if (braceCount == 0) {
+                        startPos = i
+                    }
+                    braceCount++
+                }
+                '}' -> {
+                    braceCount--
+                    if (braceCount == 0) {
+                        // Found complete JSON object
+                        val jsonStr = jsonText.substring(startPos, i + 1)
+                        try {
+                            val jsonObject = JSONObject(jsonStr)
+                            jsonObjects.add(jsonObject)
+                            Log.d("Andromuks", "NetworkUtils: Parsed JSON object: ${jsonObject.optString("command", "unknown")}")
+                        } catch (e: Exception) {
+                            Log.w("Andromuks", "NetworkUtils: Failed to parse JSON object: $jsonStr", e)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    return jsonObjects
 }
