@@ -38,6 +38,13 @@ class WebSocketService : Service() {
         fun updateNotification(lag: Long, lastSyncTime: Long) {
             instance?.updateNotificationText(lag, lastSyncTime)
         }
+        
+        /**
+         * Update notification with connection status
+         */
+        fun updateConnectionStatus(isConnected: Boolean, lagMs: Long? = null, lastSyncTimestamp: Long? = null) {
+            instance?.updateConnectionStatus(isConnected, lagMs, lastSyncTimestamp)
+        }
     }
 
     private val binder = WebSocketBinder()
@@ -166,5 +173,69 @@ class WebSocketService : Service() {
         notificationManager.notify(NOTIFICATION_ID, notification)
         
         Log.d("WebSocketService", "Notification updated: $notificationText")
+    }
+    
+    /**
+     * Update notification with connection status and optional stats
+     * 
+     * @param isConnected Whether WebSocket is connected
+     * @param lagMs Optional ping/pong round-trip time in milliseconds
+     * @param lastSyncTimestamp Optional timestamp of last sync_complete message
+     */
+    fun updateConnectionStatus(isConnected: Boolean, lagMs: Long? = null, lastSyncTimestamp: Long? = null) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        val notificationText = if (!isConnected) {
+            "Connecting..."
+        } else {
+            // Format lag
+            val lagText = if (lagMs != null) {
+                when {
+                    lagMs < 100 -> "${lagMs}ms"
+                    lagMs < 1000 -> "${lagMs}ms"
+                    else -> "${lagMs / 1000}s"
+                }
+            } else {
+                "--"
+            }
+            
+            // Format time since last sync
+            val lastSyncText = if (lastSyncTimestamp != null && lastSyncTimestamp > 0) {
+                val timeSinceSync = System.currentTimeMillis() - lastSyncTimestamp
+                when {
+                    timeSinceSync < 1000 -> "now"
+                    timeSinceSync < 60_000 -> "${timeSinceSync / 1000}s ago"
+                    timeSinceSync < 3600_000 -> "${timeSinceSync / 60_000}m ago"
+                    else -> "${timeSinceSync / 3600_000}h ago"
+                }
+            } else {
+                "--"
+            }
+            
+            "Lag: $lagText • Last: $lastSyncText"
+        }
+        
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Andromuks")
+            .setContentText(notificationText)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentIntent(pendingIntent)
+            .setOngoing(true)
+            .setSilent(true)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .build()
+        
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.notify(NOTIFICATION_ID, notification)
+        
+        Log.d("WebSocketService", "Connection status updated: $notificationText")
     }
 }

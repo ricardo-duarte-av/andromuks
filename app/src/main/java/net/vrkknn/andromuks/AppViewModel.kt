@@ -1644,6 +1644,13 @@ class AppViewModel : ViewModel() {
         // Update last sync timestamp for notification display
         lastSyncTimestamp = System.currentTimeMillis()
         
+        // Update notification with new sync timestamp
+        WebSocketService.updateConnectionStatus(
+            isConnected = true,
+            lagMs = null, // Keep existing lag if available
+            lastSyncTimestamp = lastSyncTimestamp
+        )
+        
         // First, populate member cache from sync data and check for changes
         val oldMemberStateHash = generateMemberStateHash()
         populateMemberCacheFromSync(syncJson)
@@ -2351,6 +2358,13 @@ class AppViewModel : ViewModel() {
         this.webSocket = webSocket
         startPingLoop()
         
+        // Update notification with connection status
+        WebSocketService.updateConnectionStatus(
+            isConnected = true,
+            lagMs = null, // No pong yet
+            lastSyncTimestamp = if (lastSyncTimestamp > 0) lastSyncTimestamp else null
+        )
+        
         // Broadcast that socket connection is available and retry pending operations
         android.util.Log.i("Andromuks", "AppViewModel: WebSocket connection established - retrying ${pendingWebSocketOperations.size} pending operations")
         
@@ -2425,6 +2439,9 @@ class AppViewModel : ViewModel() {
         pingJob = null
         pongTimeoutJob?.cancel()
         pongTimeoutJob = null
+        
+        // Update notification to show disconnection
+        WebSocketService.updateConnectionStatus(isConnected = false)
     }
     
     /**
@@ -2523,9 +2540,11 @@ class AppViewModel : ViewModel() {
                 updateNetworkMetrics(lagMs)
                 
                 // Update service notification with lag and last sync time
-                if (lastSyncTimestamp > 0) {
-                    WebSocketService.updateNotification(lagMs, lastSyncTimestamp)
-                }
+                WebSocketService.updateConnectionStatus(
+                    isConnected = true,
+                    lagMs = lagMs,
+                    lastSyncTimestamp = if (lastSyncTimestamp > 0) lastSyncTimestamp else null
+                )
                 
                 // Trigger timestamp update on pong
                 triggerTimestampUpdate()
