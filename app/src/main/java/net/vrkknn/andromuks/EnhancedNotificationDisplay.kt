@@ -16,7 +16,6 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationCompat.MessagingStyle
-import androidx.core.app.NotificationCompat.BubbleMetadata
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
 import androidx.core.app.RemoteInput
@@ -437,53 +436,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Use conversation channel for all notifications
             val channelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
             
-            // Create bubble metadata for chat bubbles (Android 11+)
-            val bubbleMetadata = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val bubbleIntent = createBubbleIntent(notificationData)
-                
-                // Grant persistent URI permission for the bubble icon if it's a content URI
-                // (Skip for bitmap-based icons which is what we use now)
-                if (roomAvatarIcon is IconCompat) {
-                    try {
-                        // Check if this is a URI-based icon (not bitmap)
-                        // IconCompat.getUri() throws if icon type is BITMAP/BITMAP_MASKABLE
-                        val iconType = roomAvatarIcon.type
-                        if (iconType == androidx.core.graphics.drawable.IconCompat.TYPE_URI ||
-                            iconType == androidx.core.graphics.drawable.IconCompat.TYPE_URI_ADAPTIVE_BITMAP) {
-                            val uri = roomAvatarIcon.uri
-                            if (uri != null && uri.scheme == "content") {
-                                Log.d(TAG, "Granting persistent URI read permission for bubble icon: $uri")
-                                // Grant persistent permission so URI stays valid
-                                context.grantUriPermission(
-                                    context.packageName,
-                                    uri,
-                                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-                                )
-                                // Take persistable permission
-                                context.contentResolver.takePersistableUriPermission(
-                                    uri,
-                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                )
-                                Log.d(TAG, "Persistent URI permission granted and taken")
-                            }
-                        } else {
-                            Log.d(TAG, "Bubble icon is bitmap-based (not ContentUri), no URI permissions needed")
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Could not grant persistent URI permission for bubble icon", e)
-                    }
-                }
-                
-                BubbleMetadata.Builder(
-                    bubbleIntent,
-                    roomAvatarIcon
-                ).apply {
-                    setAutoExpandBubble(true) // Auto-expand the bubble
-                    setSuppressNotification(false) // Don't suppress the notification when bubble is active
-                    // Set desired height for the bubble (optional)
-                    setDesiredHeight(600) // 600dp height for the bubble
-                }.build()
-            } else null
+            // Chat bubbles disabled - no bubble metadata created
+            val bubbleMetadata = null
             
             // Determine large icon based on room type
             // For DMs: use sender's avatar (the conversation-level avatar)
@@ -524,10 +478,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         addExtras(android.os.Bundle().apply {
                             putString("event_id", notificationData.eventId)
                         })
-                    }
-                    // Add bubble metadata for chat bubbles (Android 11+)
-                    if (bubbleMetadata != null) {
-                        setBubbleMetadata(bubbleMetadata)
                     }
                     // Add reply action
                     addAction(createReplyAction(notificationData))
@@ -586,37 +536,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         )
     }
     
-    /**
-     * Create bubble intent for ChatBubbleScreen
-     */
-    private fun createBubbleIntent(notificationData: NotificationData): PendingIntent {
-        val intent = Intent(context, ChatBubbleActivity::class.java).apply {
-            action = Intent.ACTION_VIEW
-            // OPTIMIZATION #2: Store room ID directly for bubble intents too
-            putExtra("room_id", notificationData.roomId)
-            putExtra("event_id", notificationData.eventId)
-            putExtra("direct_navigation", true) // Flag for optimized processing
-            putExtra("from_notification", true) // Flag to identify notification source
-            putExtra("bubble_mode", true) // Flag for bubble UI
-            // Keep URI for compatibility
-            data = android.net.Uri.parse("matrix://bubble/${notificationData.roomId.substring(1)}")
-            flags = Intent.FLAG_ACTIVITY_NEW_DOCUMENT or
-                    Intent.FLAG_ACTIVITY_MULTIPLE_TASK or
-                    Intent.FLAG_ACTIVITY_RETAIN_IN_RECENTS or
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION // Grant permission to read content URIs
-        }
-        
-        return PendingIntent.getActivity(
-            context,
-            notificationData.roomId.hashCode() + 1000, // Different request code for bubble
-            intent,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-        )
-    }
     
     /**
      * Create reply action
