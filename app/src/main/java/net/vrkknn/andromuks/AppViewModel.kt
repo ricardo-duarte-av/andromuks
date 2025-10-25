@@ -3390,28 +3390,48 @@ class AppViewModel : ViewModel() {
                 roomMemberCache[roomId] = mutableMapOf()
             }
             
-            // Populate edit chain mapping from cached events
-            for (event in cachedEvents) {
-                val isEditEvent = when {
-                    event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                    event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                    else -> false
+            // OPTIMIZED: Populate edit chain mapping from cached events in background if large
+            if (cachedEvents.size > 100) {
+                // Use background thread for large event processing
+                viewModelScope.launch(Dispatchers.Default) {
+                    for (event in cachedEvents) {
+                        val isEditEvent = isEditEvent(event)
+                        
+                        if (isEditEvent) {
+                            editEventsMap[event.eventId] = event
+                        } else {
+                            eventChainMap[event.eventId] = EventChainEntry(
+                                eventId = event.eventId,
+                                ourBubble = event,
+                                replacedBy = null,
+                                originalTimestamp = event.timestamp
+                            )
+                        }
+                    }
+                    
+                    // Process edit relationships on background thread
+                    processEditRelationships()
+                }
+            } else {
+                // Synchronous processing for small batches
+                for (event in cachedEvents) {
+                    val isEditEvent = isEditEvent(event)
+                    
+                    if (isEditEvent) {
+                        editEventsMap[event.eventId] = event
+                    } else {
+                        eventChainMap[event.eventId] = EventChainEntry(
+                            eventId = event.eventId,
+                            ourBubble = event,
+                            replacedBy = null,
+                            originalTimestamp = event.timestamp
+                        )
+                    }
                 }
                 
-                if (isEditEvent) {
-                    editEventsMap[event.eventId] = event
-                } else {
-                    eventChainMap[event.eventId] = EventChainEntry(
-                        eventId = event.eventId,
-                        ourBubble = event,
-                        replacedBy = null,
-                        originalTimestamp = event.timestamp
-                    )
-                }
+                // Process edit relationships
+                processEditRelationships()
             }
-            
-            // Process edit relationships
-            processEditRelationships()
             
             // Build timeline from chain (this updates timelineEvents)
             buildTimelineFromChain()
@@ -3500,28 +3520,48 @@ class AppViewModel : ViewModel() {
                     roomMemberCache[roomId] = mutableMapOf()
                 }
                 
-                // Populate edit chain mapping from cached events
-                for (event in partialCachedEvents) {
-                    val isEditEvent = when {
-                        event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                        else -> false
+                // OPTIMIZED: Populate edit chain mapping from cached events in background if large
+                if (partialCachedEvents.size > 100) {
+                    // Use background thread for large event processing
+                    viewModelScope.launch(Dispatchers.Default) {
+                        for (event in partialCachedEvents) {
+                            val isEditEvent = isEditEvent(event)
+                            
+                            if (isEditEvent) {
+                                editEventsMap[event.eventId] = event
+                            } else {
+                                eventChainMap[event.eventId] = EventChainEntry(
+                                    eventId = event.eventId,
+                                    ourBubble = event,
+                                    replacedBy = null,
+                                    originalTimestamp = event.timestamp
+                                )
+                            }
+                        }
+                        
+                        // Process edit relationships on background thread
+                        processEditRelationships()
+                    }
+                } else {
+                    // Synchronous processing for small batches
+                    for (event in partialCachedEvents) {
+                        val isEditEvent = isEditEvent(event)
+                        
+                        if (isEditEvent) {
+                            editEventsMap[event.eventId] = event
+                        } else {
+                            eventChainMap[event.eventId] = EventChainEntry(
+                                eventId = event.eventId,
+                                ourBubble = event,
+                                replacedBy = null,
+                                originalTimestamp = event.timestamp
+                            )
+                        }
                     }
                     
-                    if (isEditEvent) {
-                        editEventsMap[event.eventId] = event
-                    } else {
-                        eventChainMap[event.eventId] = EventChainEntry(
-                            eventId = event.eventId,
-                            ourBubble = event,
-                            replacedBy = null,
-                            originalTimestamp = event.timestamp
-                        )
-                    }
+                    // Process edit relationships
+                    processEditRelationships()
                 }
-                
-                // Process edit relationships
-                processEditRelationships()
                 
                 // Build timeline from chain (this updates timelineEvents)
                 buildTimelineFromChain()
@@ -6911,9 +6951,27 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: mergePaginationEvents called with ${newEvents.size} new events")
         android.util.Log.d("Andromuks", "AppViewModel: Current timeline has ${timelineEvents.size} events")
         
-        // Separate redactions from regular events
-        val redactionEvents = newEvents.filter { it.type == "m.room.redaction" }
-        val regularEvents = newEvents.filter { it.type != "m.room.redaction" }
+        // OPTIMIZED: Early exit if no new events
+        if (newEvents.isEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: No new events to merge")
+            return
+        }
+        
+        // OPTIMIZED: Use HashMap for fast lookup instead of filtering
+        val redactionMap = mutableMapOf<String, TimelineEvent>()
+        val regularEvents = mutableListOf<TimelineEvent>()
+        
+        // Single pass to separate redactions from regular events
+        for (event in newEvents) {
+            if (event.type == "m.room.redaction") {
+                val redactsEventId = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                if (redactsEventId != null) {
+                    redactionMap[redactsEventId] = event
+                }
+            } else {
+                regularEvents.add(event)
+            }
+        }
         
         // Merge regular events, preserving existing entries when duplicates are encountered
         val combinedMap = LinkedHashMap<String, TimelineEvent>(timelineEvents.size + regularEvents.size)
@@ -6925,50 +6983,81 @@ class AppViewModel : ViewModel() {
                 combinedMap[event.eventId] = event
             }
         }
-        android.util.Log.d("Andromuks", "AppViewModel: Combined timeline has ${combinedMap.size} unique events before redaction processing (${redactionEvents.size} redactions)")
+        android.util.Log.d("Andromuks", "AppViewModel: Combined timeline has ${combinedMap.size} unique events before redaction processing (${redactionMap.size} redactions)")
         
-        // Process redactions from paginated events
-        for (redactionEvent in redactionEvents) {
-            val redactsEventId = redactionEvent.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+        // OPTIMIZED: Process redactions using HashMap lookup (O(1) instead of O(n))
+        for ((targetEventId, redactionEvent) in redactionMap) {
+            android.util.Log.d("Andromuks", "AppViewModel: Pagination redaction ${redactionEvent.eventId} targets $targetEventId")
             
-            if (redactsEventId != null) {
-                android.util.Log.d("Andromuks", "AppViewModel: Pagination redaction ${redactionEvent.eventId} targets $redactsEventId")
+            val targetEvent = combinedMap[targetEventId]
+            if (targetEvent != null) {
+                combinedMap[targetEventId] = targetEvent.copy(redactedBy = redactionEvent.eventId)
+                android.util.Log.d("Andromuks", "AppViewModel: Marked paginated event $targetEventId as redacted by ${redactionEvent.eventId}")
+            } else {
+                android.util.Log.w("Andromuks", "AppViewModel: Could not find target event $targetEventId for pagination redaction")
+            }
+        }
+        
+        // OPTIMIZED: Use background thread for large merges
+        if (combinedMap.size > 200) {
+            // Process large merges on background thread
+            viewModelScope.launch(Dispatchers.Default) {
+                val sortedEvents = combinedMap.values.sortedWith { a, b ->
+                    when {
+                        a.timelineRowid > 0 && b.timelineRowid > 0 -> a.timelineRowid.compareTo(b.timelineRowid)
+                        a.timelineRowid > 0 -> -1
+                        b.timelineRowid > 0 -> 1
+                        else -> {
+                            val tsCompare = a.timestamp.compareTo(b.timestamp)
+                            if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                        }
+                    }
+                }
                 
-                val targetEvent = combinedMap[redactsEventId]
-                if (targetEvent != null) {
-                    combinedMap[redactsEventId] = targetEvent.copy(redactedBy = redactionEvent.eventId)
-                    android.util.Log.d("Andromuks", "AppViewModel: Marked paginated event $redactsEventId as redacted by ${redactionEvent.eventId}")
+                // MEMORY MANAGEMENT: Limit timeline events to prevent memory pressure
+                val limitedTimelineEvents = if (sortedEvents.size > MAX_TIMELINE_EVENTS_PER_ROOM) {
+                    // Keep the most recent events
+                    sortedEvents.sortedByDescending { it.timestamp }.take(MAX_TIMELINE_EVENTS_PER_ROOM).sortedBy { it.timestamp }
                 } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: Could not find target event $redactsEventId for pagination redaction")
+                    sortedEvents
+                }
+                
+                // Switch back to main thread for UI update
+                withContext(Dispatchers.Main) {
+                    this@AppViewModel.timelineEvents = limitedTimelineEvents
+                    timelineUpdateCounter++
+                    updateCounter++ // Keep for backward compatibility temporarily
+                    android.util.Log.d("Andromuks", "AppViewModel: Timeline sorted and updated, timelineUpdateCounter incremented to $timelineUpdateCounter")
                 }
             }
-        }
-        
-        val sortedEvents = combinedMap.values.sortedWith { a, b ->
-            when {
-                a.timelineRowid > 0 && b.timelineRowid > 0 -> a.timelineRowid.compareTo(b.timelineRowid)
-                a.timelineRowid > 0 -> -1
-                b.timelineRowid > 0 -> 1
-                else -> {
-                    val tsCompare = a.timestamp.compareTo(b.timestamp)
-                    if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
-                }
-            }
-        }
-        
-        // MEMORY MANAGEMENT: Limit timeline events to prevent memory pressure
-        val limitedTimelineEvents = if (sortedEvents.size > MAX_TIMELINE_EVENTS_PER_ROOM) {
-            // Keep the most recent events
-            sortedEvents.sortedByDescending { it.timestamp }.take(MAX_TIMELINE_EVENTS_PER_ROOM).sortedBy { it.timestamp }
         } else {
-            sortedEvents
+            // Synchronous processing for small merges
+            val sortedEvents = combinedMap.values.sortedWith { a, b ->
+                when {
+                    a.timelineRowid > 0 && b.timelineRowid > 0 -> a.timelineRowid.compareTo(b.timelineRowid)
+                    a.timelineRowid > 0 -> -1
+                    b.timelineRowid > 0 -> 1
+                    else -> {
+                        val tsCompare = a.timestamp.compareTo(b.timestamp)
+                        if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                    }
+                }
+            }
+            
+            // MEMORY MANAGEMENT: Limit timeline events to prevent memory pressure
+            val limitedTimelineEvents = if (sortedEvents.size > MAX_TIMELINE_EVENTS_PER_ROOM) {
+                // Keep the most recent events
+                sortedEvents.sortedByDescending { it.timestamp }.take(MAX_TIMELINE_EVENTS_PER_ROOM).sortedBy { it.timestamp }
+            } else {
+                sortedEvents
+            }
+            
+            this.timelineEvents = limitedTimelineEvents
+            timelineUpdateCounter++
+            updateCounter++ // Keep for backward compatibility temporarily
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Timeline sorted and updated, timelineUpdateCounter incremented to $timelineUpdateCounter")
         }
-        
-        this.timelineEvents = limitedTimelineEvents
-        timelineUpdateCounter++
-        updateCounter++ // Keep for backward compatibility temporarily
-        
-        android.util.Log.d("Andromuks", "AppViewModel: Timeline sorted and updated, timelineUpdateCounter incremented to $timelineUpdateCounter")
         
         // Update smallest rowId for next pagination
         val newSmallest = newEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
