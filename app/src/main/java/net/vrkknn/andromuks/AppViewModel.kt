@@ -5279,6 +5279,8 @@ class AppViewModel : ViewModel() {
     
     fun handleTimelineResponse(requestId: Int, data: Any) {
         android.util.Log.d("Andromuks", "AppViewModel: handleTimelineResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
+        
+        // Determine request type and get room ID
         val roomId = timelineRequests[requestId] ?: paginateRequests[requestId] ?: backgroundPrefetchRequests[requestId]
         if (roomId == null) {
             android.util.Log.w("Andromuks", "AppViewModel: Received response for unknown request ID: $requestId")
@@ -5291,6 +5293,7 @@ class AppViewModel : ViewModel() {
 
         var totalReactionsProcessed = 0
         
+        // Process events array - main event processing logic
         fun processEventsArray(eventsArray: JSONArray): Int {
             android.util.Log.d("Andromuks", "AppViewModel: processEventsArray called with ${eventsArray.length()} events from server")
             val timelineList = mutableListOf<TimelineEvent>()
@@ -5316,63 +5319,14 @@ class AppViewModel : ViewModel() {
                         android.util.Log.d("Andromuks", "AppViewModel: [PAGINATE] ★ Found OUR message in paginate response: ${event.eventId} body='$bodyPreview' timelineRowid=${event.timelineRowid}")
                     }
                     
+                    // Process member events using helper function
                     if (event.type == "m.room.member" && event.timelineRowid == -1L) {
-                        // State member event; update cache only
-                        val userId = event.stateKey ?: event.sender
-                        val displayName = event.content?.optString("displayname")?.takeIf { it.isNotBlank() }
-                        val avatarUrl = event.content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
-                        val membership = event.content?.optString("membership")
-                        val prevContent = event.unsigned?.optJSONObject("prev_content")
-                        val prevMembership = prevContent?.optString("membership")
-                        
-                        val profile = MemberProfile(displayName, avatarUrl)
-                        val previousProfile = memberMap[userId]
-                        
-                        // Check if this is a profile change (join -> join with different profile data)
-                        val isProfileChange = prevMembership == "join" && membership == "join" && 
-                            (previousProfile?.displayName != displayName || previousProfile?.avatarUrl != avatarUrl)
-                        
-                        memberMap[userId] = profile
-                        // PERFORMANCE: Also add to global cache for O(1) lookups
-                        globalProfileCache[userId] = WeakReference(profile)
-                        
-                        if (isProfileChange) {
-                            android.util.Log.d("Andromuks", "AppViewModel: Profile change detected in timeline for $userId - displayName: '$displayName', avatarUrl: '$avatarUrl'")
-                            // Trigger UI update for profile changes
-                            memberUpdateCounter++
-                        }
+                        processMemberEvent(event, memberMap)
                     } else {
-                        // Process reaction events from paginate
+                        // Process reaction events using helper function
                         if (event.type == "m.reaction") {
-                            android.util.Log.d("Andromuks", "AppViewModel: Found reaction event in handleTimelineResponse: ${event.eventId}, isPaginate: $isPaginateRequest, isBackgroundPrefetch: $isBackgroundPrefetchRequest")
-                            val content = event.content
-                            if (content != null) {
-                                val relatesTo = content.optJSONObject("m.relates_to")
-                                if (relatesTo != null) {
-                                    val relatesToEventId = relatesTo.optString("event_id")
-                                    val emoji = relatesTo.optString("key")
-                                    val relType = relatesTo.optString("rel_type")
-                                    
-                                    if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
-                                        // Check if this historical reaction has been redacted
-                                        if (event.redactedBy == null) {
-                                            // Only process non-redacted reactions
-                                            val reactionEvent = ReactionEvent(
-                                                eventId = event.eventId,
-                                                sender = event.sender,
-                                                emoji = emoji,
-                                                relatesToEventId = relatesToEventId,
-                                                timestamp = event.timestamp
-                                            )
-                                            android.util.Log.d("Andromuks", "AppViewModel: About to process historical reaction: $emoji from ${event.sender} to $relatesToEventId, currentRoomId: $currentRoomId")
-                                            processReactionEvent(reactionEvent, isHistorical = true)
-                                            reactionProcessedCount++
-                                            android.util.Log.d("Andromuks", "AppViewModel: Processed historical reaction: $emoji from ${event.sender} to $relatesToEventId")
-                                        } else {
-                                            android.util.Log.d("Andromuks", "AppViewModel: Skipping redacted historical reaction: $emoji from ${event.sender} to $relatesToEventId")
-                                        }
-                                    }
-                                }
+                            if (processReactionFromTimeline(event)) {
+                                reactionProcessedCount++
                             }
                         } else if (event.timelineRowid >= 0L) {
                             // Only render non-reaction timeline entries
@@ -5420,12 +5374,7 @@ class AppViewModel : ViewModel() {
             if (timelineList.isNotEmpty()) {
                 // Handle background prefetch requests first - before any UI processing
                 if (backgroundPrefetchRequests.containsKey(requestId)) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Processing background prefetch request, silently adding ${timelineList.size} events to cache (requestId: $requestId, roomId: $roomId, currentRoomId: $currentRoomId)")
-                    RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)
-                    val newCacheCount = RoomTimelineCache.getCachedEventCount(roomId)
-                    android.util.Log.d("Andromuks", "AppViewModel: ✅ Background prefetch completed - cache now has $newCacheCount events for room $roomId")
-                    smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
-                    return reactionProcessedCount
+                    return handleBackgroundPrefetch(roomId, timelineList)
                 }
 
                 // Store smallest rowId for pagination (only for initial paginate, not pagination requests)
@@ -5442,67 +5391,21 @@ class AppViewModel : ViewModel() {
                     android.util.Log.d("Andromuks", "AppViewModel: This is a pagination request, not storing rowId")
                 }
                 
-                // Populate edit chain mapping for clean edit handling
-                eventChainMap.clear()
-                editEventsMap.clear()
-                for (event in timelineList) {
-                    // Check if this is an edit event
-                    val isEditEvent = when {
-                        event.type == "m.room.message" -> event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                        event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-                        else -> false
-                    }
-                    
-                    if (isEditEvent) {
-                        // Store edit event separately
-                        editEventsMap[event.eventId] = event
-                        android.util.Log.d("Andromuks", "AppViewModel: Added edit event ${event.eventId} to edit events map")
-                    } else {
-                        // Regular events have their own bubble
-                        eventChainMap[event.eventId] = EventChainEntry(
-                            eventId = event.eventId,
-                            ourBubble = event,
-                            replacedBy = null,
-                            originalTimestamp = event.timestamp
-                        )
-                        android.util.Log.d("Andromuks", "AppViewModel: Added regular event ${event.eventId} to chain mapping")
-                    }
-                }
+                // Populate edit chain mapping for clean edit handling using helper function
+                buildEditChainsFromEvents(timelineList)
                 
                 // Process edit relationships
                 processEditRelationships()
                 
                 if (paginateRequests.containsKey(requestId)) {
                     // This is a pagination request - merge with existing timeline
-                    android.util.Log.d("Andromuks", "AppViewModel: ========================================")
-                    android.util.Log.d("Andromuks", "AppViewModel: PAGINATION RESPONSE RECEIVED (requestId: $requestId)")
-                    android.util.Log.d("Andromuks", "AppViewModel: Received ${timelineList.size} events from backend")
-                    android.util.Log.d("Andromuks", "AppViewModel: Timeline events BEFORE merge: ${timelineEvents.size}")
-                    android.util.Log.d("Andromuks", "AppViewModel: Cache BEFORE merge: ${RoomTimelineCache.getCachedEventCount(roomId)} events")
-                    
-                    RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)
-                    mergePaginationEvents(timelineList)
+                    handlePaginationMerge(roomId, timelineList, requestId)
                     paginateRequests.remove(requestId)
                     isPaginating = false
-                    
-                    android.util.Log.d("Andromuks", "AppViewModel: Timeline events AFTER merge: ${timelineEvents.size}")
-                    android.util.Log.d("Andromuks", "AppViewModel: Cache AFTER merge: ${RoomTimelineCache.getCachedEventCount(roomId)} events")
-                    
-                    val newSmallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
-                    android.util.Log.d("Andromuks", "AppViewModel: smallestRowId BEFORE: $smallestRowId")
-                    android.util.Log.d("Andromuks", "AppViewModel: smallestRowId AFTER: $newSmallestRowId")
-                    smallestRowId = newSmallestRowId
-                    
                     android.util.Log.d("Andromuks", "AppViewModel: isPaginating set to FALSE")
-                    android.util.Log.d("Andromuks", "AppViewModel: ========================================")
                 } else {
                     // This is an initial paginate - build timeline from chain mapping
-                    buildTimelineFromChain()
-                    isTimelineLoading = false
-                    android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
-                    android.util.Log.d("Andromuks", "AppViewModel: Seeding cache with ${timelineList.size} paginated events for room $roomId")
-                    RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineList)
-                    smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
+                    handleInitialTimelineBuild(roomId, timelineList)
                 }
                 
                 // Mark room as read when timeline is successfully loaded - use most recent event by timestamp
@@ -8318,5 +8221,229 @@ class AppViewModel : ViewModel() {
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Error during periodic memory cleanup", e)
         }
+    }
+    
+    // =============================================================================
+    // HELPER FUNCTIONS FOR TIMELINE RESPONSE REFACTORING
+    // =============================================================================
+    
+    /**
+     * Data class to hold parsed timeline response data
+     */
+    private data class TimelineResponseData(
+        val events: JSONArray?,
+        val hasMore: Boolean = true,
+        val receipts: JSONObject? = null,
+        val fromServer: Boolean = false
+    ) {
+        companion object {
+            fun empty() = TimelineResponseData(events = JSONArray())
+        }
+    }
+    
+    /**
+     * Parse timeline response data into structured format
+     */
+    private fun parseTimelineResponseData(
+        data: Any,
+        requestId: Int,
+        isPaginate: Boolean
+    ): TimelineResponseData {
+        return when (data) {
+            is JSONArray -> TimelineResponseData(events = data)
+            is JSONObject -> {
+                val eventsArray = data.optJSONArray("events")
+                val hasMore = if (isPaginate && paginateRequests.containsKey(requestId)) {
+                    data.optBoolean("has_more", true)
+                } else {
+                    true
+                }
+                val receipts = data.optJSONObject("receipts")
+                val fromServer = data.optBoolean("from_server", false)
+                
+                TimelineResponseData(
+                    events = eventsArray,
+                    hasMore = hasMore,
+                    receipts = receipts,
+                    fromServer = fromServer
+                )
+            }
+            else -> TimelineResponseData.empty()
+        }
+    }
+    
+    /**
+     * Extract profile information from member event
+     */
+    private fun extractProfileFromMemberEvent(event: TimelineEvent): MemberProfile {
+        val displayName = event.content?.optString("displayname")?.takeIf { it.isNotBlank() }
+        val avatarUrl = event.content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
+        return MemberProfile(displayName, avatarUrl)
+    }
+    
+    /**
+     * Check if profile has changed
+     */
+    private fun isProfileChange(
+        previousProfile: MemberProfile?,
+        newProfile: MemberProfile,
+        event: TimelineEvent
+    ): Boolean {
+        val membership = event.content?.optString("membership")
+        val prevContent = event.unsigned?.optJSONObject("prev_content")
+        val prevMembership = prevContent?.optString("membership")
+        
+        return prevMembership == "join" && membership == "join" &&
+            (previousProfile?.displayName != newProfile.displayName ||
+             previousProfile?.avatarUrl != newProfile.avatarUrl)
+    }
+    
+    /**
+     * Extract reaction event from timeline event
+     */
+    private fun extractReactionEvent(event: TimelineEvent): ReactionEvent? {
+        val content = event.content ?: return null
+        val relatesTo = content.optJSONObject("m.relates_to") ?: return null
+        
+        val relatesToEventId = relatesTo.optString("event_id")
+        val emoji = relatesTo.optString("key")
+        val relType = relatesTo.optString("rel_type")
+        
+        return if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
+            ReactionEvent(
+                eventId = event.eventId,
+                sender = event.sender,
+                emoji = emoji,
+                relatesToEventId = relatesToEventId,
+                timestamp = event.timestamp
+            )
+        } else {
+            null
+        }
+    }
+    
+
+    
+    /**
+     * Process member event - update cache
+     */
+    private fun processMemberEvent(
+        event: TimelineEvent,
+        memberMap: MutableMap<String, MemberProfile>
+    ): Boolean {
+        if (event.type != "m.room.member" || event.timelineRowid != -1L) return false
+        
+        val userId = event.stateKey ?: event.sender
+        val profile = extractProfileFromMemberEvent(event)
+        val previousProfile = memberMap[userId]
+        
+        memberMap[userId] = profile
+        globalProfileCache[userId] = WeakReference(profile)
+        
+        return if (isProfileChange(previousProfile, profile, event)) {
+            memberUpdateCounter++
+            android.util.Log.d("Andromuks", "AppViewModel: Profile change detected in timeline for $userId")
+            true
+        } else {
+            false
+        }
+    }
+    
+    /**
+     * Process reaction event from timeline
+     */
+    private fun processReactionFromTimeline(event: TimelineEvent): Boolean {
+        if (event.type != "m.reaction") return false
+        
+        val reaction = extractReactionEvent(event) ?: return false
+        
+        return if (event.redactedBy == null) {
+            processReactionEvent(reaction, isHistorical = true)
+            true
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping redacted historical reaction: ${reaction.emoji} from ${reaction.sender} to ${reaction.relatesToEventId}")
+            false
+        }
+    }
+    
+    /**
+     * Build edit chains from events
+     */
+    private fun buildEditChainsFromEvents(timelineList: List<TimelineEvent>) {
+        eventChainMap.clear()
+        editEventsMap.clear()
+        
+        for (event in timelineList) {
+            if (isEditEvent(event)) {
+                editEventsMap[event.eventId] = event
+                android.util.Log.d("Andromuks", "AppViewModel: Added edit event ${event.eventId} to edit events map")
+            } else {
+                eventChainMap[event.eventId] = EventChainEntry(
+                    eventId = event.eventId,
+                    ourBubble = event,
+                    replacedBy = null,
+                    originalTimestamp = event.timestamp
+                )
+                android.util.Log.d("Andromuks", "AppViewModel: Added regular event ${event.eventId} to chain mapping")
+            }
+        }
+    }
+    
+    /**
+     * Handle background prefetch request
+     */
+    private fun handleBackgroundPrefetch(
+        roomId: String,
+        timelineList: List<TimelineEvent>
+    ): Int {
+        android.util.Log.d("Andromuks", "AppViewModel: Processing background prefetch request, silently adding ${timelineList.size} events to cache (roomId: $roomId)")
+        RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)
+        val newCacheCount = RoomTimelineCache.getCachedEventCount(roomId)
+        android.util.Log.d("Andromuks", "AppViewModel: ✅ Background prefetch completed - cache now has $newCacheCount events for room $roomId")
+        smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
+        return 0 // No reactions processed
+    }
+    
+    /**
+     * Handle pagination merge
+     */
+    private fun handlePaginationMerge(
+        roomId: String,
+        timelineList: List<TimelineEvent>,
+        requestId: Int
+    ) {
+        android.util.Log.d("Andromuks", "AppViewModel: ========================================")
+        android.util.Log.d("Andromuks", "AppViewModel: PAGINATION RESPONSE RECEIVED (requestId: $requestId)")
+        android.util.Log.d("Andromuks", "AppViewModel: Received ${timelineList.size} events from backend")
+        android.util.Log.d("Andromuks", "AppViewModel: Timeline events BEFORE merge: ${timelineEvents.size}")
+        android.util.Log.d("Andromuks", "AppViewModel: Cache BEFORE merge: ${RoomTimelineCache.getCachedEventCount(roomId)} events")
+        
+        RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)
+        mergePaginationEvents(timelineList)
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Timeline events AFTER merge: ${timelineEvents.size}")
+        android.util.Log.d("Andromuks", "AppViewModel: Cache AFTER merge: ${RoomTimelineCache.getCachedEventCount(roomId)} events")
+        
+        val newSmallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
+        android.util.Log.d("Andromuks", "AppViewModel: smallestRowId BEFORE: $smallestRowId")
+        android.util.Log.d("Andromuks", "AppViewModel: smallestRowId AFTER: $newSmallestRowId")
+        smallestRowId = newSmallestRowId
+        
+        android.util.Log.d("Andromuks", "AppViewModel: ========================================")
+    }
+    
+    /**
+     * Handle initial timeline build
+     */
+    private fun handleInitialTimelineBuild(
+        roomId: String,
+        timelineList: List<TimelineEvent>
+    ) {
+        buildTimelineFromChain()
+        isTimelineLoading = false
+        android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
+        android.util.Log.d("Andromuks", "AppViewModel: Seeding cache with ${timelineList.size} paginated events for room $roomId")
+        RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineList)
+        smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
     }
 }
