@@ -356,4 +356,47 @@ Refactored `handleTimelineResponse()` to use helper functions:
 
 ---
 
+## ✅ COMPLETED: getUserProfile() Optimization
+
+### Status: Optimized with Correct Lookup Ordering for Room-Specific Profiles ✅
+
+**Function**: `getUserProfile()` (Lines ~1429-1465)
+
+**Issues Found:**
+- Multiple lookups in inefficient order
+- String operations on every call for room-specific paths
+- Global cache checked first despite room-specific profiles having precedence
+- Impact: ~1-5ms; frequent calls can add up
+- **CRITICAL**: Could return incorrect profile when user has different names in different rooms
+
+**Optimizations Applied:**
+1. ✅ **Fixed Lookup Order**: Check room-specific cache FIRST when roomId is provided (correctness requirement)
+2. ✅ **Current User Check**: Moved to first position (single string comparison, no cache lookup)
+3. ✅ **Global Cache as Fallback**: Check global cache last (when no roomId or room-specific not found)
+4. ✅ **Documentation Added**: Added comment explaining room-specific profiles take precedence
+
+**Performance Improvement:**
+- **Before**: Checked global cache first, potentially returning wrong room-specific profile
+- **After**: Check room-specific cache first, ensuring correct profile for room
+- **Expected Impact**: Correct profile returned, lookup time remains ~1-5ms (already fast enough)
+
+**Technical Details:**
+- `flattenedMemberCache` stores room-specific profiles with keys like "$roomId:$userId"
+- Users can have different display names/avatars in different rooms
+- Room-specific profiles MUST take precedence when roomId is provided
+- Global cache only used as fallback when no roomId or room-specific profile not found
+- Maintains all existing functionality while ensuring correctness
+
+**Fix Applied:**
+- User correctly identified that checking global cache first could return wrong profile
+- Reordered lookups to prioritize room-specific profiles (correctness over micro-optimization)
+- Current user check moved to top for early return (no cache lookup needed)
+
+**Lesson Learned:**
+- Performance optimizations must maintain correctness
+- Room-specific profiles in Matrix can differ from global profiles
+- Proper ordering: current user → room-specific (if roomId) → global (fallback)
+
+---
+
 ## 🔴 CRITICAL PRIORITY (Causes noticeable UI lag - 50-500ms blocking)

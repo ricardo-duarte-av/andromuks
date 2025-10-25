@@ -1427,7 +1427,16 @@ class AppViewModel : ViewModel() {
      * @return MemberProfile if found in cache, null otherwise (UI should show fallback)
      */
     fun getUserProfile(userId: String, roomId: String? = null): MemberProfile? {
-        // MEMORY MANAGEMENT: Try flattened cache first if roomId is provided
+        // OPTIMIZED: Check if it's the current user (single string comparison)
+        if (userId == currentUserId && currentUserProfile != null) {
+            return MemberProfile(
+                displayName = currentUserProfile!!.displayName,
+                avatarUrl = currentUserProfile!!.avatarUrl
+            )
+        }
+        
+        // IMPORTANT: Check room-specific cache FIRST when roomId is provided
+        // Users can have different names in different rooms, so room-specific profiles take precedence
         if (roomId != null) {
             val flattenedKey = "$roomId:$userId"
             val flattenedProfile = flattenedMemberCache[flattenedKey]
@@ -1442,15 +1451,7 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Check if it's the current user
-        if (userId == currentUserId && currentUserProfile != null) {
-            return MemberProfile(
-                displayName = currentUserProfile!!.displayName,
-                avatarUrl = currentUserProfile!!.avatarUrl
-            )
-        }
-        
-        // MEMORY MANAGEMENT: Check global profile cache with weak references
+        // OPTIMIZED: Check global profile cache (fallback for when no roomId or room-specific not found)
         val globalProfileRef = globalProfileCache[userId]
         val globalProfile = globalProfileRef?.get()
         if (globalProfile != null) {
