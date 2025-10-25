@@ -6342,17 +6342,33 @@ class AppViewModel : ViewModel() {
         }
         
         // Sort events by timestamp to process in order
-        events.sortBy { it.timestamp }
-        android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.size} events in timestamp order")
+        // OPTIMIZED: Only sort if we have events to process
+        if (events.isNotEmpty()) {
+            events.sortBy { it.timestamp }
+            android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.size} events in timestamp order")
+            
+            // Count event types for debugging (lightweight operation, can defer if needed)
+            val eventTypeCounts = events.groupBy { it.type }.mapValues { it.value.size }
+            val ownMessageCount = events.count { it.sender == currentUserId && (it.type == "m.room.message" || it.type == "m.room.encrypted") }
+            android.util.Log.d("Andromuks", "AppViewModel: Event breakdown: $eventTypeCounts (including $ownMessageCount from YOU)")
+        }
         
-        // Count event types for debugging
-        val eventTypeCounts = events.groupBy { it.type }.mapValues { it.value.size }
-        val ownMessageCount = events.count { it.sender == currentUserId && (it.type == "m.room.message" || it.type == "m.room.encrypted") }
-        android.util.Log.d("Andromuks", "AppViewModel: Event breakdown: $eventTypeCounts (including $ownMessageCount from YOU)")
+        // Skip processing if no events
+        if (events.isEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: No events to process")
+            return
+        }
         
         // OPTIMIZED: Process versioned messages (edits, redactions) - O(n)
+        // Defer to background thread if we have many events
         android.util.Log.d("Andromuks", "AppViewModel: Processing ${events.size} sync events for version tracking")
-        processVersionedMessages(events)
+        if (events.size > 20) {
+            viewModelScope.launch(Dispatchers.Default) {
+                processVersionedMessages(events)
+            }
+        } else {
+            processVersionedMessages(events)
+        }
         
         for (event in events) {
             android.util.Log.d("Andromuks", "AppViewModel: Processing event ${event.eventId} of type ${event.type} at timestamp ${event.timestamp}")
