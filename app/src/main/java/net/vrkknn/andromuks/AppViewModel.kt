@@ -182,6 +182,168 @@ class AppViewModel : ViewModel() {
     var recentEmojis by mutableStateOf(listOf<String>())
         private set
     
+    // Cache for DM room IDs from m.direct account data
+    private var directMessageRoomIds by mutableStateOf(setOf<String>())
+        private set
+    
+    // Bridge-related properties
+    var allBridges by mutableStateOf(listOf<BridgeItem>())
+        private set
+    var currentBridgeId by mutableStateOf<String?>(null)
+        private set
+    private var bridgeInfoCache by mutableStateOf(mapOf<String, BridgeInfo>())
+        private set
+    
+    // Room state storage for future use
+    private var roomStatesCache by mutableStateOf(mapOf<String, JSONArray>())
+        private set
+    
+    /**
+     * Check if a room is a direct message using m.direct account data
+     * This is a secondary method to detect DMs more reliably
+     */
+    fun isDirectMessageFromAccountData(roomId: String): Boolean {
+        return directMessageRoomIds.contains(roomId)
+    }
+    
+    /**
+     * Enter a bridge (similar to entering a space)
+     */
+    fun enterBridge(bridgeId: String) {
+        currentBridgeId = bridgeId
+        currentSpaceId = null // Clear space selection when entering bridge
+        roomListUpdateCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: Entered bridge: $bridgeId")
+    }
+    
+    /**
+     * Exit the current bridge
+     */
+    fun exitBridge() {
+        currentBridgeId = null
+        roomListUpdateCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: Exited bridge")
+    }
+    
+    /**
+     * Update bridge information for a room
+     */
+    fun updateBridgeInfo(roomId: String, bridgeInfo: BridgeInfo) {
+        bridgeInfoCache = bridgeInfoCache + (roomId to bridgeInfo)
+        android.util.Log.d("Andromuks", "AppViewModel: Updated bridge info for room $roomId: ${bridgeInfo.protocol.displayname}")
+    }
+    
+    /**
+     * Get bridge information for a room
+     */
+    fun getBridgeInfo(roomId: String): BridgeInfo? {
+        return bridgeInfoCache[roomId]
+    }
+    
+    /**
+     * Update all bridges (called when bridge data changes)
+     */
+    fun updateAllBridges(bridges: List<BridgeItem>) {
+        allBridges = bridges
+        roomListUpdateCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: Updated ${bridges.size} bridges")
+    }
+    
+    /**
+     * Create bridge pseudo-spaces from collected bridge information
+     * This groups rooms by their bridge protocol
+     */
+    fun createBridgePseudoSpaces() {
+        android.util.Log.d("Andromuks", "AppViewModel: Creating bridge pseudo-spaces for ${allRooms.size} rooms")
+        val bridgeGroups = mutableMapOf<String, MutableList<RoomItem>>()
+        
+        // Group rooms by bridge protocol
+        allRooms.forEach { room ->
+            val bridgeInfo = getBridgeInfo(room.id)
+            if (bridgeInfo != null) {
+                val protocolId = bridgeInfo.protocol.id
+                if (protocolId.isNotBlank()) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Adding room ${room.id} to bridge group: $protocolId")
+                    bridgeGroups.getOrPut(protocolId) { mutableListOf() }.add(room)
+                }
+            }
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Found ${bridgeGroups.size} bridge groups: ${bridgeGroups.keys}")
+        
+        // Create bridge items from groups
+        val bridges = bridgeGroups.map { (protocolId, rooms) ->
+            val firstRoom = rooms.first()
+            val bridgeInfo = getBridgeInfo(firstRoom.id)
+            val protocolName = bridgeInfo?.protocol?.displayname ?: protocolId
+            val protocolAvatar = bridgeInfo?.protocol?.avatarUrl
+            val externalUrl = bridgeInfo?.protocol?.externalUrl
+            
+            BridgeItem(
+                id = protocolId,
+                name = protocolName,
+                avatarUrl = protocolAvatar,
+                protocol = protocolId,
+                externalUrl = externalUrl,
+                rooms = rooms
+            )
+        }
+        
+        updateAllBridges(bridges)
+        android.util.Log.d("Andromuks", "AppViewModel: Created ${bridges.size} bridge pseudo-spaces")
+    }
+    
+    /**
+     * Request bridge state events for all rooms
+     * This will make websocket calls to fetch m.bridge state events
+     */
+    fun requestBridgeStateEvents() {
+        android.util.Log.d("Andromuks", "AppViewModel: Requesting room states for ${allRooms.size} rooms")
+        
+        // Request room state for each room individually
+        allRooms.forEach { room ->
+            android.util.Log.d("Andromuks", "AppViewModel: Requesting room state for room: ${room.id}")
+            requestRoomStateForBridgeDetection(room.id)
+        }
+    }
+    
+    /**
+     * Request room state for bridge detection and storage
+     */
+    fun requestRoomStateForBridgeDetection(roomId: String) {
+        val requestId = getAndIncrementRequestId()
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Requesting room state for bridge detection - room: $roomId (requestId: $requestId)")
+        
+        // Store the request for response handling
+        bridgeStateRequests[requestId] = roomId
+        android.util.Log.d("Andromuks", "AppViewModel: Stored bridge state request for room $roomId with requestId $requestId")
+        
+        // Use get_room_state to get all room state events
+        sendWebSocketCommand("get_room_state", requestId, mapOf(
+            "room_id" to roomId
+        ))
+    }
+    
+    /**
+     * Request bridge state for a specific room (kept for individual requests if needed)
+     */
+    private fun requestBridgeStateForRoom(roomId: String) {
+        val requestId = getAndIncrementRequestId()
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Requesting bridge state for room $roomId (requestId: $requestId)")
+        
+        // Store the request for response handling
+        bridgeStateRequests[requestId] = roomId
+        android.util.Log.d("Andromuks", "AppViewModel: Stored bridge state request for room $roomId with requestId $requestId")
+        android.util.Log.d("Andromuks", "AppViewModel: Current bridge state requests: ${bridgeStateRequests.keys}")
+        
+        // Use the same format as other WebSocket commands
+        sendWebSocketCommand("get_room_state", requestId, mapOf(
+            "room_id" to roomId
+        ))
+    }
+    
     // Force recomposition counter - DEPRECATED: Use specific counters below instead
     var updateCounter by mutableStateOf(0)
         private set
@@ -637,6 +799,36 @@ class AppViewModel : ViewModel() {
                     rooms = cachedFavouriteRooms,
                     unreadCount = unreadFavouriteCount
                 )
+            }
+            RoomSectionType.BRIDGES -> {
+                if (currentBridgeId != null) {
+                    // Show rooms for the selected bridge
+                    val bridge = allBridges.find { it.id == currentBridgeId }
+                    val bridgeRooms = bridge?.rooms ?: emptyList()
+                    val unreadBridgeCount = bridgeRooms.count { 
+                        (it.unreadCount != null && it.unreadCount > 0) || 
+                        (it.highlightCount != null && it.highlightCount > 0) 
+                    }
+                    RoomSection(
+                        type = RoomSectionType.BRIDGES,
+                        rooms = bridgeRooms,
+                        unreadCount = unreadBridgeCount
+                    )
+                } else {
+                    // Show all bridges
+                    val unreadBridgeCount = allBridges.sumOf { bridge ->
+                        bridge.rooms.count { 
+                            (it.unreadCount != null && it.unreadCount > 0) || 
+                            (it.highlightCount != null && it.highlightCount > 0) 
+                        }
+                    }
+                    RoomSection(
+                        type = RoomSectionType.BRIDGES,
+                        rooms = emptyList(),
+                        bridges = allBridges,
+                        unreadCount = unreadBridgeCount
+                    )
+                }
             }
         }
     }
@@ -1456,6 +1648,36 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded ${emojis.size} recent emojis from account_data")
             }
         }
+        
+        // Process m.direct account data for DM room detection
+        val mDirectData = accountData.optJSONObject("m.direct")
+        if (mDirectData != null) {
+            val content = mDirectData.optJSONObject("content")
+            if (content != null) {
+                val dmRoomIds = mutableSetOf<String>()
+                
+                // Extract all room IDs from m.direct content
+                val keys = content.names()
+                if (keys != null) {
+                    for (i in 0 until keys.length()) {
+                        val userId = keys.optString(i)
+                        val roomIdsArray = content.optJSONArray(userId)
+                        if (roomIdsArray != null) {
+                            for (j in 0 until roomIdsArray.length()) {
+                                val roomId = roomIdsArray.optString(j)
+                                if (roomId.isNotBlank()) {
+                                    dmRoomIds.add(roomId)
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                // Update the DM room IDs cache
+                directMessageRoomIds = dmRoomIds
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded ${dmRoomIds.size} DM room IDs from m.direct account data: ${dmRoomIds.take(5)}")
+            }
+        }
     }
 
     // SYNC OPTIMIZATION: Helper functions for diff-based and batched updates
@@ -1829,6 +2051,11 @@ class AppViewModel : ViewModel() {
         
         // Now that all rooms are loaded, populate space edges
         populateSpaceEdges()
+        
+        // Request room states for bridge detection and storage after init_complete
+        // This ensures all rooms are loaded before requesting room state information
+        android.util.Log.d("Andromuks", "AppViewModel: Init complete - requesting room states for ${allRooms.size} rooms")
+        net.vrkknn.andromuks.utils.SpaceRoomParser.requestRoomStatesForBridgeDetection(this)
         
         // Start the WebSocket foreground service now that we have all connection parameters
         android.util.Log.d("Andromuks", "AppViewModel: Starting WebSocket foreground service after init_complete")
@@ -2233,11 +2460,16 @@ class AppViewModel : ViewModel() {
     var requestIdCounter = 1
         private set
     
-    fun getAndIncrementRequestId(): Int = requestIdCounter++
+    fun getAndIncrementRequestId(): Int {
+        val id = requestIdCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: Generated request ID: $id (counter now: $requestIdCounter)")
+        return id
+    }
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
     private val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    private val bridgeStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     
     // PERFORMANCE: Track pending room state requests to prevent duplicate WebSocket commands
     private val pendingRoomStateRequests = mutableSetOf<String>() // roomId that have pending state requests
@@ -4380,6 +4612,10 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: roomSpecificStateRequests contains $requestId: ${roomSpecificStateRequests.containsKey(requestId)}")
         android.util.Log.d("AppViewModel", "AppViewModel: profileRequests contains $requestId: ${profileRequests.containsKey(requestId)}")
         android.util.Log.d("AppViewModel", "AppViewModel: timelineRequests contains $requestId: ${timelineRequests.containsKey(requestId)}")
+        android.util.Log.d("Andromuks", "AppViewModel: roomStateRequests contains $requestId: ${roomStateRequests.containsKey(requestId)}")
+        android.util.Log.d("Andromuks", "AppViewModel: bridgeStateRequests contains $requestId: ${bridgeStateRequests.containsKey(requestId)}")
+        android.util.Log.d("Andromuks", "AppViewModel: Current bridge state requests: ${bridgeStateRequests.keys}")
+        android.util.Log.d("Andromuks", "AppViewModel: Current room state requests: ${roomStateRequests.keys}")
         
         if (profileRequests.containsKey(requestId)) {
             handleProfileResponse(requestId, data)
@@ -4387,6 +4623,9 @@ class AppViewModel : ViewModel() {
             handleTimelineResponse(requestId, data)
         } else if (roomStateRequests.containsKey(requestId)) {
             handleRoomStateResponse(requestId, data)
+        } else if (bridgeStateRequests.containsKey(requestId)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Routing bridge state response for requestId: $requestId")
+            handleBridgeStateResponse(requestId, data)
         } else if (messageRequests.containsKey(requestId)) {
             handleMessageResponse(requestId, data)
         } else if (reactionRequests.containsKey(requestId)) {
@@ -5254,6 +5493,150 @@ class AppViewModel : ViewModel() {
             else -> {
                 android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleRoomStateResponse: ${data::class.java.simpleName}")
             }
+        }
+    }
+    
+    private fun handleBridgeStateResponse(requestId: Int, data: Any) {
+        val roomId = bridgeStateRequests.remove(requestId) ?: return
+        android.util.Log.d("Andromuks", "AppViewModel: Handling room state response for room: $roomId (requestId: $requestId)")
+        
+        when (data) {
+            is JSONArray -> {
+                android.util.Log.d("Andromuks", "AppViewModel: Received JSONArray with ${data.length()} events for room: $roomId")
+                // Store the complete room state for future use
+                storeRoomState(roomId, data)
+                // Extract and process m.bridge events
+                processRoomStateForBridges(roomId, data)
+            }
+            is JSONObject -> {
+                val events = data.optJSONArray("events")
+                if (events != null) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Received JSONObject with ${events.length()} events for room: $roomId")
+                    // Store the complete room state for future use
+                    storeRoomState(roomId, events)
+                    // Extract and process m.bridge events
+                    processRoomStateForBridges(roomId, events)
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: No events array in room state response for room: $roomId")
+                }
+            }
+            else -> {
+                android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleBridgeStateResponse: ${data::class.java.simpleName}")
+            }
+        }
+    }
+    
+    /**
+     * Store complete room state for future use
+     */
+    private fun storeRoomState(roomId: String, events: JSONArray) {
+        android.util.Log.d("Andromuks", "AppViewModel: Storing room state for room: $roomId with ${events.length()} events")
+        roomStatesCache = roomStatesCache + (roomId to events)
+        android.util.Log.d("Andromuks", "AppViewModel: Room state cache now contains ${roomStatesCache.size} rooms")
+    }
+    
+    /**
+     * Process room state events to extract m.bridge events for bridge detection
+     */
+    private fun processRoomStateForBridges(roomId: String, events: JSONArray) {
+        android.util.Log.d("Andromuks", "AppViewModel: Processing room state for bridges - room: $roomId with ${events.length()} events")
+        
+        // Filter for m.bridge events from all room state events
+        val bridgeEvents = JSONArray()
+        for (i in 0 until events.length()) {
+            val event = events.optJSONObject(i)
+            if (event != null && event.optString("type") == "m.bridge") {
+                bridgeEvents.put(event)
+            }
+        }
+        
+        if (bridgeEvents.length() > 0) {
+            android.util.Log.d("Andromuks", "AppViewModel: Found ${bridgeEvents.length()} m.bridge events for room: $roomId")
+            parseBridgeStateFromEvents(roomId, bridgeEvents)
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: No m.bridge events found for room: $roomId")
+        }
+    }
+    
+    /**
+     * Get stored room state for a specific room
+     */
+    fun getRoomState(roomId: String): JSONArray? {
+        return roomStatesCache[roomId]
+    }
+    
+    /**
+     * Get all stored room states
+     */
+    fun getAllRoomStates(): Map<String, JSONArray> {
+        return roomStatesCache
+    }
+    
+    private fun parseBridgeStateFromEvents(roomId: String, events: JSONArray) {
+        try {
+            android.util.Log.d("Andromuks", "AppViewModel: Parsing ${events.length()} events for room: $roomId")
+            for (i in 0 until events.length()) {
+                val event = events.optJSONObject(i)
+                if (event != null && event.optString("type") == "m.bridge") {
+                    android.util.Log.d("Andromuks", "AppViewModel: Found m.bridge event for room: $roomId")
+                    val content = event.optJSONObject("content")
+                    if (content != null) {
+                        val bridgeInfo = parseBridgeInfo(content)
+                        if (bridgeInfo != null) {
+                            updateBridgeInfo(roomId, bridgeInfo)
+                            android.util.Log.d("Andromuks", "AppViewModel: Parsed bridge info for room $roomId: ${bridgeInfo.protocol.displayname}")
+                            
+                            // Create bridge pseudo-spaces when we have bridge info
+                            createBridgePseudoSpaces()
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Error parsing bridge state for room $roomId", e)
+        }
+    }
+    
+    private fun parseBridgeInfo(content: JSONObject): BridgeInfo? {
+        return try {
+            android.util.Log.d("Andromuks", "AppViewModel: Parsing bridge info from content: ${content.toString()}")
+            val bridgebot = content.optString("bridgebot")
+            val creator = content.optString("creator")
+            
+            val channelObj = content.optJSONObject("channel")
+            val channel = if (channelObj != null) {
+                BridgeChannel(
+                    avatarUrl = channelObj.optString("avatar_url")?.takeIf { it.isNotBlank() },
+                    displayname = channelObj.optString("displayname") ?: "",
+                    id = channelObj.optString("id") ?: ""
+                )
+            } else {
+                BridgeChannel(null, "", "")
+            }
+            
+            val protocolObj = content.optJSONObject("protocol")
+            val protocol = if (protocolObj != null) {
+                BridgeProtocol(
+                    avatarUrl = protocolObj.optString("avatar_url")?.takeIf { it.isNotBlank() },
+                    displayname = protocolObj.optString("displayname") ?: "",
+                    externalUrl = protocolObj.optString("external_url")?.takeIf { it.isNotBlank() },
+                    id = protocolObj.optString("id") ?: ""
+                )
+            } else {
+                BridgeProtocol(null, "", null, "")
+            }
+            
+            val bridgeInfo = BridgeInfo(
+                bridgebot = bridgebot,
+                channel = channel,
+                creator = creator,
+                protocol = protocol
+            )
+            android.util.Log.d("Andromuks", "AppViewModel: Created BridgeInfo: bridgebot=$bridgebot, creator=$creator, protocol=${protocol.displayname} (${protocol.id})")
+            bridgeInfo
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Error parsing bridge info", e)
+            null
         }
     }
     

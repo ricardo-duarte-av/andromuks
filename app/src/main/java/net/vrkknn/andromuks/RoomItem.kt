@@ -40,7 +40,41 @@ data class RoomSection(
     val type: RoomSectionType,
     val rooms: List<RoomItem>,
     val spaces: List<SpaceItem> = emptyList(),
+    val bridges: List<BridgeItem> = emptyList(),
     val unreadCount: Int = 0
+)
+
+@Immutable
+data class BridgeItem(
+    val id: String,
+    val name: String,
+    val avatarUrl: String?,
+    val protocol: String,
+    val externalUrl: String?,
+    val rooms: List<RoomItem>
+)
+
+@Immutable
+data class BridgeInfo(
+    val bridgebot: String,
+    val channel: BridgeChannel,
+    val creator: String,
+    val protocol: BridgeProtocol
+)
+
+@Immutable
+data class BridgeChannel(
+    val avatarUrl: String?,
+    val displayname: String,
+    val id: String
+)
+
+@Immutable
+data class BridgeProtocol(
+    val avatarUrl: String?,
+    val displayname: String,
+    val externalUrl: String?,
+    val id: String
 )
 
 enum class RoomSectionType {
@@ -48,7 +82,8 @@ enum class RoomSectionType {
     SPACES,
     DIRECT_CHATS,
     UNREAD,
-    FAVOURITES
+    FAVOURITES,
+    BRIDGES
 }
 
 @Immutable

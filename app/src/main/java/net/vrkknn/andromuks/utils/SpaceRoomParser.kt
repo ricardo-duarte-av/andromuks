@@ -246,7 +246,7 @@ object SpaceRoomParser {
             val unreadHighlights = meta.optInt("unread_highlights", 0)
             
             // Detect if this is a Direct Message room
-            val isDirectMessage = detectDirectMessage(roomId, roomObj, meta)
+            val isDirectMessage = detectDirectMessage(roomId, roomObj, meta, appViewModel)
             
             // Extract last message preview and sender from events if available
             val events = roomObj.optJSONArray("events")
@@ -376,31 +376,37 @@ object SpaceRoomParser {
     }
     
     /**
-     * Detects if a room is a Direct Message (DM) based on the dm_user_id field in meta.
-     * This is the most reliable and simple method for gomuks JSON.
+     * Detects if a room is a Direct Message (DM) using multiple methods:
+     * 1. Primary: dm_user_id field in meta (most reliable for gomuks JSON)
+     * 2. Secondary: m.direct account data (more reliable than name-based detection)
+     * 3. Fallback: room name patterns (contains @ symbol or looks like a user ID)
      */
-    private fun detectDirectMessage(roomId: String, roomObj: JSONObject, meta: JSONObject): Boolean {
+    private fun detectDirectMessage(roomId: String, roomObj: JSONObject, meta: JSONObject, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): Boolean {
         try {
-            // Check if dm_user_id is populated in meta - this indicates a DM
+            // Method 1: Check if dm_user_id is populated in meta - this indicates a DM
             val dmUserId = meta.optString("dm_user_id")?.takeIf { it.isNotBlank() }
-            
             
             if (dmUserId != null) {
                 Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (dm_user_id: $dmUserId)")
                 return true
             }
             
-            // Fallback: Check if room name suggests it's a DM (contains @ symbol or looks like a user ID)
-            val roomName = meta.optString("name", "")
-            val isLikelyDM = roomName.contains("@") || 
-                            roomName.matches(Regex("^@[^:]+:[^:]+$")) // Matrix user ID format
-            
-            if (isLikelyDM) {
-                Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (fallback: name suggests DM: '$roomName')")
+            // Method 2: Check m.direct account data (secondary method)
+            if (appViewModel != null && appViewModel.isDirectMessageFromAccountData(roomId)) {
+                Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (m.direct account data)")
                 return true
             }
             
-            Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as group room (no dm_user_id, name: '$roomName')")
+            // Method 3: Fallback - Check if room name is exactly a Matrix user ID (not just contains @)
+            val roomName = meta.optString("name", "")
+            val isExactMatrixUserId = roomName.matches(Regex("^@[^:]+:[^:]+$")) // Exact Matrix user ID format
+            
+            if (isExactMatrixUserId) {
+                Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (fallback: name is exact Matrix user ID: '$roomName')")
+                return true
+            }
+            
+            Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as group room (no dm_user_id, not in m.direct, name: '$roomName')")
             return false
             
         } catch (e: Exception) {
@@ -617,6 +623,26 @@ object SpaceRoomParser {
             
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "SpaceRoomParser: Error updating spaces with edges", e)
+        }
+    }
+    
+    /**
+     * Request room states for all rooms to detect bridges and store for future use
+     * This will make WebSocket calls to fetch complete room state for each room
+     */
+    fun requestRoomStatesForBridgeDetection(appViewModel: net.vrkknn.andromuks.AppViewModel?) {
+        if (appViewModel == null) {
+            android.util.Log.w("Andromuks", "SpaceRoomParser: Cannot request room states - AppViewModel is null")
+            return
+        }
+        
+        val allRooms = appViewModel.allRooms
+        android.util.Log.d("Andromuks", "SpaceRoomParser: Requesting room states for ${allRooms.size} rooms for bridge detection")
+        
+        // Request room state for each room individually
+        allRooms.forEach { room ->
+            android.util.Log.d("Andromuks", "SpaceRoomParser: Requesting room state for room: ${room.id}")
+            appViewModel.requestRoomStateForBridgeDetection(room.id)
         }
     }
 }

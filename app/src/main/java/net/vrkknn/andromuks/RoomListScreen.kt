@@ -458,6 +458,27 @@ fun RoomListScreen(
                                 hapticFeedback = hapticFeedback
                             )
                         }
+                        RoomSectionType.BRIDGES -> {
+                            if (appViewModel.currentBridgeId != null) {
+                                RoomListContent(
+                                    rooms = targetSection.rooms,
+                                    searchQuery = searchQuery,
+                                    appViewModel = appViewModel,
+                                    authToken = authToken,
+                                    navController = navController,
+                                    timestampUpdateTrigger = timestampUpdateTrigger,
+                                    hapticFeedback = hapticFeedback
+                                )
+                            } else {
+                                BridgesListContent(
+                                    bridges = targetSection.bridges,
+                                    searchQuery = searchQuery,
+                                    appViewModel = appViewModel,
+                                    authToken = authToken,
+                                    navController = navController
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -479,6 +500,108 @@ fun RoomListScreen(
             state = refreshState,
             modifier = Modifier.align(Alignment.TopCenter)
         )
+    }
+}
+
+@Composable
+fun BridgeListItem(
+    bridge: BridgeItem, 
+    isSelected: Boolean, 
+    onClick: () -> Unit,
+    homeserverUrl: String,
+    authToken: String
+) {
+    android.util.Log.d("Andromuks", "BridgeListItem: Called for bridge: ${bridge.name}")
+    android.util.Log.d("Andromuks", "BridgeListItem: Using homeserver URL: $homeserverUrl")
+    
+    // Calculate unread counts and highlights outside the Row
+    val totalRooms = bridge.rooms.size
+    val unreadRooms = bridge.rooms.count { it.unreadCount != null && it.unreadCount > 0 }
+    val highlightRooms = bridge.rooms.count { it.highlightCount != null && it.highlightCount > 0 }
+    val totalUnreadMessages = bridge.rooms.sumOf { it.unreadCount ?: 0 }
+    val totalHighlights = bridge.rooms.sumOf { it.highlightCount ?: 0 }
+    
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 12.dp, horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Bridge protocol avatar
+        AvatarImage(
+            mxcUrl = bridge.avatarUrl,
+            homeserverUrl = homeserverUrl,
+            authToken = authToken,
+            fallbackText = bridge.name,
+            size = 48.dp,
+            userId = bridge.id,
+            displayName = bridge.name
+        )
+        
+        Spacer(modifier = Modifier.width(12.dp))
+        
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
+            Text(
+                text = bridge.name,
+                style = when {
+                    isSelected -> MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.primary)
+                    highlightRooms > 0 -> MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    unreadRooms > 0 -> MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    else -> MaterialTheme.typography.titleMedium
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            
+            if (totalRooms > 0) {
+                Text(
+                    text = "$totalRooms bridged rooms",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+        }
+        
+        // Unread/highlight badge - shows number of rooms with highlights or unreads
+        if (highlightRooms > 0) {
+            // Highlight badge - more prominent color (error/attention)
+            Box(
+                modifier = Modifier
+                    .background(
+                        MaterialTheme.colorScheme.error,
+                        CircleShape
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = if (highlightRooms > 99) "99+" else "$highlightRooms",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onError
+                )
+            }
+        } else if (unreadRooms > 0) {
+            // Regular unread badge - primary color
+            Box(
+                modifier = Modifier
+                    .background(
+                        MaterialTheme.colorScheme.primary,
+                        CircleShape
+                    )
+                    .padding(horizontal = 6.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = if (unreadRooms > 99) "99+" else "$unreadRooms",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            }
+        }
     }
 }
 
@@ -943,6 +1066,19 @@ fun TabBar(
                     onSectionSelected(RoomSectionType.FAVOURITES)
                 }
             )
+            
+            TabButton(
+                icon = Icons.Filled.Place,
+                label = "Bridges",
+                isSelected = currentSection.type == RoomSectionType.BRIDGES,
+                onClick = {
+                    // Always ensure we're at the root bridges view when pressing the Bridges tab
+                    if (appViewModel.currentBridgeId != null) {
+                        appViewModel.exitBridge()
+                    }
+                    onSectionSelected(RoomSectionType.BRIDGES)
+                }
+            )
         }
     }
 }
@@ -1020,9 +1156,13 @@ fun RoomListContent(
     timestampUpdateTrigger: Int,
     hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback
 ) {
-    // Handle Android back key when inside a space
-    androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null) {
-        appViewModel.exitSpace()
+    // Handle Android back key when inside a space or bridge
+    androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null || appViewModel.currentBridgeId != null) {
+        if (appViewModel.currentSpaceId != null) {
+            appViewModel.exitSpace()
+        } else if (appViewModel.currentBridgeId != null) {
+            appViewModel.exitBridge()
+        }
     }
     
     // PERFORMANCE: Cache filtered rooms to avoid recalculation on every recomposition
@@ -1173,6 +1313,47 @@ fun SpacesListContent(
                 isSelected = false,
                 onClick = { 
                     appViewModel.enterSpace(space.id)
+                },
+                homeserverUrl = appViewModel.homeserverUrl,
+                authToken = authToken
+            )
+        }
+    }
+}
+
+@Composable
+fun BridgesListContent(
+    bridges: List<BridgeItem>,
+    searchQuery: String,
+    appViewModel: AppViewModel,
+    authToken: String,
+    navController: NavController
+) {
+    android.util.Log.d("Andromuks", "BridgesListContent: Displaying ${bridges.size} bridges")
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.Top,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            top = 8.dp,
+            bottom = 8.dp
+        )
+    ) {
+        val filteredBridges = if (searchQuery.isBlank()) {
+            bridges
+        } else {
+            bridges.filter { bridge ->
+                bridge.name.contains(searchQuery, ignoreCase = true) ||
+                bridge.protocol.contains(searchQuery, ignoreCase = true)
+            }
+        }
+        
+        items(filteredBridges.size) { idx ->
+            val bridge = filteredBridges[idx]
+            BridgeListItem(
+                bridge = bridge,
+                isSelected = false,
+                onClick = { 
+                    appViewModel.enterBridge(bridge.id)
                 },
                 homeserverUrl = appViewModel.homeserverUrl,
                 authToken = authToken
