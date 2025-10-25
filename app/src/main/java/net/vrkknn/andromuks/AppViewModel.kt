@@ -2053,11 +2053,15 @@ class AppViewModel : ViewModel() {
             if (roomStateChanged) {
                 android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room state changed, scheduling UI update")
                 
-                // Update animation states with new positions
-                sortedRooms.forEachIndexed { index, room ->
-                    updateRoomAnimationState(room.id, isAnimating = false, newPosition = index)
+                // OPTIMIZED: Use background thread for non-UI operations
+                viewModelScope.launch(Dispatchers.Default) {
+                    // Update animation states with new positions (lightweight operation)
+                    sortedRooms.forEachIndexed { index, room ->
+                        updateRoomAnimationState(room.id, isAnimating = false, newPosition = index)
+                    }
                 }
                 
+                // UI operations on main thread
                 setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)), skipCounterUpdate = true)
                 allRooms = sortedRooms // Update allRooms for filtering
                 invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
@@ -2069,8 +2073,10 @@ class AppViewModel : ViewModel() {
                 lastRoomStateHash = newRoomStateHash
                 android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room list update scheduled")
                 
-                // Update conversation shortcuts (only when visible)
-                conversationsApi?.updateConversationShortcuts(sortedRooms)
+                // OPTIMIZED: Update conversation shortcuts in background (non-UI operation)
+                viewModelScope.launch(Dispatchers.Default) {
+                    conversationsApi?.updateConversationShortcuts(sortedRooms)
+                }
             } else {
                 android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room state unchanged, skipping UI update")
             }
