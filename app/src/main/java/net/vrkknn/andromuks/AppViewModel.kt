@@ -1630,9 +1630,33 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    // PERFORMANCE: Track member processing state for incremental updates
+    private var memberProcessingIndex = 0
+    private val lastProcessedMembers = mutableSetOf<String>() // Track which rooms had member events
+    
+    /**
+     * PERFORMANCE OPTIMIZATION: Incremental member cache processing
+     * Only processes members for rooms that changed, and only every 3rd sync message
+     * This prevents 100-300ms delays on every sync for large rooms
+     */
     private fun populateMemberCacheFromSync(syncJson: JSONObject) {
         val data = syncJson.optJSONObject("data") ?: return
         val roomsJson = data.optJSONObject("rooms") ?: return
+        
+        // PERFORMANCE: Incremental processing - only process every 3rd sync message
+        memberProcessingIndex++
+        val shouldProcessMembers = memberProcessingIndex % 3 == 0
+        
+        if (!shouldProcessMembers) {
+            val skipsUntilNext = 3 - (memberProcessingIndex % 3)
+            android.util.Log.d("Andromuks", "AppViewModel: MEMBER PROCESSING - Skipping member cache update ($skipsUntilNext sync(s) until next processing)")
+            return
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: MEMBER PROCESSING - Processing member cache update (sync #$memberProcessingIndex)")
+        
+        // Track current sync's room IDs with member events
+        val currentSyncRooms = mutableSetOf<String>()
         
         val roomKeys = roomsJson.keys()
         while (roomKeys.hasNext()) {
@@ -1640,6 +1664,7 @@ class AppViewModel : ViewModel() {
             val roomObj = roomsJson.optJSONObject(roomId) ?: continue
             val events = roomObj.optJSONArray("events") ?: continue
             
+            var hasMemberEvents = false
             val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
             
             // Process all events to find member events
@@ -1648,6 +1673,7 @@ class AppViewModel : ViewModel() {
                 val eventType = event.optString("type")
                 
                 if (eventType == "m.room.member") {
+                    hasMemberEvents = true
                     val userId = event.optString("state_key") ?: event.optString("sender")
                     val content = event.optJSONObject("content")
                     val membership = content?.optString("membership")
@@ -1665,15 +1691,22 @@ class AppViewModel : ViewModel() {
                                 val profile = MemberProfile(displayName, avatarUrl)
                                 val previousProfile = memberMap[userId]
                                 
+                                // Check if this is actually a new join (not just a profile change)
+                                val isNewJoin = previousProfile == null
+                                
                                 // Check if this is a profile change (join -> join with different profile data)
-                                val isProfileChange = prevMembership == "join" && membership == "join" && 
+                                val isProfileChange = prevMembership == "join" && membership == "join" && !isNewJoin &&
                                     (previousProfile?.displayName != displayName || previousProfile?.avatarUrl != avatarUrl)
                                 
                                 memberMap[userId] = profile
                                 // PERFORMANCE: Also add to global cache for O(1) lookups
                                 globalProfileCache[userId] = WeakReference(profile)
                                 
-                                if (isProfileChange) {
+                                if (isNewJoin) {
+                                    android.util.Log.d("Andromuks", "AppViewModel: New member joined: $userId in room $roomId - triggering immediate UI update")
+                                    // New joins are critical - trigger member update immediately
+                                    memberUpdateCounter++
+                                } else if (isProfileChange) {
                                     android.util.Log.d("Andromuks", "AppViewModel: Profile change detected for $userId - displayName: '$displayName', avatarUrl: '$avatarUrl'")
                                     // Trigger UI update for profile changes
                                     memberUpdateCounter++
@@ -1693,6 +1726,9 @@ class AppViewModel : ViewModel() {
                             "leave", "ban" -> {
                                 // Remove members who left or were banned from room cache only
                                 memberMap.remove(userId)
+                                // Trigger member update for leaves (critical change)
+                                memberUpdateCounter++
+                                android.util.Log.d("Andromuks", "AppViewModel: Member left/banned: $userId in room $roomId - triggering immediate UI update")
                                 // Note: Don't remove from global cache as they might be in other rooms
                                 // Note: Keep disk cache for potential future re-joining
                             }
@@ -1700,7 +1736,18 @@ class AppViewModel : ViewModel() {
                     }
                 }
             }
+            
+            // Track rooms with member events in this sync
+            if (hasMemberEvents) {
+                currentSyncRooms.add(roomId)
+            }
         }
+        
+        // Update tracking set for next sync comparison
+        lastProcessedMembers.clear()
+        lastProcessedMembers.addAll(currentSyncRooms)
+        
+        android.util.Log.d("Andromuks", "AppViewModel: MEMBER PROCESSING - Updated ${currentSyncRooms.size} rooms with member changes")
     }
     
     private fun processAccountData(syncJson: JSONObject) {

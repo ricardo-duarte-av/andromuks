@@ -211,8 +211,8 @@ val filteredRooms = remember(rooms, searchQuery) {
 - [ ] Optimize room list rendering (Task #9)
 
 ### Phase 2: Major Improvements (4-6 hours)
-- [ ] Move JSON parsing to background (Task #1)
-- [ ] Incremental member processing (Task #2)
+- [x] Move JSON parsing to background (Task #1) ✅ COMPLETED
+- [x] Incremental member processing (Task #2) ✅ COMPLETED
 - [ ] Adaptive UI batching (Task #6)
 
 ### Phase 3: Lazy Loading (2-3 hours)
