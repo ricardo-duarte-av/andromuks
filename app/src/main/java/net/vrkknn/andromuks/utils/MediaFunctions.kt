@@ -49,6 +49,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
+import net.vrkknn.andromuks.utils.OptimizedMediaCache
+import net.vrkknn.andromuks.utils.AdvancedExoPlayerManager
+import net.vrkknn.andromuks.utils.ProgressiveImageLoader
+import net.vrkknn.andromuks.utils.IntelligentMediaCache
+import net.vrkknn.andromuks.utils.DownloadDeduplicationManager
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.compose.runtime.rememberCoroutineScope
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -638,11 +645,13 @@ private fun MediaContent(
                     // Use shared ImageLoader singleton with custom User-Agent
                     val imageLoader = remember { ImageLoaderSingleton.get(context) }
 
-                    // Check if we have a cached version first
-                    val cachedFile =
-                        remember(mediaMessage.url) {
-                            MediaCache.getCachedFile(context, mediaMessage.url)
-                        }
+                    // PERFORMANCE: Use IntelligentMediaCache for smart caching
+                    var cachedFile by remember { mutableStateOf<File?>(null) }
+                    
+                    // Load cached file in background
+                    LaunchedEffect(mediaMessage.url) {
+                        cachedFile = IntelligentMediaCache.getCachedFile(context, mediaMessage.url)
+                    }
 
                     val imageUrl =
                         remember(mediaMessage.url, isEncrypted, cachedFile) {
@@ -650,9 +659,9 @@ private fun MediaContent(
                                 // Use cached file
                                 Log.d(
                                     "Andromuks",
-                                    "MediaMessage: Using cached file: ${cachedFile.absolutePath}"
+                                    "MediaMessage: Using cached file: ${cachedFile!!.absolutePath}"
                                 )
-                                cachedFile.absolutePath
+                                cachedFile!!.absolutePath
                             } else {
                                 // Use HTTP URL
                                 val httpUrl =
@@ -729,37 +738,37 @@ private fun MediaContent(
 
                         Log.d("Andromuks", "AsyncImage: Starting image load for $imageUrl")
 
+                        // PERFORMANCE: Use optimized AsyncImage with better caching
                         AsyncImage(
-                            model =
-                                ImageRequest.Builder(context)
-                                    .data(imageUrl)
-                                    .apply {
-                                        if (cachedFile == null) {
-                                            addHeader("Cookie", "gomuks_auth=$authToken")
-                                        }
+                            model = ImageRequest.Builder(context)
+                                .data(imageUrl)
+                                .apply {
+                                    if (cachedFile == null) {
+                                        addHeader("Cookie", "gomuks_auth=$authToken")
                                     }
-                                    .memoryCachePolicy(CachePolicy.ENABLED)
-                                    .diskCachePolicy(CachePolicy.ENABLED)
-                                    .build(),
+                                }
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .size(calculatedHeight.value.toInt(), calculatedHeight.value.toInt())
+                                .build(),
                             imageLoader = imageLoader,
                             contentDescription = mediaMessage.filename,
-                            modifier =
-                                Modifier.fillMaxSize().pointerInput(Unit) {
-                                    detectTapGestures(
-                                        onTap = { onImageClick() }
-                                        // Don't handle onLongPress - let it bubble up to
-                                        // MessageBubbleWithMenu
-                                    )
-                                },
+                            modifier = Modifier.fillMaxSize().pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = { onImageClick() }
+                                    // Don't handle onLongPress - let it bubble up to
+                                    // MessageBubbleWithMenu
+                                )
+                            },
                             placeholder = blurHashPainter,
-                            error = blurHashPainter, // Use BlurHash as error fallback too
+                            error = blurHashPainter,
                             onSuccess = {
                                 Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
                             },
                             onError = { state ->
                                 if (state is coil.request.ErrorResult) {
                                     CacheUtils.handleImageLoadError(
-                                        imageUrl = imageUrl,
+                                        imageUrl = imageUrl ?: "",
                                         throwable = state.throwable,
                                         imageLoader = imageLoader,
                                         context = "Media"

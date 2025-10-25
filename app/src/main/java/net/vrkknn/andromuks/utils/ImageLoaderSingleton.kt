@@ -20,10 +20,10 @@ object ImageLoaderSingleton {
     @Volatile
     private var instance: ImageLoader? = null
     
-    // AVATAR LOADING OPTIMIZATION: Constants for cache management
-    private const val MEMORY_CACHE_PERCENT = 0.20 // 20% for better balance with other memory usage
-    private const val DISK_CACHE_SIZE_MB = 1024L // Increased to 1GB for thousands of avatars
-    private const val MAX_DISK_CACHE_ENTRIES = 1000 // Limit number of cached images
+    // QUALITY IMPROVEMENT: Optimized cache settings for better quality
+    private const val MEMORY_CACHE_PERCENT = 0.25 // Increased to 25% for better quality caching
+    private const val DISK_CACHE_SIZE_MB = 2048L // Increased to 2GB for higher quality images
+    private const val MAX_DISK_CACHE_ENTRIES = 2000 // Increased for more high-quality images
     
     fun get(context: Context): ImageLoader {
         return instance ?: synchronized(this) {

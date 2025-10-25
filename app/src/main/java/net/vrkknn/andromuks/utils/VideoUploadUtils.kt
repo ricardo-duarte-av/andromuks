@@ -94,9 +94,9 @@ object VideoUploadUtils {
                 thumbnailFrame
             }
             
-            // Convert thumbnail to JPEG bytes
+            // QUALITY IMPROVEMENT: Higher quality for video thumbnails
             val thumbnailOutputStream = ByteArrayOutputStream()
-            thumbnailBitmap.compress(Bitmap.CompressFormat.JPEG, 85, thumbnailOutputStream)
+            thumbnailBitmap.compress(Bitmap.CompressFormat.JPEG, 95, thumbnailOutputStream)
             val thumbnailBytes = thumbnailOutputStream.toByteArray()
             val thumbnailSize = thumbnailBytes.size.toLong()
             
