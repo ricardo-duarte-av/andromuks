@@ -947,16 +947,14 @@ fun RoomTimelineScreen(
         }
     }
 
-    // Handle refresh completion - scroll to bottom after refresh (same as FAB behavior)
-    LaunchedEffect(timelineItems.size, isLoading, isRefreshing) {
-        if (isRefreshing && !isLoading && timelineItems.isNotEmpty()) {
-            Log.d("Andromuks", "RoomTimelineScreen: Refresh completed, scrolling to bottom and re-attaching")
-            coroutineScope.launch {
-                // Use the same logic as the FAB: scroll to bottom and re-attach
-                listState.animateScrollToItem(timelineItems.lastIndex)
-                isAttachedToBottom = true
-                isRefreshing = false
-            }
+    // Handle silent refresh completion - just reset the refreshing state
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            // For silent refresh, we don't need to wait for UI updates
+            // Just reset the refreshing state after a short delay
+            kotlinx.coroutines.delay(1000) // Give time for cache to populate
+            isRefreshing = false
+            Log.d("Andromuks", "RoomTimelineScreen: Silent refresh completed")
         }
     }
 
@@ -1234,10 +1232,10 @@ fun RoomTimelineScreen(
                             navController.navigate("room_info/$roomId")
                         },
                         onRefreshClick = {
-                            // Refresh room timeline from server
-                            Log.d("Andromuks", "RoomTimelineScreen: Refresh button clicked for room $roomId")
+                            // Silently refresh room cache without UI updates
+                            Log.d("Andromuks", "RoomTimelineScreen: Silent refresh button clicked for room $roomId")
                             isRefreshing = true
-                            appViewModel.refreshRoomTimeline(roomId)
+                            appViewModel.silentRefreshRoomCache(roomId)
                         }
                     )
 

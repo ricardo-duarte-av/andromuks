@@ -3572,6 +3572,57 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Silently refreshes the room cache without updating the UI.
+     * This populates the cache with fresh data but doesn't trigger any UI updates or scrolling.
+     */
+    fun silentRefreshRoomCache(roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: Silent refresh for room: $roomId (populating cache without UI updates)")
+        
+        // Set current room ID to ensure proper request handling
+        currentRoomId = roomId
+        
+        // Clear cache to get fresh data
+        RoomTimelineCache.clearRoomCache(roomId)
+        android.util.Log.d("Andromuks", "AppViewModel: Cleared timeline cache for room: $roomId")
+        
+        // Clear animation state to prevent corruption
+        newMessageAnimations.clear()
+        runningBubbleAnimations.clear()
+        bubbleAnimationCompletionCounter = 0L
+        newMessageAnimationTrigger = 0L
+        android.util.Log.d("Andromuks", "AppViewModel: Cleared animation state for room: $roomId")
+        
+        // Reset member update counter to prevent stale state (but keep timelineUpdateCounter for UI consistency)
+        memberUpdateCounter = 0
+        android.util.Log.d("Andromuks", "AppViewModel: Reset member update counter for room: $roomId")
+        
+        // Reset all update flags and state hashes to prevent stale diff detection
+        needsTimelineUpdate = false
+        needsMemberUpdate = false
+        needsRoomListUpdate = false
+        needsReactionUpdate = false
+        lastTimelineStateHash = ""
+        lastMemberStateHash = ""
+        lastRoomStateHash = ""
+        android.util.Log.d("Andromuks", "AppViewModel: Reset all update flags and state hashes for room: $roomId")
+        
+        // Request fresh room state
+        requestRoomState(roomId)
+        
+        // Send fresh paginate command to get consistent data from server (silent)
+        val paginateRequestId = requestIdCounter++
+        backgroundPrefetchRequests[paginateRequestId] = roomId  // Use backgroundPrefetchRequests for silent processing
+        sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+            "room_id" to roomId,
+            "max_timeline_id" to 0,
+            "limit" to 100,
+            "reset" to false
+        ))
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sent silent paginate request for room: $roomId")
+    }
+
+    /**
      * Refreshes the room timeline by clearing cache and requesting fresh data from server.
      * This is useful for debugging missing events (e.g., messages from other devices).
      */
@@ -3605,10 +3656,21 @@ class AppViewModel : ViewModel() {
         // 5. Clear message reactions
         messageReactions = emptyMap()
         
-        // 6. Request fresh room state
+        // 6. Clear animation state to prevent corruption
+        newMessageAnimations.clear()
+        runningBubbleAnimations.clear()
+        bubbleAnimationCompletionCounter = 0L
+        newMessageAnimationTrigger = 0L
+        android.util.Log.d("Andromuks", "AppViewModel: Cleared animation state for room: $roomId")
+        
+        // 7. Reset member update counter to prevent stale state (but keep timelineUpdateCounter for UI consistency)
+        memberUpdateCounter = 0
+        android.util.Log.d("Andromuks", "AppViewModel: Reset member update counter for room: $roomId")
+        
+        // 8. Request fresh room state
         requestRoomState(roomId)
         
-        // 7. Send fresh paginate command to get consistent data from server
+        // 9. Send fresh paginate command to get consistent data from server
         val paginateRequestId = requestIdCounter++
         timelineRequests[paginateRequestId] = roomId
         sendWebSocketCommand("paginate", paginateRequestId, mapOf(
