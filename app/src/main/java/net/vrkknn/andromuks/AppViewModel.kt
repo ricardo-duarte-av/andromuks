@@ -6302,23 +6302,47 @@ class AppViewModel : ViewModel() {
      * Cache timeline events from sync_complete for all rooms
      * This allows instant room opening if we have enough cached events
      */
+    /**
+     * Cache timeline events from sync for all rooms.
+     * OPTIMIZED: Processes current room immediately, defers others to background thread.
+     */
     private fun cacheTimelineEventsFromSync(syncJson: JSONObject) {
         val data = syncJson.optJSONObject("data") ?: return
         val rooms = data.optJSONObject("rooms") ?: return
         
         val roomKeys = rooms.keys()
+        val currentRoomData = mutableListOf<Pair<String, JSONArray>>()
+        val otherRoomsData = mutableListOf<Pair<String, JSONArray>>()
+        
+        // Separate current room from other rooms
         while (roomKeys.hasNext()) {
             val roomId = roomKeys.next()
             val roomData = rooms.optJSONObject(roomId) ?: continue
             val events = roomData.optJSONArray("events") ?: continue
             
-            android.util.Log.d("Andromuks", "AppViewModel: Caching ${events.length()} events for room: $roomId (current room: $currentRoomId)")
-            
-            // Get member map for this room
+            if (roomId == currentRoomId) {
+                currentRoomData.add(Pair(roomId, events))
+            } else {
+                otherRoomsData.add(Pair(roomId, events))
+            }
+        }
+        
+        // Process current room immediately (synchronously) for instant updates
+        for ((roomId, events) in currentRoomData) {
+            android.util.Log.d("Andromuks", "AppViewModel: Caching ${events.length()} events for current room: $roomId (PRIORITY)")
             val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
-            
-            // Add events to cache
             RoomTimelineCache.addEventsFromSync(roomId, events, memberMap)
+        }
+        
+        // Process other rooms in background thread (non-blocking)
+        if (otherRoomsData.isNotEmpty()) {
+            viewModelScope.launch(Dispatchers.Default) {
+                for ((roomId, events) in otherRoomsData) {
+                    val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+                    RoomTimelineCache.addEventsFromSync(roomId, events, memberMap)
+                }
+                android.util.Log.d("Andromuks", "AppViewModel: Background cached ${otherRoomsData.size} non-current rooms")
+            }
         }
     }
     
