@@ -809,6 +809,9 @@ fun RoomTimelineScreen(
 
     // Track if this is the first load (to avoid animation on initial room open)
     var isInitialLoad by remember { mutableStateOf(true) }
+    
+    // Track if we're refreshing (to scroll to bottom after refresh)
+    var isRefreshing by remember { mutableStateOf(false) }
 
     // Track loading more state
     var isLoadingMore by remember { mutableStateOf(false) }
@@ -941,6 +944,19 @@ fun RoomTimelineScreen(
             pendingScrollRestoration = false
             anchorEventIdForRestore = null
             isLoadingMore = false
+        }
+    }
+
+    // Handle refresh completion - scroll to bottom after refresh (same as FAB behavior)
+    LaunchedEffect(timelineItems.size, isLoading, isRefreshing) {
+        if (isRefreshing && !isLoading && timelineItems.isNotEmpty()) {
+            Log.d("Andromuks", "RoomTimelineScreen: Refresh completed, scrolling to bottom and re-attaching")
+            coroutineScope.launch {
+                // Use the same logic as the FAB: scroll to bottom and re-attach
+                listState.animateScrollToItem(timelineItems.lastIndex)
+                isAttachedToBottom = true
+                isRefreshing = false
+            }
         }
     }
 
@@ -1209,6 +1225,7 @@ fun RoomTimelineScreen(
                         onRefreshClick = {
                             // Refresh room timeline from server
                             Log.d("Andromuks", "RoomTimelineScreen: Refresh button clicked for room $roomId")
+                            isRefreshing = true
                             appViewModel.refreshRoomTimeline(roomId)
                         }
                     )
