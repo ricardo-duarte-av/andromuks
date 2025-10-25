@@ -213,7 +213,7 @@ val filteredRooms = remember(rooms, searchQuery) {
 ### Phase 2: Major Improvements (4-6 hours)
 - [x] Move JSON parsing to background (Task #1) ✅ COMPLETED
 - [x] Incremental member processing (Task #2) ✅ COMPLETED
-- [ ] Adaptive UI batching (Task #6)
+- [x] Adaptive UI batching (Task #6) ✅ COMPLETED
 
 ### Phase 3: Lazy Loading (2-3 hours)
 - [x] Lazy load non-Home tabs (Task #3) ✅ COMPLETED
