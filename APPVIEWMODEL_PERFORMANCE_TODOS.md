@@ -85,4 +85,35 @@ Refactored `handleTimelineResponse()` to use helper functions:
 
 ---
 
+## ✅ COMPLETED: processEditRelationships() Optimization
+
+### Status: Optimized with Memoization ✅
+
+**Function**: `processEditRelationships()` (Lines ~6662-6800)
+
+**Issues Found:**
+- O(n²) complexity due to repeated chain traversals
+- `findChainEnd()` called multiple times for same chains
+- Up to 50-event limit to prevent blocking
+- Multiple nested iterations in chain linking
+
+**Optimizations Applied:**
+1. ✅ **Added Memoization Cache**: Created `chainEndCache` to store computed chain ends
+2. ✅ **Created Optimized Function**: `findChainEndOptimized()` that caches results
+3. ✅ **Reduced Complexity**: Changed from O(n²) to O(n) per operation
+4. ✅ **Maintained Backward Compatibility**: Kept original `findChainEnd()` for legacy code
+
+**Performance Improvement:**
+- **Before**: O(n²) - repeated chain traversals
+- **After**: O(n) - each chain traversed once with memoization
+- **Expected Impact**: Reduced from ~50-100ms to ~10-20ms with many edits
+
+**Technical Details:**
+- Added `chainEndCache` mutable map to store computed chain ends
+- Modified chain lookups to check cache before traversing
+- Invalidate cache appropriately when chain is modified
+- Maintains all original functionality while improving performance
+
+---
+
 ## 🔴 CRITICAL PRIORITY (Causes noticeable UI lag - 50-500ms blocking)

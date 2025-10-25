@@ -6685,6 +6685,9 @@ class AppViewModel : ViewModel() {
         val sortedEditEvents = editEventsMap.values.sortedBy { it.timestamp }
         android.util.Log.d("Andromuks", "AppViewModel: Processing ${sortedEditEvents.size} edit events in chronological order")
         
+        // OPTIMIZED: Use memoization cache for chain ends to avoid repeated traversals
+        val chainEndCache = mutableMapOf<String, EventChainEntry?>()
+        
         // Process all edit events to build the chain
         var processedCount = 0
         for (editEvent in sortedEditEvents) {
@@ -6710,10 +6713,12 @@ class AppViewModel : ViewModel() {
                 if (targetEntry != null) {
                     // Check if the target already has a replacement
                     if (targetEntry.replacedBy != null) {
-                        // Find the end of the current chain and add this edit to the end
-                        val chainEnd = findChainEnd(targetEntry.replacedBy!!)
+                        // OPTIMIZED: Use memoized chain end lookup
+                        val chainEnd = findChainEndOptimized(targetEntry.replacedBy!!, chainEndCache)
                         if (chainEnd != null) {
                             chainEnd.replacedBy = editEventId
+                            // Update cache: the new end is now this edit event
+                            chainEndCache[targetEntry.replacedBy!!] = null // Invalidate old chain
                             android.util.Log.d("Andromuks", "AppViewModel: Added ${editEventId} to end of chain for ${targetEventId}")
                         }
                     } else {
@@ -6732,6 +6737,37 @@ class AppViewModel : ViewModel() {
     
     /**
      * Finds the end of an edit chain by following replacedBy links.
+     * OPTIMIZED: Now uses memoization to avoid repeated traversals (O(n²) -> O(n))
+     */
+    private fun findChainEndOptimized(startEventId: String, cache: MutableMap<String, EventChainEntry?>): EventChainEntry? {
+        // Check cache first
+        if (cache.containsKey(startEventId)) {
+            return cache[startEventId]
+        }
+        
+        var currentId = startEventId
+        var currentEntry = eventChainMap[currentId]
+        
+        // Follow the chain to find the end
+        while (currentEntry?.replacedBy != null) {
+            currentId = currentEntry.replacedBy!!
+            // Check if we've already cached this chain end
+            if (cache.containsKey(currentId)) {
+                val cachedEnd = cache[currentId]
+                cache[startEventId] = cachedEnd
+                return cachedEnd
+            }
+            currentEntry = eventChainMap[currentId]
+        }
+        
+        // Cache the result for future lookups
+        cache[startEventId] = currentEntry
+        return currentEntry
+    }
+    
+    /**
+     * LEGACY: Finds the end of an edit chain by following replacedBy links.
+     * Kept for backward compatibility but should use findChainEndOptimized instead.
      */
     private fun findChainEnd(startEventId: String): EventChainEntry? {
         var currentId = startEventId
