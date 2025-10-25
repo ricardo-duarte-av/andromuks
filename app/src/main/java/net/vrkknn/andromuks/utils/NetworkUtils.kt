@@ -276,10 +276,9 @@ fun connectToWebsocket(
                         }
                     }
                     "sync_complete" -> {
-                        Log.d("Andromuks", "NetworkUtils: Processing sync_complete message")
-                        appViewModel.viewModelScope.launch(Dispatchers.Main) {
-                            appViewModel.updateRoomsFromSyncJson(jsonObject)
-                        }
+                        Log.d("Andromuks", "NetworkUtils: Processing sync_complete message with async parsing")
+                        // PERFORMANCE: Use async version to prevent UI blocking during JSON parsing
+                        appViewModel.updateRoomsFromSyncJsonAsync(jsonObject)
                     }
                     "init_complete" -> {
                         Log.d("Andromuks", "NetworkUtils: Received init_complete - initialization finished")
@@ -388,10 +387,9 @@ fun connectToWebsocket(
                                     }
                                 }
                                 "sync_complete" -> {
-                                    Log.d("Andromuks", "NetworkUtils: Processing compressed sync_complete message")
-                                    appViewModel.viewModelScope.launch(Dispatchers.Main) {
-                                        appViewModel.updateRoomsFromSyncJson(jsonObject)
-                                    }
+                                    Log.d("Andromuks", "NetworkUtils: Processing compressed sync_complete message with async parsing")
+                                    // PERFORMANCE: Use async version to prevent UI blocking during JSON parsing
+                                    appViewModel.updateRoomsFromSyncJsonAsync(jsonObject)
                                 }
                                 "init_complete" -> {
                                     Log.d("Andromuks", "NetworkUtils: Received compressed init_complete - initialization finished")
