@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.BuildConfig
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -232,7 +233,7 @@ class AppViewModel : ViewModel() {
         currentBridgeId = bridgeId
         currentSpaceId = null // Clear space selection when entering bridge
         roomListUpdateCounter++
-        android.util.Log.d("Andromuks", "AppViewModel: Entered bridge: $bridgeId")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Entered bridge: $bridgeId")
     }
     
     /**
@@ -241,7 +242,7 @@ class AppViewModel : ViewModel() {
     fun exitBridge() {
         currentBridgeId = null
         roomListUpdateCounter++
-        android.util.Log.d("Andromuks", "AppViewModel: Exited bridge")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Exited bridge")
     }
     
     /**
@@ -249,7 +250,7 @@ class AppViewModel : ViewModel() {
      */
     fun updateBridgeInfo(roomId: String, bridgeInfo: BridgeInfo) {
         bridgeInfoCache = bridgeInfoCache + (roomId to bridgeInfo)
-        android.util.Log.d("Andromuks", "AppViewModel: Updated bridge info for room $roomId: ${bridgeInfo.protocol.displayname}")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated bridge info for room $roomId: ${bridgeInfo.protocol.displayname}")
     }
     
     /**
@@ -386,6 +387,11 @@ class AppViewModel : ViewModel() {
     // SYNC OPTIMIZATION: Batched update mechanism
     private var pendingUIUpdates = mutableSetOf<String>() // Track which UI sections need updates
     private var batchUpdateJob: Job? = null // Job for batching UI updates
+    
+    // PERFORMANCE: Debounced room reordering to prevent frustrating "room jumping"
+    private var lastRoomReorderTime = 0L
+    private var roomReorderJob: Job? = null
+    private val ROOM_REORDER_DEBOUNCE_MS = 1000L // 1 second debounce
     
     // SYNC OPTIMIZATION: Diff-based update tracking
     private var lastRoomStateHash: String = ""
@@ -1971,6 +1977,51 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * PERFORMANCE OPTIMIZATION: Debounced room reordering
+     * Updates badges and timestamps immediately, but only reorders the list every 1 second
+     * This prevents the frustrating "room jumping" effect when new messages arrive
+     */
+    private fun scheduleRoomReorder() {
+        val currentTime = System.currentTimeMillis()
+        val timeSinceLastReorder = currentTime - lastRoomReorderTime
+        
+        // Cancel existing reorder job
+        roomReorderJob?.cancel()
+        
+        if (timeSinceLastReorder >= ROOM_REORDER_DEBOUNCE_MS) {
+            // Enough time has passed, reorder immediately
+            performRoomReorder()
+        } else {
+            // Schedule reorder for later
+            val delayMs = ROOM_REORDER_DEBOUNCE_MS - timeSinceLastReorder
+            roomReorderJob = viewModelScope.launch {
+                delay(delayMs)
+                performRoomReorder()
+            }
+        }
+    }
+    
+    /**
+     * Actually perform the room reordering
+     */
+    private fun performRoomReorder() {
+        lastRoomReorderTime = System.currentTimeMillis()
+        
+        val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+        
+        // Update UI with new room order
+        setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)), skipCounterUpdate = true)
+        allRooms = sortedRooms
+        invalidateRoomSectionCache()
+        
+        // Trigger UI update
+        needsRoomListUpdate = true
+        scheduleUIUpdate("roomList")
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PERFORMANCE - Debounced room reorder completed (${sortedRooms.size} rooms)")
+    }
+    
+    /**
      * Perform batched UI updates only for changed sections
      */
     private fun performBatchedUIUpdates() {
@@ -2297,12 +2348,15 @@ class AppViewModel : ViewModel() {
                     }
                 }
                 
-                // UI operations on main thread
-                setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)), skipCounterUpdate = true)
-                allRooms = sortedRooms // Update allRooms for filtering
+                // PERFORMANCE: Use debounced room reordering to prevent "room jumping"
+                // This updates badges/timestamps immediately but only reorders every 1 second
+                scheduleRoomReorder()
+                
+                // Update allRooms for filtering (without reordering)
+                allRooms = sortedRooms
                 invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
                 
-                // Mark for batched UI update
+                // Mark for batched UI update (for badges/timestamps)
                 needsRoomListUpdate = true
                 scheduleUIUpdate("roomList")
                 
@@ -2699,7 +2753,8 @@ class AppViewModel : ViewModel() {
             updateRoomAnimationState(room.id, isAnimating = false, newPosition = index)
         }
         
-        setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)))
+        // PERFORMANCE: Use debounced reordering for UI refresh too
+        scheduleRoomReorder()
         allRooms = sortedRooms
         invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
         

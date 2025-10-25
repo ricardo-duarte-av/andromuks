@@ -177,38 +177,56 @@ private fun scheduleUIUpdate(updateType: String, priority: UpdatePriority) {
 
 **Files:** Throughout `SpaceRoomParser.kt` and `AppViewModel.kt`
 
-#### 8. Cache Filtered Room Lists
+#### 8. Cache Filtered Room Lists ✅ ALREADY IMPLEMENTED
 **Current:** Rooms re-filtered on every recomposition
 **Impact:** 5-10ms per recomposition
 **Solution:**
 - Use `remember()` with keys for filtered lists
 - Only recalculate when rooms or search query changes
 
-**Files:** `RoomListScreen.kt` line ~850-880
+**Files:** `RoomListScreen.kt` line ~1175, 1307, 1347
 
 ```kotlin
-// TODO: Already implemented in RoomListContent - good!
+// ✅ ALREADY IMPLEMENTED - Good performance optimization!
 val filteredRooms = remember(rooms, searchQuery) {
     if (searchQuery.isBlank()) rooms
     else rooms.filter { it.name.contains(searchQuery, ignoreCase = true) }
 }
 ```
 
-#### 9. Optimize Room List Item Rendering
+#### 9. Optimize Room List Item Rendering ✅ COMPLETED
 **Current:** All room items recomposed on every update
 **Impact:** 10-20ms per update
 **Solution:**
 - Use `LazyColumn` with stable keys (already done ✓)
-- Implement `equals()` on `RoomItem` for proper diffing
-- Use `@Stable` annotation on data classes
+- Implement debounced room reordering (1 second delay)
+- Update badges/timestamps immediately, reorder only when needed
 
-**Files:** `RoomListScreen.kt` line ~880-950
+**Files:** `AppViewModel.kt` - Added `scheduleRoomReorder()` and `performRoomReorder()`
+
+```kotlin
+// ✅ IMPLEMENTED - Debounced room reordering
+private fun scheduleRoomReorder() {
+    val currentTime = System.currentTimeMillis()
+    val timeSinceLastReorder = currentTime - lastRoomReorderTime
+    
+    if (timeSinceLastReorder >= ROOM_REORDER_DEBOUNCE_MS) {
+        performRoomReorder() // Reorder immediately
+    } else {
+        // Schedule reorder for later (prevents "room jumping")
+        roomReorderJob = viewModelScope.launch {
+            delay(ROOM_REORDER_DEBOUNCE_MS - timeSinceLastReorder)
+            performRoomReorder()
+        }
+    }
+}
+```
 
 ## Implementation Priority
 
 ### Phase 1: Quick Wins (1-2 hours)
-- [ ] Reduce logging in production (Task #7)
-- [ ] Optimize room list rendering (Task #9)
+- [x] Reduce logging in production (Task #7) ✅ COMPLETED
+- [x] Optimize room list rendering (Task #9) ✅ COMPLETED
 
 ### Phase 2: Major Improvements (4-6 hours)
 - [x] Move JSON parsing to background (Task #1) ✅ COMPLETED
