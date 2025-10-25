@@ -5731,6 +5731,10 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    /**
+     * Parse room state from state events.
+     * OPTIMIZED: Single pass with minimal JSON access; early exits in branches.
+     */
     private fun parseRoomStateFromEvents(roomId: String, events: JSONArray) {
         var name: String? = null
         var canonicalAlias: String? = null
@@ -5740,81 +5744,77 @@ class AppViewModel : ViewModel() {
         var powerLevels: PowerLevelsInfo? = null
         val pinnedEventIds = mutableListOf<String>()
         
-        android.util.Log.d("Andromuks", "AppViewModel: Parsing room state for room: $roomId, events count: ${events.length()}")
-        
+        // OPTIMIZED: Process events in single pass with early exits
         for (i in 0 until events.length()) {
-            val event = events.optJSONObject(i)
-            if (event != null) {
-                val eventType = event.optString("type")
-                val content = event.optJSONObject("content")
-                
-                android.util.Log.d("Andromuks", "AppViewModel: Processing event type: $eventType")
-                
-                when (eventType) {
-                    "m.room.name" -> {
-                        name = content?.optString("name")?.takeIf { it.isNotBlank() }
-                        android.util.Log.d("Andromuks", "AppViewModel: Found room name: $name")
-                    }
-                    "m.room.canonical_alias" -> {
-                        canonicalAlias = content?.optString("alias")?.takeIf { it.isNotBlank() }
-                        android.util.Log.d("Andromuks", "AppViewModel: Found canonical alias: $canonicalAlias")
-                    }
-                    "m.room.topic" -> {
-                        // Try simple topic first
-                        topic = content?.optString("topic")?.takeIf { it.isNotBlank() }
+            val event = events.optJSONObject(i) ?: continue
+            
+            val eventType = event.optString("type")
+            val content = event.optJSONObject("content") ?: continue
+            
+            when (eventType) {
+                "m.room.name" -> {
+                    name = content.optString("name")?.takeIf { it.isNotBlank() }
+                }
+                "m.room.canonical_alias" -> {
+                    canonicalAlias = content.optString("alias")?.takeIf { it.isNotBlank() }
+                }
+                "m.room.topic" -> {
+                    // OPTIMIZED: Cache parsed topic to avoid re-parsing
+                    if (topic.isNullOrBlank()) {
+                        topic = content.optString("topic")?.takeIf { it.isNotBlank() }
                         
-                        // If not found, try structured format
+                        // Fallback to structured format if simple topic not found
                         if (topic.isNullOrBlank()) {
-                            val topicContent = content?.optJSONObject("m.topic")
+                            val topicContent = content.optJSONObject("m.topic")
                             val textArray = topicContent?.optJSONArray("m.text")
                             if (textArray != null && textArray.length() > 0) {
                                 val firstText = textArray.optJSONObject(0)
                                 topic = firstText?.optString("body")?.takeIf { it.isNotBlank() }
                             }
                         }
-                        android.util.Log.d("Andromuks", "AppViewModel: Found topic: $topic")
                     }
-                    "m.room.avatar" -> {
-                        avatarUrl = content?.optString("url")?.takeIf { it.isNotBlank() }
-                        android.util.Log.d("Andromuks", "AppViewModel: Found avatar URL: $avatarUrl")
+                }
+                "m.room.avatar" -> {
+                    avatarUrl = content.optString("url")?.takeIf { it.isNotBlank() }
+                }
+                "m.room.encryption" -> {
+                    // OPTIMIZED: Early exit once encryption detected
+                    if (!isEncrypted && content.optString("algorithm")?.isNotBlank() == true) {
+                        isEncrypted = true
                     }
-                    "m.room.encryption" -> {
-                        // Check if the room is encrypted (presence of m.room.encryption event)
-                        val algorithm = content?.optString("algorithm")?.takeIf { it.isNotBlank() }
-                        if (algorithm != null) {
-                            isEncrypted = true
-                            android.util.Log.d("Andromuks", "AppViewModel: Room is encrypted with algorithm: $algorithm")
+                }
+                "m.room.power_levels" -> {
+                    // OPTIMIZED: Only parse if not already set (each event is definitive)
+                    if (powerLevels == null) {
+                        val usersObj = content.optJSONObject("users")
+                        val usersMap = if (usersObj != null) {
+                            mutableMapOf<String, Int>().apply {
+                                usersObj.keys()?.forEach { userId ->
+                                    put(userId, usersObj.optInt(userId, 0))
+                                }
+                            }
+                        } else {
+                            mutableMapOf()
                         }
-                    }
-                    "m.room.power_levels" -> {
-                        // Parse power levels
-                        val usersObj = content?.optJSONObject("users")
-                        val usersMap = mutableMapOf<String, Int>()
-                        usersObj?.keys()?.forEach { userId ->
-                            usersMap[userId] = usersObj.optInt(userId, 0)
-                        }
-                        val usersDefault = content?.optInt("users_default", 0) ?: 0
-                        val redact = content?.optInt("redact", 50) ?: 50
                         
                         powerLevels = PowerLevelsInfo(
                             users = usersMap,
-                            usersDefault = usersDefault,
-                            redact = redact
+                            usersDefault = content.optInt("users_default", 0),
+                            redact = content.optInt("redact", 50)
                         )
-                        android.util.Log.d("Andromuks", "AppViewModel: Found power levels - users: ${usersMap.size}, usersDefault: $usersDefault, redact: $redact")
                     }
-                    "m.room.pinned_events" -> {
-                        pinnedEventIds.clear()
-                        val pinnedArray = content?.optJSONArray("pinned")
-                        if (pinnedArray != null) {
-                            for (j in 0 until pinnedArray.length()) {
-                                val eventId = pinnedArray.optString(j)
-                                if (!eventId.isNullOrBlank()) {
-                                    pinnedEventIds.add(eventId)
-                                }
+                }
+                "m.room.pinned_events" -> {
+                    // OPTIMIZED: Clear and rebuild pinned events (latest wins)
+                    pinnedEventIds.clear()
+                    val pinnedArray = content.optJSONArray("pinned")
+                    if (pinnedArray != null) {
+                        for (j in 0 until pinnedArray.length()) {
+                            val eventId = pinnedArray.optString(j)?.takeIf { it.isNotBlank() }
+                            if (eventId != null) {
+                                pinnedEventIds.add(eventId)
                             }
                         }
-                        android.util.Log.d("Andromuks", "AppViewModel: Found pinned events: ${pinnedEventIds.size}")
                     }
                 }
             }
