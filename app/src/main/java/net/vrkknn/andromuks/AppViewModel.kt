@@ -1244,6 +1244,9 @@ class AppViewModel : ViewModel() {
     // Using roomId:userId as key instead of nested maps to reduce memory fragmentation
     private val flattenedMemberCache = ConcurrentHashMap<String, MemberProfile>() // Key: "roomId:userId"
     
+    // OPTIMIZED: Indexed cache for fast room lookups (avoids string prefix checks)
+    private val roomMemberIndex = ConcurrentHashMap<String, MutableSet<String>>() // Key: roomId, Value: Set of userIds
+    
     // Global user profile cache with weak references to allow garbage collection
     private val globalProfileCache = ConcurrentHashMap<String, WeakReference<MemberProfile>>()
     
@@ -1273,19 +1276,25 @@ class AppViewModel : ViewModel() {
     }
 
     fun getMemberMap(roomId: String): Map<String, MemberProfile> {
-        // MEMORY MANAGEMENT: Build map from flattened cache for better memory efficiency
+        // OPTIMIZED: Use indexed cache for O(1) lookups instead of scanning all entries
         val memberMap = mutableMapOf<String, MemberProfile>()
-        flattenedMemberCache.forEach { (key, profile) ->
-            if (key.startsWith("$roomId:")) {
-                val userId = key.substringAfter("$roomId:")
-                memberMap[userId] = profile
-            }
-        }
         
-        // If no flattened data, fallback to legacy cache
-        if (memberMap.isEmpty() && roomMemberCache.containsKey(roomId)) {
-            roomMemberCache[roomId]?.let { legacyMap ->
-                memberMap.putAll(legacyMap)
+        // Try indexed lookup first
+        val userIds = roomMemberIndex[roomId]
+        if (userIds != null && userIds.isNotEmpty()) {
+            for (userId in userIds) {
+                val flattenedKey = "$roomId:$userId"
+                val profile = flattenedMemberCache[flattenedKey]
+                if (profile != null) {
+                    memberMap[userId] = profile
+                }
+            }
+        } else {
+            // Fallback to legacy cache if index is empty
+            if (roomMemberCache.containsKey(roomId)) {
+                roomMemberCache[roomId]?.let { legacyMap ->
+                    memberMap.putAll(legacyMap)
+                }
             }
         }
         
@@ -1335,6 +1344,9 @@ class AppViewModel : ViewModel() {
         // Store in flattened cache for better memory efficiency
         val flattenedKey = "$roomId:$userId"
         flattenedMemberCache[flattenedKey] = profile
+        
+        // OPTIMIZED: Update indexed cache for fast lookups
+        roomMemberIndex.getOrPut(roomId) { ConcurrentHashMap.newKeySet() }.add(userId)
         
         // Also maintain legacy cache for compatibility
         val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
@@ -6058,6 +6070,9 @@ class AppViewModel : ViewModel() {
                             val flattenedKey = "$roomId:$stateKey"
                             flattenedMemberCache[flattenedKey] = newProfile
                             
+                            // OPTIMIZED: Update indexed cache for fast lookups
+                            roomMemberIndex.getOrPut(roomId) { ConcurrentHashMap.newKeySet() }.add(stateKey)
+                            
                             // PERFORMANCE: Also add to global cache for O(1) lookups
                             manageGlobalCacheSize()
                             manageRoomMemberCacheSize(roomId)
@@ -6084,6 +6099,7 @@ class AppViewModel : ViewModel() {
                                     // Clear all caches to prevent OOM
                                     globalProfileCache.clear()
                                     flattenedMemberCache.clear()
+                                    roomMemberIndex.clear() // OPTIMIZED: Clear index when clearing cache
                                     android.util.Log.w("Andromuks", "AppViewModel: Cleared all caches due to large member list ($updatedMembers members)")
                                 }
                             } else {
@@ -6096,6 +6112,10 @@ class AppViewModel : ViewModel() {
                             val wasRemoved = memberMap.remove(stateKey) != null
                             val flattenedKey = "$roomId:$stateKey"
                             val wasRemovedFromFlattened = flattenedMemberCache.remove(flattenedKey) != null
+                            
+                            // OPTIMIZED: Remove from indexed cache
+                            roomMemberIndex[roomId]?.remove(stateKey)
+                            
                             if (wasRemoved || wasRemovedFromFlattened) {
                                 android.util.Log.d("Andromuks", "AppViewModel: Removed $stateKey from room $roomId (membership: $membership)")
                                 updatedMembers++
@@ -6177,6 +6197,7 @@ class AppViewModel : ViewModel() {
                                     // Clear all caches to prevent OOM
                                     globalProfileCache.clear()
                                     flattenedMemberCache.clear()
+                                    roomMemberIndex.clear() // OPTIMIZED: Clear index when clearing cache
                                     android.util.Log.w("Andromuks", "AppViewModel: Cleared all caches due to large profile update ($updatedProfiles profiles)")
                                 }
                             } else {
