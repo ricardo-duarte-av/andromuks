@@ -134,6 +134,25 @@ class AppViewModel : ViewModel() {
     private var cachedFavouriteRooms by mutableStateOf<List<RoomItem>>(emptyList())
         private set
     
+    // PERFORMANCE: Pre-computed badge counts (always computed for immediate tab bar display)
+    private var cachedDirectChatsUnreadCount by mutableStateOf(0)
+        private set
+    private var cachedDirectChatsHasHighlights by mutableStateOf(false)
+        private set
+    private var cachedUnreadCount by mutableStateOf(0)
+        private set
+    private var cachedFavouritesUnreadCount by mutableStateOf(0)
+        private set
+    private var cachedFavouritesHasHighlights by mutableStateOf(false)
+        private set
+    private var cachedBridgesUnreadCount by mutableStateOf(0)
+        private set
+    private var cachedBridgesHasHighlights by mutableStateOf(false)
+        private set
+    
+    // PERFORMANCE: Track which sections have been loaded (for lazy loading)
+    private val loadedSections = mutableSetOf<RoomSectionType>()
+    
     // Cache invalidation tracking
     private var lastAllRoomsHash: Int = 0
     
@@ -595,50 +614,44 @@ class AppViewModel : ViewModel() {
     
     
     // Get current room section based on selected tab
+    /**
+     * Get the count of unread rooms for Unread tab
+     * PERFORMANCE: Uses pre-computed cached count for O(1) access
+     */
     fun getUnreadCount(): Int {
-        val roomsToUse = if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
-            spaceList.firstOrNull()?.rooms ?: emptyList()
-        } else {
-            allRooms
-        }
-        return roomsToUse.count { 
-            (it.unreadCount != null && it.unreadCount > 0) || 
-            (it.highlightCount != null && it.highlightCount > 0) 
-        }
+        return cachedUnreadCount
     }
     
     /**
      * Get the count of unread rooms for Direct Chats tab
+     * PERFORMANCE: Uses pre-computed cached count for O(1) access
      */
     fun getDirectChatsUnreadCount(): Int {
-        return cachedDirectChatRooms.count { 
-            (it.unreadCount != null && it.unreadCount > 0) || 
-            (it.highlightCount != null && it.highlightCount > 0) 
-        }
+        return cachedDirectChatsUnreadCount
     }
     
     /**
      * Check if Direct Chats has any room with highlights
+     * PERFORMANCE: Uses pre-computed cached flag for O(1) access
      */
     fun hasDirectChatsHighlights(): Boolean {
-        return cachedDirectChatRooms.any { it.highlightCount != null && it.highlightCount > 0 }
+        return cachedDirectChatsHasHighlights
     }
     
     /**
      * Get the count of unread rooms for Favourites tab
+     * PERFORMANCE: Uses pre-computed cached count for O(1) access
      */
     fun getFavouritesUnreadCount(): Int {
-        return cachedFavouriteRooms.count { 
-            (it.unreadCount != null && it.unreadCount > 0) || 
-            (it.highlightCount != null && it.highlightCount > 0) 
-        }
+        return cachedFavouritesUnreadCount
     }
     
     /**
      * Check if Favourites has any room with highlights
+     * PERFORMANCE: Uses pre-computed cached flag for O(1) access
      */
     fun hasFavouritesHighlights(): Boolean {
-        return cachedFavouriteRooms.any { it.highlightCount != null && it.highlightCount > 0 }
+        return cachedFavouritesHasHighlights
     }
     
     /**
@@ -769,6 +782,11 @@ class AppViewModel : ViewModel() {
      * Update cached room sections to avoid expensive filtering on every recomposition.
      * Only recalculates when allRooms actually changes.
      */
+    /**
+     * PERFORMANCE OPTIMIZATION: Update cached room sections and badge counts
+     * Always pre-computes badge counts for immediate tab bar display, but only
+     * filters room lists for sections that have been loaded (lazy loading)
+     */
     private fun updateCachedRoomSections() {
         // Get rooms from spaceList if allRooms is empty (fallback for existing data)
         val roomsToUse = if (allRooms.isEmpty() && spaceList.isNotEmpty()) {
@@ -785,20 +803,103 @@ class AppViewModel : ViewModel() {
         
         lastAllRoomsHash = currentHash
         
-        // Update cached filtered lists
-        cachedDirectChatRooms = roomsToUse.filter { it.isDirectMessage }
+        // PERFORMANCE: Always pre-compute badge counts (needed for tab bar badges)
+        // This is fast even for large room lists (O(n) single pass)
+        updateBadgeCounts(roomsToUse)
         
-        cachedUnreadRooms = roomsToUse.filter { 
-            (it.unreadCount != null && it.unreadCount > 0) || 
-            (it.highlightCount != null && it.highlightCount > 0) 
+        // PERFORMANCE: Only update filtered lists for sections that have been loaded
+        // This defers expensive filtering until the user actually visits the tab
+        if (loadedSections.contains(RoomSectionType.DIRECT_CHATS)) {
+            cachedDirectChatRooms = roomsToUse.filter { it.isDirectMessage }
         }
         
-        cachedFavouriteRooms = roomsToUse.filter { it.isFavourite }
+        if (loadedSections.contains(RoomSectionType.UNREAD)) {
+            cachedUnreadRooms = roomsToUse.filter { 
+                (it.unreadCount != null && it.unreadCount > 0) || 
+                (it.highlightCount != null && it.highlightCount > 0) 
+            }
+        }
         
-        android.util.Log.d("Andromuks", "AppViewModel: Updated cached room sections - DMs: ${cachedDirectChatRooms.size}, Unread: ${cachedUnreadRooms.size}, Favourites: ${cachedFavouriteRooms.size}")
+        if (loadedSections.contains(RoomSectionType.FAVOURITES)) {
+            cachedFavouriteRooms = roomsToUse.filter { it.isFavourite }
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Updated cached sections - Loaded: $loadedSections, DMs: ${cachedDirectChatRooms.size}, Unread: ${cachedUnreadRooms.size}, Favourites: ${cachedFavouriteRooms.size}")
+    }
+    
+    /**
+     * PERFORMANCE: Pre-compute badge counts in a single O(n) pass
+     * Always computed for immediate tab bar badge display
+     */
+    private fun updateBadgeCounts(rooms: List<RoomItem>) {
+        var directChatsUnread = 0
+        var directChatsHighlights = false
+        var unreadCount = 0
+        var favouritesUnread = 0
+        var favouritesHighlights = false
+        var bridgesUnread = 0
+        var bridgesHighlights = false
+        
+        for (room in rooms) {
+            val hasUnread = (room.unreadCount != null && room.unreadCount > 0) || 
+                           (room.highlightCount != null && room.highlightCount > 0)
+            val hasHighlights = room.highlightCount != null && room.highlightCount > 0
+            
+            // Count unread for all rooms
+            if (hasUnread) {
+                unreadCount++
+            }
+            
+            // Count direct chats
+            if (room.isDirectMessage) {
+                if (hasUnread) {
+                    directChatsUnread++
+                    if (hasHighlights) {
+                        directChatsHighlights = true
+                    }
+                }
+            }
+            
+            // Count favourites
+            if (room.isFavourite) {
+                if (hasUnread) {
+                    favouritesUnread++
+                    if (hasHighlights) {
+                        favouritesHighlights = true
+                    }
+                }
+            }
+        }
+        
+        // Update cached counts
+        cachedDirectChatsUnreadCount = directChatsUnread
+        cachedDirectChatsHasHighlights = directChatsHighlights
+        cachedUnreadCount = unreadCount
+        cachedFavouritesUnreadCount = favouritesUnread
+        cachedFavouritesHasHighlights = favouritesHighlights
+        cachedBridgesUnreadCount = bridgesUnread
+        cachedBridgesHasHighlights = bridgesHighlights
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Badge counts - DMs: $directChatsUnread, Unread: $unreadCount, Favs: $favouritesUnread")
     }
     
     fun getCurrentRoomSection(): RoomSection {
+        // PERFORMANCE: Mark current section as loaded (enables lazy filtering)
+        if (!loadedSections.contains(selectedSection)) {
+            loadedSections.add(selectedSection)
+            android.util.Log.d("Andromuks", "AppViewModel: Lazy loading section: $selectedSection")
+            
+            // If this is the first section being loaded, also mark HOME as loaded
+            // This ensures badge counts are always computed (HOME doesn't need filtering)
+            if (loadedSections.size == 1 && selectedSection != RoomSectionType.HOME) {
+                loadedSections.add(RoomSectionType.HOME)
+                android.util.Log.d("Andromuks", "AppViewModel: Auto-loading HOME section for badge counts")
+            }
+            
+            // Trigger cache update to filter this section
+            invalidateRoomSectionCache()
+        }
+        
         // Update cached room sections if needed
         updateCachedRoomSections()
         
