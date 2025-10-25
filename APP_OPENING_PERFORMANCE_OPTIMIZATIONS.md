@@ -217,7 +217,7 @@ val filteredRooms = remember(rooms, searchQuery) {
 
 ### Phase 3: Lazy Loading (2-3 hours)
 - [x] Lazy load non-Home tabs (Task #3) ✅ COMPLETED
-- [ ] Defer bridge detection (Task #5)
+- [x] Defer bridge detection (Task #5) ✅ COMPLETED
 
 ### Phase 4: Polish (1-2 hours)
 - [x] Background space edge processing (Task #4) ✅ COMPLETED

@@ -896,6 +896,11 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Auto-loading HOME section for badge counts")
             }
             
+            // PERFORMANCE: Lazy load bridges when Bridges tab is first accessed
+            if (selectedSection == RoomSectionType.BRIDGES) {
+                loadBridgesIfNeeded()
+            }
+            
             // Trigger cache update to filter this section
             invalidateRoomSectionCache()
         }
@@ -2342,10 +2347,9 @@ class AppViewModel : ViewModel() {
         // Now that all rooms are loaded, populate space edges
         populateSpaceEdges()
         
-        // Request room states for bridge detection and storage after init_complete
-        // This ensures all rooms are loaded before requesting room state information
-        android.util.Log.d("Andromuks", "AppViewModel: Init complete - requesting room states for ${allRooms.size} rooms")
-        net.vrkknn.andromuks.utils.SpaceRoomParser.requestRoomStatesForBridgeDetection(this)
+        // PERFORMANCE OPTIMIZATION: Defer bridge detection until Bridges tab is accessed
+        // This prevents 500-1000ms blocking on init_complete with many rooms
+        android.util.Log.d("Andromuks", "AppViewModel: Init complete - bridge detection deferred until Bridges tab is accessed")
         
         // Start the WebSocket foreground service now that we have all connection parameters
         android.util.Log.d("Andromuks", "AppViewModel: Starting WebSocket foreground service after init_complete")
@@ -2423,6 +2427,28 @@ class AppViewModel : ViewModel() {
     fun storeSpaceEdges(spaceEdges: JSONObject) {
         android.util.Log.d("Andromuks", "AppViewModel: Storing space edges for later processing")
         storedSpaceEdges = spaceEdges
+    }
+    
+    /**
+     * PERFORMANCE OPTIMIZATION: Lazy loads bridges on first access to Bridges tab
+     * This prevents 500-1000ms blocking on app initialization with many rooms
+     * 
+     * Process:
+     * 1. Check if bridges are already loaded (prevent duplicate requests)
+     * 2. Request room states for bridge detection in background
+     * 3. Process bridge info progressively as responses arrive
+     */
+    private fun loadBridgesIfNeeded() {
+        // Only load if not already loaded
+        if (allBridges.isNotEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: Bridges already loaded (${allBridges.size} bridges)")
+            return
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Lazy loading bridges - requesting room states for ${allRooms.size} rooms")
+        
+        // Request room states for all rooms (will process responses as they arrive)
+        net.vrkknn.andromuks.utils.SpaceRoomParser.requestRoomStatesForBridgeDetection(this)
     }
     
     /**
