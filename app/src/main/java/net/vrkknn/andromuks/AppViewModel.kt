@@ -607,6 +607,73 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    /**
+     * Get the count of unread rooms for Direct Chats tab
+     */
+    fun getDirectChatsUnreadCount(): Int {
+        return cachedDirectChatRooms.count { 
+            (it.unreadCount != null && it.unreadCount > 0) || 
+            (it.highlightCount != null && it.highlightCount > 0) 
+        }
+    }
+    
+    /**
+     * Check if Direct Chats has any room with highlights
+     */
+    fun hasDirectChatsHighlights(): Boolean {
+        return cachedDirectChatRooms.any { it.highlightCount != null && it.highlightCount > 0 }
+    }
+    
+    /**
+     * Get the count of unread rooms for Favourites tab
+     */
+    fun getFavouritesUnreadCount(): Int {
+        return cachedFavouriteRooms.count { 
+            (it.unreadCount != null && it.unreadCount > 0) || 
+            (it.highlightCount != null && it.highlightCount > 0) 
+        }
+    }
+    
+    /**
+     * Check if Favourites has any room with highlights
+     */
+    fun hasFavouritesHighlights(): Boolean {
+        return cachedFavouriteRooms.any { it.highlightCount != null && it.highlightCount > 0 }
+    }
+    
+    /**
+     * Get the count of unread rooms for Bridges tab
+     */
+    fun getBridgesUnreadCount(): Int {
+        val roomsToCount = if (currentBridgeId != null) {
+            // Count unread rooms in the selected bridge
+            val bridge = allBridges.find { it.id == currentBridgeId }
+            bridge?.rooms ?: emptyList()
+        } else {
+            // Count unread rooms across all bridges
+            allBridges.flatMap { it.rooms }
+        }
+        return roomsToCount.count { 
+            (it.unreadCount != null && it.unreadCount > 0) || 
+            (it.highlightCount != null && it.highlightCount > 0) 
+        }
+    }
+    
+    /**
+     * Check if Bridges has any room with highlights
+     */
+    fun hasBridgesHighlights(): Boolean {
+        val roomsToCheck = if (currentBridgeId != null) {
+            // Check highlights in the selected bridge
+            val bridge = allBridges.find { it.id == currentBridgeId }
+            bridge?.rooms ?: emptyList()
+        } else {
+            // Check highlights across all bridges
+            allBridges.flatMap { it.rooms }
+        }
+        return roomsToCheck.any { it.highlightCount != null && it.highlightCount > 0 }
+    }
+    
     fun getPendingInvites(): List<RoomInvite> {
         return pendingInvites.values.toList()
     }

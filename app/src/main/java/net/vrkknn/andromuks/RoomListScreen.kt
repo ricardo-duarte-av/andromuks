@@ -1045,7 +1045,8 @@ fun TabBar(
                 onClick = {
                     onSectionSelected(RoomSectionType.DIRECT_CHATS)
                 },
-                badgeCount = if (currentSection.type == RoomSectionType.DIRECT_CHATS) currentSection.unreadCount else 0
+                badgeCount = appViewModel.getDirectChatsUnreadCount(),
+                hasHighlights = appViewModel.hasDirectChatsHighlights()
             )
             
             TabButton(
@@ -1064,7 +1065,9 @@ fun TabBar(
                 isSelected = currentSection.type == RoomSectionType.FAVOURITES,
                 onClick = {
                     onSectionSelected(RoomSectionType.FAVOURITES)
-                }
+                },
+                badgeCount = appViewModel.getFavouritesUnreadCount(),
+                hasHighlights = appViewModel.hasFavouritesHighlights()
             )
             
             TabButton(
@@ -1077,7 +1080,9 @@ fun TabBar(
                         appViewModel.exitBridge()
                     }
                     onSectionSelected(RoomSectionType.BRIDGES)
-                }
+                },
+                badgeCount = appViewModel.getBridgesUnreadCount(),
+                hasHighlights = appViewModel.hasBridgesHighlights()
             )
         }
     }
@@ -1089,7 +1094,8 @@ fun TabButton(
     label: String,
     isSelected: Boolean,
     onClick: () -> Unit,
-    badgeCount: Int = 0
+    badgeCount: Int = 0,
+    hasHighlights: Boolean = false
 ) {
     val content = @Composable {
         Column(
@@ -1115,8 +1121,8 @@ fun TabButton(
         BadgedBox(
             badge = { 
                 Badge(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
+                    containerColor = if (hasHighlights) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    contentColor = if (hasHighlights) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary
                 ) { 
                     Text("$badgeCount") 
                 } 
