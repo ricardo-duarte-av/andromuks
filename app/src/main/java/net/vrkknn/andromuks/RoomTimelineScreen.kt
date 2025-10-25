@@ -1017,6 +1017,17 @@ fun RoomTimelineScreen(
         }
     }
 
+    // Auto-scroll after each individual message bubble animation completes
+    // This ensures we scroll after each message is rendered, not just when all animations finish
+    LaunchedEffect(appViewModel.bubbleAnimationCompletionCounter, isAttachedToBottom) {
+        if (isAttachedToBottom && timelineItems.isNotEmpty() && !isLoading && !pendingScrollRestoration) {
+            Log.d("Andromuks", "RoomTimelineScreen: Individual bubble animation completed, auto-scrolling to bottom")
+            coroutineScope.launch {
+                listState.animateScrollToItem(timelineItems.lastIndex)
+            }
+        }
+    }
+
     LaunchedEffect(roomId) {
         Log.d("Andromuks", "RoomTimelineScreen: Loading timeline for room: $roomId")
         // Reset state for new room
