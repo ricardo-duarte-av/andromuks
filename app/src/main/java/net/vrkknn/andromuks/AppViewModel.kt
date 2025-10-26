@@ -430,8 +430,6 @@ class AppViewModel : ViewModel() {
     // Web client push integration
     private var webClientPushIntegration: WebClientPushIntegration? = null
     
-    // Network Monitor (for immediate reconnection on network changes)
-    private var networkMonitor: net.vrkknn.andromuks.utils.NetworkMonitor? = null
     
     // Notification action tracking
     private data class PendingNotificationAction(
@@ -610,6 +608,9 @@ class AppViewModel : ViewModel() {
         lastReceivedSyncId = 0
         lastReceivedRequestId = 0
         
+        // Sync cleared state with service
+        WebSocketService.setReconnectionState(currentRunId, 0, vapidKey)
+        
         val preservedRunId = currentRunId
         android.util.Log.d("Andromuks", "AppViewModel: State reset complete - run_id preserved: $preservedRunId")
         android.util.Log.d("Andromuks", "AppViewModel: FORCE REFRESH - lastReceivedSyncId cleared to 0, will reconnect with run_id but NO last_received_id (full payload)")
@@ -710,7 +711,9 @@ class AppViewModel : ViewModel() {
      * @return Map where keys are event IDs and values are lists of read receipts for that event
      */
     fun getReadReceiptsMap(): Map<String, List<ReadReceipt>> {
-        return readReceipts.mapValues { it.value.toList() }
+        return synchronized(readReceiptsLock) {
+            readReceipts.mapValues { it.value.toList() }
+        }
     }
     
     /**
@@ -1076,45 +1079,9 @@ class AppViewModel : ViewModel() {
      * Initialize network monitoring for immediate WebSocket reconnection on network changes
      */
     private fun initializeNetworkMonitor(context: Context) {
-        if (networkMonitor != null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Network monitor already initialized")
-            return
-        }
-        
-        networkMonitor = net.vrkknn.andromuks.utils.NetworkMonitor(
-            context = context,
-            onNetworkAvailable = {
-                android.util.Log.i("Andromuks", "AppViewModel: Network available - triggering immediate reconnection")
-                // NETWORK OPTIMIZATION: Update offline state and restore connectivity
-                if (isOfflineMode) {
-                    isOfflineMode = false
-                    lastNetworkState = true
-                    android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Exiting offline mode")
-                }
-                // RECONNECTION: Reset backoff state on network restoration (fresh start)
-                reconnectionAttempts = 0
-                reconnectionJob?.cancel()
-                reconnectionJob = null
-                android.util.Log.d("Andromuks", "AppViewModel: Reset reconnection state due to network restoration")
-                
-                // Immediate reconnection instead of waiting for ping timeout
-                restartWebSocket("Network restored")
-            },
-            onNetworkLost = {
-                android.util.Log.w("Andromuks", "AppViewModel: Network lost - entering offline mode")
-                // NETWORK OPTIMIZATION: Enter offline mode and preserve cache
-                if (!isOfflineMode) {
-                    isOfflineMode = true
-                    lastNetworkState = false
-                    android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Entering offline mode, preserving cache")
-                }
-                // Could optionally clear WebSocket here, but better to let ping timeout handle it
-                // This avoids unnecessary reconnect attempts when network is definitely unavailable
-            }
-        )
-        
-        networkMonitor?.startMonitoring()
-        android.util.Log.d("Andromuks", "AppViewModel: Network monitoring started")
+        // Delegate network monitoring to service
+        WebSocketService.startNetworkMonitoring(context)
+        android.util.Log.d("Andromuks", "AppViewModel: Network monitoring delegated to service")
     }
     
     /**
@@ -2170,12 +2137,8 @@ class AppViewModel : ViewModel() {
         // Update last sync timestamp immediately (this is lightweight)
         lastSyncTimestamp = System.currentTimeMillis()
         
-        // Update notification with new sync timestamp (lightweight operation)
-        WebSocketService.updateConnectionStatus(
-            isConnected = true,
-            lagMs = null, // Keep existing lag if available
-            lastSyncTimestamp = lastSyncTimestamp
-        )
+        // Update service with new sync timestamp
+        WebSocketService.updateLastSyncTimestamp()
         
         // PERFORMANCE: Move heavy JSON parsing to background thread
         viewModelScope.launch(Dispatchers.Default) {
@@ -2197,12 +2160,8 @@ class AppViewModel : ViewModel() {
         // Update last sync timestamp for notification display
         lastSyncTimestamp = System.currentTimeMillis()
         
-        // Update notification with new sync timestamp
-        WebSocketService.updateConnectionStatus(
-            isConnected = true,
-            lagMs = null, // Keep existing lag if available
-            lastSyncTimestamp = lastSyncTimestamp
-        )
+        // Update service with new sync timestamp
+        WebSocketService.updateLastSyncTimestamp()
         
         // First, populate member cache from sync data and check for changes
         val oldMemberStateHash = generateMemberStateHash()
@@ -2700,6 +2659,9 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: App became visible")
         isAppVisible = true
         
+        // Notify service of app visibility change
+        WebSocketService.setAppVisibility(true)
+        
         // Cancel any pending shutdown
         appInvisibleJob?.cancel()
         appInvisibleJob = null
@@ -2791,6 +2753,9 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: App became invisible")
         isAppVisible = false
         
+        // Notify service of app visibility change
+        WebSocketService.setAppVisibility(false)
+        
         // Save state to storage for crash recovery (preserves run_id and last_received_sync_id)
         // This allows seamless resumption if app is killed by system
         appContext?.let { context ->
@@ -2831,11 +2796,12 @@ class AppViewModel : ViewModel() {
         
         // Cancel any pending jobs
         appInvisibleJob?.cancel()
-        reconnectionJob?.cancel()
         
-        // Stop network monitoring
-        networkMonitor?.stopMonitoring()
-        networkMonitor = null
+        // Cancel reconnection in service
+        WebSocketService.cancelReconnection()
+        
+        // Stop network monitoring in service
+        WebSocketService.stopNetworkMonitoring()
         
         // Clear WebSocket connection
         clearWebSocket()
@@ -2888,6 +2854,7 @@ class AppViewModel : ViewModel() {
     private val reactionRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
+    private val readReceiptsLock = Any() // Synchronization lock for readReceipts access
     
     // Track receipt movements for animation - userId -> (previousEventId, currentEventId, timestamp)
     private val receiptMovements = mutableMapOf<String, Triple<String?, String, Long>>()
@@ -2935,24 +2902,12 @@ class AppViewModel : ViewModel() {
     
     
     private var webSocket: WebSocket? = null
-    private var pingJob: Job? = null
     private var lastReceivedRequestId: Int = 0 // Tracks ANY incoming request_id (for pong detection)
     private var lastReceivedSyncId: Int = 0 // Tracks ONLY sync_complete negative request_ids (for reconnection)
-    private var lastPingRequestId: Int = 0
-    private var lastPingTimestamp: Long = 0 // Timestamp when ping was sent (for lag calculation)
     private var lastSyncTimestamp: Long = 0 // Timestamp of last sync_complete received
-    private var pongTimeoutJob: Job? = null
     private var currentRunId: String = "" // Unique connection ID from gomuks backend
     private var vapidKey: String = "" // VAPID key for push notifications
     private var hasHadInitialConnection = false // Track if we've had an initial connection to only vibrate on reconnections
-
-    // NETWORK OPTIMIZATION: Smart timeout handling
-    private var networkLatencyMs = 1000L // Track estimated network latency
-    private var connectionStability = 1.0f // 0.0 (unstable) to 1.0 (stable)
-    private var consecutiveTimeouts = 0
-    private val BASE_TIMEOUT_MS = 5000L
-    private val MAX_TIMEOUT_MS = 15000L
-    private val MIN_TIMEOUT_MS = 2000L
 
     // NETWORK OPTIMIZATION: Offline caching and connection state
     private var isOfflineMode = false
@@ -2993,23 +2948,32 @@ class AppViewModel : ViewModel() {
         return reconnectionLog.toList()
     }
 
-    // RECONNECTION: Exponential backoff state
-    private var reconnectionAttempts = 0
-    private var reconnectionJob: Job? = null
-    private val BASE_RECONNECTION_DELAY_MS = 1000L // 1 second
-    private val MAX_RECONNECTION_DELAY_MS = 60000L // 60 seconds
-    private val MAX_RECONNECTION_ATTEMPTS = 10 // Give up after 10 attempts
-
     fun setWebSocket(webSocket: WebSocket) {
         this.webSocket = webSocket
-        startPingLoop()
         
-        // Update notification with connection status
-        WebSocketService.updateConnectionStatus(
-            isConnected = true,
-            lagMs = null, // No pong yet
-            lastSyncTimestamp = if (lastSyncTimestamp > 0) lastSyncTimestamp else null
-        )
+        // Set up service callbacks for ping/pong
+        WebSocketService.setWebSocketSendCallback { command, requestId, data ->
+            sendWebSocketCommand(command, requestId, data) == WebSocketResult.SUCCESS
+        }
+        WebSocketService.setReconnectionCallback { reason ->
+            restartWebSocket(reason)
+        }
+        WebSocketService.setOfflineModeCallback { isOffline ->
+            if (isOffline) {
+                android.util.Log.w("Andromuks", "AppViewModel: Entering offline mode")
+                isOfflineMode = true
+                lastNetworkState = false
+            } else {
+                android.util.Log.i("Andromuks", "AppViewModel: Exiting offline mode")
+                isOfflineMode = false
+                lastNetworkState = true
+                // Reset reconnection state on network restoration
+                WebSocketService.resetReconnectionState()
+            }
+        }
+        
+        // Delegate WebSocket management to service
+        WebSocketService.setWebSocket(webSocket)
         
         // Broadcast that socket connection is available and retry pending operations
         android.util.Log.i("Andromuks", "AppViewModel: WebSocket connection established - retrying ${pendingWebSocketOperations.size} pending operations")
@@ -3027,9 +2991,8 @@ class AppViewModel : ViewModel() {
      */
     fun resetReconnectionState() {
         android.util.Log.d("Andromuks", "AppViewModel: Resetting reconnection state (successful connection)")
-        reconnectionAttempts = 0
-        reconnectionJob?.cancel()
-        reconnectionJob = null
+        // Delegate to service
+        WebSocketService.resetReconnectionState()
     }
     
     /**
@@ -3041,53 +3004,20 @@ class AppViewModel : ViewModel() {
      * @param reason Human-readable reason for reconnection (for logging)
      */
     fun scheduleReconnection(reason: String) {
-        // Cancel any existing reconnection job
-        reconnectionJob?.cancel()
-        
-        // Check if we've exceeded max attempts
-        if (reconnectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
-            android.util.Log.e("Andromuks", "AppViewModel: Max reconnection attempts ($MAX_RECONNECTION_ATTEMPTS) reached, giving up")
-            android.util.Log.e("Andromuks", "AppViewModel: User must manually restart app or wait for network change")
-            return
-        }
-        
-        // Calculate delay with exponential backoff
-        // Formula: min(base * 2^attempts, max)
-        val delay = kotlin.math.min(
-            BASE_RECONNECTION_DELAY_MS * (1 shl reconnectionAttempts), // 2^attempts
-            MAX_RECONNECTION_DELAY_MS
-        )
-        
-        reconnectionAttempts++
-        
-        android.util.Log.w("Andromuks", "AppViewModel: Scheduling reconnection attempt #$reconnectionAttempts in ${delay}ms")
-        android.util.Log.w("Andromuks", "AppViewModel: Reason: $reason")
-        
-        reconnectionJob = viewModelScope.launch {
-            delay(delay)
-            
-            if (isActive) {
-                android.util.Log.d("Andromuks", "AppViewModel: Executing reconnection attempt #$reconnectionAttempts")
-                
-                // Trigger reconnection via callback
-                onRestartWebSocket?.invoke("Reconnection attempt #$reconnectionAttempts: $reason")
-            }
-        }
+        android.util.Log.d("Andromuks", "AppViewModel: Delegating reconnection scheduling to service")
+        // Delegate to service
+        WebSocketService.scheduleReconnection(reason)
     }
     
     fun isWebSocketConnected(): Boolean {
-        return webSocket != null
+        return WebSocketService.isWebSocketConnected()
     }
 
     fun clearWebSocket() {
         this.webSocket = null
-        pingJob?.cancel()
-        pingJob = null
-        pongTimeoutJob?.cancel()
-        pongTimeoutJob = null
         
-        // Update notification to show disconnection
-        WebSocketService.updateConnectionStatus(isConnected = false)
+        // Delegate WebSocket clearing to service
+        WebSocketService.clearWebSocket()
     }
     
     /**
@@ -3170,31 +3100,16 @@ class AppViewModel : ViewModel() {
             if (requestId < 0) {
                 lastReceivedSyncId = requestId
                 android.util.Log.d("Andromuks", "AppViewModel: Updated lastReceivedSyncId to $requestId (sync_complete)")
+                
+                // Update service with sync ID for reconnection
+                WebSocketService.updateLastReceivedSyncId(requestId)
+                
+                // Sync full reconnection state with service
+                WebSocketService.setReconnectionState(currentRunId, lastReceivedSyncId, vapidKey)
             }
             
-            // If this is a pong response to our ping, cancel the timeout
-            if (requestId == lastPingRequestId) {
-                android.util.Log.d("Andromuks", "AppViewModel: Received pong for ping $requestId, canceling timeout")
-                pongTimeoutJob?.cancel()
-                pongTimeoutJob = null
-                
-                // Calculate lag
-                val lagMs = System.currentTimeMillis() - lastPingTimestamp
-                android.util.Log.d("Andromuks", "AppViewModel: Pong received, lag: ${lagMs}ms")
-                
-                // NETWORK OPTIMIZATION: Update smart timeout parameters
-                updateNetworkMetrics(lagMs)
-                
-                // Update service notification with lag and last sync time
-                WebSocketService.updateConnectionStatus(
-                    isConnected = true,
-                    lagMs = lagMs,
-                    lastSyncTimestamp = if (lastSyncTimestamp > 0) lastSyncTimestamp else null
-                )
-                
-                // Trigger timestamp update on pong
-                triggerTimestampUpdate()
-            }
+            // Delegate pong handling to service
+            WebSocketService.handlePong(requestId)
         }
     }
     
@@ -3205,6 +3120,10 @@ class AppViewModel : ViewModel() {
     fun handleRunId(runId: String, vapidKey: String) {
         currentRunId = runId
         this.vapidKey = vapidKey
+        
+        // Sync reconnection state with service
+        WebSocketService.setReconnectionState(runId, lastReceivedSyncId, vapidKey)
+        
         android.util.Log.d("Andromuks", "AppViewModel: Stored run_id: $runId, vapid_key: ${vapidKey.take(20)}...")
     }
     
@@ -3333,6 +3252,10 @@ class AppViewModel : ViewModel() {
                 currentRunId = runId
                 lastReceivedSyncId = lastSyncId
                 vapidKey = savedVapidKey
+                
+                // Sync restored state with service
+                WebSocketService.setReconnectionState(runId, lastSyncId, savedVapidKey)
+                
                 android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state - run_id: $runId, last_received_sync_id: $lastSyncId")
             }
             
@@ -3406,128 +3329,18 @@ class AppViewModel : ViewModel() {
             vapidKey = ""
             navigationCallbackTriggered = false // Reset navigation flag for fresh start
             
+            // Clear service reconnection state
+            WebSocketService.clearReconnectionState()
+            
             android.util.Log.d("Andromuks", "AppViewModel: Cleared cached state")
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to clear cached state", e)
         }
     }
 
-    /**
-     * Get appropriate ping interval based on app visibility
-     * - 15 seconds when app is visible (responsive, user is actively using)
-     * - 60 seconds when app is in background (battery efficient)
-     */
-    private fun getPingInterval(): Long {
-        return if (isAppVisible) {
-            15_000L  // 15 seconds - responsive when user is actively using app
-        } else {
-            60_000L  // 60 seconds - battery efficient when in background
-        }
-    }
-    
-    private fun startPingLoop() {
-        pingJob?.cancel()
-        val ws = webSocket ?: return
-        pingJob = viewModelScope.launch {
-            while (isActive) {
-                val interval = getPingInterval()
-                android.util.Log.d("Andromuks", "AppViewModel: Ping interval: ${interval}ms (app visible: $isAppVisible)")
-                delay(interval)
-                val currentWs = webSocket
-                if (currentWs == null) {
-                    // Socket gone; stop loop
-                    break
-                }
-                val reqId = requestIdCounter++
-                lastPingRequestId = reqId
-                lastPingTimestamp = System.currentTimeMillis() // Store timestamp for lag calculation
-                // Use lastReceivedSyncId (the negative sync_complete request_id) for reconnection tracking
-                val data = mapOf("last_received_id" to lastReceivedSyncId)
-                sendWebSocketCommand("ping", reqId, data)
-                
-                // Start timeout job for this ping
-                startPongTimeout(reqId)
-            }
-        }
-    }
-    
-    private fun startPongTimeout(pingRequestId: Int) {
-        pongTimeoutJob?.cancel()
-        pongTimeoutJob = viewModelScope.launch {
-            // NETWORK OPTIMIZATION: Use smart timeout based on network conditions
-            val smartTimeout = calculateSmartTimeout()
-            delay(smartTimeout)
-            android.util.Log.w("Andromuks", "AppViewModel: Pong timeout for ping $pingRequestId (timeout: ${smartTimeout}ms), restarting websocket")
-            
-            // NETWORK OPTIMIZATION: Update timeout tracking
-            consecutiveTimeouts++
-            updateConnectionStability(false)
-            
-            restartWebSocket("Ping timeout (${smartTimeout}ms)")
-        }
-    }
-    
-    /**
-     * NETWORK OPTIMIZATION: Calculate smart timeout based on network conditions
-     */
-    private fun calculateSmartTimeout(): Long {
-        // Base timeout adjusted by network latency and stability
-        val baseTimeout = BASE_TIMEOUT_MS
-        
-        // Increase timeout for high latency networks
-        val latencyAdjustment = (networkLatencyMs * 1.5).toLong().coerceAtMost(5000L)
-        
-        // Increase timeout for unstable connections
-        val stabilityAdjustment = ((1.0f - connectionStability) * 5000f).toLong()
-        
-        // Increase timeout after consecutive timeouts
-        val consecutiveTimeoutAdjustment = consecutiveTimeouts * 2000L
-        
-        val smartTimeout = baseTimeout + latencyAdjustment + stabilityAdjustment + consecutiveTimeoutAdjustment
-        
-        return smartTimeout.coerceIn(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS)
-    }
-    
-    /**
-     * NETWORK OPTIMIZATION: Update network metrics based on ping/pong data
-     */
-    private fun updateNetworkMetrics(lagMs: Long) {
-        // Update latency with exponential moving average
-        networkLatencyMs = ((networkLatencyMs * 0.7) + (lagMs * 0.3)).toLong()
-        
-        // Update connection stability based on lag consistency
-        val lagDeviation = kotlin.math.abs(lagMs - networkLatencyMs)
-        val stabilityFactor = when {
-            lagDeviation < 200 -> 0.1f // Very stable
-            lagDeviation < 500 -> 0.05f // Stable
-            lagDeviation < 1000 -> -0.05f // Somewhat unstable
-            else -> -0.1f // Unstable
-        }
-        
-        updateConnectionStability(true, stabilityFactor)
-        
-        // Reset consecutive timeouts on successful ping
-        if (consecutiveTimeouts > 0) {
-            consecutiveTimeouts = 0
-        }
-        
-        android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Updated metrics: latency=${networkLatencyMs}ms, stability=${connectionStability}, consecutiveTimeouts=$consecutiveTimeouts")
-    }
-    
-    /**
-     * NETWORK OPTIMIZATION: Update connection stability
-     */
-    private fun updateConnectionStability(success: Boolean, additionalFactor: Float = 0f) {
-        val changeFactor = when {
-            success -> 0.05f + additionalFactor // Increase stability on success
-            else -> -0.1f // Decrease stability on timeout
-        }
-        
-        connectionStability = (connectionStability + changeFactor).coerceIn(0.0f, 1.0f)
-    }
     
     private fun restartWebSocket(reason: String = "Unknown reason") {
-        android.util.Log.d("Andromuks", "AppViewModel: Restarting websocket connection - Reason: $reason")
+        android.util.Log.d("Andromuks", "AppViewModel: Delegating WebSocket restart to service")
         
         // Log the reconnection event
         logReconnection(reason)
@@ -3543,9 +3356,8 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        clearWebSocket()
-        // Trigger websocket restart via callback
-        onRestartWebSocket?.invoke(reason)
+        // Delegate to service
+        WebSocketService.restartWebSocket(reason)
     }
 
     fun requestUserProfile(userId: String, roomId: String? = null) {
@@ -5851,17 +5663,19 @@ class AppViewModel : ViewModel() {
                 val receipts = data.optJSONObject("receipts")
                 if (receipts != null) {
                     android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts from timeline response for room: $roomId")
-                    ReceiptFunctions.processReadReceipts(
-                        receipts, 
-                        readReceipts, 
-                        { readReceiptsUpdateCounter++ },
-                        { userId, previousEventId, newEventId ->
-                            // Track receipt movement for animation
-                            receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
-                            receiptAnimationTrigger = System.currentTimeMillis()
-                            android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
-                        }
-                    )
+                    synchronized(readReceiptsLock) {
+                        ReceiptFunctions.processReadReceipts(
+                            receipts, 
+                            readReceipts, 
+                            { readReceiptsUpdateCounter++ },
+                            { userId, previousEventId, newEventId ->
+                                // Track receipt movement for animation
+                                receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
+                                receiptAnimationTrigger = System.currentTimeMillis()
+                                android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
+                            }
+                        )
+                    }
                 }
             }
             else -> {
@@ -6718,17 +6532,19 @@ class AppViewModel : ViewModel() {
                     val receipts = roomData.optJSONObject("receipts")
                     if (receipts != null) {
                         android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts for room: $roomId - found ${receipts.length()} event receipts")
-                        ReceiptFunctions.processReadReceipts(
-                            receipts, 
-                            readReceipts, 
-                            { readReceiptsUpdateCounter++ },
-                            { userId, previousEventId, newEventId ->
-                                // Track receipt movement for animation
-                                receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
-                                receiptAnimationTrigger = System.currentTimeMillis()
-                                android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
-                            }
-                        )
+                        synchronized(readReceiptsLock) {
+                            ReceiptFunctions.processReadReceipts(
+                                receipts, 
+                                readReceipts, 
+                                { readReceiptsUpdateCounter++ },
+                                { userId, previousEventId, newEventId ->
+                                    // Track receipt movement for animation
+                                    receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
+                                    receiptAnimationTrigger = System.currentTimeMillis()
+                                    android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
+                                }
+                            )
+                        }
                     } else {
                         android.util.Log.d("Andromuks", "AppViewModel: No receipts found in sync for room: $roomId")
                     }
@@ -7989,7 +7805,7 @@ class AppViewModel : ViewModel() {
             return WebSocketResult.NOT_CONNECTED
         }
         
-        val ws = webSocket
+        val ws = WebSocketService.getWebSocket()
         if (ws == null) {
             android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, cannot send command: $command")
             return WebSocketResult.NOT_CONNECTED
