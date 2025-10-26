@@ -89,10 +89,10 @@ object AvatarUtils {
             val server = parts[0]
             val mediaId = parts[1]
             
-            // QUALITY IMPROVEMENT: Use higher quality avatar settings
-            // Construct HTTP URL: https://gomuks-backend/_gomuks/media/server/mediaId?thumbnail=avatar&size=256
-            // For avatars, we want a higher quality thumbnail version
-            val httpUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId?thumbnail=avatar&size=256"
+            // QUALITY IMPROVEMENT: Use maximum quality avatar settings
+            // Construct HTTP URL: https://gomuks-backend/_gomuks/media/server/mediaId?thumbnail=avatar&size=512
+            // For avatars, we want maximum quality for crystal clear display
+            val httpUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId?thumbnail=avatar&size=512"
             
             // Sanitize URL: convert everything before /_gomuks/media/ to lowercase
             val sanitizedUrl = if (httpUrl.contains("/_gomuks/media/")) {

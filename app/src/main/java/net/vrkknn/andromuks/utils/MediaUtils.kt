@@ -58,11 +58,11 @@ object MediaUtils {
      * Converts an MXC URL to a thumbnail URL for media files
      * @param mxcUrl The MXC URL from the media data
      * @param homeserverUrl The gomuks backend URL
-     * @param width Optional thumbnail width (default: 200)
-     * @param height Optional thumbnail height (default: 200)
+     * @param width Optional thumbnail width (default: 600)
+     * @param height Optional thumbnail height (default: 600)
      * @return The HTTP URL for loading the media thumbnail, or null if conversion fails
      */
-    fun mxcToThumbnailUrl(mxcUrl: String?, homeserverUrl: String, width: Int = 200, height: Int = 200): String? {
+    fun mxcToThumbnailUrl(mxcUrl: String?, homeserverUrl: String, width: Int = 600, height: Int = 600): String? {
         if (mxcUrl.isNullOrBlank()) return null
         
         try {

@@ -32,17 +32,17 @@ import java.io.File
 object OptimizedMediaQuality {
     private const val TAG = "OptimizedMediaQuality"
     
-    // QUALITY IMPROVEMENT: Higher quality settings for better image clarity
-    private const val AVATAR_QUALITY = 95        // High quality for avatars
-    private const val THUMBNAIL_QUALITY = 90     // High quality for thumbnails
-    private const val PREVIEW_QUALITY = 85       // Good quality for previews
-    private const val FULL_QUALITY = 90          // High quality for full images
+    // QUALITY IMPROVEMENT: Maximum quality settings for crystal clear images
+    private const val AVATAR_QUALITY = 100       // Maximum quality for avatars
+    private const val THUMBNAIL_QUALITY = 100    // Maximum quality for thumbnails
+    private const val PREVIEW_QUALITY = 100      // Maximum quality for previews
+    private const val FULL_QUALITY = 100         // Maximum quality for full images
     
-    // Size constants optimized for quality
-    private const val AVATAR_SIZE = 256          // Larger for better avatar quality
-    private const val THUMBNAIL_SIZE = 400       // Larger for better thumbnail quality
-    private const val PREVIEW_SIZE = 1200        // Larger for better preview quality
-    private const val FULL_SIZE = 1920           // Full size for high-quality images
+    // Size constants optimized for maximum quality
+    private const val AVATAR_SIZE = 512          // Even larger for maximum avatar quality
+    private const val THUMBNAIL_SIZE = 600       // Even larger for maximum thumbnail quality
+    private const val PREVIEW_SIZE = 1600        // Even larger for maximum preview quality
+    private const val FULL_SIZE = 1920           // Full size for maximum quality images
     
     data class QualitySettings(
         val width: Int,

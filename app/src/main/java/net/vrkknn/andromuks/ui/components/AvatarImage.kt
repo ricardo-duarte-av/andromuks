@@ -148,8 +148,8 @@ fun AvatarImage(
                     model = ImageRequest.Builder(context)
                         .data(avatarUrl)
                         .apply {
-                            // AVATAR LOADING OPTIMIZATION: Set size for better caching
-                            size(size = size.value.toInt())
+                            // QUALITY IMPROVEMENT: Request higher quality image for better clarity
+                            size(size = 512) // Request 512px for maximum quality
                             // Only add auth header for HTTP URLs, not for file:// URIs
                             if (avatarUrl.startsWith("http")) {
                                 addHeader("Cookie", "gomuks_auth=$authToken")

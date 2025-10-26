@@ -749,7 +749,7 @@ private fun MediaContent(
                                 }
                                 .memoryCachePolicy(CachePolicy.ENABLED)
                                 .diskCachePolicy(CachePolicy.ENABLED)
-                                .size(calculatedHeight.value.toInt(), calculatedHeight.value.toInt())
+                                .size(600, 600) // QUALITY IMPROVEMENT: Larger size for better quality
                                 .build(),
                             imageLoader = imageLoader,
                             contentDescription = mediaMessage.filename,
@@ -835,6 +835,7 @@ private fun MediaContent(
                                             .addHeader("Cookie", "gomuks_auth=$authToken")
                                             .memoryCachePolicy(CachePolicy.ENABLED)
                                             .diskCachePolicy(CachePolicy.ENABLED)
+                                            .size(600, 600) // QUALITY IMPROVEMENT: Larger size for better quality
                                             .build(),
                                     imageLoader = imageLoader,
                                     contentDescription =

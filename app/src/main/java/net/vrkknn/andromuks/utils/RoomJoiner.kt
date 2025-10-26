@@ -621,6 +621,7 @@ private fun RoomSummaryContent(
                 model = ImageRequest.Builder(context)
                     .data(avatarUrl)
                     .addHeader("Cookie", "gomuks_auth=$authToken")
+                    .size(512) // QUALITY IMPROVEMENT: Request higher quality for room avatars
                     .build(),
                 contentDescription = "Room avatar",
                 modifier = Modifier

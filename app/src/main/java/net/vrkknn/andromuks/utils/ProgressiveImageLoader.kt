@@ -35,21 +35,21 @@ import java.io.File
 object ProgressiveImageLoader {
     private const val TAG = "ProgressiveImageLoader"
     
-    // QUALITY IMPROVEMENT: Larger sizes for better quality
-    private const val THUMBNAIL_SIZE = 400       // Increased from 200 to 400
-    private const val PREVIEW_SIZE = 1200        // Increased from 800 to 1200
+    // QUALITY IMPROVEMENT: Maximum sizes for crystal clear quality
+    private const val THUMBNAIL_SIZE = 600       // Maximum size for thumbnails
+    private const val PREVIEW_SIZE = 1600        // Maximum size for previews
     private const val FULL_SIZE = 1920
     private const val MAX_IMAGE_SIZE = 2048
     
-    // QUALITY IMPROVEMENT: Higher quality settings for better image clarity
-    private const val THUMBNAIL_QUALITY = 90     // Increased from 70 to 90
-    private const val PREVIEW_QUALITY = 85       // Increased from 80 to 85
-    private const val FULL_QUALITY = 90          // Increased from 85 to 90
+    // QUALITY IMPROVEMENT: Maximum quality settings for crystal clear images
+    private const val THUMBNAIL_QUALITY = 100    // Maximum quality for thumbnails
+    private const val PREVIEW_QUALITY = 100      // Maximum quality for previews
+    private const val FULL_QUALITY = 100         // Maximum quality for full images
     
     data class ImageSize(
         val width: Int,
         val height: Int,
-        val quality: Int = 85,
+        val quality: Int = 100,  // Maximum quality by default
         val scale: Scale = Scale.FIT
     )
     
