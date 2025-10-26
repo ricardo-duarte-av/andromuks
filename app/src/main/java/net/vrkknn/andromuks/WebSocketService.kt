@@ -14,6 +14,7 @@ import android.net.NetworkRequest
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
@@ -658,7 +659,7 @@ class WebSocketService : Service() {
             android.util.Log.d("WebSocketService", "Network type updated to: $networkType")
             
             // Update notification with new network type
-            updateConnectionStatus(isWebSocketConnected)
+            updateConnectionStatus(isWebSocketConnected())
         }
         
         /**
