@@ -3345,14 +3345,25 @@ class AppViewModel : ViewModel() {
         // Log the reconnection event
         logReconnection(reason)
         
-        // Show toast notification to user
-        appContext?.let { context ->
-            viewModelScope.launch(Dispatchers.Main) {
-                android.widget.Toast.makeText(
-                    context,
-                    "WS: $reason",
-                    android.widget.Toast.LENGTH_SHORT
-                ).show()
+        // Only show toast for important reconnection reasons, not every attempt
+        val shouldShowToast = when {
+            reason.contains("Network type changed") -> true
+            reason.contains("Network restored") -> true
+            reason.contains("Manual reconnection") -> true
+            reason.contains("Full refresh") -> true
+            reason.contains("attempt #1") -> true // Only show first attempt
+            else -> false
+        }
+        
+        if (shouldShowToast) {
+            appContext?.let { context ->
+                viewModelScope.launch(Dispatchers.Main) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "WS: $reason",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
             }
         }
         

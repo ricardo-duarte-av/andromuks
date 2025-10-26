@@ -86,9 +86,13 @@ class WebSocketService : Service() {
         // Reconnection logic state
         private var reconnectionAttempts = 0
         private var reconnectionJob: Job? = null
-        private val BASE_RECONNECTION_DELAY_MS = 1000L // 1 second
-        private val MAX_RECONNECTION_DELAY_MS = 60000L // 60 seconds
-        private val MAX_RECONNECTION_ATTEMPTS = 10 // Give up after 10 attempts
+        private val BASE_RECONNECTION_DELAY_MS = 3000L // 3 seconds - give network time to stabilize
+        private val MAX_RECONNECTION_DELAY_MS = 30000L // 30 seconds - shorter max delay
+        private val MAX_RECONNECTION_ATTEMPTS = 5 // Give up after 5 attempts - less aggressive
+        
+        // Network change debouncing
+        private var lastNetworkChangeTime = 0L
+        private val NETWORK_CHANGE_DEBOUNCE_MS = 5000L // 5 seconds between network change reconnections
         
         /**
          * Get the service-scoped coroutine scope for background processing
@@ -467,7 +471,7 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Schedule WebSocket reconnection with exponential backoff
+         * Schedule WebSocket reconnection with exponential backoff and network validation
          */
         fun scheduleReconnection(reason: String) {
             // Cancel any existing reconnection job
@@ -497,8 +501,19 @@ class WebSocketService : Service() {
                 if (isActive) {
                     android.util.Log.d("WebSocketService", "Executing reconnection attempt #$reconnectionAttempts")
                     
-                    // Trigger reconnection via callback
-                    reconnectionCallback?.invoke("Reconnection attempt #$reconnectionAttempts: $reason")
+                    // Validate network connectivity before attempting reconnection
+                    val isNetworkValid = validateNetworkConnectivity()
+                    if (isNetworkValid) {
+                        android.util.Log.i("WebSocketService", "Network validated, proceeding with reconnection")
+                        // Trigger reconnection via callback
+                        reconnectionCallback?.invoke("Reconnection attempt #$reconnectionAttempts: $reason")
+                    } else {
+                        android.util.Log.w("WebSocketService", "Network validation failed, skipping reconnection attempt")
+                        // Schedule another attempt with longer delay
+                        if (reconnectionAttempts < MAX_RECONNECTION_ATTEMPTS) {
+                            scheduleReconnection("Network validation failed, retrying")
+                        }
+                    }
                 }
             }
         }
@@ -534,6 +549,27 @@ class WebSocketService : Service() {
             
             // Update notification with new network type
             updateConnectionStatus(isWebSocketConnected)
+        }
+        
+        /**
+         * Validate network connectivity by testing a simple HTTP request
+         */
+        private suspend fun validateNetworkConnectivity(): Boolean {
+            return try {
+                // Simple connectivity test - just check if we can reach the network
+                val connectivityManager = instance?.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+                val activeNetwork = connectivityManager?.activeNetwork
+                val capabilities = activeNetwork?.let { connectivityManager.getNetworkCapabilities(it) }
+                
+                val hasInternet = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+                val isValidated = capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
+                
+                android.util.Log.d("WebSocketService", "Network validation: hasInternet=$hasInternet, isValidated=$isValidated")
+                hasInternet && isValidated
+            } catch (e: Exception) {
+                android.util.Log.w("WebSocketService", "Network validation failed", e)
+                false
+            }
         }
     }
     
@@ -599,15 +635,23 @@ class WebSocketService : Service() {
                     
                     Log.d(TAG, "Network capabilities changed - Internet: $hasInternet, Validated: $isValidated, Transport: $transportType")
                     
-                    // Detect network type changes (WiFi ↔ 4G)
+                    // Detect network type changes (WiFi ↔ 4G) with debouncing
                     if (hasInternet && isValidated) {
                         val currentType = getNetworkType(networkCapabilities)
+                        val currentTime = System.currentTimeMillis()
+                        
                         if (currentType != lastNetworkType) {
-                            Log.i(TAG, "Network type changed from $lastNetworkType to $currentType - triggering reconnection")
-                            lastNetworkType = currentType
-                            // Update service network type
-                            updateServiceNetworkType(currentType)
-                            onNetworkAvailable() // Trigger reconnection on network type change
+                            // Check if enough time has passed since last network change
+                            if (currentTime - lastNetworkChangeTime > NETWORK_CHANGE_DEBOUNCE_MS) {
+                                Log.i(TAG, "Network type changed from $lastNetworkType to $currentType - scheduling reconnection")
+                                lastNetworkType = currentType
+                                lastNetworkChangeTime = currentTime
+                                // Update service network type
+                                updateServiceNetworkType(currentType)
+                                onNetworkAvailable() // Trigger reconnection on network type change
+                            } else {
+                                Log.d(TAG, "Network type changed but debouncing - ignoring rapid change")
+                            }
                         } else if (!isCurrentlyConnected) {
                             isCurrentlyConnected = true
                             // Update service network type
