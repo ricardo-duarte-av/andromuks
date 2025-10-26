@@ -92,7 +92,10 @@ class WebSocketService : Service() {
         
         // Network change debouncing
         private var lastNetworkChangeTime = 0L
-        private val NETWORK_CHANGE_DEBOUNCE_MS = 5000L // 5 seconds between network change reconnections
+        private val NETWORK_CHANGE_DEBOUNCE_MS = 15000L // 15 seconds between network change reconnections
+        private var isReconnecting = false // Prevent multiple simultaneous reconnections
+        private var lastReconnectionTime = 0L
+        private val MIN_RECONNECTION_INTERVAL_MS = 5000L // 5 seconds minimum between any reconnections
         
         /**
          * Get the service-scoped coroutine scope for background processing
@@ -467,6 +470,7 @@ class WebSocketService : Service() {
             reconnectionAttempts = 0
             reconnectionJob?.cancel()
             reconnectionJob = null
+            isReconnecting = false
             android.util.Log.d("WebSocketService", "Reset reconnection state (successful connection)")
         }
         
@@ -474,6 +478,20 @@ class WebSocketService : Service() {
          * Schedule WebSocket reconnection with exponential backoff and network validation
          */
         fun scheduleReconnection(reason: String) {
+            val currentTime = System.currentTimeMillis()
+            
+            // Prevent multiple simultaneous reconnections
+            if (isReconnecting) {
+                android.util.Log.d("WebSocketService", "Reconnection already in progress, ignoring: $reason")
+                return
+            }
+            
+            // Check minimum interval between reconnections
+            if (currentTime - lastReconnectionTime < MIN_RECONNECTION_INTERVAL_MS) {
+                android.util.Log.d("WebSocketService", "Too soon since last reconnection, ignoring: $reason")
+                return
+            }
+            
             // Cancel any existing reconnection job
             reconnectionJob?.cancel()
             
@@ -491,6 +509,8 @@ class WebSocketService : Service() {
             )
             
             reconnectionAttempts++
+            isReconnecting = true
+            lastReconnectionTime = currentTime
             
             android.util.Log.w("WebSocketService", "Scheduling reconnection attempt #$reconnectionAttempts in ${delay}ms")
             android.util.Log.w("WebSocketService", "Reason: $reason")
@@ -509,11 +529,14 @@ class WebSocketService : Service() {
                         reconnectionCallback?.invoke("Reconnection attempt #$reconnectionAttempts: $reason")
                     } else {
                         android.util.Log.w("WebSocketService", "Network validation failed, skipping reconnection attempt")
+                        isReconnecting = false
                         // Schedule another attempt with longer delay
                         if (reconnectionAttempts < MAX_RECONNECTION_ATTEMPTS) {
                             scheduleReconnection("Network validation failed, retrying")
                         }
                     }
+                } else {
+                    isReconnecting = false
                 }
             }
         }
@@ -527,6 +550,9 @@ class WebSocketService : Service() {
             // Clear current connection
             clearWebSocket()
             
+            // Reset reconnection state to allow new reconnection
+            isReconnecting = false
+            
             // Trigger reconnection via callback
             reconnectionCallback?.invoke(reason)
         }
@@ -537,6 +563,7 @@ class WebSocketService : Service() {
         fun cancelReconnection() {
             reconnectionJob?.cancel()
             reconnectionJob = null
+            isReconnecting = false
             android.util.Log.d("WebSocketService", "Cancelled pending reconnection")
         }
         
@@ -648,7 +675,12 @@ class WebSocketService : Service() {
                                 lastNetworkChangeTime = currentTime
                                 // Update service network type
                                 updateServiceNetworkType(currentType)
-                                onNetworkAvailable() // Trigger reconnection on network type change
+                                // Only trigger reconnection if not already reconnecting
+                                if (!isReconnecting) {
+                                    onNetworkAvailable() // Trigger reconnection on network type change
+                                } else {
+                                    Log.d(TAG, "Already reconnecting, ignoring network type change")
+                                }
                             } else {
                                 Log.d(TAG, "Network type changed but debouncing - ignoring rapid change")
                             }
@@ -656,8 +688,13 @@ class WebSocketService : Service() {
                             isCurrentlyConnected = true
                             // Update service network type
                             updateServiceNetworkType(currentType)
-                            Log.i(TAG, "Network validated - triggering reconnect")
-                            onNetworkAvailable()
+                            // Only trigger reconnection if not already reconnecting
+                            if (!isReconnecting) {
+                                Log.i(TAG, "Network validated - triggering reconnect")
+                                onNetworkAvailable()
+                            } else {
+                                Log.d(TAG, "Already reconnecting, ignoring network validation")
+                            }
                         }
                     }
                 }

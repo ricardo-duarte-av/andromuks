@@ -3347,12 +3347,10 @@ class AppViewModel : ViewModel() {
         
         // Only show toast for important reconnection reasons, not every attempt
         val shouldShowToast = when {
-            reason.contains("Network type changed") -> true
-            reason.contains("Network restored") -> true
             reason.contains("Manual reconnection") -> true
             reason.contains("Full refresh") -> true
-            reason.contains("attempt #1") -> true // Only show first attempt
-            else -> false
+            reason.contains("attempt #1") && reason.contains("Network type changed") -> true // Only first network change attempt
+            else -> false // Hide "Network restored" and other spam
         }
         
         if (shouldShowToast) {
