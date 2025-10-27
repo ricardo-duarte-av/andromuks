@@ -221,6 +221,8 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
     val vapidKey = remember { appViewModel.getVapidKey() }
     val runId = remember { appViewModel.getCurrentRunId() }
     val lastReceivedId = remember { appViewModel.getLastReceivedId() }
+    val currentRequestId = remember { appViewModel.getCurrentRequestId() }
+    val lastReceivedRequestId = remember { appViewModel.getLastReceivedRequestId() }
     val homeserverUrl = remember { appViewModel.homeserverUrl }
     
     // Construct the current WebSocket URL
@@ -369,6 +371,26 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
                 value = if (lastReceivedId != 0) lastReceivedId.toString() else "Not set",
                 onCopy = if (lastReceivedId != 0) {
                     { copyToClipboard("Last Received ID", lastReceivedId.toString()) }
+                } else null
+            )
+            
+            HorizontalDivider()
+            
+            // Current Request ID
+            FCMInfoItem(
+                label = "Current Request ID",
+                value = currentRequestId.toString(),
+                onCopy = { copyToClipboard("Current Request ID", currentRequestId.toString()) }
+            )
+            
+            HorizontalDivider()
+            
+            // Last Received Request ID
+            FCMInfoItem(
+                label = "Last Received Request ID",
+                value = if (lastReceivedRequestId != 0) lastReceivedRequestId.toString() else "Not set",
+                onCopy = if (lastReceivedRequestId != 0) {
+                    { copyToClipboard("Last Received Request ID", lastReceivedRequestId.toString()) }
                 } else null
             )
             

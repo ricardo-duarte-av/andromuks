@@ -210,6 +210,21 @@ fun connectToWebsocket(
     Log.d("NetworkUtils", "DEBUG: runId='$runId', lastReceivedId=$lastReceivedId, vapidKey='${vapidKey.take(20)}...'")
     Log.d("NetworkUtils", "DEBUG: runId type: ${runId.javaClass.simpleName}, length: ${runId.length}")
     
+    // TEMPORARY FIX: If runId is JSON-encoded, extract the actual run_id
+    val actualRunId = if (runId.startsWith("{")) {
+        try {
+            val jsonObject = org.json.JSONObject(runId)
+            val extractedRunId = jsonObject.optString("run_id", "")
+            Log.w("NetworkUtils", "TEMPORARY FIX: Extracted run_id from JSON: '$extractedRunId'")
+            extractedRunId
+        } catch (e: Exception) {
+            Log.e("NetworkUtils", "Failed to extract run_id from JSON: $runId", e)
+            runId
+        }
+    } else {
+        runId
+    }
+    
     // Check if compression is enabled
     val compressionEnabled = appViewModel.enableCompression
     val compressionParam = if (compressionEnabled) "&compress=1" else ""
@@ -220,16 +235,16 @@ fun connectToWebsocket(
         Log.d("NetworkUtils", "Streaming DEFLATE decompressor initialized")
     }
     
-    val finalWebSocketUrl = if (runId.isNotEmpty() && lastReceivedId != 0) {
+    val finalWebSocketUrl = if (actualRunId.isNotEmpty() && lastReceivedId != 0) {
         // Reconnecting with run_id and last_received_event
-        val url = "$webSocketUrl?run_id=$runId&last_received_event=$lastReceivedId$compressionParam"
-        Log.d("NetworkUtils", "Reconnecting with run_id: $runId, last_received_event: $lastReceivedId, compression: $compressionEnabled")
+        val url = "$webSocketUrl?run_id=$actualRunId&last_received_event=$lastReceivedId$compressionParam"
+        Log.d("NetworkUtils", "Reconnecting with run_id: $actualRunId, last_received_event: $lastReceivedId, compression: $compressionEnabled")
         Log.d("NetworkUtils", "DEBUG: Final URL: $url")
         url
-    } else if (runId.isNotEmpty() && lastReceivedId == 0) {
+    } else if (actualRunId.isNotEmpty() && lastReceivedId == 0) {
         // Force refresh: reconnecting with run_id but NO last_received_event (full payload)
-        val url = "$webSocketUrl?run_id=$runId$compressionParam"
-        Log.d("NetworkUtils", "FORCE REFRESH: Reconnecting with run_id: $runId but last_received_event=0 (full payload), compression: $compressionEnabled")
+        val url = "$webSocketUrl?run_id=$actualRunId$compressionParam"
+        Log.d("NetworkUtils", "FORCE REFRESH: Reconnecting with run_id: $actualRunId but last_received_event=0 (full payload), compression: $compressionEnabled")
         Log.d("NetworkUtils", "DEBUG: Final URL: $url")
         url
     } else {
@@ -255,6 +270,14 @@ fun connectToWebsocket(
     val websocketListener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
             Log.d("Andromuks", "NetworkUtils: onOpen: ws opened on "+response.message)
+            
+            // Debug: Log all response headers to see if backend request ID is available
+            Log.d("Andromuks", "NetworkUtils: WebSocket response headers:")
+            response.headers.names().forEach { name ->
+                val value = response.header(name)
+                Log.d("Andromuks", "NetworkUtils: Header '$name': '$value'")
+            }
+            
             // Set WebSocket in both AppViewModel and service
             appViewModel.setWebSocket(webSocket)
             WebSocketService.setWebSocket(webSocket)
@@ -280,6 +303,11 @@ fun connectToWebsocket(
             //Log.d("Andromuks", "NetworkUtils: WebSocket TextMessage: $text")
             val jsonObject = try { JSONObject(text) } catch (e: Exception) { null }
             if (jsonObject != null) {
+                // Debug: Check if this message contains backend request ID
+                val backendRequestId = jsonObject.optString("backend_request_id", null)
+                if (backendRequestId != null) {
+                    Log.d("Andromuks", "NetworkUtils: Backend request ID found in message: $backendRequestId")
+                }
                 // Track last received request_id for ping purposes
                 val receivedReqId = jsonObject.optInt("request_id", 0)
                 if (receivedReqId != 0) {
@@ -292,6 +320,8 @@ fun connectToWebsocket(
                         val runId = data?.optString("run_id", "")
                         val vapidKey = data?.optString("vapid_key", "")
                         Log.d("Andromuks", "NetworkUtils: Received run_id: $runId, vapid_key: ${vapidKey?.take(20)}...")
+                        Log.d("Andromuks", "NetworkUtils: DEBUG - Full data object: ${data?.toString()}")
+                        Log.d("Andromuks", "NetworkUtils: DEBUG - runId type: ${runId?.javaClass?.simpleName}, length: ${runId?.length}")
                         // Use service scope for background processing
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             appViewModel.handleRunId(runId ?: "", vapidKey ?: "")
@@ -402,6 +432,12 @@ fun connectToWebsocket(
                         val jsonObjects = parseMultipleJsonObjects(decompressedText)
                         
                         for (jsonObject in jsonObjects) {
+                            // Debug: Check if this message contains backend request ID
+                            val backendRequestId = jsonObject.optString("backend_request_id", null)
+                            if (backendRequestId != null) {
+                                Log.d("Andromuks", "NetworkUtils: Backend request ID found in compressed message: $backendRequestId")
+                            }
+                            
                             // Track last received request_id for ping purposes
                             val receivedReqId = jsonObject.optInt("request_id", 0)
                             if (receivedReqId != 0) {
@@ -414,6 +450,8 @@ fun connectToWebsocket(
                                     val runId = data?.optString("run_id", "")
                                     val vapidKey = data?.optString("vapid_key", "")
                                     Log.d("Andromuks", "NetworkUtils: Received compressed run_id: $runId, vapid_key: ${vapidKey?.take(20)}...")
+                                    Log.d("Andromuks", "NetworkUtils: DEBUG - Full compressed data object: ${data?.toString()}")
+                                    Log.d("Andromuks", "NetworkUtils: DEBUG - compressed runId type: ${runId?.javaClass?.simpleName}, length: ${runId?.length}")
                                     // Use service scope for background processing
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                                         appViewModel.handleRunId(runId ?: "", vapidKey ?: "")

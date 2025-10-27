@@ -356,7 +356,8 @@ class AppViewModel : ViewModel() {
         // Store the request for response handling
         bridgeStateRequests[requestId] = roomId
         android.util.Log.d("Andromuks", "AppViewModel: Stored bridge state request for room $roomId with requestId $requestId")
-        android.util.Log.d("Andromuks", "AppViewModel: Current bridge state requests: ${bridgeStateRequests.keys}")
+        // THREAD SAFETY: Create safe copy to avoid ConcurrentModificationException during logging
+        android.util.Log.d("Andromuks", "AppViewModel: Current bridge state requests: ${bridgeStateRequests.keys.toList()}")
         
         // Use the same format as other WebSocket commands
         sendWebSocketCommand("get_room_state", requestId, mapOf(
@@ -3118,6 +3119,10 @@ class AppViewModel : ViewModel() {
      * This is used for reconnection to resume from where we left off.
      */
     fun handleRunId(runId: String, vapidKey: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: handleRunId called with runId='$runId', vapidKey='${vapidKey.take(20)}...'")
+        android.util.Log.d("Andromuks", "AppViewModel: DEBUG - runId type: ${runId.javaClass.simpleName}, length: ${runId.length}")
+        android.util.Log.d("Andromuks", "AppViewModel: DEBUG - runId starts with '{': ${runId.startsWith("{")}")
+        
         currentRunId = runId
         this.vapidKey = vapidKey
         
@@ -3141,6 +3146,16 @@ class AppViewModel : ViewModel() {
      * Gets the current VAPID key for push notifications
      */
     fun getVapidKey(): String = vapidKey
+    
+    /**
+     * Gets the current request ID counter (next ID to be used)
+     */
+    fun getCurrentRequestId(): Int = requestIdCounter
+    
+    /**
+     * Gets the last received request ID from the server
+     */
+    fun getLastReceivedRequestId(): Int = lastReceivedRequestId
     
     /**
      * Check if an event is pinned in the current room
@@ -3252,6 +3267,10 @@ class AppViewModel : ViewModel() {
             val runId = prefs.getString("ws_run_id", "") ?: ""
             val lastSyncId = prefs.getInt("ws_last_received_sync_id", 0)
             val savedVapidKey = prefs.getString("ws_vapid_key", "") ?: ""
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Loading from SharedPreferences - runId='$runId', lastSyncId=$lastSyncId, vapidKey='${savedVapidKey.take(20)}...'")
+            android.util.Log.d("Andromuks", "AppViewModel: DEBUG - loaded runId type: ${runId.javaClass.simpleName}, length: ${runId.length}")
+            android.util.Log.d("Andromuks", "AppViewModel: DEBUG - loaded runId starts with '{': ${runId.startsWith("{")}")
             
             if (runId.isNotEmpty()) {
                 currentRunId = runId
@@ -4954,8 +4973,9 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("AppViewModel", "AppViewModel: timelineRequests contains $requestId: ${timelineRequests.containsKey(requestId)}")
         android.util.Log.d("Andromuks", "AppViewModel: roomStateRequests contains $requestId: ${roomStateRequests.containsKey(requestId)}")
         android.util.Log.d("Andromuks", "AppViewModel: bridgeStateRequests contains $requestId: ${bridgeStateRequests.containsKey(requestId)}")
-        android.util.Log.d("Andromuks", "AppViewModel: Current bridge state requests: ${bridgeStateRequests.keys}")
-        android.util.Log.d("Andromuks", "AppViewModel: Current room state requests: ${roomStateRequests.keys}")
+        // THREAD SAFETY: Create safe copies to avoid ConcurrentModificationException during logging
+        android.util.Log.d("Andromuks", "AppViewModel: Current bridge state requests: ${bridgeStateRequests.keys.toList()}")
+        android.util.Log.d("Andromuks", "AppViewModel: Current room state requests: ${roomStateRequests.keys.toList()}")
         
         if (profileRequests.containsKey(requestId)) {
             handleProfileResponse(requestId, data)
@@ -6845,7 +6865,8 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Updated target event ${targetEventId} to be replaced by ${editEvent.eventId}")
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: Target event ${targetEventId} not found in chain mapping")
-                android.util.Log.d("Andromuks", "AppViewModel: Available events in chain: ${eventChainMap.keys}")
+                // THREAD SAFETY: Create safe copy to avoid ConcurrentModificationException during logging
+                android.util.Log.d("Andromuks", "AppViewModel: Available events in chain: ${eventChainMap.keys.toList()}")
             }
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Could not find target event ID in edit event ${editEvent.eventId}")

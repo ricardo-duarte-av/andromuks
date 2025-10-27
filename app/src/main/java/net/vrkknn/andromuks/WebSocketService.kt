@@ -467,6 +467,10 @@ class WebSocketService : Service() {
          * Set reconnection state (run_id, last_received_event, vapid_key)
          */
         fun setReconnectionState(runId: String, lastReceivedId: Int, vapidKey: String) {
+            android.util.Log.d("WebSocketService", "setReconnectionState called with runId='$runId', lastReceivedId=$lastReceivedId, vapidKey='${vapidKey.take(20)}...'")
+            android.util.Log.d("WebSocketService", "DEBUG - runId type: ${runId.javaClass.simpleName}, length: ${runId.length}")
+            android.util.Log.d("WebSocketService", "DEBUG - runId starts with '{': ${runId.startsWith("{")}")
+            
             currentRunId = runId
             lastReceivedSyncId = lastReceivedId
             this.vapidKey = vapidKey
@@ -521,6 +525,9 @@ class WebSocketService : Service() {
          * Get reconnection parameters for WebSocket URL construction
          */
         fun getReconnectionParameters(): Triple<String, Int, String> {
+            android.util.Log.d("WebSocketService", "getReconnectionParameters: currentRunId='$currentRunId', lastReceivedSyncId=$lastReceivedSyncId, vapidKey='${vapidKey.take(20)}...'")
+            android.util.Log.d("WebSocketService", "DEBUG - currentRunId type: ${currentRunId.javaClass.simpleName}, length: ${currentRunId.length}")
+            android.util.Log.d("WebSocketService", "DEBUG - currentRunId starts with '{': ${currentRunId.startsWith("{")}")
             return Triple(currentRunId, lastReceivedSyncId, vapidKey)
         }
         
