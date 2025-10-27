@@ -206,6 +206,10 @@ fun connectToWebsocket(
         Triple(appViewModel.getCurrentRunId(), appViewModel.getLastReceivedId(), "")
     }
     
+    // Debug logging to identify JSON encoding issue
+    Log.d("NetworkUtils", "DEBUG: runId='$runId', lastReceivedId=$lastReceivedId, vapidKey='${vapidKey.take(20)}...'")
+    Log.d("NetworkUtils", "DEBUG: runId type: ${runId.javaClass.simpleName}, length: ${runId.length}")
+    
     // Check if compression is enabled
     val compressionEnabled = appViewModel.enableCompression
     val compressionParam = if (compressionEnabled) "&compress=1" else ""
@@ -217,22 +221,29 @@ fun connectToWebsocket(
     }
     
     val finalWebSocketUrl = if (runId.isNotEmpty() && lastReceivedId != 0) {
-        // Reconnecting with run_id and last_received_id
-        Log.d("NetworkUtils", "Reconnecting with run_id: $runId, last_received_id: $lastReceivedId, compression: $compressionEnabled")
-        "$webSocketUrl?run_id=$runId&last_received_id=$lastReceivedId$compressionParam"
+        // Reconnecting with run_id and last_received_event
+        val url = "$webSocketUrl?run_id=$runId&last_received_event=$lastReceivedId$compressionParam"
+        Log.d("NetworkUtils", "Reconnecting with run_id: $runId, last_received_event: $lastReceivedId, compression: $compressionEnabled")
+        Log.d("NetworkUtils", "DEBUG: Final URL: $url")
+        url
     } else if (runId.isNotEmpty() && lastReceivedId == 0) {
-        // Force refresh: reconnecting with run_id but NO last_received_id (full payload)
-        Log.d("NetworkUtils", "FORCE REFRESH: Reconnecting with run_id: $runId but last_received_id=0 (full payload), compression: $compressionEnabled")
-        "$webSocketUrl?run_id=$runId$compressionParam"
+        // Force refresh: reconnecting with run_id but NO last_received_event (full payload)
+        val url = "$webSocketUrl?run_id=$runId$compressionParam"
+        Log.d("NetworkUtils", "FORCE REFRESH: Reconnecting with run_id: $runId but last_received_event=0 (full payload), compression: $compressionEnabled")
+        Log.d("NetworkUtils", "DEBUG: Final URL: $url")
+        url
     } else {
         // First connection
+        val url = if (compressionEnabled) "$webSocketUrl?compress=1" else webSocketUrl
         Log.d("NetworkUtils", "First connection to websocket, compression: $compressionEnabled")
-        if (compressionEnabled) "$webSocketUrl?compress=1" else webSocketUrl
+        Log.d("NetworkUtils", "DEBUG: Final URL: $url")
+        url
     }
 
     val request = Request.Builder()
         .url(finalWebSocketUrl)
         .addHeader("Cookie", "gomuks_auth=$token")
+        .addHeader("User-Agent", "Andromuks/1.0 (Android)")
         .build()
     
     // Set up websocket restart callback
