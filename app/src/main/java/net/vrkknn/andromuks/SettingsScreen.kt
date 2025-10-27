@@ -218,14 +218,7 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
             null
         }
     }
-    val vapidKey = remember {
-        try {
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.getString("ws_vapid_key", null)
-        } catch (e: Exception) {
-            null
-        }
-    }
+    val vapidKey = remember { appViewModel.getVapidKey() }
     val runId = remember { appViewModel.getCurrentRunId() }
     val lastReceivedId = remember { appViewModel.getLastReceivedId() }
     val homeserverUrl = remember { appViewModel.homeserverUrl }
@@ -247,7 +240,7 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
             val baseWebSocketUrl = "wss://$wsHost/_gomuks/websocket"
             
             if (runId.isNotEmpty() && lastReceivedId != 0) {
-                "$baseWebSocketUrl?run_id=$runId&last_received_id=$lastReceivedId"
+                "$baseWebSocketUrl?run_id=$runId&last_received_event=$lastReceivedId"
             } else {
                 baseWebSocketUrl
             }

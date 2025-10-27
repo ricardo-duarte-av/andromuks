@@ -244,6 +244,73 @@ fun RoomListScreen(
         }
     }
     
+    // OPPORTUNISTIC PROFILE LOADING: Request missing profiles for message senders in visible rooms
+    // This ensures proper display names and avatars are loaded for room list message previews
+    LaunchedEffect(currentSection.rooms, currentSection.spaces, currentSection.bridges) {
+        // Process rooms
+        if (currentSection.rooms.isNotEmpty()) {
+            // Get unique message senders from visible rooms (limit to first 50 rooms to avoid overwhelming)
+            val messageSenders = currentSection.rooms.take(50)
+                .mapNotNull { room -> room.messageSender }
+                .distinct()
+                .filter { sender -> sender != appViewModel.currentUserId }
+            
+            android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${messageSenders.size} message senders from ${currentSection.rooms.size} rooms"
+            )
+            
+            // Request profiles for each message sender
+            messageSenders.forEach { sender ->
+                // Find the room where this sender appears (for room context)
+                val roomWithSender = currentSection.rooms.find { it.messageSender == sender }
+                if (roomWithSender != null) {
+                    appViewModel.requestUserProfileOnDemand(sender, roomWithSender.id)
+                }
+            }
+        }
+        
+        // Process spaces (if we're viewing space rooms)
+        if (appViewModel.currentSpaceId != null && currentSection.rooms.isNotEmpty()) {
+            val spaceMessageSenders = currentSection.rooms.take(50)
+                .mapNotNull { room -> room.messageSender }
+                .distinct()
+                .filter { sender -> sender != appViewModel.currentUserId }
+            
+            android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${spaceMessageSenders.size} message senders from space rooms"
+            )
+            
+            spaceMessageSenders.forEach { sender ->
+                val roomWithSender = currentSection.rooms.find { it.messageSender == sender }
+                if (roomWithSender != null) {
+                    appViewModel.requestUserProfileOnDemand(sender, roomWithSender.id)
+                }
+            }
+        }
+        
+        // Process bridges (if we're viewing bridge rooms)
+        if (appViewModel.currentBridgeId != null && currentSection.rooms.isNotEmpty()) {
+            val bridgeMessageSenders = currentSection.rooms.take(50)
+                .mapNotNull { room -> room.messageSender }
+                .distinct()
+                .filter { sender -> sender != appViewModel.currentUserId }
+            
+            android.util.Log.d(
+                "Andromuks",
+                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${bridgeMessageSenders.size} message senders from bridge rooms"
+            )
+            
+            bridgeMessageSenders.forEach { sender ->
+                val roomWithSender = currentSection.rooms.find { it.messageSender == sender }
+                if (roomWithSender != null) {
+                    appViewModel.requestUserProfileOnDemand(sender, roomWithSender.id)
+                }
+            }
+        }
+    }
+    
     Box(
         modifier = modifier
             .fillMaxSize()

@@ -3138,6 +3138,11 @@ class AppViewModel : ViewModel() {
     fun getLastReceivedId(): Int = lastReceivedSyncId
     
     /**
+     * Gets the current VAPID key for push notifications
+     */
+    fun getVapidKey(): String = vapidKey
+    
+    /**
      * Check if an event is pinned in the current room
      */
     

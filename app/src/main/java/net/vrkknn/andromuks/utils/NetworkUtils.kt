@@ -410,9 +410,10 @@ fun connectToWebsocket(
                             val command = jsonObject.optString("command")
                             when (command) {
                                 "run_id" -> {
-                                    val runId = jsonObject.optString("data")
-                                    val vapidKey = jsonObject.optString("vapid_key")
-                                    Log.d("Andromuks", "NetworkUtils: Received run_id: $runId, vapid_key: ${vapidKey?.take(20)}...")
+                                    val data = jsonObject.optJSONObject("data")
+                                    val runId = data?.optString("run_id", "")
+                                    val vapidKey = data?.optString("vapid_key", "")
+                                    Log.d("Andromuks", "NetworkUtils: Received compressed run_id: $runId, vapid_key: ${vapidKey?.take(20)}...")
                                     // Use service scope for background processing
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                                         appViewModel.handleRunId(runId ?: "", vapidKey ?: "")
