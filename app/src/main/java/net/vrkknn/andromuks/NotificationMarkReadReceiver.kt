@@ -8,7 +8,7 @@ import androidx.core.app.NotificationManagerCompat
 
 /**
  * Global broadcast receiver for handling notification mark read actions
- * Dismisses the notification immediately and sends broadcast to MainActivity if running
+ * Sends websocket command to mark room as read and dismisses the notification
  */
 class NotificationMarkReadReceiver : BroadcastReceiver() {
     
@@ -25,7 +25,7 @@ class NotificationMarkReadReceiver : BroadcastReceiver() {
         Log.d(TAG, "Mark read - roomId: $roomId, eventId: $eventId")
         
         if (roomId != null) {
-            // Send broadcast to MainActivity with explicit package
+            // Send broadcast to MainActivity with explicit package to trigger websocket command
             val broadcastIntent = Intent("net.vrkknn.andromuks.MARK_READ").apply {
                 setPackage(context.packageName)
                 putExtra("room_id", roomId)
