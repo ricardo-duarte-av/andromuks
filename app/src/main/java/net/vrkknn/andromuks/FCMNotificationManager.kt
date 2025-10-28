@@ -131,17 +131,22 @@ class FCMNotificationManager(private val context: Context) {
         userId: String,
         accessToken: String
     ) {
+        Log.d(TAG, "initializeAndRegister called with homeserverUrl=$homeserverUrl, userId=$userId, accessToken=${accessToken.take(20)}...")
+        
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                Log.d(TAG, "Getting FCM token...")
                 // Get FCM token
                 val fcmToken = FirebaseMessaging.getInstance().token.await()
-                Log.d(TAG, "FCM Token: $fcmToken")
+                Log.d(TAG, "FCM Token received: ${fcmToken.take(50)}...")
                 
                 // Store credentials
                 storeCredentials(homeserverUrl, userId, accessToken)
+                Log.d(TAG, "Credentials stored")
                 
                 // Register with backend
                 val success = registerWithBackend(fcmToken, homeserverUrl, userId, accessToken)
+                Log.d(TAG, "Backend registration result: $success")
                 
                 if (success) {
                     prefs.edit().putString(KEY_FCM_TOKEN, fcmToken).apply()
@@ -149,6 +154,7 @@ class FCMNotificationManager(private val context: Context) {
                     Log.d(TAG, "Successfully registered FCM token with backend")
                     
                     // Notify that token is ready for Gomuks backend registration
+                    Log.d(TAG, "Calling onTokenReadyCallback")
                     onTokenReadyCallback?.invoke()
                 } else {
                     Log.e(TAG, "Failed to register FCM token with backend")
@@ -156,6 +162,7 @@ class FCMNotificationManager(private val context: Context) {
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error initializing FCM", e)
+                e.printStackTrace()
             }
         }
     }

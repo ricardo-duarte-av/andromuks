@@ -48,7 +48,9 @@ class WebClientPushIntegration(private val context: Context) {
      * Get device ID from Gomuks Backend
      */
     fun getDeviceID(): String? {
-        return prefs.getString(KEY_DEVICE_ID, null)
+        val deviceId = prefs.getString(KEY_DEVICE_ID, null)
+        Log.d(TAG, "getDeviceID: returning $deviceId")
+        return deviceId
     }
     
     /**
