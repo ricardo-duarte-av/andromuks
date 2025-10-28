@@ -47,7 +47,12 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     companion object {
         private const val TAG = "ConversationsApi"
         private const val MAX_SHORTCUTS = 4
+        private const val SHORTCUT_UPDATE_DEBOUNCE_MS = 2000L // 2 seconds debounce
     }
+    
+    // Debouncing mechanism to prevent excessive shortcut updates
+    private var lastShortcutUpdateTime = 0L
+    private var pendingShortcutUpdate: kotlinx.coroutines.Job? = null
     
     /**
      * Build a Person object from notification data (like the working Gomuks app)
@@ -290,17 +295,41 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     
     /**
      * Update conversation shortcuts based on recent rooms
-     * Returns immediately for non-blocking calls
+     * Returns immediately for non-blocking calls with debouncing to prevent UI freeze
      */
     fun updateConversationShortcuts(rooms: List<RoomItem>) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
             Log.d(TAG, "updateConversationShortcuts called with ${rooms.size} rooms, realMatrixHomeserverUrl: $realMatrixHomeserverUrl")
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    val shortcuts = createShortcutsFromRooms(rooms)
-                    updateShortcuts(shortcuts)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error updating conversation shortcuts", e)
+            
+            // Cancel any pending update
+            pendingShortcutUpdate?.cancel()
+            
+            // Debounce updates to prevent excessive shortcut operations
+            val currentTime = System.currentTimeMillis()
+            val timeSinceLastUpdate = currentTime - lastShortcutUpdateTime
+            
+            if (timeSinceLastUpdate < SHORTCUT_UPDATE_DEBOUNCE_MS) {
+                Log.d(TAG, "Debouncing shortcut update (${timeSinceLastUpdate}ms since last update)")
+                pendingShortcutUpdate = CoroutineScope(Dispatchers.IO).launch {
+                    kotlinx.coroutines.delay(SHORTCUT_UPDATE_DEBOUNCE_MS - timeSinceLastUpdate)
+                    try {
+                        val shortcuts = createShortcutsFromRooms(rooms)
+                        updateShortcuts(shortcuts)
+                        lastShortcutUpdateTime = System.currentTimeMillis()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error updating conversation shortcuts (debounced)", e)
+                    }
+                }
+            } else {
+                // Update immediately
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val shortcuts = createShortcutsFromRooms(rooms)
+                        updateShortcuts(shortcuts)
+                        lastShortcutUpdateTime = System.currentTimeMillis()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error updating conversation shortcuts", e)
+                    }
                 }
             }
         }
@@ -309,17 +338,46 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     /**
      * Update conversation shortcuts synchronously - waits for completion
      * Used when we need the shortcut to exist before showing notification
+     * Bypasses debouncing for immediate updates
      */
     suspend fun updateConversationShortcutsSync(rooms: List<RoomItem>) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
-            Log.d(TAG, "updateConversationShortcutsSync called with ${rooms.size} rooms")
+            Log.d(TAG, "updateConversationShortcutsSync called with ${rooms.size} rooms (bypassing debounce)")
+            
+            // Cancel any pending debounced update
+            pendingShortcutUpdate?.cancel()
+            
             withContext(Dispatchers.IO) {
                 try {
                     val shortcuts = createShortcutsFromRooms(rooms)
                     updateShortcuts(shortcuts)
+                    lastShortcutUpdateTime = System.currentTimeMillis()
                     Log.d(TAG, "Synchronous shortcut update completed")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating conversation shortcuts synchronously", e)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Force immediate shortcut update without debouncing
+     * Used for critical updates like notifications
+     */
+    fun updateConversationShortcutsImmediate(rooms: List<RoomItem>) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            Log.d(TAG, "updateConversationShortcutsImmediate called with ${rooms.size} rooms (bypassing debounce)")
+            
+            // Cancel any pending debounced update
+            pendingShortcutUpdate?.cancel()
+            
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val shortcuts = createShortcutsFromRooms(rooms)
+                    updateShortcuts(shortcuts)
+                    lastShortcutUpdateTime = System.currentTimeMillis()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error updating conversation shortcuts immediately", e)
                 }
             }
         }
@@ -350,48 +408,47 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     /**
      * Update shortcuts in the system
      * Intelligently merges with existing shortcuts to preserve good icons
+     * Runs entirely in background to avoid UI blocking
      */
     @RequiresApi(Build.VERSION_CODES.N_MR1)
     private suspend fun updateShortcuts(shortcuts: List<ConversationShortcut>) {
-        withContext(Dispatchers.Main) {
-            try {
-                Log.d(TAG, "Updating ${shortcuts.size} shortcuts using pushDynamicShortcut()")
-                
-                for (shortcut in shortcuts) {
-                    try {
-                        Log.d(TAG, "Updating shortcut - roomId: '${shortcut.roomId}', roomName: '${shortcut.roomName}'")
-                        
-                        // Check if avatar is in cache
-                        val avatarInCache = shortcut.roomAvatarUrl?.let { url ->
-                            MediaCache.getCachedFile(context, url) != null
-                        } ?: false
-                        
-                        Log.d(TAG, "  Avatar in cache: $avatarInCache")
-                        
-                        // Create ShortcutInfoCompat (AndroidX version)
-                        val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
-                        
-                        // If avatar just became available, remove old shortcut to force icon update
-                        if (avatarInCache) {
-                            Log.d(TAG, "  Removing old shortcut to refresh icon")
-                            ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(shortcut.roomId))
-                        }
-                        
-                        // Push/update the shortcut (conversation-optimized API)
-                        // This preserves other shortcuts automatically!
-                        ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
-                        Log.d(TAG, "  ✓ Shortcut pushed successfully")
-                        
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error updating shortcut for room: ${shortcut.roomName}", e)
+        try {
+            Log.d(TAG, "Updating ${shortcuts.size} shortcuts using pushDynamicShortcut() (background thread)")
+            
+            for (shortcut in shortcuts) {
+                try {
+                    Log.d(TAG, "Updating shortcut - roomId: '${shortcut.roomId}', roomName: '${shortcut.roomName}'")
+                    
+                    // Check if avatar is in cache
+                    val avatarInCache = shortcut.roomAvatarUrl?.let { url ->
+                        MediaCache.getCachedFile(context, url) != null
+                    } ?: false
+                    
+                    Log.d(TAG, "  Avatar in cache: $avatarInCache")
+                    
+                    // Create ShortcutInfoCompat (AndroidX version)
+                    val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
+                    
+                    // If avatar just became available, remove old shortcut to force icon update
+                    if (avatarInCache) {
+                        Log.d(TAG, "  Removing old shortcut to refresh icon")
+                        ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(shortcut.roomId))
                     }
+                    
+                    // Push/update the shortcut (conversation-optimized API)
+                    // This preserves other shortcuts automatically!
+                    ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
+                    Log.d(TAG, "  ✓ Shortcut pushed successfully")
+                    
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error updating shortcut for room: ${shortcut.roomName}", e)
                 }
-                
-                Log.d(TAG, "Finished updating shortcuts")
-                
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in updateShortcuts", e)
             }
+            
+            Log.d(TAG, "Finished updating shortcuts")
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in updateShortcuts", e)
         }
     }
     
