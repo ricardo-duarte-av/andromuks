@@ -891,7 +891,12 @@ private fun MediaContent(
                                 // Fallback: No thumbnail available, show placeholder
                                 Column(
                                     horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
+                                    verticalArrangement = Arrangement.Center,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .pointerInput(Unit) {
+                                            detectTapGestures(onTap = { onImageClick() })
+                                        }
                                 ) {
                                     Text(
                                         text = "🎥",
