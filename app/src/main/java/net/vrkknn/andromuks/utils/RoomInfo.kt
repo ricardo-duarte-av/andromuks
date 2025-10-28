@@ -128,6 +128,9 @@ fun RoomInfoScreen(
     val memberMap = remember(roomId, appViewModel.memberUpdateCounter) {
         appViewModel.getMemberMap(roomId)
     }
+    
+    // Force recomposition when member map updates (for opportunistic profile loading)
+    val memberUpdateCounter = appViewModel.memberUpdateCounter
 
     Scaffold(
         topBar = {
@@ -409,6 +412,21 @@ fun RoomInfoScreen(
 
     // Pinned Events Dialog
     if (showPinnedDialog) {
+        // Trigger opportunistic profile loading for pinned event senders
+        LaunchedEffect(pinnedEvents, memberUpdateCounter) {
+            if (pinnedEvents.isNotEmpty()) {
+                val senders = pinnedEvents
+                    .mapNotNull { it.timelineEvent?.sender }
+                    .distinct()
+                    .filter { it != appViewModel.currentUserId }
+                
+                android.util.Log.d("Andromuks", "RoomInfoScreen: Triggering opportunistic profile loading for ${senders.size} pinned event senders")
+                senders.forEach { sender ->
+                    appViewModel.requestUserProfileOnDemand(sender, roomId)
+                }
+            }
+        }
+        
         PinnedEventsDialog(
             isLoading = isPinnedLoading,
             errorMessage = pinnedError,
@@ -446,22 +464,47 @@ private fun loadPinnedEvents(
     val results = mutableListOf<PinnedEventItem>()
     var remaining = pinnedIds.size
     var errorMessage: String? = null
+    var hasTimeout = false
+
+    android.util.Log.d("Andromuks", "loadPinnedEvents: Loading ${pinnedIds.size} pinned events for room $roomId")
 
     pinnedIds.forEach { eventId ->
         appViewModel.getEvent(roomId, eventId) { timelineEvent ->
             synchronized(results) {
                 results.add(PinnedEventItem(eventId, timelineEvent))
                 remaining -= 1
+                
                 if (timelineEvent == null) {
-                    errorMessage = errorMessage ?: "Some events could not be loaded"
+                    hasTimeout = true
+                    android.util.Log.w("Andromuks", "loadPinnedEvents: Failed to load event $eventId")
+                } else {
+                    android.util.Log.d("Andromuks", "loadPinnedEvents: Successfully loaded event $eventId")
                 }
 
+                android.util.Log.d("Andromuks", "loadPinnedEvents: Progress: ${pinnedIds.size - remaining}/${pinnedIds.size} events loaded")
+
                 if (remaining == 0) {
-                    // Preserve original order based on pinnedIds list
-                    val ordered = pinnedIds.map { id ->
-                        results.find { it.eventId == id } ?: PinnedEventItem(id, null)
+                    // Get all successfully loaded events and sort by timestamp (most recent first)
+                    val loadedEvents = results.filter { it.timelineEvent != null }
+                        .sortedByDescending { it.timelineEvent!!.timestamp }
+                    
+                    // Add failed events at the end (preserve original order for failed ones)
+                    val failedEvents = results.filter { it.timelineEvent == null }
+                        .sortedBy { pinnedIds.indexOf(it.eventId) }
+                    
+                    // Combine: most recent first, then failed events
+                    val ordered = loadedEvents + failedEvents
+                    
+                    // Set appropriate error message
+                    val finalErrorMessage = when {
+                        hasTimeout && results.all { it.timelineEvent == null } -> "All pinned events failed to load (timeout or not found)"
+                        hasTimeout -> "Some pinned events failed to load (timeout or not found)"
+                        else -> null
                     }
-                    onResult(ordered, errorMessage)
+                    
+                    android.util.Log.d("Andromuks", "loadPinnedEvents: Completed loading pinned events. Success: ${results.count { it.timelineEvent != null }}/${pinnedIds.size}")
+                    android.util.Log.d("Andromuks", "loadPinnedEvents: Events ordered by timestamp (most recent first)")
+                    onResult(ordered, finalErrorMessage)
                 }
             }
         }
@@ -540,6 +583,14 @@ private fun PinnedEventItemView(
     myUserId: String?
 ) {
     val event = pinnedItem.timelineEvent
+
+    // Debug logging for profile loading
+    LaunchedEffect(event?.sender, memberMap) {
+        if (event?.sender != null) {
+            val profile = memberMap[event.sender]
+            android.util.Log.d("Andromuks", "PinnedEventItemView: Event sender: ${event.sender}, Profile found: ${profile != null}, DisplayName: ${profile?.displayName}")
+        }
+    }
 
     Surface(
         color = MaterialTheme.colorScheme.surfaceVariant,

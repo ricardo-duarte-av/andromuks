@@ -8062,6 +8062,24 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: get_event with data: $commandData")
         sendWebSocketCommand("get_event", eventRequestId, commandData)
         android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $eventRequestId")
+        
+        // Add timeout mechanism to prevent infinite loading
+        viewModelScope.launch(Dispatchers.IO) {
+            val timeoutMs = 10000L // 10 second timeout
+            android.util.Log.d("Andromuks", "AppViewModel: Setting get_event timeout to ${timeoutMs}ms for requestId=$eventRequestId")
+            delay(timeoutMs)
+            
+            // Check if request is still pending
+            if (eventRequests.containsKey(eventRequestId)) {
+                android.util.Log.w("Andromuks", "AppViewModel: get_event timeout after ${timeoutMs}ms for requestId=$eventRequestId, calling callback with null")
+                // Switch to Main dispatcher for callback
+                withContext(Dispatchers.Main) {
+                    eventRequests.remove(eventRequestId)?.let { (_, callback) ->
+                        callback(null)
+                    }
+                }
+            }
+        }
     }
 
     // Settings functions
