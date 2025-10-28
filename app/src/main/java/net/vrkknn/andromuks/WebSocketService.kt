@@ -288,7 +288,10 @@ class WebSocketService : Service() {
                     
                     // Notify AppViewModel to exit offline mode
                     offlineModeCallback?.invoke(false)
-                    triggerReconnection("Network restored")
+                    
+                    // For network restoration, directly call the WebSocket connection instead of triggerReconnection
+                    android.util.Log.d("WebSocketService", "Network restored - directly calling WebSocket connection")
+                    reconnectionCallback?.invoke("Network restored - direct connection")
                 },
                 onNetworkLost = {
                     android.util.Log.w("WebSocketService", "Network lost - entering offline mode")
@@ -591,8 +594,12 @@ class WebSocketService : Service() {
                 }
             }
             
-            // Clear current connection
-            clearWebSocket()
+            // Only clear WebSocket if not a network restoration
+            if (!reason.contains("Network restored")) {
+                clearWebSocket()
+            } else {
+                android.util.Log.d("WebSocketService", "Network restored - skipping clearWebSocket to preserve state")
+            }
             
             // Reset reconnection state to allow new reconnection
             serviceInstance.isReconnecting = false
@@ -601,7 +608,8 @@ class WebSocketService : Service() {
             serviceScope.launch {
                 delay(1000) // 1 second delay to ensure proper closure
                 android.util.Log.d("WebSocketService", "Triggering reconnection after delay")
-                // Trigger reconnection via callback
+                
+                // Always use the callback to avoid infinite loops
                 reconnectionCallback?.invoke(reason)
             }
         }
