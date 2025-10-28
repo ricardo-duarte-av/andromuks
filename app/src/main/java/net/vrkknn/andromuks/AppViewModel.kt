@@ -1072,18 +1072,9 @@ class AppViewModel : ViewModel() {
         conversationsApi = components.conversationsApi
         webClientPushIntegration = components.webClientPushIntegration
         
-        // Initialize network monitor for immediate reconnection on network changes
-        initializeNetworkMonitor(context)
+        // Network monitoring will be started when WebSocket service starts
     }
     
-    /**
-     * Initialize network monitoring for immediate WebSocket reconnection on network changes
-     */
-    private fun initializeNetworkMonitor(context: Context) {
-        // Delegate network monitoring to service
-        WebSocketService.startNetworkMonitoring(context)
-        android.util.Log.d("Andromuks", "AppViewModel: Network monitoring delegated to service")
-    }
     
     /**
      * Registers FCM notifications with the Gomuks backend.
@@ -2379,10 +2370,6 @@ class AppViewModel : ViewModel() {
         // This prevents 500-1000ms blocking on init_complete with many rooms
         android.util.Log.d("Andromuks", "AppViewModel: Init complete - bridge detection deferred until Bridges tab is accessed")
         
-        // Start the WebSocket foreground service now that we have all connection parameters
-        android.util.Log.d("Andromuks", "AppViewModel: Starting WebSocket foreground service after init_complete")
-        startWebSocketService()
-        
         // Update ConversationsApi with the real homeserver URL and refresh shortcuts
         // This happens after init_complete when we have all the data we need
         if (realMatrixHomeserverUrl.isNotEmpty() && appContext != null) {
@@ -2950,9 +2937,11 @@ class AppViewModel : ViewModel() {
     }
 
     fun setWebSocket(webSocket: WebSocket) {
+        android.util.Log.d("Andromuks", "AppViewModel: setWebSocket() called")
         this.webSocket = webSocket
         
         // Set up service callbacks for ping/pong
+        android.util.Log.d("Andromuks", "AppViewModel: Setting up service callbacks")
         WebSocketService.setWebSocketSendCallback { command, requestId, data ->
             sendWebSocketCommand(command, requestId, data) == WebSocketResult.SUCCESS
         }
@@ -2974,6 +2963,7 @@ class AppViewModel : ViewModel() {
         }
         
         // Delegate WebSocket management to service
+        android.util.Log.d("Andromuks", "AppViewModel: Calling WebSocketService.setWebSocket()")
         WebSocketService.setWebSocket(webSocket)
         
         // Broadcast that socket connection is available and retry pending operations
@@ -3109,8 +3099,7 @@ class AppViewModel : ViewModel() {
                 WebSocketService.setReconnectionState(currentRunId, lastReceivedSyncId, vapidKey)
             }
             
-            // Delegate pong handling to service
-            WebSocketService.handlePong(requestId)
+            // Pong handling is now done directly in NetworkUtils
         }
     }
     
@@ -7982,6 +7971,8 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: Starting WebSocket foreground service")
             val intent = android.content.Intent(context, WebSocketService::class.java)
             context.startForegroundService(intent)
+            
+            // Network monitoring will be started automatically in service onCreate
         }
     }
 

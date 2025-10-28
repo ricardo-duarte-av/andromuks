@@ -134,7 +134,23 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             }
             Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
             
-            // Connect websocket - service will be started after connection is established
+            // Set reconnection parameters in service BEFORE starting service
+            val runId = appViewModel.getCurrentRunId()
+            val lastReceivedId = appViewModel.getLastReceivedId()
+            if (runId.isNotEmpty() && lastReceivedId != 0) {
+                android.util.Log.d("Andromuks", "AuthCheckScreen: Setting reconnection parameters in service - runId: $runId, lastReceivedId: $lastReceivedId")
+                WebSocketService.setReconnectionState(runId, lastReceivedId, "")
+            }
+            
+            // Start WebSocket service BEFORE connecting websocket
+            android.util.Log.d("Andromuks", "AuthCheckScreen: Starting WebSocket service before connection")
+            appViewModel.startWebSocketService()
+            
+            // Set app as visible since we're starting the app
+            android.util.Log.d("Andromuks", "AuthCheckScreen: Setting app as visible")
+            WebSocketService.setAppVisibility(true)
+            
+            // Connect websocket - service is now ready to receive the connection
             connectToWebsocket(homeserverUrl, client, token, appViewModel)
             // Do not navigate yet; wait for spacesLoaded
         } else {

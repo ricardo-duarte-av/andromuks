@@ -198,13 +198,8 @@ fun connectToWebsocket(
     val webSocketUrl = trimWebsocketHost(url)
     
     // Build WebSocket URL with reconnection parameters if available
-    // Get reconnection parameters from service (primary) or AppViewModel (fallback)
-    val (runId, lastReceivedId, vapidKey) = try {
-        WebSocketService.getReconnectionParameters()
-    } catch (e: Exception) {
-        // Fallback to AppViewModel if service is not available
-        Triple(appViewModel.getCurrentRunId(), appViewModel.getLastReceivedId(), "")
-    }
+    // Get reconnection parameters from AppViewModel (service may not be started yet)
+    val (runId, lastReceivedId, vapidKey) = Triple(appViewModel.getCurrentRunId(), appViewModel.getLastReceivedId(), "")
     
     // Debug logging to identify JSON encoding issue
     Log.d("NetworkUtils", "DEBUG: runId='$runId', lastReceivedId=$lastReceivedId, vapidKey='${vapidKey.take(20)}...'")
@@ -278,9 +273,9 @@ fun connectToWebsocket(
                 Log.d("Andromuks", "NetworkUtils: Header '$name': '$value'")
             }
             
-            // Set WebSocket in both AppViewModel and service
+            // Set WebSocket in AppViewModel (which will also set it in service)
+            Log.d("Andromuks", "NetworkUtils: Calling appViewModel.setWebSocket()")
             appViewModel.setWebSocket(webSocket)
-            WebSocketService.setWebSocket(webSocket)
             Log.d("Andromuks", "NetworkUtils: connectToWebsocket using AppViewModel instance: $appViewModel")
             
             // Reset reconnection tracking on successful connection
@@ -315,6 +310,15 @@ fun connectToWebsocket(
                 }
                 val command = jsonObject.optString("command")
                 when (command) {
+                    "pong" -> {
+                        val requestId = jsonObject.optInt("request_id")
+                        Log.i("Andromuks", "PONG JSON: $text")
+                        
+                        // Handle pong response directly in service
+                        WebSocketService.getServiceScope().launch(Dispatchers.IO) {
+                            WebSocketService.handlePong(requestId)
+                        }
+                    }
                     "run_id" -> {
                         val data = jsonObject.optJSONObject("data")
                         val runId = data?.optString("run_id", "")
@@ -365,6 +369,7 @@ fun connectToWebsocket(
                         val requestId = jsonObject.optInt("request_id")
                         val data = jsonObject.opt("data")
                         Log.d("Andromuks", "NetworkUtils: Routing response, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
+                        
                         // Use service scope for background processing
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             appViewModel.handleResponse(requestId, data ?: Any())
@@ -445,6 +450,15 @@ fun connectToWebsocket(
                             }
                             val command = jsonObject.optString("command")
                             when (command) {
+                                "pong" -> {
+                                    val requestId = jsonObject.optInt("request_id")
+                                    Log.i("Andromuks", "PONG JSON (compressed): $decompressedText")
+                                    
+                                    // Handle pong response directly in service
+                                    WebSocketService.getServiceScope().launch(Dispatchers.IO) {
+                                        WebSocketService.handlePong(requestId)
+                                    }
+                                }
                                 "run_id" -> {
                                     val data = jsonObject.optJSONObject("data")
                                     val runId = data?.optString("run_id", "")
@@ -503,15 +517,16 @@ fun connectToWebsocket(
                                          appViewModel.updateTypingUsers(roomId ?: "", userIds)
                                      }
                                  }
-                                 "response" -> {
-                                     val requestId = jsonObject.optInt("request_id")
-                                     val data = jsonObject.opt("data")
-                                     Log.d("Andromuks", "NetworkUtils: Routing compressed response, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
-                                     // Use service scope for background processing
-                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                                         appViewModel.handleResponse(requestId, data ?: Any())
-                                     }
-                                 }
+                                "response" -> {
+                                    val requestId = jsonObject.optInt("request_id")
+                                    val data = jsonObject.opt("data")
+                                    Log.d("Andromuks", "NetworkUtils: Routing compressed response, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
+                                    
+                                    // Use service scope for background processing
+                                    WebSocketService.getServiceScope().launch(Dispatchers.IO) {
+                                        appViewModel.handleResponse(requestId, data ?: Any())
+                                    }
+                                }
                              }
                          }
                     }
