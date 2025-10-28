@@ -214,6 +214,10 @@ class AppViewModel : ViewModel() {
     private var bridgeInfoCache by mutableStateOf(mapOf<String, BridgeInfo>())
         private set
     
+    // Bridge cache persistence - tracks which rooms have been checked for bridge state
+    private var bridgeCacheCheckedRooms by mutableStateOf(setOf<String>())
+        private set
+    
     // Room state storage for future use
     private var roomStatesCache by mutableStateOf(mapOf<String, JSONArray>())
         private set
@@ -250,7 +254,30 @@ class AppViewModel : ViewModel() {
      */
     fun updateBridgeInfo(roomId: String, bridgeInfo: BridgeInfo) {
         bridgeInfoCache = bridgeInfoCache + (roomId to bridgeInfo)
+        bridgeCacheCheckedRooms = bridgeCacheCheckedRooms + roomId
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated bridge info for room $roomId: ${bridgeInfo.protocol.displayname}")
+    }
+    
+    /**
+     * Mark a room as checked for bridge state (even if no bridge was found)
+     */
+    fun markRoomAsBridgeChecked(roomId: String) {
+        bridgeCacheCheckedRooms = bridgeCacheCheckedRooms + roomId
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked room $roomId as bridge checked")
+    }
+    
+    /**
+     * Check if a room has been checked for bridge state
+     */
+    fun isRoomBridgeChecked(roomId: String): Boolean {
+        return bridgeCacheCheckedRooms.contains(roomId)
+    }
+    
+    /**
+     * Get rooms that haven't been checked for bridge state yet
+     */
+    fun getUncheckedRoomsForBridge(): List<String> {
+        return allRooms.map { it.id }.filter { !isRoomBridgeChecked(it) }
     }
     
     /**
@@ -2237,6 +2264,10 @@ class AppViewModel : ViewModel() {
             }
             android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name}")
             
+            // Bridge cache invalidation: New rooms need to be checked for bridge state
+            // Remove from checked rooms set so it gets checked on next bridge load
+            bridgeCacheCheckedRooms = bridgeCacheCheckedRooms - room.id
+            
             // Check if this is a room we just joined and need to navigate to
             pendingJoinedRoomNavigation?.let { (pendingRoomId, navController) ->
                 if (room.id == pendingRoomId) {
@@ -2260,6 +2291,10 @@ class AppViewModel : ViewModel() {
                 if (isAppVisible) {
                     roomAnimationStates = roomAnimationStates - roomId
                 }
+                
+                // Bridge cache invalidation: Remove bridge info and checked status for removed rooms
+                bridgeInfoCache = bridgeInfoCache - roomId
+                bridgeCacheCheckedRooms = bridgeCacheCheckedRooms - roomId
                 android.util.Log.d("Andromuks", "AppViewModel: Removed room: ${removedRoom.name}")
             }
         }
@@ -2460,10 +2495,21 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        android.util.Log.d("Andromuks", "AppViewModel: Lazy loading bridges - requesting room states for ${allRooms.size} rooms")
+        // First, try to create bridges from cached data
+        createBridgePseudoSpaces()
         
-        // Request room states for all rooms (will process responses as they arrive)
-        net.vrkknn.andromuks.utils.SpaceRoomParser.requestRoomStatesForBridgeDetection(this)
+        // Only request room states for rooms that haven't been checked yet
+        val uncheckedRooms = getUncheckedRoomsForBridge()
+        if (uncheckedRooms.isNotEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: Lazy loading bridges - requesting room states for ${uncheckedRooms.size} unchecked rooms (${allRooms.size - uncheckedRooms.size} already cached)")
+            
+            // Request room states only for unchecked rooms
+            uncheckedRooms.forEach { roomId ->
+                requestRoomStateForBridgeDetection(roomId)
+            }
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: All rooms already checked for bridges - using cached data only")
+        }
     }
     
     /**
@@ -3192,6 +3238,40 @@ class AppViewModel : ViewModel() {
             }
             editor.putString("cached_rooms", roomsArray.toString())
             
+            // Save bridge cache data
+            val bridgeInfoArray = JSONArray()
+            for ((roomId, bridgeInfo) in bridgeInfoCache) {
+                val bridgeJson = JSONObject()
+                bridgeJson.put("roomId", roomId)
+                bridgeJson.put("bridgebot", bridgeInfo.bridgebot)
+                bridgeJson.put("creator", bridgeInfo.creator)
+                
+                // Channel data
+                val channelJson = JSONObject()
+                channelJson.put("avatarUrl", bridgeInfo.channel.avatarUrl ?: "")
+                channelJson.put("displayname", bridgeInfo.channel.displayname)
+                channelJson.put("id", bridgeInfo.channel.id)
+                bridgeJson.put("channel", channelJson)
+                
+                // Protocol data
+                val protocolJson = JSONObject()
+                protocolJson.put("avatarUrl", bridgeInfo.protocol.avatarUrl ?: "")
+                protocolJson.put("displayname", bridgeInfo.protocol.displayname)
+                protocolJson.put("externalUrl", bridgeInfo.protocol.externalUrl ?: "")
+                protocolJson.put("id", bridgeInfo.protocol.id)
+                bridgeJson.put("protocol", protocolJson)
+                
+                bridgeInfoArray.put(bridgeJson)
+            }
+            editor.putString("cached_bridge_info", bridgeInfoArray.toString())
+            
+            // Save checked rooms set
+            val checkedRoomsArray = JSONArray()
+            for (roomId in bridgeCacheCheckedRooms) {
+                checkedRoomsArray.put(roomId)
+            }
+            editor.putString("cached_bridge_checked_rooms", checkedRoomsArray.toString())
+            
             // Save timestamp of when state was saved
             editor.putLong("state_saved_timestamp", System.currentTimeMillis())
             
@@ -3305,14 +3385,65 @@ class AppViewModel : ViewModel() {
                 setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = cachedRooms)))
                 
                 android.util.Log.d("Andromuks", "AppViewModel: Restored ${cachedRooms.size} rooms from cache")
-                
-                // Mark spaces as loaded so UI can show cached data
-                spacesLoaded = true
-                
-                return true
             }
             
-            return false
+            // Restore bridge cache data
+            val cachedBridgeInfoJson = prefs.getString("cached_bridge_info", null)
+            if (cachedBridgeInfoJson != null) {
+                val bridgeInfoArray = JSONArray(cachedBridgeInfoJson)
+                val cachedBridgeInfo = mutableMapOf<String, BridgeInfo>()
+                
+                for (i in 0 until bridgeInfoArray.length()) {
+                    val bridgeJson = bridgeInfoArray.getJSONObject(i)
+                    val roomId = bridgeJson.getString("roomId")
+                    
+                    val channelObj = bridgeJson.getJSONObject("channel")
+                    val channel = BridgeChannel(
+                        avatarUrl = channelObj.getString("avatarUrl").takeIf { it.isNotBlank() },
+                        displayname = channelObj.getString("displayname"),
+                        id = channelObj.getString("id")
+                    )
+                    
+                    val protocolObj = bridgeJson.getJSONObject("protocol")
+                    val protocol = BridgeProtocol(
+                        avatarUrl = protocolObj.getString("avatarUrl").takeIf { it.isNotBlank() },
+                        displayname = protocolObj.getString("displayname"),
+                        externalUrl = protocolObj.getString("externalUrl").takeIf { it.isNotBlank() },
+                        id = protocolObj.getString("id")
+                    )
+                    
+                    val bridgeInfo = BridgeInfo(
+                        bridgebot = bridgeJson.getString("bridgebot"),
+                        channel = channel,
+                        creator = bridgeJson.getString("creator"),
+                        protocol = protocol
+                    )
+                    
+                    cachedBridgeInfo[roomId] = bridgeInfo
+                }
+                
+                bridgeInfoCache = cachedBridgeInfo
+                android.util.Log.d("Andromuks", "AppViewModel: Restored ${cachedBridgeInfo.size} bridge info entries from cache")
+            }
+            
+            // Restore checked rooms set
+            val cachedCheckedRoomsJson = prefs.getString("cached_bridge_checked_rooms", null)
+            if (cachedCheckedRoomsJson != null) {
+                val checkedRoomsArray = JSONArray(cachedCheckedRoomsJson)
+                val cachedCheckedRooms = mutableSetOf<String>()
+                
+                for (i in 0 until checkedRoomsArray.length()) {
+                    cachedCheckedRooms.add(checkedRoomsArray.getString(i))
+                }
+                
+                bridgeCacheCheckedRooms = cachedCheckedRooms
+                android.util.Log.d("Andromuks", "AppViewModel: Restored ${cachedCheckedRooms.size} checked rooms from cache")
+            }
+            
+            // Mark spaces as loaded so UI can show cached data
+            spacesLoaded = true
+            
+            return true
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to load state from storage", e)
             return false
@@ -3332,6 +3463,8 @@ class AppViewModel : ViewModel() {
             editor.remove("ws_last_received_sync_id")
             editor.remove("ws_vapid_key")
             editor.remove("cached_rooms")
+            editor.remove("cached_bridge_info")
+            editor.remove("cached_bridge_checked_rooms")
             editor.remove("state_saved_timestamp")
             
             editor.apply()
@@ -5824,6 +5957,9 @@ class AppViewModel : ViewModel() {
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: No m.bridge events found for room: $roomId")
         }
+        
+        // Always mark room as checked, even if no bridge was found
+        markRoomAsBridgeChecked(roomId)
     }
     
     /**

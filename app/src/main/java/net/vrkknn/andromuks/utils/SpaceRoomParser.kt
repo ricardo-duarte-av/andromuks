@@ -629,6 +629,7 @@ object SpaceRoomParser {
     /**
      * Request room states for all rooms to detect bridges and store for future use
      * This will make WebSocket calls to fetch complete room state for each room
+     * DEPRECATED: Use AppViewModel.loadBridgesIfNeeded() instead for better caching
      */
     fun requestRoomStatesForBridgeDetection(appViewModel: net.vrkknn.andromuks.AppViewModel?) {
         if (appViewModel == null) {

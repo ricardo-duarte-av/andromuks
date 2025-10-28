@@ -855,9 +855,16 @@ class WebSocketService : Service() {
         private var networkCallback: ConnectivityManager.NetworkCallback? = null
         private var isCurrentlyConnected = false
         private var lastNetworkType: NetworkType = NetworkType.NONE
+        private var networkFlapCount = 0
+        private var lastNetworkChangeTime = 0L
+        private var adaptiveDebounceMs = WebSocketService.NETWORK_CHANGE_DEBOUNCE_MS
+        private var lastActiveNetwork: Network? = null
         
         companion object {
             private const val TAG = "WebSocketService.NetworkMonitor"
+            private const val MAX_FLAP_COUNT = 3
+            private const val ADAPTIVE_DEBOUNCE_MULTIPLIER = 2
+            private const val MAX_DEBOUNCE_MS = 60000L // 1 minute max
         }
         
         /**
@@ -882,25 +889,42 @@ class WebSocketService : Service() {
                     Log.d(TAG, "onAvailable: isCurrentlyConnected=$isCurrentlyConnected")
                     
                     if (!isCurrentlyConnected) {
-                        isCurrentlyConnected = true
-                        
-                        // Get network type immediately when network becomes available
+                        // Get network capabilities to verify internet reachability
                         val capabilities = connectivityManager.getNetworkCapabilities(network)
                         if (capabilities != null) {
-                            val currentType = getNetworkType(capabilities)
-                            val currentTime = System.currentTimeMillis()
+                            val hasInternet = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                            val isValidated = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
                             
-                            // Update network type and check for changes
-                            if (currentType != lastNetworkType) {
-                                Log.i(TAG, "Network type changed from $lastNetworkType to $currentType on network available")
-                                lastNetworkType = currentType
-                                WebSocketService.instance?.lastNetworkChangeTime = currentTime
-                                WebSocketService.updateServiceNetworkType(currentType)
+                            Log.d(TAG, "Network available - Internet: $hasInternet, Validated: $isValidated")
+                            
+                            // Only proceed if we have internet capability
+                            if (hasInternet) {
+                                isCurrentlyConnected = true
+                                
+                                val currentType = getNetworkType(capabilities)
+                                val currentTime = System.currentTimeMillis()
+                                
+                                // Update network type and check for changes
+                                if (currentType != lastNetworkType) {
+                                    Log.i(TAG, "Network type changed from $lastNetworkType to $currentType on network available")
+                                    lastNetworkType = currentType
+                                    WebSocketService.instance?.lastNetworkChangeTime = currentTime
+                                    WebSocketService.updateServiceNetworkType(currentType)
+                                }
+                                
+                                if (isValidated) {
+                                    Log.i(TAG, "Network validated - triggering reconnect")
+                                    onNetworkAvailable()
+                                } else {
+                                    Log.d(TAG, "Network available but not validated - will retry when validated")
+                                    // Don't trigger reconnection yet, wait for validation
+                                }
+                            } else {
+                                Log.d(TAG, "Network available but no internet capability - ignoring")
                             }
+                        } else {
+                            Log.d(TAG, "Network available but no capabilities - ignoring")
                         }
-                        
-                        Log.i(TAG, "Network connection restored - triggering reconnect")
-                        onNetworkAvailable()
                     } else {
                         Log.d(TAG, "onAvailable: Already connected, ignoring")
                     }
@@ -938,11 +962,19 @@ class WebSocketService : Service() {
                         val currentType = getNetworkType(networkCapabilities)
                         val currentTime = System.currentTimeMillis()
                         
+                        // Check if this is a different network instance
+                        val isNewNetwork = lastActiveNetwork != network
+                        if (isNewNetwork) {
+                            Log.d(TAG, "New network instance detected: $network (was: $lastActiveNetwork)")
+                            lastActiveNetwork = network
+                        }
+                        
                         // Check if we were disconnected and now have connectivity
                         if (!isCurrentlyConnected) {
                             Log.i(TAG, "Network connectivity restored - triggering reconnect")
                             isCurrentlyConnected = true
                             lastNetworkType = currentType
+                            lastActiveNetwork = network
                             WebSocketService.instance?.lastNetworkChangeTime = currentTime
                             WebSocketService.updateServiceNetworkType(currentType)
                             
@@ -952,22 +984,59 @@ class WebSocketService : Service() {
                             } else {
                                 Log.d(TAG, "Already reconnecting, ignoring network restoration")
                             }
-                        } else if (currentType != lastNetworkType) {
-                            // Check if enough time has passed since last network change
-                            if (currentTime - (WebSocketService.instance?.lastNetworkChangeTime ?: 0) > WebSocketService.NETWORK_CHANGE_DEBOUNCE_MS) {
-                                Log.i(TAG, "Network type changed from $lastNetworkType to $currentType - scheduling reconnection")
+                        } else if (currentType != lastNetworkType || isNewNetwork) {
+                            // For new network instances, always reconnect (true network switch)
+                            if (isNewNetwork) {
+                                Log.i(TAG, "New network instance detected - treating as true network switch")
                                 lastNetworkType = currentType
+                                lastNetworkChangeTime = currentTime
                                 WebSocketService.instance?.lastNetworkChangeTime = currentTime
-                                // Update service network type
                                 WebSocketService.updateServiceNetworkType(currentType)
+                                
+                                // Reset flap count on successful change
+                                networkFlapCount = 0
+                                adaptiveDebounceMs = WebSocketService.NETWORK_CHANGE_DEBOUNCE_MS
+                                
                                 // Only trigger reconnection if not already reconnecting
                                 if (!(WebSocketService.instance?.isReconnecting ?: false)) {
-                                    onNetworkAvailable() // Trigger reconnection on network type change
+                                    onNetworkAvailable() // Trigger reconnection on new network
                                 } else {
-                                    Log.d(TAG, "Already reconnecting, ignoring network type change")
+                                    Log.d(TAG, "Already reconnecting, ignoring new network")
                                 }
                             } else {
-                                Log.d(TAG, "Network type changed but debouncing - ignoring rapid change")
+                                // Check if enough time has passed since last network change (adaptive debouncing)
+                                val timeSinceLastChange = currentTime - lastNetworkChangeTime
+                                if (timeSinceLastChange > adaptiveDebounceMs) {
+                                    Log.i(TAG, "Network type changed from $lastNetworkType to $currentType - scheduling reconnection")
+                                    lastNetworkType = currentType
+                                    lastNetworkChangeTime = currentTime
+                                    WebSocketService.instance?.lastNetworkChangeTime = currentTime
+                                    // Update service network type
+                                    WebSocketService.updateServiceNetworkType(currentType)
+                                    
+                                    // Reset flap count on successful change
+                                    networkFlapCount = 0
+                                    adaptiveDebounceMs = WebSocketService.NETWORK_CHANGE_DEBOUNCE_MS
+                                    // Only trigger reconnection if not already reconnecting
+                                    if (!(WebSocketService.instance?.isReconnecting ?: false)) {
+                                        onNetworkAvailable() // Trigger reconnection on network type change
+                                    } else {
+                                        Log.d(TAG, "Already reconnecting, ignoring network type change")
+                                    }
+                                } else {
+                                    // Detect network flaps and increase debounce time
+                                    networkFlapCount++
+                                    Log.d(TAG, "Network type changed but debouncing - ignoring rapid change (flap count: $networkFlapCount)")
+                                    
+                                    // Increase debounce time for flaky networks
+                                    if (networkFlapCount >= MAX_FLAP_COUNT) {
+                                        adaptiveDebounceMs = kotlin.math.min(
+                                            adaptiveDebounceMs * ADAPTIVE_DEBOUNCE_MULTIPLIER,
+                                            MAX_DEBOUNCE_MS
+                                        )
+                                        Log.w(TAG, "Network flapping detected - increasing debounce to ${adaptiveDebounceMs}ms")
+                                    }
+                                }
                             }
                         } else {
                             // Network is connected and validated, just update type if needed
