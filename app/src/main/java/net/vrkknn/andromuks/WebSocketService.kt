@@ -342,10 +342,16 @@ class WebSocketService : Service() {
             android.util.Log.i("WebSocketService", "setWebSocket() called - setting up WebSocket connection")
             android.util.Log.d("WebSocketService", "Current connection state: ${serviceInstance.connectionState}")
             
-            // Check if already connecting or connected
-            if (serviceInstance.connectionState == ConnectionState.CONNECTING || serviceInstance.connectionState == ConnectionState.CONNECTED) {
-                android.util.Log.w("WebSocketService", "WebSocket connection already in progress or connected, ignoring new connection")
+            // Check if already connecting or connected (but allow reconnection)
+            if (serviceInstance.connectionState == ConnectionState.CONNECTING) {
+                android.util.Log.w("WebSocketService", "WebSocket connection already in progress, ignoring new connection")
                 return
+            }
+            
+            // If already connected, close the old connection first (for reconnection)
+            if (serviceInstance.connectionState == ConnectionState.CONNECTED) {
+                android.util.Log.d("WebSocketService", "Replacing existing WebSocket connection (reconnection)")
+                serviceInstance.webSocket?.close(1000, "Reconnecting")
             }
             
             serviceInstance.connectionState = ConnectionState.CONNECTING
