@@ -85,6 +85,10 @@ class FCMService : FirebaseMessagingService() {
         
         Log.d(TAG, "FCM message received - data: ${remoteMessage.data}, notification: ${remoteMessage.notification}")
         
+        // FCM received = network is working, ensure app is running and WebSocket is connected
+        android.util.Log.d("Andromuks", "FCMService: FCM received - ensuring app is running and WebSocket is connected")
+        FCMAppStarter.ensureAppIsRunningAndConnected(this)
+        
         // Handle data payload (matches the other Gomuks client approach)
         if (remoteMessage.data.isNotEmpty()) {
             Log.d(TAG, "Processing data payload: ${remoteMessage.data}")
@@ -463,4 +467,5 @@ class FCMService : FirebaseMessagingService() {
         // For now, we'll just log the token
         android.util.Log.d("Andromuks", "FCMService: New FCM token: $token")
     }
+    
 }
