@@ -58,15 +58,25 @@ class WebClientPushIntegration(private val context: Context) {
      */
     fun getPushEncryptionKey(): String {
         return try {
+            // First, check if we already have a key stored
+            val existingKey = prefs.getString(KEY_PUSH_ENCRYPTION_KEY, null)
+            if (existingKey != null) {
+                Log.d(TAG, "getPushEncryptionKey: Reusing existing key from SharedPreferences")
+                Log.d(TAG, "getPushEncryptionKey: Existing key (first 20 chars): ${existingKey.take(20)}...")
+                return existingKey
+            }
+            
+            // No existing key, generate a new one
+            Log.d(TAG, "getPushEncryptionKey: No existing key found, generating new one")
             val keyBytes = getOrCreatePushEncryptionKey()
             val base64Key = Base64.encodeToString(keyBytes, Base64.NO_WRAP)
-            Log.d(TAG, "getPushEncryptionKey: Generated key of size ${keyBytes.size} bytes")
+            Log.d(TAG, "getPushEncryptionKey: Generated new key of size ${keyBytes.size} bytes")
             Log.d(TAG, "getPushEncryptionKey: Key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}")
             Log.d(TAG, "getPushEncryptionKey: Base64 key: $base64Key")
             
             // Store the key in SharedPreferences for FCMService to use
             prefs.edit().putString(KEY_PUSH_ENCRYPTION_KEY, base64Key).apply()
-            Log.d(TAG, "getPushEncryptionKey: Stored key in SharedPreferences: $base64Key")
+            Log.d(TAG, "getPushEncryptionKey: Stored new key in SharedPreferences: $base64Key")
             
             base64Key
         } catch (e: Exception) {

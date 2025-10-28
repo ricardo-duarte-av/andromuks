@@ -1208,14 +1208,8 @@ class AppViewModel : ViewModel() {
         
         android.util.Log.d("Andromuks", "AppViewModel: hasRegisteredViaWebSocket=$hasRegisteredViaWebSocket, forceRegistration=$forceRegistration")
         
-        if (!shouldRegister && !forceRegistration) {
-            android.util.Log.d("Andromuks", "AppViewModel: FCM registration not needed (too recent and already registered via WebSocket)")
-            return
-        }
-        
-        if (forceRegistration) {
-            android.util.Log.d("Andromuks", "AppViewModel: Forcing FCM registration (first time or WebSocket registration missing)")
-        }
+        // Always register FCM on every connection to ensure backend has current token
+        android.util.Log.d("Andromuks", "AppViewModel: Always registering FCM on WebSocket connection to ensure backend has current token")
         
         val token = getFCMTokenForGomuksBackend()
         val deviceId = webClientPushIntegration?.getDeviceID()
@@ -2492,6 +2486,10 @@ class AppViewModel : ViewModel() {
         // Execute any pending notification actions now that websocket is ready
         executePendingNotificationActions()
         
+        // Register FCM on every WebSocket connection to ensure backend has current token
+        android.util.Log.d("Andromuks", "AppViewModel: onInitComplete - registering FCM to ensure backend has current token")
+        registerFCMWithGomuksBackend()
+        
         android.util.Log.d("Andromuks", "AppViewModel: Calling navigation callback (callback is ${if (onNavigateToRoomList != null) "set" else "null"})")
         
         // Only trigger navigation callback once to prevent double navigation
@@ -3080,6 +3078,10 @@ class AppViewModel : ViewModel() {
         // Delegate WebSocket management to service
         android.util.Log.d("Andromuks", "AppViewModel: Calling WebSocketService.setWebSocket()")
         WebSocketService.setWebSocket(webSocket)
+        
+        // Register FCM on every WebSocket connection to ensure backend has current token
+        android.util.Log.d("Andromuks", "AppViewModel: setWebSocket - registering FCM to ensure backend has current token")
+        registerFCMWithGomuksBackend()
         
         // Broadcast that socket connection is available and retry pending operations
         android.util.Log.i("Andromuks", "AppViewModel: WebSocket connection established - retrying ${pendingWebSocketOperations.size} pending operations")
