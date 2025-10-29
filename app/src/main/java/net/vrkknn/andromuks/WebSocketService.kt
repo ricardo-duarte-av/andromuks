@@ -225,6 +225,38 @@ class WebSocketService : Service() {
     }
     
     /**
+     * Trigger backend health check and reconnection if needed
+     * This can be called from FCM or other external triggers
+     */
+    fun triggerBackendHealthCheck() {
+        val serviceInstance = instance ?: return
+        serviceScope.launch {
+            try {
+                android.util.Log.d("WebSocketService", "Triggering manual backend health check")
+                val isHealthy = serviceInstance.checkBackendHealth()
+                
+                if (!isHealthy && (serviceInstance.connectionState == ConnectionState.CONNECTED || serviceInstance.connectionState == ConnectionState.DEGRADED)) {
+                    android.util.Log.w("WebSocketService", "Manual backend health check failed - triggering reconnection")
+                    triggerReconnectionFromExternal("Manual backend health check failed")
+                } else if (isHealthy) {
+                    android.util.Log.d("WebSocketService", "Manual backend health check passed")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("WebSocketService", "Error in manual backend health check", e)
+            }
+        }
+    }
+    
+    /**
+     * Stop the WebSocket service properly
+     * This should be called when the app is being closed
+     */
+    fun stopService() {
+        val serviceInstance = instance ?: return
+        serviceInstance.stopService()
+    }
+    
+    /**
      * Trigger WebSocket reconnection from external callers
      */
     fun triggerReconnectionFromExternal(reason: String) {
@@ -256,6 +288,12 @@ class WebSocketService : Service() {
                 // Reset consecutive timeouts since we got a pong
                 serviceInstance.consecutiveTimeouts = 0
                 serviceInstance.consecutivePingTimeouts = 0
+                
+                // Update ping interval to reflect improved connection quality
+                serviceInstance.updatePingInterval()
+                
+                // Update connection state to reflect improved quality
+                serviceInstance.updateConnectionStateBasedOnQuality()
             }
         }
         
@@ -368,6 +406,9 @@ class WebSocketService : Service() {
                     }
                 }
             }
+            
+            // Start backend health monitoring
+            serviceInstance.startBackendHealthMonitoring()
         }
         
         /**
@@ -380,6 +421,7 @@ class WebSocketService : Service() {
             instance?.networkTestJob = null
             instance?.failsafeReconnectionJob?.cancel()
             instance?.failsafeReconnectionJob = null
+            instance?.stopBackendHealthMonitoring()
             android.util.Log.d("WebSocketService", "Network monitoring stopped")
         }
         
@@ -707,6 +749,7 @@ class WebSocketService : Service() {
     private var networkMonitor: NetworkMonitor? = null
     private var networkTestJob: Job? = null
     private var failsafeReconnectionJob: Job? = null // Failsafe reconnection for stuck states
+    private var backendHealthCheckJob: Job? = null // Backend health monitoring
     private var isCurrentlyConnected = false
     private var currentNetworkType: NetworkType = NetworkType.NONE
     
@@ -738,13 +781,206 @@ class WebSocketService : Service() {
     private var pingLoopStarted = false // Track if ping loop has been started after first sync_complete
     
     /**
-     * Get appropriate ping interval based on app visibility
+     * Get adaptive ping interval based on connection quality and app visibility
      */
     private fun getPingInterval(): Long {
-        // Always use 15s pings for better connection resilience
-        // This helps catch network issues even when app is backgrounded
-        // Mobile networks can be unreliable, so frequent pings help maintain connection
-        return 15_000L
+        // Base interval is 15s for good connection quality
+        val baseInterval = 15_000L
+        
+        // Adaptive intervals based on connection quality
+        val adaptiveInterval = when {
+            consecutivePingTimeouts >= 5 -> {
+                // Poor network quality - use longer intervals to reduce battery drain
+                // and avoid overwhelming a struggling connection
+                android.util.Log.d("WebSocketService", "Poor network quality - using 60s ping interval")
+                60_000L
+            }
+            consecutivePingTimeouts >= 3 -> {
+                // Degrading network quality - use medium intervals
+                android.util.Log.d("WebSocketService", "Network quality degrading - using 30s ping interval")
+                30_000L
+            }
+            consecutivePingTimeouts >= 1 -> {
+                // Some timeouts but not critical - use slightly longer intervals
+                android.util.Log.d("WebSocketService", "Minor network issues - using 20s ping interval")
+                20_000L
+            }
+            else -> {
+                // Good connection quality - use base interval
+                baseInterval
+            }
+        }
+        
+        // App visibility factor (optional - can be enabled if needed)
+        val visibilityFactor = if (isAppVisible) 1.0 else 1.0 // Keep same for both visible and background
+        
+        return (adaptiveInterval * visibilityFactor).toLong()
+    }
+    
+    /**
+     * Update ping interval based on current connection quality
+     * This is called when connection quality changes significantly
+     */
+    private fun updatePingInterval() {
+        val newInterval = getPingInterval()
+        android.util.Log.d("WebSocketService", "Updating ping interval to ${newInterval}ms (consecutive timeouts: $consecutivePingTimeouts)")
+        
+        // The ping loop will use the new interval on the next iteration
+        // No need to restart the loop, just log the change
+    }
+    
+    /**
+     * Update connection state based on quality metrics
+     */
+    private fun updateConnectionStateBasedOnQuality() {
+        val newState = when {
+            consecutivePingTimeouts >= 5 -> {
+                android.util.Log.w("WebSocketService", "Connection quality poor - transitioning to DEGRADED state")
+                ConnectionState.DEGRADED
+            }
+            consecutivePingTimeouts >= 3 -> {
+                android.util.Log.w("WebSocketService", "Connection quality degrading - transitioning to DEGRADED state")
+                ConnectionState.DEGRADED
+            }
+            consecutivePingTimeouts == 0 && connectionState == ConnectionState.DEGRADED -> {
+                android.util.Log.i("WebSocketService", "Connection quality improved - transitioning to CONNECTED state")
+                ConnectionState.CONNECTED
+            }
+            else -> connectionState // Keep current state
+        }
+        
+        if (newState != connectionState) {
+            val oldState = connectionState
+            connectionState = newState
+            android.util.Log.i("WebSocketService", "Connection state changed: $oldState -> $newState")
+            
+            // Update notification to reflect new state
+            updateConnectionStatus(connectionState == ConnectionState.CONNECTED || connectionState == ConnectionState.DEGRADED)
+        }
+    }
+    
+    /**
+     * Check backend health by making a simple HTTP GET request
+     * This is faster than WebSocket ping/pong and catches backend-specific issues
+     */
+    private suspend fun checkBackendHealth(): Boolean {
+        return try {
+            val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+            val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+            
+            if (homeserverUrl.isEmpty()) {
+                android.util.Log.w("WebSocketService", "Backend health check skipped - no homeserver URL")
+                return false
+            }
+            
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            
+            val request = okhttp3.Request.Builder()
+                .url(homeserverUrl)
+                .get()
+                .build()
+            
+            val response = client.newCall(request).execute()
+            val isHealthy = response.isSuccessful && response.code == 200
+            
+            android.util.Log.d("WebSocketService", "Backend health check: ${response.code} - ${if (isHealthy) "HEALTHY" else "UNHEALTHY"}")
+            
+            response.close()
+            isHealthy
+        } catch (e: Exception) {
+            android.util.Log.w("WebSocketService", "Backend health check failed", e)
+            false
+        }
+    }
+    
+    /**
+     * Start backend health monitoring
+     */
+    private fun startBackendHealthMonitoring() {
+        backendHealthCheckJob?.cancel()
+        backendHealthCheckJob = serviceScope.launch {
+            while (isActive) {
+                delay(30_000) // Check every 30 seconds
+                
+                try {
+                    val isBackendHealthy = checkBackendHealth()
+                    
+                    if (!isBackendHealthy && (connectionState == ConnectionState.CONNECTED || connectionState == ConnectionState.DEGRADED)) {
+                        android.util.Log.w("WebSocketService", "Backend health check failed - triggering WebSocket reconnection")
+                        triggerReconnection("Backend health check failed - HTTP GET returned error")
+                    } else if (isBackendHealthy && connectionState == ConnectionState.DEGRADED) {
+                        android.util.Log.i("WebSocketService", "Backend health check passed - connection should improve")
+                        // Don't immediately change state, let ping/pong determine quality
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("WebSocketService", "Error in backend health monitoring", e)
+                }
+            }
+        }
+    }
+    
+    /**
+     * Stop backend health monitoring
+     */
+    private fun stopBackendHealthMonitoring() {
+        backendHealthCheckJob?.cancel()
+        backendHealthCheckJob = null
+    }
+    
+    /**
+     * Properly stop the WebSocket service
+     * This should be called when the app is being closed or when we want to stop the service
+     */
+    fun stopService() {
+        android.util.Log.d("WebSocketService", "Stopping WebSocket service")
+        
+        try {
+            // Stop all monitoring and jobs immediately
+            stopNetworkMonitoring()
+            stopBackendHealthMonitoring()
+            
+            // Cancel all coroutine jobs with timeout
+            val jobs = listOf(
+                pingJob,
+                pongTimeoutJob,
+                reconnectionJob,
+                networkTestJob,
+                failsafeReconnectionJob,
+                backendHealthCheckJob
+            )
+            
+            jobs.forEach { job ->
+                job?.cancel()
+            }
+            
+            // Clear WebSocket connection immediately
+            webSocket?.close(1000, "Service stopped")
+            webSocket = null
+            
+            // Reset connection state
+            connectionState = ConnectionState.DISCONNECTED
+            isReconnecting = false
+            isCurrentlyConnected = false
+            
+            // Stop foreground service immediately
+            stopForeground(true)
+            
+            // Stop self immediately
+            stopSelf()
+            
+            android.util.Log.d("WebSocketService", "WebSocket service stopped successfully")
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Error stopping service", e)
+            // Even if there's an error, try to stop the service
+            try {
+                stopSelf()
+            } catch (e2: Exception) {
+                android.util.Log.e("WebSocketService", "Error in fallback stopSelf", e2)
+            }
+        }
     }
     
     /**
@@ -834,14 +1070,23 @@ class WebSocketService : Service() {
                 consecutivePingTimeouts >= 5 -> {
                     android.util.Log.w("WebSocketService", "Poor network quality detected - 5+ consecutive timeouts")
                     // Consider this a degraded connection
+                    updatePingInterval() // Update to longer intervals
+                    updateConnectionStateBasedOnQuality() // Update connection state
                 }
                 consecutivePingTimeouts >= 3 -> {
                     android.util.Log.w("WebSocketService", "Network quality degrading - 3+ consecutive timeouts")
+                    updatePingInterval() // Update to medium intervals
+                    updateConnectionStateBasedOnQuality() // Update connection state
+                }
+                consecutivePingTimeouts >= 1 -> {
+                    android.util.Log.d("WebSocketService", "Minor network issues - 1+ consecutive timeouts")
+                    updatePingInterval() // Update to slightly longer intervals
+                    updateConnectionStateBasedOnQuality() // Update connection state
                 }
             }
             
             // Only trigger reconnection if we're still connected and have network
-            if (connectionState == ConnectionState.CONNECTED && isCurrentlyConnected) {
+            if ((connectionState == ConnectionState.CONNECTED || connectionState == ConnectionState.DEGRADED) && isCurrentlyConnected) {
                 triggerReconnection("Ping timeout (${timeoutMs}ms) - consecutive: $consecutivePingTimeouts")
             } else {
                 android.util.Log.d("WebSocketService", "Skipping reconnection - WebSocket disconnected or network unavailable")
@@ -916,11 +1161,83 @@ class WebSocketService : Service() {
         private var adaptiveDebounceMs = WebSocketService.NETWORK_CHANGE_DEBOUNCE_MS
         private var lastActiveNetwork: Network? = null
         
+        // WiFi roaming detection
+        private var lastWifiSSID: String? = null
+        private var lastWifiBSSID: String? = null
+        private var lastWifiNetwork: Network? = null
+        
         companion object {
             private const val TAG = "WebSocketService.NetworkMonitor"
             private const val MAX_FLAP_COUNT = 3
             private const val ADAPTIVE_DEBOUNCE_MULTIPLIER = 2
             private const val MAX_DEBOUNCE_MS = 60000L // 1 minute max
+        }
+        
+        /**
+         * Get WiFi SSID and BSSID information from network capabilities
+         */
+        private fun getWifiInfo(network: Network): Pair<String?, String?> {
+            return try {
+                // For Android 10+, we need to use WifiManager to get SSID/BSSID
+                val wifiManager = context.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                
+                // Use the modern approach for getting WiFi info
+                val connectionInfo = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    // For Android 10+, we can't get SSID/BSSID directly due to privacy restrictions
+                    // We'll use the network's link properties instead
+                    val linkProperties = connectivityManager.getLinkProperties(network)
+                    val wifiInfo = linkProperties?.linkAddresses?.firstOrNull()?.address?.hostAddress
+                    Log.d(TAG, "Android 10+ - using network address: $wifiInfo")
+                    null
+                } else {
+                    @Suppress("DEPRECATION")
+                    wifiManager.connectionInfo
+                }
+                
+                val ssid = if (connectionInfo != null) {
+                    connectionInfo.ssid?.removeSurrounding("\"") // Remove quotes
+                } else {
+                    // For Android 10+, we can't get SSID directly, so we'll use a placeholder
+                    "Unknown"
+                }
+                
+                val bssid = if (connectionInfo != null) {
+                    connectionInfo.bssid
+                } else {
+                    // For Android 10+, we can't get BSSID directly, so we'll use network hash
+                    network.toString().takeLast(8) // Use last 8 chars of network ID as identifier
+                }
+                
+                Log.d(TAG, "WiFi info - SSID: $ssid, BSSID: $bssid")
+                Pair(ssid, bssid)
+            } catch (e: Exception) {
+                Log.w(TAG, "Error getting WiFi info", e)
+                Pair(null, null)
+            }
+        }
+        
+        /**
+         * Check if this is a WiFi roaming event (same SSID, different BSSID)
+         */
+        private fun isWifiRoaming(network: Network): Boolean {
+            val (currentSSID, currentBSSID) = getWifiInfo(network)
+            
+            if (currentSSID == null || currentBSSID == null) {
+                return false
+            }
+            
+            // Check if we're on the same SSID but different BSSID (roaming)
+            val isSameSSID = currentSSID == lastWifiSSID
+            val isDifferentBSSID = currentBSSID != lastWifiBSSID
+            val isDifferentNetwork = network != lastWifiNetwork
+            
+            val isRoaming = isSameSSID && isDifferentBSSID && isDifferentNetwork
+            
+            if (isRoaming) {
+                Log.i(TAG, "WiFi roaming detected - SSID: $currentSSID, BSSID: $currentBSSID (was: $lastWifiBSSID)")
+            }
+            
+            return isRoaming
         }
         
         /**
@@ -1025,6 +1342,21 @@ class WebSocketService : Service() {
                             lastActiveNetwork = network
                         }
                         
+                        // Check for WiFi roaming (same SSID, different BSSID)
+                        val isWifiRoaming = if (currentType == NetworkType.WIFI) {
+                            isWifiRoaming(network)
+                        } else {
+                            false
+                        }
+                        
+                        // Update WiFi tracking variables
+                        if (currentType == NetworkType.WIFI) {
+                            val (currentSSID, currentBSSID) = getWifiInfo(network)
+                            lastWifiSSID = currentSSID
+                            lastWifiBSSID = currentBSSID
+                            lastWifiNetwork = network
+                        }
+                        
                         // Check if we were disconnected and now have connectivity
                         if (!isCurrentlyConnected) {
                             Log.i(TAG, "Network connectivity restored - triggering reconnect")
@@ -1040,10 +1372,15 @@ class WebSocketService : Service() {
                             } else {
                                 Log.d(TAG, "Already reconnecting, ignoring network restoration")
                             }
-                        } else if (currentType != lastNetworkType || isNewNetwork) {
-                            // For new network instances, always reconnect (true network switch)
-                            if (isNewNetwork) {
-                                Log.i(TAG, "New network instance detected - treating as true network switch")
+                        } else if (currentType != lastNetworkType || isNewNetwork || isWifiRoaming) {
+                            // For new network instances, WiFi roaming, or network type changes, always reconnect
+                            if (isNewNetwork || isWifiRoaming) {
+                                val reason = if (isWifiRoaming) {
+                                    "WiFi roaming detected - same SSID, different BSSID"
+                                } else {
+                                    "New network instance detected - treating as true network switch"
+                                }
+                                Log.i(TAG, reason)
                                 lastNetworkType = currentType
                                 lastNetworkChangeTime = currentTime
                                 WebSocketService.instance?.lastNetworkChangeTime = currentTime
@@ -1055,9 +1392,9 @@ class WebSocketService : Service() {
                                 
                                 // Only trigger reconnection if not already reconnecting
                                 if (!(WebSocketService.instance?.isReconnecting ?: false)) {
-                                    onNetworkAvailable() // Trigger reconnection on new network
+                                    onNetworkAvailable() // Trigger reconnection on new network or roaming
                                 } else {
-                                    Log.d(TAG, "Already reconnecting, ignoring new network")
+                                    Log.d(TAG, "Already reconnecting, ignoring network change")
                                 }
                             } else {
                                 // Check if enough time has passed since last network change (adaptive debouncing)
@@ -1222,6 +1559,7 @@ class WebSocketService : Service() {
         DISCONNECTED,    // No connection, not attempting to connect
         CONNECTING,      // Attempting to establish connection
         CONNECTED,       // Connected and healthy
+        DEGRADED,        // Connected but experiencing issues (timeouts, poor quality)
         RECONNECTING     // Connected but attempting to reconnect (graceful transition)
     }
 
@@ -1243,13 +1581,20 @@ class WebSocketService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d("WebSocketService", "Service started")
+        android.util.Log.d("WebSocketService", "Service started with intent: ${intent?.action}")
+        
+        // Handle stop request
+        if (intent?.action == "STOP_SERVICE") {
+            android.util.Log.d("WebSocketService", "Stop service requested via intent")
+            stopService()
+            return START_NOT_STICKY
+        }
         
         // Start as foreground service with notification
         // This keeps the app process alive and prevents Android from killing it
         startForeground(NOTIFICATION_ID, createNotification())
         
-        Log.d("WebSocketService", "Foreground service started successfully")
+        android.util.Log.d("WebSocketService", "Foreground service started successfully")
         
         return START_STICKY // Restart if killed by system
     }
@@ -1258,10 +1603,41 @@ class WebSocketService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        instance = null
-        Log.d("WebSocketService", "Service destroyed")
-        // Note: We don't cancel the serviceScope here as it's a companion object
-        // and should continue running across service restarts
+        
+        android.util.Log.d("WebSocketService", "Service onDestroy() called - cleaning up resources")
+        
+        try {
+            // Stop all monitoring and jobs
+            stopNetworkMonitoring()
+            stopBackendHealthMonitoring()
+            
+            // Cancel all coroutine jobs
+            pingJob?.cancel()
+            pongTimeoutJob?.cancel()
+            reconnectionJob?.cancel()
+            networkTestJob?.cancel()
+            failsafeReconnectionJob?.cancel()
+            backendHealthCheckJob?.cancel()
+            
+            // Clear WebSocket connection
+            webSocket?.close(1000, "Service destroyed")
+            webSocket = null
+            
+            // Reset connection state
+            connectionState = ConnectionState.DISCONNECTED
+            isReconnecting = false
+            isCurrentlyConnected = false
+            
+            // Stop foreground service
+            stopForeground(true)
+            
+            // Clear instance reference
+            instance = null
+            
+            android.util.Log.d("WebSocketService", "Service cleanup completed")
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Error during service cleanup", e)
+        }
     }
 
     private fun createNotificationChannel() {
@@ -1374,37 +1750,65 @@ class WebSocketService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
-        val notificationText = if (!isConnected) {
-            "Connecting... • ${getNetworkTypeDisplayName(currentNetworkType)}"
-        } else {
-            // Format lag
-            val lagText = if (lagMs != null && lagMs > 0) {
-                when {
-                    lagMs < 100 -> "${lagMs}ms"
-                    lagMs < 1000 -> "${lagMs}ms"
-                    else -> "${lagMs / 1000}s"
+        val notificationText = when {
+            !isConnected -> "Connecting... • ${getNetworkTypeDisplayName(currentNetworkType)}"
+            connectionState == ConnectionState.DEGRADED -> {
+                // Format lag
+                val lagText = if (lagMs != null && lagMs > 0) {
+                    when {
+                        lagMs < 100 -> "${lagMs}ms"
+                        lagMs < 1000 -> "${lagMs}ms"
+                        else -> "${lagMs / 1000}s"
+                    }
+                } else {
+                    "no ping yet"
                 }
-            } else {
-                "no ping yet"
-            }
-            
-            // Format time since last sync
-            val lastSyncText = if (lastSyncTimestamp != null && lastSyncTimestamp > 0) {
-                val timeSinceSync = System.currentTimeMillis() - lastSyncTimestamp
-                when {
-                    timeSinceSync < 1000 -> "now"
-                    timeSinceSync < 60_000 -> "${timeSinceSync / 1000}s ago"
-                    timeSinceSync < 3600_000 -> "${timeSinceSync / 60_000}m ago"
-                    else -> "${timeSinceSync / 3600_000}h ago"
+                
+                // Format time since last sync
+                val lastSyncText = if (lastSyncTimestamp != null && lastSyncTimestamp > 0) {
+                    val timeSinceSync = System.currentTimeMillis() - lastSyncTimestamp
+                    when {
+                        timeSinceSync < 1000 -> "now"
+                        timeSinceSync < 60_000 -> "${timeSinceSync / 1000}s ago"
+                        timeSinceSync < 3600_000 -> "${timeSinceSync / 60_000}m ago"
+                        else -> "${timeSinceSync / 3600_000}h ago"
+                    }
+                } else {
+                    "no sync yet"
                 }
-            } else {
-                "no sync yet"
+                
+                "⚠️ Degraded • ${getNetworkTypeDisplayName(currentNetworkType)} • Lag: $lagText • Last: $lastSyncText"
             }
-            
-            // Get connection health indicator
-            val healthIndicator = getConnectionHealthIndicator(lagMs, lastSyncTimestamp)
-            
-            "$healthIndicator • ${getNetworkTypeDisplayName(currentNetworkType)} • Lag: $lagText • Last: $lastSyncText"
+            else -> {
+                // Format lag
+                val lagText = if (lagMs != null && lagMs > 0) {
+                    when {
+                        lagMs < 100 -> "${lagMs}ms"
+                        lagMs < 1000 -> "${lagMs}ms"
+                        else -> "${lagMs / 1000}s"
+                    }
+                } else {
+                    "no ping yet"
+                }
+                
+                // Format time since last sync
+                val lastSyncText = if (lastSyncTimestamp != null && lastSyncTimestamp > 0) {
+                    val timeSinceSync = System.currentTimeMillis() - lastSyncTimestamp
+                    when {
+                        timeSinceSync < 1000 -> "now"
+                        timeSinceSync < 60_000 -> "${timeSinceSync / 1000}s ago"
+                        timeSinceSync < 3600_000 -> "${timeSinceSync / 60_000}m ago"
+                        else -> "${timeSinceSync / 3600_000}h ago"
+                    }
+                } else {
+                    "no sync yet"
+                }
+                
+                // Get connection health indicator
+                val healthIndicator = getConnectionHealthIndicator(lagMs, lastSyncTimestamp)
+                
+                "$healthIndicator • ${getNetworkTypeDisplayName(currentNetworkType)} • Lag: $lagText • Last: $lastSyncText"
+            }
         }
         
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)

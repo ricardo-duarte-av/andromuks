@@ -8219,10 +8219,14 @@ class AppViewModel : ViewModel() {
      * Stops the WebSocket service (used on logout or app cleanup)
      */
     fun stopWebSocketService() {
+        android.util.Log.d("Andromuks", "AppViewModel: Stopping WebSocket service")
+        
         appContext?.let { context ->
+            // Use intent-based stop to ensure proper cleanup within Android timeout
             val intent = android.content.Intent(context, WebSocketService::class.java)
-            context.stopService(intent)
-            android.util.Log.d("Andromuks", "AppViewModel: WebSocket service stopped")
+            intent.action = "STOP_SERVICE"
+            context.startService(intent)
+            android.util.Log.d("Andromuks", "AppViewModel: WebSocket service stop intent sent")
         }
     }
     

@@ -40,6 +40,9 @@ object FCMAppStarter {
                 Log.d(TAG, "Both FCM and WebSocket are working correctly")
                 // Mark network as healthy since we received FCM
                 WebSocketService.markNetworkHealthy()
+                
+                // Also trigger a backend health check to ensure backend is responsive
+                WebSocketService.triggerBackendHealthCheck()
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error ensuring app is running", e)
