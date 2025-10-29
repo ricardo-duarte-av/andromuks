@@ -54,6 +54,10 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     private var lastShortcutUpdateTime = 0L
     private var pendingShortcutUpdate: kotlinx.coroutines.Job? = null
     
+    // Cache to track existing shortcuts and avoid unnecessary updates
+    private var lastShortcutData: Map<String, ConversationShortcut> = emptyMap()
+    private var lastShortcutHash: Int = 0
+    
     /**
      * Build a Person object from notification data (like the working Gomuks app)
      */
@@ -406,14 +410,51 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     }
     
     /**
+     * Check if shortcuts need updating by comparing with cached data
+     */
+    private fun shortcutsNeedUpdate(newShortcuts: List<ConversationShortcut>): Boolean {
+        // Create a map for easy comparison
+        val newShortcutMap = newShortcuts.associateBy { it.roomId }
+        
+        // Quick hash comparison first
+        val newHash = newShortcutMap.hashCode()
+        if (newHash == lastShortcutHash && newShortcutMap == lastShortcutData) {
+            Log.d(TAG, "Shortcuts unchanged, skipping update (hash: $newHash)")
+            return false
+        }
+        
+        // Check if any shortcuts actually changed
+        val hasChanges = newShortcutMap != lastShortcutData
+        
+        if (hasChanges) {
+            Log.d(TAG, "Shortcuts changed, updating (old hash: $lastShortcutHash, new hash: $newHash)")
+            Log.d(TAG, "  Old shortcuts: ${lastShortcutData.keys}")
+            Log.d(TAG, "  New shortcuts: ${newShortcutMap.keys}")
+        }
+        
+        return hasChanges
+    }
+    
+    /**
      * Update shortcuts in the system
      * Intelligently merges with existing shortcuts to preserve good icons
      * Runs entirely in background to avoid UI blocking
+     * Only updates shortcuts that actually changed
      */
     @RequiresApi(Build.VERSION_CODES.N_MR1)
     private suspend fun updateShortcuts(shortcuts: List<ConversationShortcut>) {
         try {
+            // Check if shortcuts actually need updating
+            if (!shortcutsNeedUpdate(shortcuts)) {
+                Log.d(TAG, "No shortcut changes detected, skipping update")
+                return
+            }
+            
             Log.d(TAG, "Updating ${shortcuts.size} shortcuts using pushDynamicShortcut() (background thread)")
+            
+            // Update cache
+            lastShortcutData = shortcuts.associateBy { it.roomId }
+            lastShortcutHash = lastShortcutData.hashCode()
             
             for (shortcut in shortcuts) {
                 try {
@@ -719,11 +760,25 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             try {
                 val shortcutManager = context.getSystemService(ShortcutManager::class.java)
                 shortcutManager.dynamicShortcuts = emptyList()
-                Log.d(TAG, "Cleared all conversation shortcuts")
+                
+                // Clear cache
+                lastShortcutData = emptyMap()
+                lastShortcutHash = 0
+                
+                Log.d(TAG, "Cleared all conversation shortcuts and cache")
             } catch (e: Exception) {
                 Log.e(TAG, "Error clearing shortcuts", e)
             }
         }
+    }
+    
+    /**
+     * Clear shortcut cache (useful when user changes servers or logs out)
+     */
+    fun clearShortcutCache() {
+        lastShortcutData = emptyMap()
+        lastShortcutHash = 0
+        Log.d(TAG, "Cleared shortcut cache")
     }
     
     /**

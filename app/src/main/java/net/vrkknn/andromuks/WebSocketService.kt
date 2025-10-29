@@ -256,14 +256,39 @@ class WebSocketService : Service() {
         serviceInstance.stopService()
     }
     
-    /**
-     * Trigger WebSocket reconnection from external callers
-     */
-    fun triggerReconnectionFromExternal(reason: String) {
-        android.util.Log.d("WebSocketService", "triggerReconnectionFromExternal called: $reason")
-        // Call the reconnection callback directly
-        reconnectionCallback?.invoke(reason)
-    }
+        /**
+         * Trigger WebSocket reconnection from external callers
+         */
+        fun triggerReconnectionFromExternal(reason: String) {
+            android.util.Log.d("WebSocketService", "triggerReconnectionFromExternal called: $reason")
+            // Call the reconnection callback directly
+            reconnectionCallback?.invoke(reason)
+        }
+        
+        /**
+         * Safely trigger reconnection with validation
+         */
+        fun triggerReconnectionSafely(reason: String) {
+            android.util.Log.d("WebSocketService", "triggerReconnectionSafely called: $reason")
+            
+            // Validate service health first
+            if (!validateServiceHealth()) {
+                android.util.Log.e("WebSocketService", "CRITICAL: Service unhealthy - cannot trigger reconnection")
+                return
+            }
+            
+            // Check if reconnection callback is available
+            if (reconnectionCallback == null) {
+                android.util.Log.e("WebSocketService", "CRITICAL: Reconnection callback not set!")
+                return
+            }
+            
+            try {
+                reconnectionCallback?.invoke(reason)
+            } catch (e: Exception) {
+                android.util.Log.e("WebSocketService", "Error in reconnection callback", e)
+            }
+        }
         
         /**
          * Handle pong response
@@ -358,7 +383,7 @@ class WebSocketService : Service() {
                     
                     // For network restoration, directly call the WebSocket connection instead of triggerReconnection
                     android.util.Log.d("WebSocketService", "Network restored - directly calling WebSocket connection")
-                    reconnectionCallback?.invoke("Network restored - direct connection")
+                    triggerReconnectionSafely("Network restored - direct connection")
                 },
                 onNetworkLost = {
                     android.util.Log.w("WebSocketService", "Network lost - entering offline mode")
@@ -395,6 +420,12 @@ class WebSocketService : Service() {
                 while (isActive) {
                     delay(30000) // Check every 30 seconds
                     
+                    // First, validate service health
+                    if (!validateServiceHealth()) {
+                        android.util.Log.w("WebSocketService", "FAILSAFE: Service unhealthy - attempting recovery")
+                        continue
+                    }
+                    
                     val isNetworkAvailable = serviceInstance.networkMonitor?.isNetworkAvailable() ?: false
                     val isConnected = serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.webSocket != null
                     val isReconnecting = serviceInstance.isReconnecting || serviceInstance.connectionState == ConnectionState.RECONNECTING
@@ -402,7 +433,7 @@ class WebSocketService : Service() {
                     // If we have network but no connection and not already reconnecting, force a reconnection
                     if (isNetworkAvailable && !isConnected && !isReconnecting) {
                         android.util.Log.w("WebSocketService", "FAILSAFE: Stuck in disconnected state with network available - forcing reconnection")
-                        reconnectionCallback?.invoke("Failsafe reconnection - stuck disconnected with network available")
+                        triggerReconnectionSafely("Failsafe reconnection - stuck disconnected with network available")
                     }
                 }
             }
@@ -504,6 +535,45 @@ class WebSocketService : Service() {
         fun isWebSocketConnected(): Boolean {
             val serviceInstance = instance ?: return false
             return serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.webSocket != null
+        }
+        
+        /**
+         * Check if service is healthy and can handle reconnections
+         */
+        fun isServiceHealthy(): Boolean {
+            val serviceInstance = instance ?: return false
+            return serviceInstance.networkMonitor != null && 
+                   reconnectionCallback != null &&
+                   serviceInstance.connectionState != ConnectionState.DISCONNECTED
+        }
+        
+        /**
+         * Validate service health and attempt recovery if needed
+         */
+        fun validateServiceHealth(): Boolean {
+            if (isServiceHealthy()) {
+                return true
+            }
+            
+            android.util.Log.w("WebSocketService", "Service health check failed - attempting recovery")
+            
+            // Try to recover by reinitializing critical components
+            val serviceInstance = instance ?: return false
+            
+            // Check if network monitoring is missing
+            if (serviceInstance.networkMonitor == null) {
+                android.util.Log.w("WebSocketService", "Recovering missing network monitor")
+                // Network monitoring will be restarted on next network change
+            }
+            
+            // Check if reconnection callback is missing
+            if (reconnectionCallback == null) {
+                android.util.Log.w("WebSocketService", "Recovering missing reconnection callback")
+                // This should be set by AppViewModel, but we can't recover it here
+                return false
+            }
+            
+            return true
         }
         
         /**
@@ -910,7 +980,7 @@ class WebSocketService : Service() {
                     
                     if (!isBackendHealthy && (connectionState == ConnectionState.CONNECTED || connectionState == ConnectionState.DEGRADED)) {
                         android.util.Log.w("WebSocketService", "Backend health check failed - triggering WebSocket reconnection")
-                        triggerReconnection("Backend health check failed - HTTP GET returned error")
+                        WebSocketService.triggerReconnectionSafely("Backend health check failed - HTTP GET returned error")
                     } else if (isBackendHealthy && connectionState == ConnectionState.DEGRADED) {
                         android.util.Log.i("WebSocketService", "Backend health check passed - connection should improve")
                         // Don't immediately change state, let ping/pong determine quality
