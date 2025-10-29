@@ -277,6 +277,11 @@ class WebSocketService : Service() {
                 return
             }
             
+            // Check for state corruption before reconnection
+            if (!detectAndRecoverStateCorruption()) {
+                android.util.Log.w("WebSocketService", "State corruption detected and recovered before reconnection")
+            }
+            
             // Check if reconnection callback is available
             if (reconnectionCallback == null) {
                 android.util.Log.e("WebSocketService", "CRITICAL: Reconnection callback not set!")
@@ -426,6 +431,11 @@ class WebSocketService : Service() {
                         continue
                     }
                     
+                    // Check for state corruption
+                    if (!detectAndRecoverStateCorruption()) {
+                        android.util.Log.w("WebSocketService", "FAILSAFE: State corruption detected and recovered")
+                    }
+                    
                     val isNetworkAvailable = serviceInstance.networkMonitor?.isNetworkAvailable() ?: false
                     val isConnected = serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.webSocket != null
                     val isReconnecting = serviceInstance.isReconnecting || serviceInstance.connectionState == ConnectionState.RECONNECTING
@@ -440,6 +450,9 @@ class WebSocketService : Service() {
             
             // Start backend health monitoring
             serviceInstance.startBackendHealthMonitoring()
+            
+            // Start periodic state corruption detection
+            serviceInstance.startStateCorruptionMonitoring()
         }
         
         /**
@@ -453,6 +466,7 @@ class WebSocketService : Service() {
             instance?.failsafeReconnectionJob?.cancel()
             instance?.failsafeReconnectionJob = null
             instance?.stopBackendHealthMonitoring()
+            instance?.stopStateCorruptionMonitoring()
             android.util.Log.d("WebSocketService", "Network monitoring stopped")
         }
         
@@ -463,6 +477,9 @@ class WebSocketService : Service() {
             val serviceInstance = instance ?: return
             android.util.Log.i("WebSocketService", "setWebSocket() called - setting up WebSocket connection")
             android.util.Log.d("WebSocketService", "Current connection state: ${serviceInstance.connectionState}")
+            
+            // Validate state before setting WebSocket
+            detectAndRecoverStateCorruption()
             
             // Check if already connecting or connected (but allow reconnection)
             if (serviceInstance.connectionState == ConnectionState.CONNECTING) {
@@ -505,6 +522,10 @@ class WebSocketService : Service() {
         fun clearWebSocket() {
             val serviceInstance = instance ?: return
             android.util.Log.w("WebSocketService", "clearWebSocket() called - setting connection state to DISCONNECTED")
+            
+            // Validate state before clearing
+            detectAndRecoverStateCorruption()
+            
             serviceInstance.webSocket = null
             serviceInstance.connectionState = ConnectionState.DISCONNECTED
             
@@ -574,6 +595,133 @@ class WebSocketService : Service() {
             }
             
             return true
+        }
+        
+        /**
+         * Detect and recover from state corruption
+         */
+        fun detectAndRecoverStateCorruption(): Boolean {
+            val serviceInstance = instance ?: return false
+            var corruptionDetected = false
+            
+            android.util.Log.d("WebSocketService", "Running state corruption detection...")
+            
+            // 1. Check for stuck reconnecting state
+            if (serviceInstance.isReconnecting && 
+                serviceInstance.connectionState == ConnectionState.RECONNECTING &&
+                System.currentTimeMillis() - serviceInstance.lastReconnectionTime > 60_000) {
+                android.util.Log.w("WebSocketService", "CORRUPTION: Stuck in reconnecting state for >60s - recovering")
+                serviceInstance.isReconnecting = false
+                serviceInstance.connectionState = ConnectionState.DISCONNECTED
+                corruptionDetected = true
+            }
+            
+            // 2. Check for inconsistent connection state
+            val hasWebSocket = serviceInstance.webSocket != null
+            val isConnected = serviceInstance.connectionState == ConnectionState.CONNECTED
+            
+            if (hasWebSocket && !isConnected) {
+                android.util.Log.w("WebSocketService", "CORRUPTION: WebSocket exists but state is not CONNECTED - recovering")
+                serviceInstance.connectionState = ConnectionState.CONNECTED
+                corruptionDetected = true
+            } else if (!hasWebSocket && isConnected) {
+                android.util.Log.w("WebSocketService", "CORRUPTION: State is CONNECTED but no WebSocket - recovering")
+                serviceInstance.connectionState = ConnectionState.DISCONNECTED
+                corruptionDetected = true
+            }
+            
+            // 3. Ping job behavior (CORRECT - no corruption detection needed)
+            // The ping job should run continuously even when disconnected
+            // It only attempts to send pings when connectionState == CONNECTED && isCurrentlyConnected == true
+            // This allows immediate pinging when connection is restored
+            // No corruption detection needed here - this is the correct behavior
+            
+            // 4. Check for stuck pong timeout (should only be active when waiting for pong response)
+            // Pong timeout should only be active when we've sent a ping and are waiting for response
+            // If it's active but we're not connected, it's likely a stuck timeout
+            if (serviceInstance.pongTimeoutJob?.isActive == true && 
+                serviceInstance.connectionState != ConnectionState.CONNECTED &&
+                serviceInstance.connectionState != ConnectionState.DEGRADED) {
+                android.util.Log.w("WebSocketService", "CORRUPTION: Pong timeout running but not connected - stopping timeout")
+                serviceInstance.pongTimeoutJob?.cancel()
+                serviceInstance.pongTimeoutJob = null
+                corruptionDetected = true
+            }
+            
+            // 5. Check for inconsistent network state
+            val networkAvailable = serviceInstance.networkMonitor?.isNetworkAvailable() ?: false
+            if (serviceInstance.isCurrentlyConnected && !networkAvailable) {
+                android.util.Log.w("WebSocketService", "CORRUPTION: isCurrentlyConnected=true but network unavailable - correcting")
+                serviceInstance.isCurrentlyConnected = false
+                corruptionDetected = true
+            }
+            
+            // 6. Check for excessive consecutive timeouts
+            if (serviceInstance.consecutivePingTimeouts > 10) {
+                android.util.Log.w("WebSocketService", "CORRUPTION: Excessive consecutive timeouts (${serviceInstance.consecutivePingTimeouts}) - resetting")
+                serviceInstance.consecutivePingTimeouts = 0
+                corruptionDetected = true
+            }
+            
+            // 7. Check for invalid reconnection attempts counter
+            if (serviceInstance.reconnectionAttempts > 100) {
+                android.util.Log.w("WebSocketService", "CORRUPTION: Excessive reconnection attempts (${serviceInstance.reconnectionAttempts}) - resetting")
+                serviceInstance.reconnectionAttempts = 0
+                corruptionDetected = true
+            }
+            
+            if (corruptionDetected) {
+                android.util.Log.i("WebSocketService", "State corruption detected and recovered")
+                // Update notification to reflect corrected state
+                serviceInstance.updateConnectionStatus(serviceInstance.connectionState == ConnectionState.CONNECTED)
+            } else {
+                android.util.Log.d("WebSocketService", "No state corruption detected")
+            }
+            
+            return !corruptionDetected
+        }
+        
+        /**
+         * Force state recovery - nuclear option
+         */
+        fun forceStateRecovery() {
+            val serviceInstance = instance ?: return
+            android.util.Log.w("WebSocketService", "FORCE RECOVERY: Resetting all state to clean state")
+            
+            // Cancel all jobs
+            serviceInstance.pingJob?.cancel()
+            serviceInstance.pongTimeoutJob?.cancel()
+            serviceInstance.reconnectionJob?.cancel()
+            serviceInstance.networkTestJob?.cancel()
+            serviceInstance.failsafeReconnectionJob?.cancel()
+            serviceInstance.backendHealthCheckJob?.cancel()
+            serviceInstance.stateCorruptionJob?.cancel()
+            
+            // Reset all state
+            serviceInstance.isReconnecting = false
+            serviceInstance.isCurrentlyConnected = false
+            serviceInstance.connectionState = ConnectionState.DISCONNECTED
+            serviceInstance.consecutivePingTimeouts = 0
+            serviceInstance.reconnectionAttempts = 0
+            serviceInstance.lastReconnectionTime = 0
+            
+            // Clear WebSocket
+            serviceInstance.webSocket?.close(1000, "Force recovery")
+            serviceInstance.webSocket = null
+            
+            // Update notification
+            serviceInstance.updateConnectionStatus(false)
+            
+            android.util.Log.i("WebSocketService", "Force recovery completed - all state reset")
+        }
+        
+        /**
+         * Manually trigger state corruption detection
+         * This can be called from external sources (like FCM) to check for corruption
+         */
+        fun checkStateCorruption() {
+            android.util.Log.d("WebSocketService", "Manual state corruption check requested")
+            detectAndRecoverStateCorruption()
         }
         
         /**
@@ -820,6 +968,7 @@ class WebSocketService : Service() {
     private var networkTestJob: Job? = null
     private var failsafeReconnectionJob: Job? = null // Failsafe reconnection for stuck states
     private var backendHealthCheckJob: Job? = null // Backend health monitoring
+    private var stateCorruptionJob: Job? = null // State corruption monitoring
     private var isCurrentlyConnected = false
     private var currentNetworkType: NetworkType = NetworkType.NONE
     
@@ -1001,6 +1150,35 @@ class WebSocketService : Service() {
     }
     
     /**
+     * Start periodic state corruption monitoring
+     */
+    private fun startStateCorruptionMonitoring() {
+        stateCorruptionJob?.cancel()
+        stateCorruptionJob = serviceScope.launch {
+            while (isActive) {
+                delay(60_000) // Check every 60 seconds
+                
+                try {
+                    android.util.Log.d("WebSocketService", "Running periodic state corruption check")
+                    WebSocketService.detectAndRecoverStateCorruption()
+                } catch (e: Exception) {
+                    android.util.Log.e("WebSocketService", "Error in state corruption monitoring", e)
+                }
+            }
+        }
+        android.util.Log.d("WebSocketService", "State corruption monitoring started")
+    }
+    
+    /**
+     * Stop state corruption monitoring
+     */
+    private fun stopStateCorruptionMonitoring() {
+        stateCorruptionJob?.cancel()
+        stateCorruptionJob = null
+        android.util.Log.d("WebSocketService", "State corruption monitoring stopped")
+    }
+    
+    /**
      * Properly stop the WebSocket service
      * This should be called when the app is being closed or when we want to stop the service
      */
@@ -1019,7 +1197,8 @@ class WebSocketService : Service() {
                 reconnectionJob,
                 networkTestJob,
                 failsafeReconnectionJob,
-                backendHealthCheckJob
+                backendHealthCheckJob,
+                stateCorruptionJob
             )
             
             jobs.forEach { job ->
@@ -1688,6 +1867,7 @@ class WebSocketService : Service() {
             networkTestJob?.cancel()
             failsafeReconnectionJob?.cancel()
             backendHealthCheckJob?.cancel()
+            stateCorruptionJob?.cancel()
             
             // Clear WebSocket connection
             webSocket?.close(1000, "Service destroyed")
