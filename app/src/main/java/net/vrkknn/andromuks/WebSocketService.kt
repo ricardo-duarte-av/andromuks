@@ -141,7 +141,9 @@ class WebSocketService : Service() {
         
         /**
          * Stop ping/pong loop
-         * Is this even needed now ? The Pingloop cannot be stopped.
+         * NOTE: This should only be called when the service is being destroyed
+         * During normal operation, the ping loop should run continuously even when disconnected
+         * It automatically skips pings when not connected, and resumes immediately when connection is restored
          */
         fun stopPingLoop() {
             instance?.pingJob?.cancel()
@@ -530,10 +532,7 @@ class WebSocketService : Service() {
             serviceInstance.webSocket = null
             serviceInstance.connectionState = ConnectionState.DISCONNECTED
             
-            // Stop ping loop
-            stopPingLoop()
-            
-            // Cancel any pending pong timeouts
+            // Cancel any pending pong timeouts (ping loop keeps running)
             serviceInstance.pongTimeoutJob?.cancel()
             serviceInstance.pongTimeoutJob = null
             
