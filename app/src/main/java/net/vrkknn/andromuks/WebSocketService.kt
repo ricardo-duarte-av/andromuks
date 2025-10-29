@@ -141,6 +141,7 @@ class WebSocketService : Service() {
         
         /**
          * Stop ping/pong loop
+         * Is this even needed now ? The Pingloop cannot be stopped.
          */
         fun stopPingLoop() {
             instance?.pingJob?.cancel()
