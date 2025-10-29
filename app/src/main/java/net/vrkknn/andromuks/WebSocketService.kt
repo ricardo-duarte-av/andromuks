@@ -214,13 +214,6 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Get reconnection callback (for debugging/checking if AppViewModel is initialized)
-         */
-        fun getReconnectionCallback(): ((String) -> Unit)? {
-            return reconnectionCallback
-        }
-        
-        /**
          * Set callback for offline mode management
          */
         fun setOfflineModeCallback(callback: (Boolean) -> Unit) {
@@ -554,13 +547,22 @@ class WebSocketService : Service() {
                     
                     // First, validate service health
                     if (!validateServiceHealth()) {
-                        android.util.Log.w("WebSocketService", "FAILSAFE: Service unhealthy - attempting recovery")
+                        // Service unhealthy - could be missing reconnectionCallback (AppViewModel not initialized)
+                        // This is expected when app is not running - don't spam logs about it
+                        if (reconnectionCallback != null) {
+                            android.util.Log.w("WebSocketService", "FAILSAFE: Service unhealthy - attempting recovery")
+                        }
                         continue
                     }
                     
                     // Check for state corruption
                     if (!detectAndRecoverStateCorruption()) {
                         android.util.Log.w("WebSocketService", "FAILSAFE: State corruption detected and recovered")
+                    }
+                    
+                    // Skip failsafe reconnection if reconnectionCallback is not set (AppViewModel not initialized)
+                    if (reconnectionCallback == null) {
+                        continue
                     }
                     
                     val isNetworkAvailable = serviceInstance.networkMonitor?.isNetworkAvailable() ?: false
@@ -1053,7 +1055,19 @@ class WebSocketService : Service() {
                 delay(1000) // 1 second delay to ensure proper closure
                 android.util.Log.d("WebSocketService", "Triggering reconnection after delay")
                 
-                // Always use the callback to avoid infinite loops
+                // Check if this is called from FCM (external trigger) or from AppViewModel
+                val isExternalTrigger = !reason.contains("Network restored") && 
+                                       !reason.contains("Failsafe reconnection") &&
+                                       reason.contains("FCM")
+                
+                if (isExternalTrigger) {
+                    // External trigger (FCM) - don't use callback to avoid infinite loop
+                    android.util.Log.w("WebSocketService", "External trigger detected - cannot connect WebSocket without AppViewModel")
+                    android.util.Log.w("WebSocketService", "WebSocket will remain in 'Connecting...' state until app is opened manually")
+                    return@launch
+                }
+                
+                // Internal trigger - use callback
                 reconnectionCallback?.invoke(reason)
             }
         }
