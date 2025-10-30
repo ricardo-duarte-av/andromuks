@@ -678,6 +678,16 @@ class WebSocketService : Service() {
         fun clearWebSocket(reason: String = "Unknown") {
             traceToggle("clearWebSocket")
             val serviceInstance = instance ?: return
+            
+            // Only log disconnection if we actually had a connection
+            val wasConnected = serviceInstance.connectionState == ConnectionState.CONNECTED || serviceInstance.webSocket != null
+            
+            if (!wasConnected) {
+                // Already disconnected, don't log redundant disconnection
+                android.util.Log.d("WebSocketService", "clearWebSocket() called but already disconnected - skipping")
+                return
+            }
+            
             android.util.Log.w("WebSocketService", "clearWebSocket() called - setting connection state to DISCONNECTED")
             
             // Validate state before clearing
