@@ -224,61 +224,61 @@ class WebSocketService : Service() {
         /**
          * Check if a request_id is a ping request
          */
-    fun isPingRequestId(requestId: Int): Boolean {
-        val serviceInstance = instance ?: return false
-        return requestId == serviceInstance.lastPingRequestId
-    }
-    
-    /**
-     * Check if WebSocket is currently connected
-     */
-    fun isConnected(): Boolean {
-        val serviceInstance = instance ?: return false
-        return serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.webSocket != null
-    }
-    
-    
-    /**
-     * Mark network as healthy (e.g., when FCM is received)
-     */
-    fun markNetworkHealthy() {
-        val serviceInstance = instance ?: return
-        serviceInstance.isCurrentlyConnected = true
-        serviceInstance.consecutivePingTimeouts = 0
-        android.util.Log.d("WebSocketService", "Network marked as healthy")
-    }
-    
-    /**
-     * Trigger backend health check and reconnection if needed
-     * This can be called from FCM or other external triggers
-     */
-    fun triggerBackendHealthCheck() {
-        val serviceInstance = instance ?: return
-        serviceScope.launch {
-            try {
-                android.util.Log.d("WebSocketService", "Triggering manual backend health check")
-                val isHealthy = serviceInstance.checkBackendHealth()
-                
-                if (!isHealthy && (serviceInstance.connectionState == ConnectionState.CONNECTED || serviceInstance.connectionState == ConnectionState.DEGRADED)) {
-                    android.util.Log.w("WebSocketService", "Manual backend health check failed - triggering reconnection")
-                    triggerReconnectionFromExternal("Manual backend health check failed")
-                } else if (isHealthy) {
-                    android.util.Log.d("WebSocketService", "Manual backend health check passed")
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("WebSocketService", "Error in manual backend health check", e)
-            }
-            }
+        fun isPingRequestId(requestId: Int): Boolean {
+            val serviceInstance = instance ?: return false
+            return requestId == serviceInstance.lastPingRequestId
         }
         
         /**
-     * Stop the WebSocket service properly
-     * This should be called when the app is being closed
-     */
-    fun stopService() {
-        val serviceInstance = instance ?: return
-        serviceInstance.stopService()
-    }
+         * Check if WebSocket is currently connected
+         */
+        fun isConnected(): Boolean {
+            val serviceInstance = instance ?: return false
+            return serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.webSocket != null
+        }
+        
+        
+        /**
+         * Mark network as healthy (e.g., when FCM is received)
+         */
+        fun markNetworkHealthy() {
+            val serviceInstance = instance ?: return
+            serviceInstance.isCurrentlyConnected = true
+            serviceInstance.consecutivePingTimeouts = 0
+            android.util.Log.d("WebSocketService", "Network marked as healthy")
+        }
+    
+        /**
+         * Trigger backend health check and reconnection if needed
+         * This can be called from FCM or other external triggers
+         */
+        fun triggerBackendHealthCheck() {
+            val serviceInstance = instance ?: return
+            serviceScope.launch {
+                try {
+                    android.util.Log.d("WebSocketService", "Triggering manual backend health check")
+                    val isHealthy = serviceInstance.checkBackendHealth()
+                    
+                    if (!isHealthy && (serviceInstance.connectionState == ConnectionState.CONNECTED || serviceInstance.connectionState == ConnectionState.DEGRADED)) {
+                        android.util.Log.w("WebSocketService", "Manual backend health check failed - triggering reconnection")
+                        triggerReconnectionFromExternal("Manual backend health check failed")
+                    } else if (isHealthy) {
+                        android.util.Log.d("WebSocketService", "Manual backend health check passed")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("WebSocketService", "Error in manual backend health check", e)
+                }
+                }
+            }
+            
+            /**
+         * Stop the WebSocket service properly
+         * This should be called when the app is being closed
+         */
+        fun stopService() {
+            val serviceInstance = instance ?: return
+            serviceInstance.stopService()
+        }
     
         /**
          * Trigger WebSocket reconnection from external callers
