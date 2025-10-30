@@ -619,7 +619,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Performing full refresh - resetting state")
         
         // 1. Drop WebSocket connection
-        clearWebSocket()
+        clearWebSocket("Full refresh")
         
         // 2. Clear all room data
         roomMap.clear()
@@ -2888,7 +2888,7 @@ class AppViewModel : ViewModel() {
      */
     private fun shutdownWebSocket() {
         android.util.Log.d("Andromuks", "AppViewModel: Shutting down WebSocket connection")
-        clearWebSocket()
+        clearWebSocket("App shutdown")
     }
     
     override fun onCleared() {
@@ -2905,7 +2905,7 @@ class AppViewModel : ViewModel() {
         WebSocketService.stopNetworkMonitoring()
         
         // Clear WebSocket connection
-        clearWebSocket()
+        clearWebSocket("ViewModel cleared")
     }
 
     fun getRoomById(roomId: String): RoomItem? {
@@ -3016,16 +3016,51 @@ class AppViewModel : ViewModel() {
     private val offlineCacheExpiry = 24 * 60 * 60 * 1000L // 24 hours
     
     // WebSocket reconnection log
+    data class ActivityLogEntry(
+        val timestamp: Long,
+        val event: String,
+        val networkType: String? = null
+    )
+    
+    private val activityLog = mutableListOf<ActivityLogEntry>()
+    private val maxLogEntries = 100 // Keep last 100 entries
+    
+    /**
+     * Log an activity event (app started, websocket connected, disconnected, etc.)
+     */
+    fun logActivity(event: String, networkType: String? = null) {
+        val entry = ActivityLogEntry(
+            timestamp = System.currentTimeMillis(),
+            event = event,
+            networkType = networkType
+        )
+        activityLog.add(entry)
+        
+        // Keep only the last maxLogEntries entries
+        if (activityLog.size > maxLogEntries) {
+            activityLog.removeAt(0)
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Logged activity - $event")
+    }
+    
+    /**
+     * Get the activity log for display
+     */
+    fun getActivityLog(): List<ActivityLogEntry> {
+        return activityLog.toList()
+    }
+    
+    // Backwards compatibility - keep old reconnection log methods
     data class ReconnectionLogEntry(
         val timestamp: Long,
         val reason: String
     )
     
     private val reconnectionLog = mutableListOf<ReconnectionLogEntry>()
-    private val maxLogEntries = 100 // Keep last 100 entries
     
     /**
-     * Log a WebSocket reconnection event
+     * Log a WebSocket reconnection event (legacy - now calls logActivity)
      */
     private fun logReconnection(reason: String) {
         val entry = ReconnectionLogEntry(
@@ -3043,7 +3078,7 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Get the reconnection log for display
+     * Get the reconnection log for display (legacy)
      */
     fun getReconnectionLog(): List<ReconnectionLogEntry> {
         return reconnectionLog.toList()
@@ -3073,6 +3108,11 @@ class AppViewModel : ViewModel() {
                 // Reset reconnection state on network restoration
                 WebSocketService.resetReconnectionState()
             }
+        }
+        
+        // Set up activity logging callback
+        WebSocketService.setActivityLogCallback { event, networkType ->
+            logActivity(event, networkType)
         }
         
         // Delegate WebSocket management to service
@@ -3121,11 +3161,11 @@ class AppViewModel : ViewModel() {
         return WebSocketService.isWebSocketConnected()
     }
 
-    fun clearWebSocket() {
+    fun clearWebSocket(reason: String = "Unknown") {
         this.webSocket = null
         
         // Delegate WebSocket clearing to service
-        WebSocketService.clearWebSocket()
+        WebSocketService.clearWebSocket(reason)
     }
     
     /**
@@ -8772,6 +8812,9 @@ class AppViewModel : ViewModel() {
      * MEMORY MANAGEMENT: Initialize periodic cleanup to prevent memory leaks
      */
     init {
+        // Log app start
+        logActivity("App Started")
+        
         // Start periodic cleanup job
         viewModelScope.launch {
             while (isActive) {

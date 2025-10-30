@@ -88,6 +88,24 @@ class WebSocketService : Service() {
             return id
         }
         
+        // Activity log callback - set by AppViewModel
+        private var activityLogCallback: ((String, String?) -> Unit)? = null
+        
+        /**
+         * Set callback for logging activity events
+         */
+        fun setActivityLogCallback(callback: (String, String?) -> Unit) {
+            android.util.Log.d("WebSocketService", "setActivityLogCallback() called")
+            activityLogCallback = callback
+        }
+        
+        /**
+         * Log an activity event (app started, websocket connected, disconnected, etc.)
+         */
+        fun logActivity(event: String, networkType: String? = null) {
+            activityLogCallback?.invoke(event, networkType)
+        }
+        
         /**
          * Update notification from anywhere in the app
          */
@@ -519,7 +537,7 @@ class WebSocketService : Service() {
                     // Clear the WebSocket connection to prevent lingering connections
                     // This prevents the asymmetry issue where old socket stays around
                     // and onAvailable tries to connect new one while old is still lingering
-                    clearWebSocket()
+                    clearWebSocket("Network lost")
                     
                     // Notify AppViewModel to enter offline mode
                     offlineModeCallback?.invoke(true)
@@ -644,6 +662,9 @@ class WebSocketService : Service() {
             // Don't start ping loop yet - wait for first sync_complete to get lastReceivedSyncId
             android.util.Log.d("WebSocketService", "WebSocket connected, waiting for sync_complete before starting ping loop")
             
+            // Log activity: WebSocket connected
+            logActivity("WebSocket Connected", actualNetworkType.name)
+            
             // Update notification with connection status
             updateConnectionStatus(true, null, serviceInstance.lastSyncTimestamp)
             
@@ -654,7 +675,7 @@ class WebSocketService : Service() {
         /**
          * Clear WebSocket connection
          */
-        fun clearWebSocket() {
+        fun clearWebSocket(reason: String = "Unknown") {
             traceToggle("clearWebSocket")
             val serviceInstance = instance ?: return
             android.util.Log.w("WebSocketService", "clearWebSocket() called - setting connection state to DISCONNECTED")
@@ -677,6 +698,9 @@ class WebSocketService : Service() {
             
             // Reset ping loop state for next connection
             serviceInstance.pingLoopStarted = false
+            
+            // Log activity: WebSocket disconnected
+            logActivity("WebSocket Disconnected - $reason", serviceInstance.currentNetworkType.name)
             
             // Update notification to show disconnection
             updateConnectionStatus(false, null, serviceInstance.lastSyncTimestamp)
@@ -1042,7 +1066,7 @@ class WebSocketService : Service() {
             
             // Only clear WebSocket if not a network restoration
             if (!reason.contains("Network restored")) {
-            clearWebSocket()
+            clearWebSocket(reason)
             } else {
                 android.util.Log.d("WebSocketService", "Network restored - skipping clearWebSocket to preserve state")
             }

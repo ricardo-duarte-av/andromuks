@@ -21,14 +21,14 @@ fun ReconnectionLogScreen(
     appViewModel: AppViewModel,
     navController: NavController
 ) {
-    val reconnectionLog = remember { appViewModel.getReconnectionLog() }
+    val activityLog = remember { appViewModel.getActivityLog() }
     
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
         // Top App Bar
         TopAppBar(
-            title = { Text("WebSocket Reconnection Log") },
+            title = { Text("Activity Log") },
             navigationIcon = {
                 IconButton(onClick = { navController.popBackStack() }) {
                     Icon(
@@ -39,7 +39,7 @@ fun ReconnectionLogScreen(
             }
         )
         
-        if (reconnectionLog.isEmpty()) {
+        if (activityLog.isEmpty()) {
             // Empty state
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -50,12 +50,12 @@ fun ReconnectionLogScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "No reconnections yet",
+                        text = "No activity yet",
                         style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
-                        text = "WebSocket reconnection events will appear here",
+                        text = "WebSocket activity events will appear here",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -68,8 +68,8 @@ fun ReconnectionLogScreen(
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(reconnectionLog.reversed()) { entry ->
-                    ReconnectionLogEntry(entry = entry)
+                items(activityLog.reversed()) { entry ->
+                    ActivityLogEntry(entry = entry)
                 }
             }
         }
@@ -77,7 +77,7 @@ fun ReconnectionLogScreen(
 }
 
 @Composable
-fun ReconnectionLogEntry(entry: AppViewModel.ReconnectionLogEntry) {
+fun ActivityLogEntry(entry: AppViewModel.ActivityLogEntry) {
     val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
     val formattedTime = dateFormat.format(Date(entry.timestamp))
     
@@ -97,11 +97,33 @@ fun ReconnectionLogEntry(entry: AppViewModel.ReconnectionLogEntry) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             
-            Text(
-                text = "Reconnection due to: ${entry.reason}",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = entry.event,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.weight(1f)
+                )
+                
+                // Show network type if available
+                entry.networkType?.let { networkType ->
+                    Surface(
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Text(
+                            text = networkType,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
         }
     }
 }

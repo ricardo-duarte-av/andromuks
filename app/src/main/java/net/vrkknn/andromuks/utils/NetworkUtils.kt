@@ -287,11 +287,12 @@ fun connectToWebsocket(
             Log.e("Andromuks", "NetworkUtils: Failure reason: ${t.message}, response: ${response?.code}")
             
             // Clear WebSocket connection in both AppViewModel and service
-            appViewModel.clearWebSocket()
-            WebSocketService.clearWebSocket()
+            val failureReason = "Connection failure: ${t.message}"
+            appViewModel.clearWebSocket(failureReason)
+            WebSocketService.clearWebSocket(failureReason)
             
             // Trigger reconnection with exponential backoff
-            appViewModel.scheduleReconnection(reason = "Connection failure: ${t.message}")
+            appViewModel.scheduleReconnection(reason = failureReason)
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -539,9 +540,17 @@ fun connectToWebsocket(
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
             Log.d("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
             
+            // Determine the close reason
+            val closeReason = when (code) {
+                1000 -> "Normal closure ($code)"
+                1001 -> "Server going away ($code)"
+                1006 -> "Abnormal closure ($code)"
+                else -> "Close code $code: $reason"
+            }
+            
             // Clear WebSocket connection in both AppViewModel and service
-            appViewModel.clearWebSocket()
-            WebSocketService.clearWebSocket()
+            appViewModel.clearWebSocket(closeReason)
+            WebSocketService.clearWebSocket(closeReason)
             
             // Trigger reconnection for abnormal closures
             when (code) {
@@ -562,7 +571,7 @@ fun connectToWebsocket(
                 else -> {
                     // Other errors - reconnect with backoff
                     Log.w("Andromuks", "NetworkUtils: WebSocket closed with code $code: $reason")
-                    appViewModel.scheduleReconnection(reason = "Close code $code: $reason")
+                    appViewModel.scheduleReconnection(reason = closeReason)
                 }
             }
         }
@@ -570,7 +579,7 @@ fun connectToWebsocket(
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
             Log.d("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
             streamingDecompressor?.close()
-            appViewModel.clearWebSocket()
+            appViewModel.clearWebSocket("WebSocket closed ($code)")
         }
     }
 

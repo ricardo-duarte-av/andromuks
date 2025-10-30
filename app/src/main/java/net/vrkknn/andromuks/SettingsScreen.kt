@@ -146,12 +146,12 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        text = "Reconnection Log",
+                        text = "Activity Log",
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = "View WebSocket reconnection history and reasons",
+                        text = "View WebSocket activity history (connections, disconnections, etc.)",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -160,7 +160,7 @@ fun SettingsScreen(
                         onClick = { navController.navigate("reconnection_log") },
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("View Reconnection Log")
+                        Text("View Activity Log")
                     }
                 }
             }
