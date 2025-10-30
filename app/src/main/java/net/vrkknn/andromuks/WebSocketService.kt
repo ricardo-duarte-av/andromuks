@@ -53,6 +53,8 @@ class WebSocketService : Service() {
         private val NETWORK_CHANGE_DEBOUNCE_MS = 500L // 500ms debounce for network change callbacks (recommended: 300-1500ms)
         private val MIN_RECONNECTION_INTERVAL_MS = 5000L // 5 seconds minimum between any reconnections
         private val MIN_NOTIFICATION_UPDATE_INTERVAL_MS = 500L // 500ms minimum between notification updates (UI smoothing)
+        private const val MAX_CONSECUTIVE_FAILSAFE_ATTEMPTS = 3 // Maximum consecutive failsafe attempts before backoff
+        private const val FAILSAFE_BACKOFF_TIME_MS = 60_000L // 1 minute backoff after 3 failed attempts
         private val TOGGLE_STACK_DEPTH = 6
         private val toggleCounter = AtomicLong(0)
         
@@ -587,10 +589,33 @@ class WebSocketService : Service() {
                     val isConnected = serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.webSocket != null
                     val isReconnecting = serviceInstance.isReconnecting || serviceInstance.connectionState == ConnectionState.RECONNECTING
                     
-                    // If we have network but no connection and not already reconnecting, force a reconnection
+                    // If we have network but no connection and not already reconnecting, check if we should attempt reconnection
                     if (isNetworkAvailable && !isConnected && !isReconnecting) {
-                        android.util.Log.w("WebSocketService", "FAILSAFE: Stuck in disconnected state with network available - forcing reconnection")
+                        val currentTime = System.currentTimeMillis()
+                        val timeSinceLastAttempt = currentTime - serviceInstance.lastFailsafeAttemptTime
+                        
+                        // Check if we're in backoff period due to too many failed attempts
+                        if (serviceInstance.consecutiveFailsafeAttempts >= MAX_CONSECUTIVE_FAILSAFE_ATTEMPTS) {
+                            if (timeSinceLastAttempt < FAILSAFE_BACKOFF_TIME_MS) {
+                                android.util.Log.d("WebSocketService", "FAILSAFE: Backing off after $MAX_CONSECUTIVE_FAILSAFE_ATTEMPTS failed attempts (${timeSinceLastAttempt / 1000}s / ${FAILSAFE_BACKOFF_TIME_MS / 1000}s)")
+                                continue
+                            } else {
+                                // Backoff period expired, reset counter
+                                android.util.Log.i("WebSocketService", "FAILSAFE: Backoff period expired, resetting failsafe attempt counter")
+                                serviceInstance.consecutiveFailsafeAttempts = 0
+                            }
+                        }
+                        
+                        android.util.Log.w("WebSocketService", "FAILSAFE: Stuck in disconnected state with network available - forcing reconnection (attempt ${serviceInstance.consecutiveFailsafeAttempts + 1})")
+                        serviceInstance.lastFailsafeAttemptTime = System.currentTimeMillis()
+                        serviceInstance.consecutiveFailsafeAttempts++
                         triggerReconnectionSafely("Failsafe reconnection - stuck disconnected with network available")
+                    } else {
+                        // We're connected or reconnecting - reset failsafe counter
+                        if (serviceInstance.consecutiveFailsafeAttempts > 0) {
+                            android.util.Log.d("WebSocketService", "FAILSAFE: Connection restored, resetting failsafe attempt counter")
+                            serviceInstance.consecutiveFailsafeAttempts = 0
+                        }
                     }
                 }
             }
@@ -1159,6 +1184,10 @@ class WebSocketService : Service() {
     private var networkDebounceJob: Job? = null // Network debounce handler
     private var isCurrentlyConnected = false
     private var currentNetworkType: NetworkType = NetworkType.NONE
+    
+    // Failsafe reconnection tracking to prevent spam
+    private var lastFailsafeAttemptTime: Long = 0
+    private var consecutiveFailsafeAttempts: Int = 0
     
     // WebSocket connection management
     private var webSocket: WebSocket? = null

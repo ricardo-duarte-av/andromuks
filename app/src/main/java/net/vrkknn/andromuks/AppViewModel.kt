@@ -3599,9 +3599,6 @@ class AppViewModel : ViewModel() {
     private fun restartWebSocket(reason: String = "Unknown reason") {
         android.util.Log.d("Andromuks", "AppViewModel: Delegating WebSocket restart to service")
         
-        // Log the reconnection event
-        logReconnection(reason)
-        
         // Only show toast for important reconnection reasons, not every attempt
         val shouldShowToast = when {
             reason.contains("Manual reconnection") -> true
@@ -7327,8 +7324,12 @@ class AppViewModel : ViewModel() {
         val timelineEvents = mutableListOf<TimelineEvent>()
         val redactionMap = mutableMapOf<String, String>() // Map of target eventId -> redaction eventId
         
+        // THREAD SAFETY: Create snapshot of map entries to prevent ConcurrentModificationException
+        // This prevents crashes when the map is modified concurrently (e.g., by background coroutines)
+        val eventChainSnapshot = eventChainMap.toMap()
+        
         // OPTIMIZED: Process events and collect redactions in single pass
-        for ((eventId, entry) in eventChainMap) {
+        for ((eventId, entry) in eventChainSnapshot) {
             // Collect redaction targets first
             val redactionEvent = entry.ourBubble
             if (redactionEvent != null && redactionEvent.type == "m.room.redaction") {
