@@ -2026,9 +2026,19 @@ class WebSocketService : Service() {
         
         // Start as foreground service with notification
         // This keeps the app process alive and prevents Android from killing it
-        startForeground(NOTIFICATION_ID, createNotification())
-        
-        android.util.Log.d("WebSocketService", "Foreground service started successfully")
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                // Android 14+ requires explicit service type
+                startForeground(NOTIFICATION_ID, createNotification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+                android.util.Log.d("WebSocketService", "Foreground service started successfully (Android 14+)")
+            } else {
+                startForeground(NOTIFICATION_ID, createNotification())
+                android.util.Log.d("WebSocketService", "Foreground service started successfully")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to start foreground service", e)
+            // Don't crash - service will run in background
+        }
         
         return START_STICKY // Restart if killed by system
     }

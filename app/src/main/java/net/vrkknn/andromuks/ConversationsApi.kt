@@ -48,6 +48,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         private const val TAG = "ConversationsApi"
         private const val MAX_SHORTCUTS = 4
         private const val SHORTCUT_UPDATE_DEBOUNCE_MS = 2000L // 2 seconds debounce
+            private const val MIN_SHORTCUT_UPDATE_INTERVAL_MS = 60000L // 60s: avoid churn when only activity changes
     }
     
     // Debouncing mechanism to prevent excessive shortcut updates
@@ -57,6 +58,10 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     // Cache to track existing shortcuts and avoid unnecessary updates
     private var lastShortcutData: Map<String, ConversationShortcut> = emptyMap()
     private var lastShortcutHash: Int = 0
+    // Stable-state caches to prevent needless updates (ignore unread/timestamps)
+    private var lastShortcutStableIds: List<String> = emptyList()
+    private var lastNameAvatar: Map<String, Pair<String, String?>> = emptyMap()
+    private val lastAvatarCachePresence: MutableMap<String, Boolean> = mutableMapOf()
     
     /**
      * Build a Person object from notification data (like the working Gomuks app)
@@ -413,26 +418,27 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
      * Check if shortcuts need updating by comparing with cached data
      */
     private fun shortcutsNeedUpdate(newShortcuts: List<ConversationShortcut>): Boolean {
-        // Create a map for easy comparison
-        val newShortcutMap = newShortcuts.associateBy { it.roomId }
-        
-        // Quick hash comparison first
-        val newHash = newShortcutMap.hashCode()
-        if (newHash == lastShortcutHash && newShortcutMap == lastShortcutData) {
-            Log.d(TAG, "Shortcuts unchanged, skipping update (hash: $newHash)")
+        // Compare only stable fields to avoid churn: set of ids + name/avatar
+        val newIds = newShortcuts.map { it.roomId }
+        val idsChanged = newIds != lastShortcutStableIds
+
+        // Compare name/avatar for same ids
+        var nameAvatarChanged = false
+        for (s in newShortcuts) {
+            val prev = lastNameAvatar[s.roomId]
+            if (prev == null || prev.first != s.roomName || prev.second != s.roomAvatarUrl) {
+                nameAvatarChanged = true
+                break
+            }
+        }
+
+        if (!idsChanged && !nameAvatarChanged) {
+            Log.d(TAG, "Shortcuts stable (ids/name/avatar unchanged), skipping update")
             return false
         }
-        
-        // Check if any shortcuts actually changed
-        val hasChanges = newShortcutMap != lastShortcutData
-        
-        if (hasChanges) {
-            Log.d(TAG, "Shortcuts changed, updating (old hash: $lastShortcutHash, new hash: $newHash)")
-            Log.d(TAG, "  Old shortcuts: ${lastShortcutData.keys}")
-            Log.d(TAG, "  New shortcuts: ${newShortcutMap.keys}")
-        }
-        
-        return hasChanges
+
+        Log.d(TAG, "Shortcuts will update (idsChanged=$idsChanged, nameAvatarChanged=$nameAvatarChanged)")
+        return true
     }
     
     /**
@@ -450,11 +456,22 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 return
             }
             
+            // Optional rate limit: if only order/activity changed recently, skip within minimum interval
+            val newIds = shortcuts.map { it.roomId }
+            val idsChanged = newIds != lastShortcutStableIds
+            val now = System.currentTimeMillis()
+            if (!idsChanged && (now - lastShortcutUpdateTime) < MIN_SHORTCUT_UPDATE_INTERVAL_MS) {
+                Log.d(TAG, "Rate-limiting shortcut update (only non-id changes within ${MIN_SHORTCUT_UPDATE_INTERVAL_MS}ms)")
+                return
+            }
+
             Log.d(TAG, "Updating ${shortcuts.size} shortcuts using pushDynamicShortcut() (background thread)")
             
             // Update cache
             lastShortcutData = shortcuts.associateBy { it.roomId }
             lastShortcutHash = lastShortcutData.hashCode()
+            lastShortcutStableIds = newIds
+            lastNameAvatar = shortcuts.associate { it.roomId to (it.roomName to it.roomAvatarUrl) }
             
             for (shortcut in shortcuts) {
                 try {
@@ -470,9 +487,10 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     // Create ShortcutInfoCompat (AndroidX version)
                     val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
                     
-                    // If avatar just became available, remove old shortcut to force icon update
-                    if (avatarInCache) {
-                        Log.d(TAG, "  Removing old shortcut to refresh icon")
+                    // Only refresh icon when avatar transitions from not-cached -> cached
+                    val previouslyCached = lastAvatarCachePresence[shortcut.roomId] ?: false
+                    if (avatarInCache && !previouslyCached) {
+                        Log.d(TAG, "  Removing old shortcut to refresh icon (avatar cache became available)")
                         ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(shortcut.roomId))
                     }
                     
@@ -480,6 +498,9 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     // This preserves other shortcuts automatically!
                     ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
                     Log.d(TAG, "  ✓ Shortcut pushed successfully")
+
+                    // Record avatar cache presence for next comparison
+                    lastAvatarCachePresence[shortcut.roomId] = avatarInCache
                     
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating shortcut for room: ${shortcut.roomName}", e)
@@ -764,6 +785,9 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 // Clear cache
                 lastShortcutData = emptyMap()
                 lastShortcutHash = 0
+                lastShortcutStableIds = emptyList()
+                lastNameAvatar = emptyMap()
+                lastAvatarCachePresence.clear()
                 
                 Log.d(TAG, "Cleared all conversation shortcuts and cache")
             } catch (e: Exception) {
@@ -778,6 +802,9 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     fun clearShortcutCache() {
         lastShortcutData = emptyMap()
         lastShortcutHash = 0
+        lastShortcutStableIds = emptyList()
+        lastNameAvatar = emptyMap()
+        lastAvatarCachePresence.clear()
         Log.d(TAG, "Cleared shortcut cache")
     }
     
