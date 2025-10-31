@@ -3619,22 +3619,8 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // For network restoration, directly connect to WebSocket instead of using restartWebSocket
-        if (reason.contains("Network restored - direct connection")) {
-            android.util.Log.d("Andromuks", "AppViewModel: Network restored - directly connecting to WebSocket")
-            // Get the current connection parameters
-            if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                // Create a new OkHttpClient for the connection
-                val client = okhttp3.OkHttpClient.Builder().build()
-                // Import the connectToWebsocket function
-                net.vrkknn.andromuks.utils.connectToWebsocket(homeserverUrl, client, authToken, this, reason)
-            } else {
-                android.util.Log.e("Andromuks", "AppViewModel: Cannot reconnect - missing homeserver URL or token")
-            }
-        } else {
-            // Delegate to service for other reasons
-            WebSocketService.restartWebSocket(reason)
-        }
+        // Delegate all reconnection handling to the service for consistent behavior
+        WebSocketService.restartWebSocket(reason)
     }
 
     fun requestUserProfile(userId: String, roomId: String? = null) {
