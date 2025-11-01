@@ -737,9 +737,8 @@ class WebSocketService : Service() {
             serviceInstance.lastKnownLagMs = null
             serviceInstance.lastPongTimestamp = 0L
             
-            // Reset ping loop state for next connection
+            // Reset ping loop state for next connection (ready-state flag stays true so failsafe can run)
             serviceInstance.pingLoopStarted = false
-            serviceInstance.hasEverReachedReadyState = false
             
             // Log activity: WebSocket disconnected
             logActivity("WebSocket Disconnected - $reason", serviceInstance.currentNetworkType.name)
