@@ -3597,7 +3597,7 @@ class AppViewModel : ViewModel() {
 
     
     private fun restartWebSocket(reason: String = "Unknown reason") {
-        android.util.Log.d("Andromuks", "AppViewModel: Delegating WebSocket restart to service")
+        android.util.Log.d("Andromuks", "AppViewModel: restartWebSocket invoked - reason: $reason")
         
         // Only show toast for important reconnection reasons, not every attempt
         val shouldShowToast = when {
@@ -3618,8 +3618,23 @@ class AppViewModel : ViewModel() {
                 }
             }
         }
-        
-        // Delegate all reconnection handling to the service for consistent behavior
+
+        val restartCallback = onRestartWebSocket
+
+        if (restartCallback != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Using direct reconnect callback for reason: $reason")
+            // Cancel any pending reconnection jobs in the service to avoid duplicate attempts
+            WebSocketService.cancelReconnection()
+            // Ensure the service state is reset before establishing a new connection
+            WebSocketService.clearWebSocket(reason)
+            restartCallback.invoke(reason)
+            return
+        }
+
+        android.util.Log.w(
+            "Andromuks",
+            "AppViewModel: onRestartWebSocket callback not set - falling back to service restart"
+        )
         WebSocketService.restartWebSocket(reason)
     }
 
