@@ -565,6 +565,12 @@ class WebSocketService : Service() {
                 while (isActive) {
                     delay(30000) // Check every 30 seconds
                     
+                        // Skip failsafe until we have seen a ready state at least once
+                        if (!serviceInstance.hasEverReachedReadyState) {
+                            android.util.Log.d("WebSocketService", "Failsafe: Skipping check (ready state never reached yet)")
+                            continue
+                        }
+                        
                     // First, validate service health
                     if (!validateServiceHealth()) {
                         // Service unhealthy - could be missing reconnectionCallback (AppViewModel not initialized)
@@ -733,6 +739,7 @@ class WebSocketService : Service() {
             
             // Reset ping loop state for next connection
             serviceInstance.pingLoopStarted = false
+            serviceInstance.hasEverReachedReadyState = false
             
             // Log activity: WebSocket disconnected
             logActivity("WebSocket Disconnected - $reason", serviceInstance.currentNetworkType.name)
@@ -971,7 +978,9 @@ class WebSocketService : Service() {
             // Start ping loop on first sync_complete (when we have a valid lastReceivedSyncId)
             if (!serviceInstance.pingLoopStarted) {
                 serviceInstance.pingLoopStarted = true
+                serviceInstance.hasEverReachedReadyState = true
                 android.util.Log.i("WebSocketService", "First sync_complete received, starting ping loop")
+                logActivity("WebSocket Ready", serviceInstance.currentNetworkType.name)
                 startPingLoop()
             }
             
@@ -1222,6 +1231,7 @@ class WebSocketService : Service() {
     
     // Ping loop state
     private var pingLoopStarted = false // Track if ping loop has been started after first sync_complete
+    private var hasEverReachedReadyState = false // Track if we have ever received sync_complete on this run
     
     /**
      * Get adaptive ping interval based on connection quality and app visibility
