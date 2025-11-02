@@ -750,11 +750,13 @@ class AppViewModel : ViewModel() {
      */
     fun getReceiptMovements(): Map<String, Triple<String?, String, Long>> {
         // Clean up old movements (older than 2 seconds) to prevent memory leaks
-        val currentTime = System.currentTimeMillis()
-        receiptMovements.entries.removeAll { (_, movement) ->
-            currentTime - movement.third > 2000
+        synchronized(readReceiptsLock) {
+            val currentTime = System.currentTimeMillis()
+            receiptMovements.entries.removeAll { (_, movement) ->
+                currentTime - movement.third > 2000
+            }
+            return receiptMovements.toMap()
         }
-        return receiptMovements.toMap()
     }
     
     /**
@@ -2958,6 +2960,7 @@ class AppViewModel : ViewModel() {
     private val readReceiptsLock = Any() // Synchronization lock for readReceipts access
     
     // Track receipt movements for animation - userId -> (previousEventId, currentEventId, timestamp)
+    // THREAD SAFETY: Protected by readReceiptsLock since it's accessed from background threads
     private val receiptMovements = mutableMapOf<String, Triple<String?, String, Long>>()
     var receiptAnimationTrigger by mutableStateOf(0L)
         private set
@@ -2994,6 +2997,11 @@ class AppViewModel : ViewModel() {
     // OPPORTUNISTIC PROFILE LOADING: Track pending on-demand profile requests
     private val pendingProfileRequests = mutableSetOf<String>() // "roomId:userId" keys for pending profile requests
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> "roomId:userId" for on-demand profile requests
+    
+    // PERFORMANCE: Throttle profile requests to prevent animation-blocking bursts
+    // Tracks recent profile request timestamps to skip rapid re-requests during animation window
+    private val recentProfileRequestTimes = mutableMapOf<String, Long>() // "roomId:userId" -> timestamp
+    private val PROFILE_REQUEST_THROTTLE_MS = 5000L // Skip if requested within last 5 seconds
     
     // Pagination state
     private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
@@ -4399,12 +4407,25 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        // Check if we're already requesting this profile to avoid duplicates
         val requestKey = "$roomId:$userId"
+        
+        // Check if we're already requesting this profile to avoid duplicates
         if (pendingProfileRequests.contains(requestKey)) {
             android.util.Log.d("Andromuks", "AppViewModel: Profile request already pending for $userId, skipping duplicate")
             return
         }
+        
+        // PERFORMANCE: Throttle rapid re-requests during animation bursts
+        val currentTime = System.currentTimeMillis()
+        val lastRequestTime = recentProfileRequestTimes[requestKey]
+        if (lastRequestTime != null && (currentTime - lastRequestTime) < PROFILE_REQUEST_THROTTLE_MS) {
+            android.util.Log.d("Andromuks", "AppViewModel: Profile request throttled for $userId (requested ${currentTime - lastRequestTime}ms ago)")
+            return
+        }
+        
+        // Clean up old throttle entries (older than throttle window) to prevent memory leaks
+        val cutoffTime = currentTime - PROFILE_REQUEST_THROTTLE_MS
+        recentProfileRequestTimes.entries.removeAll { (_, timestamp) -> timestamp < cutoffTime }
         
         android.util.Log.d("Andromuks", "AppViewModel: Requesting profile on-demand for $userId in room $roomId")
         
@@ -4418,6 +4439,7 @@ class AppViewModel : ViewModel() {
         
         // Track this request to prevent duplicates
         pendingProfileRequests.add(requestKey)
+        recentProfileRequestTimes[requestKey] = currentTime // Record request time for throttling
         roomSpecificStateRequests[requestId] = roomId  // Use roomSpecificStateRequests for get_specific_room_state responses
         
         // Request specific room state for this user
@@ -5833,8 +5855,16 @@ class AppViewModel : ViewModel() {
                 if (paginateRequests.containsKey(requestId)) {
                     android.util.Log.w("Andromuks", "AppViewModel: Setting hasMoreMessages to FALSE")
                     hasMoreMessages = false
+                    // Show toast on main thread to avoid crashes
                     appContext?.let { context ->
-                        android.widget.Toast.makeText(context, "No more messages available", android.widget.Toast.LENGTH_SHORT).show()
+                        try {
+                            // Ensure we're on main thread for Toast
+                            viewModelScope.launch(Dispatchers.Main) {
+                                android.widget.Toast.makeText(context, "No more messages available", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("Andromuks", "AppViewModel: Error showing toast", e)
+                        }
                     }
                 }
                 
@@ -5938,22 +5968,50 @@ class AppViewModel : ViewModel() {
                     android.util.Log.d("Andromuks", "AppViewModel: Skipping has_more parsing for background prefetch request")
                 }
                 
-                // Process read receipts from timeline response
+                // Process read receipts from timeline response (in background to avoid blocking animation)
                 val receipts = data.optJSONObject("receipts")
                 if (receipts != null) {
                     android.util.Log.d("Andromuks", "AppViewModel: Processing read receipts from timeline response for room: $roomId")
-                    synchronized(readReceiptsLock) {
-                        ReceiptFunctions.processReadReceipts(
-                            receipts, 
-                            readReceipts, 
-                            { readReceiptsUpdateCounter++ },
-                            { userId, previousEventId, newEventId ->
-                                // Track receipt movement for animation
-                                receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
-                                receiptAnimationTrigger = System.currentTimeMillis()
-                                android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
+                    // Process receipts in background to avoid blocking UI thread during bubble animation
+                    viewModelScope.launch(Dispatchers.Default) {
+                        try {
+                            val processedMovements = mutableMapOf<String, Triple<String?, String, Long>>()
+                            var hasReceiptChanges = false
+                            
+                            synchronized(readReceiptsLock) {
+                                hasReceiptChanges = ReceiptFunctions.processReadReceipts(
+                                    receipts, 
+                                    readReceipts, 
+                                    { }, // Update counter after processing (on main thread)
+                                    { userId, previousEventId, newEventId ->
+                                        // Track receipt movement for animation (collect in background)
+                                        processedMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
+                                    }
+                                )
                             }
-                        )
+                            
+                            // Apply updates on main thread after processing (only if there were changes)
+                            if (hasReceiptChanges || processedMovements.isNotEmpty()) {
+                                withContext(Dispatchers.Main) {
+                                    try {
+                                        if (processedMovements.isNotEmpty()) {
+                                            synchronized(readReceiptsLock) {
+                                                receiptMovements.putAll(processedMovements)
+                                            }
+                                            receiptAnimationTrigger = System.currentTimeMillis()
+                                        }
+                                        // Single UI update after all processing
+                                        if (hasReceiptChanges) {
+                                            readReceiptsUpdateCounter++
+                                        }
+                                    } catch (e: Exception) {
+                                        android.util.Log.e("Andromuks", "AppViewModel: Error updating receipt state on main thread", e)
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.e("Andromuks", "AppViewModel: Error processing receipts in background", e)
+                        }
                     }
                 }
             }
@@ -6820,8 +6878,10 @@ class AppViewModel : ViewModel() {
                                 readReceipts, 
                                 { readReceiptsUpdateCounter++ },
                                 { userId, previousEventId, newEventId ->
-                                    // Track receipt movement for animation
-                                    receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
+                                    // Track receipt movement for animation (thread-safe)
+                                    synchronized(readReceiptsLock) {
+                                        receiptMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
+                                    }
                                     receiptAnimationTrigger = System.currentTimeMillis()
                                     android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
                                 }

@@ -2131,32 +2131,49 @@ fun TimelineEventItem(
     
     // Check if this message should animate in (new message with slide-up effect)
     val newMessageAnimations = appViewModel?.getNewMessageAnimations() ?: emptyMap()
-    val animationCompletionTime = newMessageAnimations[event.eventId]
+    
+    // PERFORMANCE: Stabilize animationCompletionTime to prevent LaunchedEffect restart on recomposition
+    // Only update if the value actually changes (not just because map was recreated)
+    val animationCompletionTime = remember(event.eventId, newMessageAnimations[event.eventId]) {
+        newMessageAnimations[event.eventId]
+    }
     val shouldAnimate = animationCompletionTime != null
+    
     val animationProgress = remember(event.eventId) {
         Animatable(if (shouldAnimate) 0f else 1f)
     }
+    
+    // Track if animation has started to prevent restart on recomposition
+    val hasAnimationStarted = remember(event.eventId) { mutableStateOf(false) }
 
-    // Launch animation when this message is marked for animation
+    // Launch animation when this message is marked for animation (only once, starts immediately)
     LaunchedEffect(event.eventId, animationCompletionTime) {
         try {
-            if (!shouldAnimate) {
+            // Skip if animation shouldn't run or already started
+            if (animationCompletionTime == null) {
                 animationProgress.snapTo(1f)
-            } else {
-                animationProgress.snapTo(0f)
-                val startTime = animationCompletionTime!! - AppViewModel.NEW_MESSAGE_ANIMATION_DURATION_MS
-                val delayMs = startTime - System.currentTimeMillis()
-                if (delayMs > 0) {
-                    kotlinx.coroutines.delay(delayMs)
-                }
-                animationProgress.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(
-                        durationMillis = AppViewModel.NEW_MESSAGE_ANIMATION_DURATION_MS.toInt(),
-                        easing = FastOutSlowInEasing
-                    )
-                )
+                return@LaunchedEffect
             }
+            
+            if (hasAnimationStarted.value) {
+                // Animation already running - don't restart
+                return@LaunchedEffect
+            }
+            
+            // Mark as started immediately to prevent restart on recomposition
+            hasAnimationStarted.value = true
+            
+            // Start animation immediately without delay for smooth experience
+            animationProgress.snapTo(0f)
+            
+            // Animate immediately with full duration (removed delay to eliminate stall)
+            animationProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = AppViewModel.NEW_MESSAGE_ANIMATION_DURATION_MS.toInt(),
+                    easing = FastOutSlowInEasing
+                )
+            )
         } finally {
             appViewModel?.notifyMessageAnimationFinished(event.eventId)
         }

@@ -419,41 +419,28 @@ fun AnimatedInlineReadReceiptAvatars(
     val receiptMovements = appViewModel?.getReceiptMovements() ?: emptyMap()
     val animationTrigger = appViewModel?.receiptAnimationTrigger ?: 0L
     
-    Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Called with ${receipts.size} receipts for event: $eventId")
-    Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Message sender: $messageSender")
-    Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Receipt users: ${receipts.map { it.userId }}")
+    // Filter out the message sender from read receipts (cached to avoid recomputation)
+    val filteredReceipts = remember(receipts, messageSender) {
+        receipts.filter { it.userId != messageSender }
+    }
     
-    // Debug: Check if any receipt user matches the message sender
-    val senderMatches = receipts.any { it.userId == messageSender }
-    Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Any receipt matches sender: $senderMatches")
-    
-    // Filter out the message sender from read receipts
-    val filteredReceipts = receipts.filter { it.userId != messageSender }
-    Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: After filtering: ${filteredReceipts.size} receipts, users: ${filteredReceipts.map { it.userId }}")
+    // Cache user IDs outside LaunchedEffect to prevent recomputation
+    val receiptUserIds = remember(filteredReceipts) {
+        filteredReceipts.map { it.userId }.toSet()
+    }
     
     // OPPORTUNISTIC PROFILE LOADING: Request profiles for read receipt users
-    LaunchedEffect(filteredReceipts.map { it.userId }, roomId, appViewModel?.memberUpdateCounter) {
-        Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: LaunchedEffect triggered - receipts: ${filteredReceipts.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel?.memberUpdateCounter}")
-        
-        if (appViewModel != null && roomId != null && filteredReceipts.isNotEmpty()) {
-            Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Requesting profiles for ${filteredReceipts.size} read receipt users")
-            filteredReceipts.forEach { receipt ->
-                Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Processing receipt for user: ${receipt.userId}")
-                
+    // Only trigger when user IDs actually change (not on every recomposition)
+    LaunchedEffect(receiptUserIds, roomId) {
+        if (appViewModel != null && roomId != null && receiptUserIds.isNotEmpty()) {
+            receiptUserIds.forEach { userId ->
                 // Check if profile is already cached to avoid unnecessary requests
-                val existingProfile = appViewModel.getUserProfile(receipt.userId, roomId)
-                Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Profile check for ${receipt.userId} - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}")
+                val existingProfile = appViewModel.getUserProfile(userId, roomId)
                 
                 if (existingProfile == null) {
-                    Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Profile not cached for ${receipt.userId}, requesting...")
-                    appViewModel.requestUserProfileOnDemand(receipt.userId, roomId)
-                    Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Profile request sent for ${receipt.userId}")
-                } else {
-                    Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Profile already cached for ${receipt.userId} - displayName: ${existingProfile.displayName}")
+                    appViewModel.requestUserProfileOnDemand(userId, roomId)
                 }
             }
-        } else {
-            Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, receipts: ${filteredReceipts.size}")
         }
     }
     
@@ -484,7 +471,6 @@ fun AnimatedInlineReadReceiptAvatars(
     }
     
     if (filteredReceipts.isNotEmpty()) {
-        Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Rendering ${filteredReceipts.size} read receipt avatars with animation trigger: $animationTrigger")
         Row(
             horizontalArrangement = Arrangement.spacedBy(2.dp),
             verticalAlignment = Alignment.Top,
@@ -504,10 +490,6 @@ fun AnimatedInlineReadReceiptAvatars(
                 // Check if this receipt is animating in from another message
                 val isAnimatingIn = receiptMovementsToNewEvent.containsKey(receipt.userId)
                 
-                Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Rendering animated avatar for user: ${receipt.userId}, isAnimatingIn: $isAnimatingIn")
-                Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Profile source - AppViewModel: ${appViewModel?.getUserProfile(receipt.userId, roomId) != null}, Cache: ${userProfileCache[receipt.userId] != null}")
-                Log.d("Andromuks", "AnimatedInlineReadReceiptAvatars: Final profile - displayName: $displayName, avatarUrl: $avatarUrl")
-                
                 // Use simple animated visibility with enhanced enter animation for moved receipts
                 AnimatedVisibility(
                     visible = true,
@@ -518,7 +500,6 @@ fun AnimatedInlineReadReceiptAvatars(
                         modifier = Modifier
                             .size(24.dp)
                             .clickable { 
-                                Log.d("Andromuks", "Animated read receipt avatar clicked for user: ${receipt.userId}")
                                 showReceiptDialog = true
                             }
                     ) {
@@ -546,7 +527,6 @@ fun AnimatedInlineReadReceiptAvatars(
                         modifier = Modifier
                             .size(24.dp)
                             .clickable {
-                                Log.d("Andromuks", "Animated read receipt + indicator clicked")
                                 showReceiptDialog = true
                             }
                             .background(
