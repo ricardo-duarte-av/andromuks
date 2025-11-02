@@ -1091,6 +1091,12 @@ class AppViewModel : ViewModel() {
      */
     fun initializeFCM(context: Context, homeserverUrl: String = "", authToken: String = "") {
         appContext = context
+        
+        // Clear current room ID on app startup - ensures notifications aren't suppressed after crash/restart
+        // The room ID will be set again when user actually opens a room
+        clearCurrentRoomId()
+        android.util.Log.d("Andromuks", "AppViewModel: Cleared current room ID on app startup")
+        
         val components = FCMNotificationManager.initializeComponents(
             context = context,
             homeserverUrl = homeserverUrl,
@@ -2917,6 +2923,37 @@ class AppViewModel : ViewModel() {
     // Room timeline state
     var currentRoomId by mutableStateOf("")
         private set
+    
+    /**
+     * Helper function to set currentRoomId and save it to SharedPreferences.
+     * This allows notification services to check if a room is currently open.
+     */
+    private fun updateCurrentRoomIdInPrefs(roomId: String) {
+        currentRoomId = roomId
+        // Save to SharedPreferences so notification service can check if room is open
+        appContext?.applicationContext?.let { context ->
+            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.edit().apply {
+                if (roomId.isNotEmpty()) {
+                    putString("current_open_room_id", roomId)
+                    android.util.Log.d("Andromuks", "AppViewModel: Saved current open room ID to SharedPreferences: $roomId")
+                } else {
+                    remove("current_open_room_id")
+                    android.util.Log.d("Andromuks", "AppViewModel: Cleared current open room ID from SharedPreferences")
+                }
+                apply()
+            }
+        }
+    }
+    
+    /**
+     * Clears the current room ID when user navigates back to room list.
+     * This allows notifications to resume for rooms that were previously open.
+     */
+    fun clearCurrentRoomId() {
+        updateCurrentRoomIdInPrefs("")
+    }
+    
     var timelineEvents by mutableStateOf<List<TimelineEvent>>(emptyList())
         private set
     var isTimelineLoading by mutableStateOf(false)
@@ -3760,7 +3797,11 @@ class AppViewModel : ViewModel() {
    
     fun requestRoomTimeline(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId")
-        currentRoomId = roomId
+        
+        // Check if we're refreshing the same room before updating currentRoomId
+        val isRefreshingSameRoom = currentRoomId == roomId && timelineEvents.isNotEmpty()
+        
+        updateCurrentRoomIdInPrefs(roomId)
         
         // OPPORTUNISTIC PROFILE LOADING: Only request room state without members to prevent OOM
         // Member profiles will be loaded on-demand when actually needed for rendering
@@ -4060,27 +4101,37 @@ class AppViewModel : ViewModel() {
         // CACHE MISS - show loading and fetch from server
         android.util.Log.d("Andromuks", "AppViewModel: ✗ CACHE MISS (or < 10 events) - showing loading and fetching from server")
         
-        // Now clear everything and show loading
-        timelineEvents = emptyList()
-        isTimelineLoading = true
-        
-        // Reset pagination state for new room
-        smallestRowId = -1L
-        isPaginating = false
-        hasMoreMessages = true
-        
-        // Clear edit chain mapping when opening a new room
-        eventChainMap.clear()
-        editEventsMap.clear()
-        
-        // Clear optimized version cache when opening a new room
-        messageVersions.clear()
-        editToOriginal.clear()
-        redactionCache.clear()
-        android.util.Log.d("Andromuks", "AppViewModel: Cleared version cache for new room: $roomId")
-        
-        // Clear message reactions when switching rooms
-        messageReactions = emptyMap()
+        // Only clear timeline if we're opening a different room, or if timeline is already empty
+        // This prevents clearing timeline when resuming from background for the same room
+        if (isRefreshingSameRoom) {
+            android.util.Log.d("Andromuks", "AppViewModel: Preserving existing timeline on resume (${timelineEvents.size} events) - will fetch new events in background")
+            // Don't clear timelineEvents - keep existing events visible
+            // Don't set loading to true - keep UI responsive
+            // Don't clear internal structures - they're still needed for the existing timeline
+            isTimelineLoading = false
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: Clearing timeline - opening new room or timeline empty")
+            timelineEvents = emptyList()
+            isTimelineLoading = true
+            
+            // Reset pagination state for new room
+            smallestRowId = -1L
+            isPaginating = false
+            hasMoreMessages = true
+            
+            // Clear edit chain mapping when opening a new room
+            eventChainMap.clear()
+            editEventsMap.clear()
+            
+            // Clear optimized version cache when opening a new room
+            messageVersions.clear()
+            editToOriginal.clear()
+            redactionCache.clear()
+            android.util.Log.d("Andromuks", "AppViewModel: Cleared version cache for new room: $roomId")
+            
+            // Clear message reactions when switching rooms
+            messageReactions = emptyMap()
+        }
         
         // Ensure member cache exists for this room
         if (roomMemberCache[roomId] == null) {
@@ -4129,7 +4180,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Silent refresh for room: $roomId (populating cache without UI updates)")
         
         // Set current room ID to ensure proper request handling
-        currentRoomId = roomId
+        updateCurrentRoomIdInPrefs(roomId)
         
         // Clear cache to get fresh data
         RoomTimelineCache.clearRoomCache(roomId)
@@ -4180,7 +4231,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Refreshing timeline for room: $roomId (clearing cache and requesting fresh data)")
         
         // Set current room ID to ensure reaction processing works correctly
-        currentRoomId = roomId
+        updateCurrentRoomIdInPrefs(roomId)
         
         // 1. Drop all cache for this room
         RoomTimelineCache.clearRoomCache(roomId)
@@ -4236,7 +4287,7 @@ class AppViewModel : ViewModel() {
     // OPTIMIZATION #4: Cache-first navigation method
     fun navigateToRoomWithCache(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - Cache-first navigation to room: $roomId")
-        currentRoomId = roomId
+        updateCurrentRoomIdInPrefs(roomId)
         
         // Check cache first - this is the key optimization
         val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)

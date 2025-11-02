@@ -169,6 +169,12 @@ fun RoomListScreen(
         (context as? ComponentActivity)?.moveTaskToBack(true)
     }
     
+    // Clear current room ID when room list is shown - allows notifications to resume for previously open rooms
+    LaunchedEffect(Unit) {
+        android.util.Log.d("Andromuks", "RoomListScreen: Clearing current room ID - user is viewing room list, not a specific room")
+        appViewModel.clearCurrentRoomId()
+    }
+    
     // OPTIMIZATION #1 + #4: Check for direct room navigation first (faster path) with cache-first loading
     LaunchedEffect(Unit) {
         val directRoomId = appViewModel.getDirectRoomNavigation()
