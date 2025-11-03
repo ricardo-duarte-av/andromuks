@@ -1,0 +1,39 @@
+package net.vrkknn.andromuks.database.dao
+
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import net.vrkknn.andromuks.database.entities.EventEntity
+
+@Dao
+interface EventDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(events: List<EventEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(event: EventEntity)
+
+    @Query("SELECT * FROM events WHERE roomId = :roomId ORDER BY timelineRowId ASC, timestamp ASC LIMIT :limit")
+    suspend fun getEventsForRoomAsc(roomId: String, limit: Int): List<EventEntity>
+
+    @Query("SELECT * FROM events WHERE roomId = :roomId ORDER BY timelineRowId DESC, timestamp DESC LIMIT :limit")
+    suspend fun getEventsForRoomDesc(roomId: String, limit: Int): List<EventEntity>
+
+    @Query("DELETE FROM events WHERE roomId = :roomId AND eventId IN (:eventIds)")
+    suspend fun deleteEvents(roomId: String, eventIds: List<String>)
+
+    @Query("DELETE FROM events WHERE roomId = :roomId AND timelineRowId > 0 AND eventId NOT IN (SELECT eventId FROM events WHERE roomId = :roomId ORDER BY timelineRowId DESC, timestamp DESC LIMIT :keep)")
+    suspend fun trimRoomEvents(roomId: String, keep: Int)
+    
+    @Query("DELETE FROM events WHERE timestamp < :cutoffTimestamp")
+    suspend fun deleteEventsOlderThan(cutoffTimestamp: Long): Int
+    
+    @Query("DELETE FROM events")
+    suspend fun deleteAll()
+    
+    @Query("DELETE FROM events WHERE roomId = :roomId")
+    suspend fun deleteAllForRoom(roomId: String)
+}
+
+

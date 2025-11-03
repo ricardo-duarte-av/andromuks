@@ -829,7 +829,8 @@ fun RoomTimelineScreen(
     // Monitor scroll position to detect if user is at bottom or has detached
     // Also trigger automatic pagination when near the top
     LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) {
-        if (!hasInitialSnapCompleted) {
+        // Don't trigger pagination until initial scroll to bottom is complete
+        if (!hasInitialSnapCompleted || !hasLoadedInitialBatch) {
             return@LaunchedEffect
         }
         if (sortedEvents.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
@@ -958,11 +959,14 @@ fun RoomTimelineScreen(
         }
     }
 
+    // Track last known timeline update counter to detect when timeline has been built
+    var lastKnownTimelineUpdateCounter by remember { mutableStateOf(appViewModel.timelineUpdateCounter) }
+    
     // Auto-scroll to bottom only when attached (initial load or new messages while at bottom)
-    LaunchedEffect(timelineItems.size, isLoading, appViewModel.bubbleAnimationCompletionCounter) {
+    LaunchedEffect(timelineItems.size, isLoading, appViewModel.isPaginating, appViewModel.timelineUpdateCounter, appViewModel.bubbleAnimationCompletionCounter) {
         Log.d(
             "Andromuks",
-            "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, hasInitialSnapCompleted: $hasInitialSnapCompleted"
+            "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, timelineUpdateCounter: ${appViewModel.timelineUpdateCounter}, hasInitialSnapCompleted: $hasInitialSnapCompleted"
         )
 
         if (isLoading || timelineItems.isEmpty()) {
@@ -973,12 +977,76 @@ fun RoomTimelineScreen(
 
         if (!hasInitialSnapCompleted) {
             coroutineScope.launch {
-                listState.scrollToItem(timelineItems.lastIndex)
-                hasInitialSnapCompleted = true
-                hasLoadedInitialBatch = true
-                isAttachedToBottom = true
-                previousItemCount = timelineItems.size
-                lastKnownTimelineEventId = lastEventId
+                // CRITICAL: Wait for timeline to STABILIZE - check if size hasn't changed AND update counter has changed
+                // The update counter ensures buildTimelineFromChain() has been called at least once
+                var lastSize = timelineItems.size
+                var lastUpdateCounter = appViewModel.timelineUpdateCounter
+                var stableCount = 0
+                val requiredStableChecks = 3 // Timeline must be stable for 3 checks (150ms)
+                
+                // Poll until timeline size has stabilized (no changes for required checks)
+                // AND we've seen at least one timeline update (buildTimelineFromChain called)
+                for (i in 0 until 20) { // Max 1 second of polling
+                    kotlinx.coroutines.delay(50) // Check every 50ms
+                    
+                    val currentSize = timelineItems.size
+                    val currentUpdateCounter = appViewModel.timelineUpdateCounter
+                    val stillLoading = isLoading || appViewModel.isPaginating
+                    
+                    // Check if timeline has been built at least once (update counter changed from initial)
+                    val timelineHasBeenBuilt = currentUpdateCounter != lastKnownTimelineUpdateCounter || currentUpdateCounter > 0
+                    
+                    if (stillLoading) {
+                        // Reset if loading state changed
+                        lastSize = currentSize
+                        lastUpdateCounter = currentUpdateCounter
+                        stableCount = 0
+                        continue
+                    }
+                    
+                    // Timeline is stable if:
+                    // 1. Size hasn't changed
+                    // 2. Update counter hasn't changed (no new buildTimelineFromChain calls)
+                    // 3. Timeline has been built at least once
+                    if (currentSize == lastSize && currentUpdateCounter == lastUpdateCounter && currentSize > 0 && timelineHasBeenBuilt) {
+                        stableCount++
+                        if (stableCount >= requiredStableChecks) {
+                            // Timeline has been stable - safe to scroll
+                            Log.d("Andromuks", "RoomTimelineScreen: Timeline stabilized at ${currentSize} items (updateCounter: $currentUpdateCounter) after ${i * 50}ms")
+                            lastKnownTimelineUpdateCounter = currentUpdateCounter
+                            break
+                        }
+                    } else {
+                        // Size or counter changed, reset stability counter
+                        lastSize = currentSize
+                        lastUpdateCounter = currentUpdateCounter
+                        stableCount = 0
+                    }
+                }
+                
+                // Final check before scrolling
+                if (timelineItems.isEmpty() || isLoading || appViewModel.isPaginating) {
+                    Log.d("Andromuks", "RoomTimelineScreen: Timeline not ready for scroll (empty: ${timelineItems.isEmpty()}, loading: $isLoading, paginating: ${appViewModel.isPaginating})")
+                    // Still mark as completed to avoid infinite loop
+                    hasInitialSnapCompleted = true
+                    return@launch
+                }
+                
+                // Use the EXACT same method as the FAB button - instant scroll (no animation)
+                val targetIndex = timelineItems.lastIndex
+                if (targetIndex >= 0) {
+                    listState.scrollToItem(targetIndex)
+                    isAttachedToBottom = true
+                    hasInitialSnapCompleted = true
+                    hasLoadedInitialBatch = true
+                    previousItemCount = timelineItems.size
+                    lastKnownTimelineEventId = lastEventId
+                    lastKnownTimelineUpdateCounter = appViewModel.timelineUpdateCounter
+                    Log.d("Andromuks", "RoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index $targetIndex, updateCounter: ${appViewModel.timelineUpdateCounter}) - timeline stabilized")
+                } else {
+                    hasInitialSnapCompleted = true
+                    Log.w("Andromuks", "RoomTimelineScreen: Invalid target index for scroll")
+                }
             }
             return@LaunchedEffect
         }
@@ -1232,10 +1300,10 @@ fun RoomTimelineScreen(
                             navController.navigate("room_info/$roomId")
                         },
                         onRefreshClick = {
-                            // Silently refresh room cache without UI updates
-                            Log.d("Andromuks", "RoomTimelineScreen: Silent refresh button clicked for room $roomId")
+                            // Full refresh: drop all on-disk and in-RAM data, then fetch 200 events
+                            Log.d("Andromuks", "RoomTimelineScreen: Full refresh button clicked for room $roomId")
                             isRefreshing = true
-                            appViewModel.silentRefreshRoomCache(roomId)
+                            appViewModel.fullRefreshRoomTimeline(roomId)
                         }
                     )
 
@@ -1747,8 +1815,8 @@ fun RoomTimelineScreen(
                     FloatingActionButton(
                         onClick = {
                             coroutineScope.launch {
-                                // Scroll to bottom and re-attach
-                                listState.animateScrollToItem(timelineItems.lastIndex)
+                                // Scroll to bottom and re-attach (instant, no animation)
+                                listState.scrollToItem(timelineItems.lastIndex)
                                 isAttachedToBottom = true
                                 Log.d(
                                     "Andromuks",

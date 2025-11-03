@@ -52,6 +52,9 @@ class MainActivity : ComponentActivity() {
                         // Load app settings from SharedPreferences
                         appViewModel.loadSettings(this)
                         
+                        // Schedule database maintenance (daily at 2 AM)
+                        net.vrkknn.andromuks.database.DatabaseMaintenanceWorker.schedule(this)
+                        
                         // OPTIMIZATION #2: Optimized intent processing
                         val roomId = intent.getStringExtra("room_id")
                         val directNavigation = intent.getBooleanExtra("direct_navigation", false)

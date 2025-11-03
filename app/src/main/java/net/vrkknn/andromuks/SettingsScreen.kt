@@ -597,7 +597,7 @@ fun CacheStatisticsSection(appViewModel: AppViewModel) {
                 CacheStatItem(
                     label = "User Profiles (Disk)",
                     value = cacheStats!!["user_profiles_disk_cache"] ?: "N/A",
-                    description = "Stored in SharedPreferences"
+                    description = "Stored in SQLite database"
                 )
                 
                 HorizontalDivider()
