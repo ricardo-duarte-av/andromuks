@@ -168,7 +168,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             // Check if this room is currently open in the app - skip notifications if user is viewing the room
             val currentOpenRoomId = sharedPrefs.getString("current_open_room_id", null)
-            if (currentOpenRoomId == notificationData.roomId) {
+            Log.d(TAG, "Notification check - currentOpenRoomId: '$currentOpenRoomId', notificationRoomId: '${notificationData.roomId}', match: ${currentOpenRoomId == notificationData.roomId}")
+            if (currentOpenRoomId != null && currentOpenRoomId == notificationData.roomId) {
                 Log.d(TAG, "Skipping notification for currently open room: ${notificationData.roomId} (${notificationData.roomName}) - user is already viewing this room")
                 return
             }

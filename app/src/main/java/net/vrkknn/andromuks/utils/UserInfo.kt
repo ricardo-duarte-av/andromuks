@@ -83,6 +83,24 @@ fun UserInfoScreen(
     // Request all user info when screen is created
     LaunchedEffect(userId) {
         android.util.Log.d("Andromuks", "UserInfoScreen: Requesting user info for $userId")
+        
+        // OPTIMIZATION: Check cache first for instant display
+        val cachedProfile = appViewModel.getUserProfile(userId, roomId = null)
+        if (cachedProfile != null) {
+            android.util.Log.d("Andromuks", "UserInfoScreen: Found cached profile for $userId")
+            // Prefill with cached data while loading full info in background
+            userProfileInfo = net.vrkknn.andromuks.utils.UserProfileInfo(
+                userId = userId,
+                displayName = cachedProfile.displayName,
+                avatarUrl = cachedProfile.avatarUrl,
+                timezone = null,
+                encryptionInfo = null,
+                mutualRooms = emptyList()
+            )
+            isLoading = false // Show cached data immediately
+        }
+        
+        // Request full user info to get complete data
         appViewModel.requestFullUserInfo(userId) { profileInfo, error ->
             isLoading = false
             if (error != null) {

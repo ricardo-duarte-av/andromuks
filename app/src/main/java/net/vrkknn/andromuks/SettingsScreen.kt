@@ -8,8 +8,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -126,6 +131,16 @@ fun SettingsScreen(
             )
             
             FCMInfoSection(appViewModel = appViewModel)
+
+            // Cache Statistics Section
+            Text(
+                text = "Cache Statistics",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+            
+            CacheStatisticsSection(appViewModel = appViewModel)
 
             // WebSocket Debug Section
             Text(
@@ -481,6 +496,157 @@ fun FCMInfoItem(
                     modifier = Modifier.size(20.dp)
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun CacheStatisticsSection(appViewModel: AppViewModel) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    var cacheStats by remember { mutableStateOf<Map<String, String>?>(null) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    
+    // Helper function to refresh cache stats
+    fun refreshStats() {
+        coroutineScope.launch {
+            isRefreshing = true
+            // Run in background to avoid blocking UI
+            cacheStats = withContext(kotlinx.coroutines.Dispatchers.Default) {
+                appViewModel.getCacheStatistics(context)
+            }
+            isRefreshing = false
+        }
+    }
+    
+    // Refresh cache statistics when screen is composed
+    LaunchedEffect(Unit) {
+        refreshStats()
+    }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Memory & Cache Usage",
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium
+                )
+                IconButton(
+                    onClick = { refreshStats() },
+                    enabled = !isRefreshing
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = "Refresh cache statistics",
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+            
+            if (isRefreshing) {
+                Box(
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                }
+            } else if (cacheStats != null) {
+                HorizontalDivider()
+                
+                // App RAM Usage
+                CacheStatItem(
+                    label = "App RAM Usage",
+                    value = cacheStats!!["app_ram_usage"] ?: "N/A",
+                    description = "Max: ${cacheStats!!["app_ram_max"] ?: "N/A"}"
+                )
+                
+                HorizontalDivider()
+                
+                // Room Timeline Memory Cache
+                CacheStatItem(
+                    label = "Room Timeline Cache",
+                    value = cacheStats!!["timeline_memory_cache"] ?: "N/A",
+                    description = cacheStats!!["timeline_event_count"] ?: ""
+                )
+                
+                HorizontalDivider()
+                
+                // User Profiles Memory Cache
+                CacheStatItem(
+                    label = "User Profiles (Memory)",
+                    value = cacheStats!!["user_profiles_memory_cache"] ?: "N/A",
+                    description = cacheStats!!["user_profiles_count"] ?: ""
+                )
+                
+                HorizontalDivider()
+                
+                // User Profiles Disk Cache
+                CacheStatItem(
+                    label = "User Profiles (Disk)",
+                    value = cacheStats!!["user_profiles_disk_cache"] ?: "N/A",
+                    description = "Stored in SharedPreferences"
+                )
+                
+                HorizontalDivider()
+                
+                // Media Memory Cache
+                CacheStatItem(
+                    label = "Media Cache (Memory)",
+                    value = cacheStats!!["media_memory_cache"] ?: "N/A",
+                    description = "Coil image cache"
+                )
+                
+                HorizontalDivider()
+                
+                // Media Disk Cache
+                CacheStatItem(
+                    label = "Media Cache (Disk)",
+                    value = cacheStats!!["media_disk_cache"] ?: "N/A",
+                    description = "Coil disk cache"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun CacheStatItem(
+    label: String,
+    value: String,
+    description: String
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        if (description.isNotEmpty()) {
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp)
+            )
         }
     }
 }
