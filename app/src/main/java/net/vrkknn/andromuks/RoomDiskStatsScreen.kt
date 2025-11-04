@@ -5,6 +5,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -147,9 +149,25 @@ fun RoomDiskStatsScreen(
                 
                 // Data rows
                 items(roomStats!!) { stat ->
+                    // Color-code based on favorite/low priority status
+                    val cardColor = when {
+                        stat.isFavourite -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                        stat.isLowPriority -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        else -> MaterialTheme.colorScheme.surface
+                    }
+                    
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                        colors = CardDefaults.cardColors(
+                            containerColor = cardColor
+                        ),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = when {
+                                stat.isFavourite -> 4.dp  // Higher elevation for favorites
+                                stat.isLowPriority -> 0.dp  // Lower/no elevation for low priority
+                                else -> 1.dp  // Default elevation
+                            }
+                        )
                     ) {
                         Row(
                             modifier = Modifier
@@ -158,13 +176,40 @@ fun RoomDiskStatsScreen(
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = stat.roomId,
-                                style = MaterialTheme.typography.bodySmall,
+                            // Room ID with favorite/low priority indicator
+                            Row(
                                 modifier = Modifier.weight(2f),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Start
+                            ) {
+                                // Favorite icon
+                                if (stat.isFavourite) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Favorite,
+                                        contentDescription = "Favorite",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+                                // Low priority icon
+                                if (stat.isLowPriority) {
+                                    Icon(
+                                        imageVector = Icons.Filled.NotificationsOff,
+                                        contentDescription = "Low Priority",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+                                Text(
+                                    text = stat.roomId,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = stat.displayName,

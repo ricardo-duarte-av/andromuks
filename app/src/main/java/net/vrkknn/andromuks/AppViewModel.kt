@@ -9920,7 +9920,9 @@ class AppViewModel : ViewModel() {
                 stats.add(RoomDiskStat(
                     roomId = summary.roomId,
                     displayName = displayName,
-                    diskSizeBytes = totalSize
+                    diskSizeBytes = totalSize,
+                    isFavourite = roomState?.isFavourite ?: false,
+                    isLowPriority = roomState?.isLowPriority ?: false
                 ))
             }
             
@@ -9935,6 +9937,8 @@ class AppViewModel : ViewModel() {
     data class RoomDiskStat(
         val roomId: String,
         val displayName: String,
-        val diskSizeBytes: Long
+        val diskSizeBytes: Long,
+        val isFavourite: Boolean = false,
+        val isLowPriority: Boolean = false
     )
 }
