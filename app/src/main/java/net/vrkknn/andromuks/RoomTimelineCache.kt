@@ -44,6 +44,11 @@ object RoomTimelineCache {
 
         var addedCount = 0
         for (event in incomingEvents) {
+            // CRASH FIX: Filter out null events before processing
+            if (event == null) {
+                Log.w(TAG, "Null event found in incomingEvents for room $roomId, skipping")
+                continue
+            }
             if (event.eventId.isBlank()) continue
             if (cache.eventIds.add(event.eventId)) {
                 cache.events.add(event)
@@ -56,7 +61,15 @@ object RoomTimelineCache {
         }
 
         // Ensure deterministic ordering: primary by timeline_rowid (ascending), fallback to timestamp, then eventId
+        // CRASH FIX: Defensive null checks in sort lambda (handles edge cases where nulls might sneak in)
         cache.events.sortWith { a, b ->
+            // CRASH FIX: Defensive null checks in sort lambda
+            // This should never happen with proper typing, but protects against runtime issues
+            if (a == null || b == null) {
+                Log.e(TAG, "CRITICAL: Null event found during sort for room $roomId, a=${a == null}, b=${b == null}. This should not happen!")
+                return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
+            }
+            
             when {
                 a.timelineRowid > 0 && b.timelineRowid > 0 -> a.timelineRowid.compareTo(b.timelineRowid)
                 a.timelineRowid > 0 -> -1

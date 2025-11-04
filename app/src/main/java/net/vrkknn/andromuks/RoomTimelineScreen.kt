@@ -1181,16 +1181,19 @@ fun RoomTimelineScreen(
             val visibleUsers = sortedEvents.take(50) // Only first 50 events to avoid overwhelming
                 .map { it.sender }
                 .distinct()
-                .filter { it != appViewModel.currentUserId }
             
             Log.d(
                 "Andromuks",
                 "RoomTimelineScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${sortedEvents.size} events)"
             )
             
-            // Request profiles one by one as needed
+            // Request profiles one by one as needed (including current user if missing)
             visibleUsers.forEach { userId ->
-                appViewModel.requestUserProfileOnDemand(userId, roomId)
+                // Check if profile is missing (including for current user)
+                val existingProfile = appViewModel.getUserProfile(userId, roomId)
+                if (existingProfile == null || existingProfile.displayName.isNullOrBlank()) {
+                    appViewModel.requestUserProfileOnDemand(userId, roomId)
+                }
             }
         }
     }

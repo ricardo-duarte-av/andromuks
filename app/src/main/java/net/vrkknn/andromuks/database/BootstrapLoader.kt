@@ -75,15 +75,31 @@ class BootstrapLoader(private val context: Context) {
         for (summary in roomSummaries) {
             val roomState = roomStateMap[summary.roomId]
             
+            // FIX: If lastTimestamp is 0, try to get it from the most recent event in the database
+            var sortingTimestamp = summary.lastTimestamp
+            if (sortingTimestamp <= 0) {
+                try {
+                    val lastEventTimestamp = eventDao.getLastEventTimestamp(summary.roomId)
+                    if (lastEventTimestamp != null && lastEventTimestamp > 0) {
+                        sortingTimestamp = lastEventTimestamp
+                        Log.d(TAG, "Room ${summary.roomId}: Using last event timestamp $sortingTimestamp instead of summary.lastTimestamp (0)")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to get last event timestamp for room ${summary.roomId}: ${e.message}")
+                }
+            }
+            
+            // BUG FIX #1: Always include unreadCount and highlightCount (even if 0) for proper badge display
+            // Also ensure sortingTimestamp is set (either from summary or from last event)
             val room = RoomItem(
                 id = summary.roomId,
                 name = roomState?.name ?: summary.roomId,
                 avatarUrl = roomState?.avatarUrl,
                 messagePreview = summary.messagePreview,
                 messageSender = summary.messageSender,
-                sortingTimestamp = summary.lastTimestamp.takeIf { it > 0 },
-                unreadCount = summary.unreadCount.takeIf { it > 0 },
-                highlightCount = summary.highlightCount.takeIf { it > 0 },
+                sortingTimestamp = sortingTimestamp.takeIf { it > 0 }, // Only set if > 0 (for time diff display)
+                unreadCount = summary.unreadCount.takeIf { it > 0 }, // Only show if > 0 for badge
+                highlightCount = summary.highlightCount.takeIf { it > 0 }, // Only show if > 0 for badge
                 isDirectMessage = roomState?.isDirect ?: false,
                 isFavourite = roomState?.isFavourite ?: false,
                 isLowPriority = roomState?.isLowPriority ?: false
@@ -156,21 +172,43 @@ class BootstrapLoader(private val context: Context) {
     
     /**
      * Load bridge info from database for all rooms
+     * BUG FIX #3: Also returns set of rooms that were checked (even if no bridge found)
      */
     suspend fun loadBridgeInfoFromDb(): Map<String, String> = withContext(Dispatchers.IO) {
         try {
             val allStates = roomStateDao.getAllRoomStates()
             val bridgeInfoMap = mutableMapOf<String, String>()
             for (state in allStates) {
-                if (state.bridgeInfoJson != null) {
+                // BUG FIX #3: Empty string means "checked, no bridge" - still include it but as checked
+                // null means "not checked yet"
+                if (state.bridgeInfoJson != null && state.bridgeInfoJson.isNotBlank()) {
                     bridgeInfoMap[state.roomId] = state.bridgeInfoJson
                 }
             }
-            Log.d(TAG, "Loaded ${bridgeInfoMap.size} bridge info entries from database")
+            Log.d(TAG, "Loaded ${bridgeInfoMap.size} bridge info entries from database (${allStates.count { it.bridgeInfoJson != null }} total checked)")
             bridgeInfoMap
         } catch (e: Exception) {
             Log.e(TAG, "Error loading bridge info from database: ${e.message}", e)
             emptyMap()
+        }
+    }
+    
+    /**
+     * Get list of rooms that have been checked for bridge info (even if no bridge found)
+     * BUG FIX #3: This helps avoid requesting m.bridge for rooms already checked
+     */
+    suspend fun getBridgeCheckedRooms(): Set<String> = withContext(Dispatchers.IO) {
+        try {
+            val allStates = roomStateDao.getAllRoomStates()
+            val checkedRooms = allStates
+                .filter { it.bridgeInfoJson != null } // null = not checked, empty string or JSON = checked
+                .map { it.roomId }
+                .toSet()
+            Log.d(TAG, "Found ${checkedRooms.size} rooms already checked for bridge info")
+            checkedRooms
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting bridge checked rooms: ${e.message}", e)
+            emptySet()
         }
     }
     

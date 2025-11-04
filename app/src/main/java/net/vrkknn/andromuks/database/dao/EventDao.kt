@@ -40,6 +40,9 @@ interface EventDao {
     
     @Query("SELECT SUM(LENGTH(rawJson)) FROM events WHERE roomId = :roomId")
     suspend fun getTotalSizeForRoom(roomId: String): Long?
+    
+    @Query("SELECT MAX(timestamp) FROM events WHERE roomId = :roomId AND timestamp > 0")
+    suspend fun getLastEventTimestamp(roomId: String): Long?
 }
 
 

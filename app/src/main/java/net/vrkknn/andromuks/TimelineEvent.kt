@@ -24,6 +24,10 @@ data class TimelineEvent(
 ) {
     companion object {
         fun fromJson(json: JSONObject): TimelineEvent {
+            // BUG FIX #4: Check for both "timestamp" and "origin_server_ts" since DB stores origin_server_ts
+            val timestamp = json.optLong("timestamp", 0L).takeIf { it > 0 }
+                ?: json.optLong("origin_server_ts", 0L)
+            
             return TimelineEvent(
                 rowid = json.optLong("rowid", 0),
                 timelineRowid = json.optLong("timeline_rowid", 0),
@@ -31,7 +35,7 @@ data class TimelineEvent(
                 eventId = json.optString("event_id", ""),
                 sender = json.optString("sender", ""),
                 type = json.optString("type", ""),
-                timestamp = json.optLong("timestamp", 0),
+                timestamp = timestamp,
                 content = json.optJSONObject("content"),
                 stateKey = json.optString("state_key")?.takeIf { it.isNotBlank() },
                 decrypted = json.optJSONObject("decrypted"),

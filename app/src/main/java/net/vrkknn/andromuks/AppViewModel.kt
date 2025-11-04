@@ -275,10 +275,44 @@ class AppViewModel : ViewModel() {
     
     /**
      * Mark a room as checked for bridge state (even if no bridge was found)
+     * BUG FIX #3: Also persist "no bridge" status to DB so we don't request again
      */
     fun markRoomAsBridgeChecked(roomId: String) {
         bridgeCacheCheckedRooms = bridgeCacheCheckedRooms + roomId
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked room $roomId as bridge checked")
+        
+        // BUG FIX #3: Persist "no bridge" status to DB (empty bridgeInfoJson means "checked, no bridge")
+        appContext?.let { context ->
+            if (syncIngestor == null) {
+                syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
+            }
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    // Update RoomStateEntity to mark as checked (even if no bridge)
+                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                    val roomState = database.roomStateDao().get(roomId)
+                    if (roomState != null && roomState.bridgeInfoJson == null) {
+                        // Mark as checked by setting an empty JSON string (different from null)
+                        database.roomStateDao().upsert(
+                            net.vrkknn.andromuks.database.entities.RoomStateEntity(
+                                roomId = roomState.roomId,
+                                name = roomState.name,
+                                avatarUrl = roomState.avatarUrl,
+                                canonicalAlias = roomState.canonicalAlias,
+                                topic = roomState.topic,
+                                isDirect = roomState.isDirect,
+                                isFavourite = roomState.isFavourite,
+                                isLowPriority = roomState.isLowPriority,
+                                bridgeInfoJson = "", // Empty string means "checked, no bridge"
+                                updatedAt = System.currentTimeMillis()
+                            )
+                        )
+                    }
+                } catch (e: Exception) {
+                    // Silently fail - not critical
+                }
+            }
+        }
     }
     
     /**
@@ -1611,14 +1645,6 @@ class AppViewModel : ViewModel() {
      * @return MemberProfile if found in cache, null otherwise (UI should show fallback)
      */
     fun getUserProfile(userId: String, roomId: String? = null): MemberProfile? {
-        // OPTIMIZED: Check if it's the current user (single string comparison)
-        if (userId == currentUserId && currentUserProfile != null) {
-            return MemberProfile(
-                displayName = currentUserProfile!!.displayName,
-                avatarUrl = currentUserProfile!!.avatarUrl
-            )
-        }
-        
         // IMPORTANT: Check room-specific cache FIRST when roomId is provided
         // Users can have different names in different rooms, so room-specific profiles take precedence
         if (roomId != null) {
@@ -1632,6 +1658,25 @@ class AppViewModel : ViewModel() {
             val roomMember = roomMemberCache[roomId]?.get(userId)
             if (roomMember != null) {
                 return roomMember
+            }
+        }
+        
+        // OPTIMIZED: Check if it's the current user (check both currentUserProfile and global cache)
+        if (userId == currentUserId) {
+            if (currentUserProfile != null) {
+                return MemberProfile(
+                    displayName = currentUserProfile!!.displayName,
+                    avatarUrl = currentUserProfile!!.avatarUrl
+                )
+            }
+            // Also check global cache for current user (in case profile was loaded but currentUserProfile not set yet)
+            val globalProfileRef = globalProfileCache[userId]
+            val globalProfile = globalProfileRef?.get()
+            if (globalProfile != null) {
+                return globalProfile
+            } else if (globalProfileRef != null) {
+                // Weak reference was cleared, remove the stale entry
+                globalProfileCache.remove(userId)
             }
         }
         
@@ -2621,6 +2666,24 @@ class AppViewModel : ViewModel() {
         // First, try to create bridges from cached data
         createBridgePseudoSpaces()
         
+        // BUG FIX #3: Load bridge checked rooms from database before requesting
+        appContext?.let { context ->
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
+                    val checkedRooms = bootstrapLoader.getBridgeCheckedRooms()
+                    
+                    // Mark all checked rooms from DB as checked in memory
+                    withContext(Dispatchers.Main) {
+                        bridgeCacheCheckedRooms = bridgeCacheCheckedRooms + checkedRooms
+                        android.util.Log.d("Andromuks", "AppViewModel: Marked ${checkedRooms.size} rooms as bridge-checked from DB")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Error loading bridge checked rooms from DB: ${e.message}", e)
+                }
+            }
+        }
+        
         // Only request room states for rooms that haven't been checked yet
         val uncheckedRooms = getUncheckedRoomsForBridge()
         if (uncheckedRooms.isNotEmpty()) {
@@ -3545,6 +3608,8 @@ class AppViewModel : ViewModel() {
                             // Load bridge info from database
                             kotlinx.coroutines.runBlocking(Dispatchers.IO) {
                                 val bridgeInfoMap = bootstrapLoader!!.loadBridgeInfoFromDb()
+                                val checkedRooms = bootstrapLoader!!.getBridgeCheckedRooms()
+                                
                                 for ((roomId, bridgeJson) in bridgeInfoMap) {
                                     try {
                                         val bridgeObj = org.json.JSONObject(bridgeJson)
@@ -3552,16 +3617,19 @@ class AppViewModel : ViewModel() {
                                         if (bridgeInfo != null) {
                                             // Update in-memory cache without triggering persistence (already in DB)
                                             bridgeInfoCache = bridgeInfoCache + (roomId to bridgeInfo)
-                                            bridgeCacheCheckedRooms = bridgeCacheCheckedRooms + roomId
                                             android.util.Log.d("Andromuks", "AppViewModel: Loaded bridge info from DB for room $roomId")
                                         }
                                     } catch (e: Exception) {
                                         android.util.Log.e("Andromuks", "AppViewModel: Error loading bridge info from DB for room $roomId: ${e.message}", e)
                                     }
                                 }
+                                
+                                // BUG FIX #3: Mark all checked rooms (including those with no bridge) as checked
+                                bridgeCacheCheckedRooms = bridgeCacheCheckedRooms + checkedRooms
+                                
                                 // Create bridge pseudo-spaces after loading all bridge info
                                 createBridgePseudoSpaces()
-                                android.util.Log.d("Andromuks", "AppViewModel: Loaded ${bridgeInfoMap.size} bridge info entries from database")
+                                android.util.Log.d("Andromuks", "AppViewModel: Loaded ${bridgeInfoMap.size} bridge info entries and ${checkedRooms.size} checked rooms from database")
                             }
                             
                             // Load spaces from database
@@ -3577,10 +3645,12 @@ class AppViewModel : ViewModel() {
                                 }
                             }
                             
-                            // Update cached room sections so tabs work immediately
+                            // BUG FIX #2: Force update cached room sections after all data is loaded
+                            // Reset hash to force recalculation since we're loading from DB
+                            lastAllRoomsHash = 0
                             updateCachedRoomSections()
                             updateBadgeCounts(allRooms)
-                            android.util.Log.d("Andromuks", "AppViewModel: Updated cached room sections and badge counts")
+                            android.util.Log.d("Andromuks", "AppViewModel: Updated cached room sections and badge counts (allRooms.size=${allRooms.size})")
                             
                             // Trigger UI update to show the restored rooms
                             roomListUpdateCounter++
@@ -5852,6 +5922,15 @@ class AppViewModel : ViewModel() {
         
         if (userId == currentUserId) {
             currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
+            // CRITICAL FIX: Also add current user's profile to all active room caches so it's accessible via getUserProfile
+            // This ensures the profile is available even when roomId is provided
+            roomMemberCache.keys.forEach { activeRoomId ->
+                val flattenedKey = "$activeRoomId:$userId"
+                flattenedMemberCache[flattenedKey] = memberProfile
+                val memberMap = roomMemberCache.getOrPut(activeRoomId) { mutableMapOf() }
+                memberMap[userId] = memberProfile
+                android.util.Log.d("Andromuks", "AppViewModel: Added current user profile to room cache: $activeRoomId")
+            }
         }
         android.util.Log.d("Andromuks", "AppViewModel: Profile updated for $userId display=$display avatar=${avatar != null} (added to global cache)")
         

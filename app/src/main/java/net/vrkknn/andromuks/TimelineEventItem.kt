@@ -1983,10 +1983,10 @@ fun TimelineEventItem(
     
     // OPPORTUNISTIC PROFILE LOADING: Request profile only when this event is actually rendered
     LaunchedEffect(event.sender, event.roomId) {
-        if (appViewModel != null && event.sender != myUserId) {
-            // Check if we already have the profile
+        if (appViewModel != null) {
+            // Check if we already have the profile (including for current user)
             val existingProfile = appViewModel.getUserProfile(event.sender, event.roomId)
-            if (existingProfile == null) {
+            if (existingProfile == null || existingProfile.displayName.isNullOrBlank()) {
                 Log.d("Andromuks", "TimelineEventItem: Requesting profile on-demand for ${event.sender}")
                 appViewModel.requestUserProfileOnDemand(event.sender, event.roomId)
             }
