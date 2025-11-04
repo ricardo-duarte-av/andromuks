@@ -824,11 +824,25 @@ class AppViewModel : ViewModel() {
 
     /**
      * Called by the UI when a bubble animation finishes so the timeline can proceed to scroll.
+     * CRITICAL: Also removes the event from newMessageAnimations to prevent re-animation on recomposition.
      */
     fun notifyMessageAnimationFinished(eventId: String) {
         if (runningBubbleAnimations.remove(eventId)) {
             bubbleAnimationCompletionCounter++
+            // CRITICAL: Remove from newMessageAnimations to prevent re-animation when items recompose
+            // (e.g., when keyboard opens and causes scroll, items shouldn't animate again)
+            newMessageAnimations.remove(eventId)
+            android.util.Log.d("Andromuks", "AppViewModel: Animation finished for $eventId, removed from animation map")
         }
+    }
+    
+    /**
+     * Enable animations for a room after initial load completes.
+     * This should be called after the room has been opened and scrolled to bottom.
+     */
+    fun enableAnimationsForRoom(roomId: String) {
+        animationsEnabledForRoom[roomId] = true
+        android.util.Log.d("Andromuks", "AppViewModel: Enabled animations for room: $roomId")
     }
     
     /**
@@ -3116,12 +3130,22 @@ class AppViewModel : ViewModel() {
         private set
     
         // Track new message animations - eventId -> timestamp when animation should complete
-    private val newMessageAnimations = mutableMapOf<String, Long>()
-    private val runningBubbleAnimations = mutableSetOf<String>()
+    // CRITICAL FIX: Use ConcurrentHashMap for thread-safe access (modified from background threads, read from UI thread)
+    private val newMessageAnimations = ConcurrentHashMap<String, Long>()
+    private val runningBubbleAnimations = ConcurrentHashMap.newKeySet<String>()
     var bubbleAnimationCompletionCounter by mutableStateOf(0L)
         private set
     var newMessageAnimationTrigger by mutableStateOf(0L)
         private set
+    
+    // CRITICAL: Track if animations should be enabled (disabled during initial room load)
+    // Animations should only occur for new messages when room is already open
+    private var animationsEnabledForRoom = mutableMapOf<String, Boolean>() // roomId -> enabled
+    
+    // CRITICAL: Track when each room was opened (in milliseconds, Matrix timestamp format)
+    // Only messages with timestamp NEWER than this will animate
+    // This ensures paginated (old) messages don't animate, only truly new messages do
+    private var roomOpenTimestamps = mutableMapOf<String, Long>() // roomId -> openTimestamp
     private val pendingInvites = mutableMapOf<String, RoomInvite>() // roomId -> RoomInvite
     private val roomSummaryRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val joinRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
@@ -4144,6 +4168,15 @@ class AppViewModel : ViewModel() {
         // Check if we're refreshing the same room before updating currentRoomId
         val isRefreshingSameRoom = currentRoomId == roomId && timelineEvents.isNotEmpty()
         
+        // CRITICAL: Store room open timestamp when opening a room (not when refreshing the same room)
+        // This timestamp will be used to determine which messages should animate
+        // Only messages with timestamp NEWER than this will animate
+        if (!isRefreshingSameRoom || !roomOpenTimestamps.containsKey(roomId)) {
+            val openTimestamp = System.currentTimeMillis()
+            roomOpenTimestamps[roomId] = openTimestamp
+            android.util.Log.d("Andromuks", "AppViewModel: Stored room open timestamp for $roomId: $openTimestamp (only messages newer than this will animate)")
+        }
+        
         updateCurrentRoomIdInPrefs(roomId)
         
         // OPPORTUNISTIC PROFILE LOADING: Only request room state without members to prevent OOM
@@ -4538,6 +4571,8 @@ class AppViewModel : ViewModel() {
         runningBubbleAnimations.clear()
         bubbleAnimationCompletionCounter = 0L
         newMessageAnimationTrigger = 0L
+        animationsEnabledForRoom.remove(roomId) // Reset animation state for this room
+        roomOpenTimestamps.remove(roomId) // Clear room open timestamp
         android.util.Log.d("Andromuks", "AppViewModel: Cleared animation state for room: $roomId")
         
         // 8. Reset member update counter to prevent stale state
@@ -4583,6 +4618,8 @@ class AppViewModel : ViewModel() {
         runningBubbleAnimations.clear()
         bubbleAnimationCompletionCounter = 0L
         newMessageAnimationTrigger = 0L
+        animationsEnabledForRoom.remove(roomId) // Reset animation state for this room
+        roomOpenTimestamps.remove(roomId) // Clear room open timestamp
         android.util.Log.d("Andromuks", "AppViewModel: Cleared animation state for room: $roomId")
         
         // Reset member update counter to prevent stale state (but keep timelineUpdateCounter for UI consistency)
@@ -7933,20 +7970,50 @@ class AppViewModel : ViewModel() {
             // Check if this is initial room loading (when previous timeline was empty)
             val isInitialRoomLoad = this.timelineEvents.isEmpty() && sortedTimelineEvents.isNotEmpty()
             
-            // Track new messages for slide-up animation with 500ms delay
-            if (actuallyNewMessages.isNotEmpty()) {
+            // CRITICAL: Disable animations during initial room load
+            // Animations should only occur for new messages when room is already open
+            if (isInitialRoomLoad) {
+                animationsEnabledForRoom[currentRoomId] = false
+                android.util.Log.d("Andromuks", "AppViewModel: Initial room load detected for $currentRoomId - animations disabled")
+            } else {
+                // Enable animations after initial load (when we have existing events and new ones arrive)
+                if (!animationsEnabledForRoom.containsKey(currentRoomId)) {
+                    animationsEnabledForRoom[currentRoomId] = true
+                    android.util.Log.d("Andromuks", "AppViewModel: Room $currentRoomId fully loaded - animations enabled")
+                }
+            }
+            
+            // Track new messages for slide-in animation (only if animations are enabled)
+            val animationsEnabled = animationsEnabledForRoom[currentRoomId] ?: false
+            val roomOpenTimestamp = roomOpenTimestamps[currentRoomId] // Get timestamp when room was opened
+            
+            if (actuallyNewMessages.isNotEmpty() && animationsEnabled && !isInitialRoomLoad && roomOpenTimestamp != null) {
                 val currentTime = System.currentTimeMillis()
                 val animationEndTime = currentTime + NEW_MESSAGE_ANIMATION_DELAY_MS + NEW_MESSAGE_ANIMATION_DURATION_MS // Bubble anim starts after delay and runs to completion
                 
                 // Check if any of the new messages are from other users (not our own messages)
                 var shouldPlaySound = false
                 actuallyNewMessages.forEach { eventId ->
-                    newMessageAnimations[eventId] = animationEndTime
-                    runningBubbleAnimations.add(eventId)
-                    android.util.Log.d("Andromuks", "AppViewModel: Added new message animation for $eventId (ends at ${animationEndTime})")
-                    
-                    // Check if this message is from another user (not our own message)
                     val newEvent = sortedTimelineEvents.find { it.eventId == eventId }
+                    
+                    // CRITICAL: Only animate messages that are NEWER than when the room was opened
+                    // This ensures:
+                    // - Messages loaded during initial load don't animate (their timestamp < roomOpenTimestamp)
+                    // - Messages loaded via pagination don't animate (old messages, timestamp < roomOpenTimestamp)
+                    // - Only truly NEW messages arriving after room open animate (timestamp > roomOpenTimestamp)
+                    val shouldAnimateThisMessage = newEvent?.let { event ->
+                        event.timestamp > roomOpenTimestamp
+                    } ?: false
+                    
+                    if (shouldAnimateThisMessage) {
+                        newMessageAnimations[eventId] = animationEndTime
+                        runningBubbleAnimations.add(eventId)
+                        android.util.Log.d("Andromuks", "AppViewModel: Added new message animation for $eventId (timestamp: ${newEvent?.timestamp}, roomOpen: $roomOpenTimestamp, ends at ${animationEndTime})")
+                    } else {
+                        android.util.Log.d("Andromuks", "AppViewModel: Skipped animation for $eventId (timestamp: ${newEvent?.timestamp}, roomOpen: $roomOpenTimestamp - message is older than room open)")
+                    }
+                    
+                    // Check if this message is from another user (not our own message) for sound notification
                     val isFromOtherUser = newEvent?.let { event ->
                         // Only play sound for message events from other users in the current room
                         (event.type == "m.room.message" || event.type == "m.room.encrypted") && 

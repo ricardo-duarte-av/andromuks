@@ -1042,7 +1042,11 @@ fun RoomTimelineScreen(
                     previousItemCount = timelineItems.size
                     lastKnownTimelineEventId = lastEventId
                     lastKnownTimelineUpdateCounter = appViewModel.timelineUpdateCounter
-                    Log.d("Andromuks", "RoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index $targetIndex, updateCounter: ${appViewModel.timelineUpdateCounter}) - timeline stabilized")
+                    
+                    // CRITICAL: Enable animations AFTER initial load and scroll complete
+                    // Animations should only occur for NEW messages when room is already open
+                    appViewModel.enableAnimationsForRoom(roomId)
+                    Log.d("Andromuks", "RoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index $targetIndex, updateCounter: ${appViewModel.timelineUpdateCounter}) - timeline stabilized, animations enabled")
                 } else {
                     hasInitialSnapCompleted = true
                     Log.w("Andromuks", "RoomTimelineScreen: Invalid target index for scroll")

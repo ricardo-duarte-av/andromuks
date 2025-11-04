@@ -2155,6 +2155,14 @@ fun TimelineEventItem(
                 return@LaunchedEffect
             }
             
+            // CRITICAL: If animation has already completed (progress == 1f), don't restart
+            // This prevents re-animation when items recompose due to keyboard opening or scrolling
+            if (animationProgress.value >= 1f) {
+                // Animation already completed - notify and exit
+                appViewModel?.notifyMessageAnimationFinished(event.eventId)
+                return@LaunchedEffect
+            }
+            
             if (hasAnimationStarted.value) {
                 // Animation already running - don't restart
                 return@LaunchedEffect
@@ -2179,10 +2187,19 @@ fun TimelineEventItem(
         }
     }
 
-    // Animate slide-up effect for new messages
-    val animatedOffsetY = if (shouldAnimate) {
+    // NEW ANIMATION: Horizontal slide-in from left (others) or right (self)
+    // For others: slide in from left (negative X)
+    // For self: slide in from right (positive X)
+    val slideInDistance = 200f // Distance to slide in from
+    val animatedOffsetX = if (shouldAnimate) {
         val eased = FastOutSlowInEasing.transform(animationProgress.value)
-        (1f - eased) * 120f
+        if (actualIsMine) {
+            // Slide from right (positive X) for our messages
+            (1f - eased) * slideInDistance
+        } else {
+            // Slide from left (negative X) for others' messages
+            (1f - eased) * -slideInDistance
+        }
     } else {
         0f
     }
@@ -2199,7 +2216,7 @@ fun TimelineEventItem(
             .fillMaxWidth()
             .padding(vertical = 2.dp)
             .graphicsLayer(
-                translationY = animatedOffsetY,
+                translationX = animatedOffsetX,
                 alpha = animatedAlpha
             ),
         verticalAlignment = Alignment.Top

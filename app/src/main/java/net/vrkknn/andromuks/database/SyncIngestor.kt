@@ -163,9 +163,13 @@ class SyncIngestor(private val context: Context) {
             val dmUserId = meta.optString("dm_user_id")?.takeIf { it.isNotBlank() }
             val isDirect = dmUserId != null
             
+            // CRITICAL FIX: Load existing room state to preserve values when not present in sync
+            val existingState = roomStateDao.get(roomId)
+            var isFavourite = existingState?.isFavourite ?: false
+            var isLowPriority = existingState?.isLowPriority ?: false
+            
             // Extract tags from account_data.m.tag (isFavourite, isLowPriority)
-            var isFavourite = false
-            var isLowPriority = false
+            // Only update if account_data.m.tag is actually present in the sync message
             val accountData = roomObj.optJSONObject("account_data")
             if (accountData != null) {
                 val tagData = accountData.optJSONObject("m.tag")
@@ -174,25 +178,32 @@ class SyncIngestor(private val context: Context) {
                     if (content != null) {
                         val tags = content.optJSONObject("tags")
                         if (tags != null) {
+                            // Only update tags if m.tag is present (explicit tag update)
                             isFavourite = tags.has("m.favourite")
                             isLowPriority = tags.has("m.lowpriority")
+                            Log.d(TAG, "Room $roomId: Updated tags from account_data - isFavourite=$isFavourite, isLowPriority=$isLowPriority")
                         }
                     }
                 }
+                // If account_data exists but m.tag is not present, preserve existing tags
+            } else {
+                // If account_data is not present at all, preserve existing tags
+                Log.d(TAG, "Room $roomId: No account_data in sync, preserving existing tags - isFavourite=$isFavourite, isLowPriority=$isLowPriority")
             }
             
             // Extract bridge info if present (from room state events)
             // Bridge info is typically stored separately, but we can check if there's a bridge event
-            var bridgeInfoJson: String? = null
+            var bridgeInfoJson: String? = existingState?.bridgeInfoJson
             // Note: Bridge info is typically loaded from room state events separately
             // We'll store it here if we have it in the sync data
             
+            // Preserve existing values if not present in meta (for nullable fields)
             val roomState = RoomStateEntity(
                 roomId = roomId,
-                name = meta.optString("name").takeIf { it.isNotBlank() },
-                topic = meta.optString("topic").takeIf { it.isNotBlank() },
-                avatarUrl = meta.optString("avatar").takeIf { it.isNotBlank() },
-                canonicalAlias = meta.optString("canonical_alias").takeIf { it.isNotBlank() },
+                name = meta.optString("name").takeIf { it.isNotBlank() } ?: existingState?.name,
+                topic = meta.optString("topic").takeIf { it.isNotBlank() } ?: existingState?.topic,
+                avatarUrl = meta.optString("avatar").takeIf { it.isNotBlank() } ?: existingState?.avatarUrl,
+                canonicalAlias = meta.optString("canonical_alias").takeIf { it.isNotBlank() } ?: existingState?.canonicalAlias,
                 isDirect = isDirect,
                 isFavourite = isFavourite,
                 isLowPriority = isLowPriority,
