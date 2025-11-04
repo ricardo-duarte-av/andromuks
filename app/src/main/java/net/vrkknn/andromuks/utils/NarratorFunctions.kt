@@ -27,6 +27,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.MemberProfile
+import net.vrkknn.andromuks.ReadReceipt
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.TimelineEventItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -44,6 +45,23 @@ fun SystemEventNarrator(
 ) {
     val content = event.content
     val eventType = event.type
+    
+    // Get read receipts for this event
+    val readReceipts = remember(event.eventId, appViewModel?.readReceiptsUpdateCounter) {
+        if (appViewModel != null) {
+            ReceiptFunctions.getReadReceipts(
+                event.eventId,
+                appViewModel.getReadReceiptsMap()
+            )
+        } else {
+            emptyList()
+        }
+    }
+    
+    // Get member map for user profiles (for read receipt avatars)
+    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+        appViewModel?.getMemberMap(roomId) ?: emptyMap()
+    }
     
     Row(
         modifier = Modifier
@@ -80,44 +98,76 @@ fun SystemEventNarrator(
                 when (membership) {
                     "join" -> {
                         // Check if this is a profile change vs actual join
+                        // Access unsigned.prev_content to check previous state
                         val unsigned = event.unsigned
                         val prevContent = unsigned?.optJSONObject("prev_content")
-                        val prevDisplayName = prevContent?.optString("displayname", "")
-                        val prevAvatar = prevContent?.optString("avatar_url", "")
                         
-                        if (prevDisplayName != null && prevDisplayName != targetDisplayName) {
-                            // Display name change
-                            NarratorText(
-                                text = buildAnnotatedString {
-                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                        append(displayName)
-                                    }
-                                    append(" changed their display name")
+                        // Check if prev_content exists and has membership "join"
+                        // If prev_content.membership == "join", this is a profile change, not a true join
+                        val prevMembership = prevContent?.optString("membership", "")
+                        val isProfileChange = prevContent != null && prevMembership == "join"
+                        
+                        if (isProfileChange) {
+                            val prevDisplayName = prevContent.optString("displayname", "")
+                            val prevAvatar = prevContent.optString("avatar_url", "")
+                            val currentAvatar = content?.optString("avatar_url", "")
+                            // Check for profile changes: both must be non-empty and different
+                            val displayNameChanged = !prevDisplayName.isNullOrEmpty() && 
+                                                     !targetDisplayName.isNullOrEmpty() && 
+                                                     prevDisplayName != targetDisplayName
+                            val avatarChanged = !prevAvatar.isNullOrEmpty() && 
+                                                !currentAvatar.isNullOrEmpty() && 
+                                                prevAvatar != currentAvatar
+                            
+                            when {
+                                displayNameChanged && avatarChanged -> {
+                                    // Both display name and avatar change
+                                    NarratorText(
+                                        text = buildAnnotatedString {
+                                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                append(displayName)
+                                            }
+                                            append(" changed their profile")
+                                        }
+                                    )
                                 }
-                            )
-                        } else if (prevAvatar != null && prevAvatar != content?.optString("avatar_url", "")) {
-                            // Avatar change
-                            NarratorText(
-                                text = buildAnnotatedString {
-                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                        append(displayName)
-                                    }
-                                    append(" changed their avatar")
+                                displayNameChanged -> {
+                                    // Display name change
+                                    NarratorText(
+                                        text = buildAnnotatedString {
+                                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                append(displayName)
+                                            }
+                                            append(" changed their display name")
+                                        }
+                                    )
                                 }
-                            )
-                        } else if (prevDisplayName != null && prevAvatar != null && 
-                                 (prevDisplayName != targetDisplayName || prevAvatar != content?.optString("avatar_url", ""))) {
-                            // Both display name and avatar change
-                            NarratorText(
-                                text = buildAnnotatedString {
-                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                        append(displayName)
-                                    }
-                                    append(" changed their profile")
+                                avatarChanged -> {
+                                    // Avatar change
+                                    NarratorText(
+                                        text = buildAnnotatedString {
+                                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                append(displayName)
+                                            }
+                                            append(" changed their avatar")
+                                        }
+                                    )
                                 }
-                            )
+                                else -> {
+                                    // No profile changes detected, but membership was already join
+                                    // This shouldn't normally happen, but treat as join event
+                                    NarratorText(
+                                        text = buildAnnotatedString {
+                                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                append(displayName)
+                                            }
+                                            append(" joined the room")
+                                        }
+                                    )
+                                }
+                            }
                         } else {
-                            // Actual join
+                            // Previous membership was "leave" or null/absent - this is a true join
                             NarratorText(
                                 text = buildAnnotatedString {
                                     withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
@@ -129,18 +179,40 @@ fun SystemEventNarrator(
                         }
                     }
                     "leave" -> {
-                        NarratorText(
-                            text = buildAnnotatedString {
-                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                    append(displayName)
+                        // Check if this is a true leave (previous membership was "join")
+                        val unsigned = event.unsigned
+                        val prevContent = unsigned?.optJSONObject("prev_content")
+                        val prevMembership = prevContent?.optString("membership", "")
+                        
+                        // Only show "left the room" if previous membership was "join"
+                        if (prevMembership == "join") {
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" left the room")
+                                    // Safe null check for reason string (was causing compilation error)
+                                    if (!reason.isNullOrEmpty()) {
+                                        append(": $reason")
+                                    }
                                 }
-                                append(" left the room")
-                                // Safe null check for reason string (was causing compilation error)
-            if (!reason.isNullOrEmpty()) {
-                                    append(": $reason")
+                            )
+                        } else {
+                            // Previous membership was not "join" - might be a different scenario
+                            // Fallback to generic message or skip
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" left the room")
+                                    if (!reason.isNullOrEmpty()) {
+                                        append(": $reason")
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                     "invite" -> {
                         // state_key is on the event itself, not in content!
@@ -387,13 +459,33 @@ fun SystemEventNarrator(
         }
         }
         
-        // Right side - timestamp
-        Text(
-            text = formatSmartTimestamp(event.timestamp),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontStyle = FontStyle.Italic
-        )
+        // Right side - read receipts (if any) + timestamp
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Read receipts (left of timestamp)
+            if (readReceipts.isNotEmpty()) {
+                InlineReadReceiptAvatars(
+                    receipts = readReceipts,
+                    userProfileCache = memberMap,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    appViewModel = appViewModel,
+                    messageSender = event.sender,
+                    roomId = roomId,
+                    onUserClick = onUserClick
+                )
+            }
+            
+            // Timestamp
+            Text(
+                text = formatSmartTimestamp(event.timestamp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontStyle = FontStyle.Italic
+            )
+        }
     }
 }
 
