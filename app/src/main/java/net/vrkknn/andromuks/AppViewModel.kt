@@ -2409,14 +2409,26 @@ class AppViewModel : ViewModel() {
             val existingRoom = roomMap[room.id]
             if (existingRoom != null) {
                 // Preserve existing message preview and sender if new room data doesn't have one
-                val updatedRoom = if (room.messagePreview.isNullOrBlank() && !existingRoom.messagePreview.isNullOrBlank()) {
-                    room.copy(
-                        messagePreview = existingRoom.messagePreview,
-                        messageSender = existingRoom.messageSender
-                    )
-                } else {
-                    room
-                }
+                // CRITICAL: Also preserve isFavourite and isLowPriority flags if sync doesn't include account_data.m.tag
+                // This prevents favorite rooms from disappearing from the Favs tab
+                val updatedRoom = room.copy(
+                    messagePreview = if (room.messagePreview.isNullOrBlank() && !existingRoom.messagePreview.isNullOrBlank()) {
+                        existingRoom.messagePreview
+                    } else {
+                        room.messagePreview
+                    },
+                    messageSender = if (room.messageSender.isNullOrBlank() && !existingRoom.messageSender.isNullOrBlank()) {
+                        existingRoom.messageSender
+                    } else {
+                        room.messageSender
+                    },
+                    // Preserve favorite and low priority flags if sync doesn't explicitly update them
+                    // SpaceRoomParser only sets these to true if account_data.m.tag is present
+                    // If sync doesn't include account_data, we preserve the existing values
+                    isFavourite = room.isFavourite || existingRoom.isFavourite, // Keep true if either is true
+                    isLowPriority = room.isLowPriority || existingRoom.isLowPriority, // Keep true if either is true
+                    isDirectMessage = room.isDirectMessage || existingRoom.isDirectMessage // Preserve DM status
+                )
                 roomMap[room.id] = updatedRoom
                 // Update animation state only if app is visible (battery optimization)
                 if (isAppVisible) {
@@ -3943,7 +3955,7 @@ class AppViewModel : ViewModel() {
         // Check if already in cache to avoid unnecessary requests
         val cachedProfile = getUserProfile(userId, roomId)
         if (cachedProfile != null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Profile already cached for $userId, skipping request")
+            //android.util.Log.d("Andromuks", "AppViewModel: Profile already cached for $userId, skipping request")
             return
         }
         

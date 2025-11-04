@@ -106,7 +106,7 @@ object AvatarUtils {
                 httpUrl.lowercase()
             }
             
-            Log.d("Andromuks", "AvatarUtils: Converted MXC URL: $mxcUrl -> $sanitizedUrl")
+            //Log.d("Andromuks", "AvatarUtils: Converted MXC URL: $mxcUrl -> $sanitizedUrl")
             return sanitizedUrl
             
         } catch (e: Exception) {
