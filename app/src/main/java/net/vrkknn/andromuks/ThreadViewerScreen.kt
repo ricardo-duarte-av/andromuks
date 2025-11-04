@@ -122,7 +122,7 @@ private fun ThreadMentionMemberList(
         modifier = modifier,
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 8.dp
+        tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
     ) {
         LazyColumn(
             modifier = Modifier

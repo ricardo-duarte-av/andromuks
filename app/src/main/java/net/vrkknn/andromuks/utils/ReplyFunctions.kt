@@ -48,6 +48,9 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.toIntRect
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -162,7 +165,7 @@ fun ReplyPreview(
             .clickable { onOriginalMessageClick() },
         shape = RoundedCornerShape(8.dp),
         //color = MaterialTheme.colorScheme.surface.copy(alpha = 0.1f),
-        shadowElevation = 1.dp
+        tonalElevation = 1.dp  // Use tonalElevation for dark mode visibility
     ) {
         Column(
             modifier = Modifier.padding(6.dp)
@@ -354,8 +357,7 @@ fun ReplyPreviewInput(
             .padding(bottom = 4.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         shape = RoundedCornerShape(12.dp),
-        tonalElevation = 0.dp,
-        shadowElevation = 2.dp
+        tonalElevation = 2.dp  // Use tonalElevation for dark mode visibility
     ) {
         Row(
             modifier = Modifier
@@ -435,8 +437,7 @@ fun EditPreviewInput(
             .padding(bottom = 4.dp),
         color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f),
         shape = RoundedCornerShape(12.dp),
-        tonalElevation = 0.dp,
-        shadowElevation = 2.dp
+        tonalElevation = 2.dp  // Use tonalElevation for dark mode visibility
     ) {
         Row(
             modifier = Modifier
@@ -614,6 +615,9 @@ fun MessageBubbleWithMenu(
     
     //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, senderPL=$senderPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")
     
+    // Detect dark mode for custom shadow/glow
+    val isDarkMode = isSystemInDarkTheme()
+    
     Box {
         Surface(
             modifier = modifier
@@ -635,10 +639,24 @@ fun MessageBubbleWithMenu(
                             onBubbleClick?.invoke()
                         }
                     )
-                },
+                }
+                // In dark mode, add a light glow effect
+                .then(
+                    if (isDarkMode) {
+                        Modifier.shadow(
+                            elevation = 3.dp,
+                            shape = bubbleShape,
+                            ambientColor = Color.White.copy(alpha = 0.15f), // Light glow in dark mode
+                            spotColor = Color.White.copy(alpha = 0.2f)
+                        )
+                    } else {
+                        Modifier
+                    }
+                ),
             color = bubbleColor,
             shape = bubbleShape,
-            shadowElevation = 3.dp
+            tonalElevation = 3.dp,  // Provides color changes for elevation
+            shadowElevation = if (isDarkMode) 0.dp else 3.dp  // Shadows in light mode only
         ) {
             Row(content = content)
         }

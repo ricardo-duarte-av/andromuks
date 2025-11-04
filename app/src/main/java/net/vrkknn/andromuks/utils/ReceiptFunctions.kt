@@ -597,7 +597,7 @@ fun ReadReceiptDetailsDialog(
                 .padding(16.dp),
             shape = RoundedCornerShape(16.dp),
             color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 8.dp
+            tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
         ) {
             Column(
                 modifier = Modifier.padding(16.dp)

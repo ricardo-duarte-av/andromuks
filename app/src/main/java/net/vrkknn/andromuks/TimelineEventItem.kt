@@ -25,6 +25,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -649,6 +651,9 @@ private fun RoomMediaMessageContent(
             if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
             else MaterialTheme.colorScheme.onSurfaceVariant
 
+        // Detect dark mode for custom shadow/glow
+        val isDarkMode = isSystemInDarkTheme()
+        
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement =
@@ -657,8 +662,23 @@ private fun RoomMediaMessageContent(
             Surface(
                 color = bubbleColor,
                 shape = bubbleShape,
-                shadowElevation = 3.dp,
-                modifier = Modifier.padding(top = 4.dp)
+                tonalElevation = 3.dp,  // Provides color changes for elevation
+                shadowElevation = if (isDarkMode) 0.dp else 3.dp,  // Shadows in light mode only
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    // In dark mode, add a light glow effect
+                    .then(
+                        if (isDarkMode) {
+                            Modifier.shadow(
+                                elevation = 3.dp,
+                                shape = bubbleShape,
+                                ambientColor = Color.White.copy(alpha = 0.15f), // Light glow in dark mode
+                                spotColor = Color.White.copy(alpha = 0.2f)
+                            )
+                        } else {
+                            Modifier
+                        }
+                    )
             ) {
                 Text(
                     text = deletionMessage,
@@ -838,6 +858,9 @@ private fun RoomMediaMessageContent(
             else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
             else MaterialTheme.colorScheme.onSurfaceVariant
 
+        // Detect dark mode for custom shadow/glow
+        val isDarkMode = isSystemInDarkTheme()
+        
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement =
@@ -846,8 +869,23 @@ private fun RoomMediaMessageContent(
             Surface(
                 color = bubbleColor,
                 shape = bubbleShape,
-                shadowElevation = 3.dp,
-                modifier = Modifier.padding(top = 4.dp)
+                tonalElevation = 3.dp,  // Provides color changes for elevation
+                shadowElevation = if (isDarkMode) 0.dp else 3.dp,  // Shadows in light mode only
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    // In dark mode, add a light glow effect
+                    .then(
+                        if (isDarkMode) {
+                            Modifier.shadow(
+                                elevation = 3.dp,
+                                shape = bubbleShape,
+                                ambientColor = Color.White.copy(alpha = 0.15f), // Light glow in dark mode
+                                spotColor = Color.White.copy(alpha = 0.2f)
+                            )
+                        } else {
+                            Modifier
+                        }
+                    )
             ) {
                 Text(
                     text = body,

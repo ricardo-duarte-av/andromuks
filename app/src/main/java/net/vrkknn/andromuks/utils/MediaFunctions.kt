@@ -36,8 +36,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -438,16 +440,35 @@ fun MediaMessage(
                 }
             }
         } else {
+            // Detect dark mode for custom shadow/glow
+            val isDarkMode = isSystemInDarkTheme()
+            val bubbleShape = RoundedCornerShape(
+                topStart = if (isMine) 12.dp else 4.dp,
+                topEnd = if (isMine) 4.dp else 12.dp,
+                bottomStart = 12.dp,
+                bottomEnd = 12.dp
+            )
+            
             Surface(
-                modifier = modifier.fillMaxWidth(0.8f),
-                shape = RoundedCornerShape(
-                    topStart = if (isMine) 12.dp else 4.dp,
-                    topEnd = if (isMine) 4.dp else 12.dp,
-                    bottomStart = 12.dp,
-                    bottomEnd = 12.dp
-                ),
+                modifier = modifier
+                    .fillMaxWidth(0.8f)
+                    // In dark mode, add a light glow effect
+                    .then(
+                        if (isDarkMode) {
+                            Modifier.shadow(
+                                elevation = 3.dp,
+                                shape = bubbleShape,
+                                ambientColor = Color.White.copy(alpha = 0.15f), // Light glow in dark mode
+                                spotColor = Color.White.copy(alpha = 0.2f)
+                            )
+                        } else {
+                            Modifier
+                        }
+                    ),
+                shape = bubbleShape,
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                shadowElevation = 3.dp
+                tonalElevation = 3.dp,  // Provides color changes for elevation
+                shadowElevation = if (isDarkMode) 0.dp else 3.dp  // Shadows in light mode only
             ) {
                 Column {
                     // Image content inside the caption bubble
@@ -540,18 +561,36 @@ fun MediaMessage(
                 }
             }
         } else {
+            // Detect dark mode for custom shadow/glow
+            val isDarkMode = isSystemInDarkTheme()
+            val bubbleShape = RoundedCornerShape(
+                topStart = if (isMine) 12.dp else 4.dp,
+                topEnd = if (isMine) 4.dp else 12.dp,
+                bottomStart = 12.dp,
+                bottomEnd = 12.dp
+            )
+            
             Surface(
                 modifier = modifier
                     .fillMaxWidth(0.8f) // Max 80% width
-                    .wrapContentHeight(),
-                shape = RoundedCornerShape(
-                    topStart = if (isMine) 12.dp else 4.dp,
-                    topEnd = if (isMine) 4.dp else 12.dp,
-                    bottomStart = 12.dp,
-                    bottomEnd = 12.dp
-                ),
+                    .wrapContentHeight()
+                    // In dark mode, add a light glow effect
+                    .then(
+                        if (isDarkMode) {
+                            Modifier.shadow(
+                                elevation = 3.dp,
+                                shape = bubbleShape,
+                                ambientColor = Color.White.copy(alpha = 0.15f), // Light glow in dark mode
+                                spotColor = Color.White.copy(alpha = 0.2f)
+                            )
+                        } else {
+                            Modifier
+                        }
+                    ),
+                shape = bubbleShape,
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                shadowElevation = 3.dp
+                tonalElevation = 3.dp,  // Provides color changes for elevation
+                shadowElevation = if (isDarkMode) 0.dp else 3.dp  // Shadows in light mode only
             ) {
                 Column {
                     MediaContent(

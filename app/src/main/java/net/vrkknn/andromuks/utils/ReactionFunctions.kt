@@ -59,7 +59,7 @@ fun ReactionBadge(
         modifier = Modifier
             .height(20.dp)
             .clickable(onClick = onClick),
-        shadowElevation = 2.dp
+        tonalElevation = 2.dp  // Use tonalElevation for dark mode visibility
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),

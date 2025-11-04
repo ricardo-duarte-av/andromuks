@@ -1084,7 +1084,7 @@ fun TabBar(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = MaterialTheme.colorScheme.surface,
-        shadowElevation = 8.dp
+        tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
     ) {
         Row(
             modifier = Modifier
