@@ -637,7 +637,7 @@ fun CacheStatisticsSection(appViewModel: AppViewModel) {
                 CacheStatItem(
                     label = "Media Cache (Memory)",
                     value = cacheStats!!["media_memory_cache"] ?: "N/A",
-                    description = "Coil image cache"
+                    description = cacheStats!!["media_memory_cache_max"]?.let { "Max size: $it (actual usage not available)" } ?: "Coil image cache (max size)"
                 )
                 
                 HorizontalDivider()

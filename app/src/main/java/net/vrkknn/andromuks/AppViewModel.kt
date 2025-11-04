@@ -9700,17 +9700,19 @@ class AppViewModel : ViewModel() {
         stats["user_profiles_disk_cache"] = formatBytes(profileDiskSize)
         
         // 5. Media memory cache size (from Coil)
+        // NOTE: Coil's MemoryCache doesn't expose actual current usage, only max size configuration
+        // We show the maximum configured size (25% of max memory)
         val mediaMemoryCacheSize = try {
             val imageLoader = net.vrkknn.andromuks.utils.ImageLoaderSingleton.get(context)
             val memoryCache = imageLoader.memoryCache
-            // Coil's MemoryCache doesn't directly expose size, so we estimate based on max size
-            // MemoryCache uses 25% of available memory (from ImageLoaderSingleton)
+            // MemoryCache uses 25% of available memory (from ImageLoaderSingleton.MEMORY_CACHE_PERCENT)
             val runtime = Runtime.getRuntime()
             (runtime.maxMemory() * 0.25).toLong()
         } catch (e: Exception) {
             0L
         }
         stats["media_memory_cache"] = formatBytes(mediaMemoryCacheSize)
+        stats["media_memory_cache_max"] = "Max: ${formatBytes(mediaMemoryCacheSize)}" // Store max for display
         
         // 6. Media disk cache size (from Coil)
         val mediaDiskCacheSize = try {
