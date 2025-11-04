@@ -516,6 +516,12 @@ fun AppNavigation(
                 navController = navController
             )
         }
+        composable("room_disk_stats") {
+            RoomDiskStatsScreen(
+                appViewModel = appViewModel,
+                navController = navController
+            )
+        }
         composable(
             route = "room_info/{roomId}",
             arguments = listOf(navArgument("roomId") { type = NavType.StringType }),

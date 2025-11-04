@@ -34,6 +34,12 @@ interface EventDao {
     
     @Query("DELETE FROM events WHERE roomId = :roomId")
     suspend fun deleteAllForRoom(roomId: String)
+    
+    @Query("SELECT COUNT(*) FROM events WHERE roomId = :roomId")
+    suspend fun getEventCountForRoom(roomId: String): Int
+    
+    @Query("SELECT SUM(LENGTH(rawJson)) FROM events WHERE roomId = :roomId")
+    suspend fun getTotalSizeForRoom(roomId: String): Long?
 }
 
 

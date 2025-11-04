@@ -9731,7 +9731,7 @@ class AppViewModel : ViewModel() {
     /**
      * Format bytes to human-readable string (e.g., "1.5 MB")
      */
-    private fun formatBytes(bytes: Long): String {
+    fun formatBytes(bytes: Long): String {
         if (bytes < 0) return "0 B"
         val kb = bytes / 1024.0
         val mb = kb / 1024.0
@@ -9744,4 +9744,49 @@ class AppViewModel : ViewModel() {
             else -> "$bytes B"
         }
     }
+    
+    /**
+     * Get room statistics: room_id, display name, and disk size
+     */
+    suspend fun getRoomDiskStatistics(context: android.content.Context): List<RoomDiskStat> = withContext(Dispatchers.IO) {
+        try {
+            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+            val roomSummaryDao = database.roomSummaryDao()
+            val eventDao = database.eventDao()
+            val roomStateDao = database.roomStateDao()
+            
+            // Get all room summaries
+            val roomSummaries = roomSummaryDao.getAllRooms()
+            val stats = mutableListOf<RoomDiskStat>()
+            
+            for (summary in roomSummaries) {
+                // Get room display name from room state or room map
+                val roomState = roomStateDao.get(summary.roomId)
+                val roomItem = roomMap[summary.roomId]
+                val displayName = roomState?.name ?: roomItem?.name ?: summary.roomId
+                
+                // Get event count and size
+                val eventCount = eventDao.getEventCountForRoom(summary.roomId)
+                val totalSize = eventDao.getTotalSizeForRoom(summary.roomId) ?: 0L
+                
+                stats.add(RoomDiskStat(
+                    roomId = summary.roomId,
+                    displayName = displayName,
+                    diskSizeBytes = totalSize
+                ))
+            }
+            
+            // Sort by disk size (descending) and return
+            stats.sortedByDescending { it.diskSizeBytes }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Error getting room disk statistics: ${e.message}", e)
+            emptyList()
+        }
+    }
+    
+    data class RoomDiskStat(
+        val roomId: String,
+        val displayName: String,
+        val diskSizeBytes: Long
+    )
 }
