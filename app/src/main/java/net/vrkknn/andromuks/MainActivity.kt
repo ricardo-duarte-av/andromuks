@@ -534,6 +534,17 @@ fun AppNavigation(
             )
         }
         composable(
+            route = "cached_media/{cacheType}",
+            arguments = listOf(navArgument("cacheType") { type = NavType.StringType })
+        ) { backStackEntry: NavBackStackEntry ->
+            val cacheType = backStackEntry.arguments?.getString("cacheType") ?: "memory"
+            CachedMediaScreen(
+                cacheType = cacheType,
+                appViewModel = appViewModel,
+                navController = navController
+            )
+        }
+        composable(
             route = "room_info/{roomId}",
             arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
             enterTransition = {

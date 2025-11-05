@@ -640,7 +640,8 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
                 CacheStatItem(
                     label = "Media Cache (Memory)",
                     value = cacheStats!!["media_memory_cache"] ?: "N/A",
-                    description = cacheStats!!["media_memory_cache_max"]?.let { "Max size: $it (actual usage not available)" } ?: "Coil image cache (max size)"
+                    description = cacheStats!!["media_memory_cache_max"]?.let { "Max size: $it (actual usage not available)" } ?: "Coil image cache (max size)",
+                    onClick = { navController.navigate("cached_media/memory") }
                 )
                 
                 HorizontalDivider()
@@ -649,7 +650,8 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
                 CacheStatItem(
                     label = "Media Cache (Disk)",
                     value = cacheStats!!["media_disk_cache"] ?: "N/A",
-                    description = "Coil disk cache"
+                    description = "Coil disk cache",
+                    onClick = { navController.navigate("cached_media/disk") }
                 )
             }
         }

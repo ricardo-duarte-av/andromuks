@@ -29,6 +29,7 @@ import android.os.Build
 import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
 import java.io.File
+import net.vrkknn.andromuks.utils.IntelligentMediaCache
 
 data class MemberProfile(
     val displayName: String?,
@@ -1496,11 +1497,18 @@ class AppViewModel : ViewModel() {
     private val redactionCache = mutableMapOf<String, TimelineEvent>()
 
     fun getMemberProfile(roomId: String, userId: String): MemberProfile? {
-        // MEMORY MANAGEMENT: Try flattened cache first for better performance
+        // MEMORY MANAGEMENT: Try room-specific cache first (only exists if profile differs from global)
         val flattenedKey = "$roomId:$userId"
         val flattenedProfile = flattenedMemberCache[flattenedKey]
         if (flattenedProfile != null) {
             return flattenedProfile
+        }
+        
+        // If no room-specific profile, check global cache
+        val globalProfileRef = globalProfileCache[userId]
+        val globalProfile = globalProfileRef?.get()
+        if (globalProfile != null) {
+            return globalProfile
         }
         
         // Fallback to legacy cache (for compatibility during transition)
@@ -1511,7 +1519,7 @@ class AppViewModel : ViewModel() {
         // OPTIMIZED: Use indexed cache for O(1) lookups instead of scanning all entries
         val memberMap = mutableMapOf<String, MemberProfile>()
         
-        // Try indexed lookup first
+        // Try indexed lookup first - get room-specific profiles
         val userIds = roomMemberIndex[roomId]
         if (userIds != null && userIds.isNotEmpty()) {
             for (userId in userIds) {
@@ -1519,6 +1527,13 @@ class AppViewModel : ViewModel() {
                 val profile = flattenedMemberCache[flattenedKey]
                 if (profile != null) {
                     memberMap[userId] = profile
+                } else {
+                    // Room-specific profile doesn't exist, check global cache
+                    val globalProfileRef = globalProfileCache[userId]
+                    val globalProfile = globalProfileRef?.get()
+                    if (globalProfile != null) {
+                        memberMap[userId] = globalProfile
+                    }
                 }
             }
         } else {
@@ -1571,25 +1586,102 @@ class AppViewModel : ViewModel() {
     
     /**
      * MEMORY MANAGEMENT: Helper method to store member profile in both flattened and legacy caches
+     * OPTIMIZATION: Only stores room-specific profile if it differs from global profile to avoid redundancy.
+     * 
+     * Strategy:
+     * - If no global profile exists, set it as global (no room-specific entry needed)
+     * - If global profile exists and matches, don't store room-specific entry (use global)
+     * - If global profile exists and differs, store room-specific entry (but don't update global)
+     * 
+     * Note: Global profile should ideally come from explicit profile requests, not room member events.
+     * This prevents the global from drifting and ensures room-specific entries only exist when truly different.
      */
     private fun storeMemberProfile(roomId: String, userId: String, profile: MemberProfile) {
-        // Store in flattened cache for better memory efficiency
+        // Check existing global profile BEFORE updating (to compare)
+        val existingGlobalProfileRef = globalProfileCache[userId]
+        val existingGlobalProfile = existingGlobalProfileRef?.get()
+        
         val flattenedKey = "$roomId:$userId"
-        flattenedMemberCache[flattenedKey] = profile
         
-        // OPTIMIZED: Update indexed cache for fast lookups
-        roomMemberIndex.getOrPut(roomId) { ConcurrentHashMap.newKeySet() }.add(userId)
+        if (existingGlobalProfile == null) {
+            // No global profile yet - set this as global, don't store room-specific
+            globalProfileCache[userId] = WeakReference(profile)
+            // Remove any existing room-specific entry (cleanup)
+            flattenedMemberCache.remove(flattenedKey)
+            roomMemberIndex[roomId]?.remove(userId)
+        } else {
+            // Global profile exists - compare
+            val profilesDiffer = existingGlobalProfile.displayName != profile.displayName ||
+                existingGlobalProfile.avatarUrl != profile.avatarUrl
+            
+            if (profilesDiffer) {
+                // Profile differs from global - store room-specific entry
+                flattenedMemberCache[flattenedKey] = profile
+                
+                // OPTIMIZED: Update indexed cache for fast lookups
+                roomMemberIndex.getOrPut(roomId) { ConcurrentHashMap.newKeySet() }.add(userId)
+                
+                // DON'T update global here - it should come from explicit profile requests
+                // This prevents global from drifting and ensures consistency
+            } else {
+                // Profile matches global - remove room-specific entry if it exists (cleanup)
+                flattenedMemberCache.remove(flattenedKey)
+                // Also remove from index if present
+                roomMemberIndex[roomId]?.remove(userId)
+            }
+        }
         
-        // Also maintain legacy cache for compatibility
+        // Also maintain legacy cache for compatibility (but this will be deprecated)
         val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
         memberMap[userId] = profile
-        
-        // Store in global cache with weak reference for memory management
-        globalProfileCache[userId] = WeakReference(profile)
         
         // MEMORY MANAGEMENT: Cleanup if cache gets too large
         if (flattenedMemberCache.size > MAX_MEMBER_CACHE_SIZE) {
             performMemberCacheCleanup()
+        }
+    }
+    
+    /**
+     * Updates the global profile cache explicitly (e.g., from profile requests).
+     * This should be called when we receive a canonical profile, not from room member events.
+     * When global profile is updated, we should re-evaluate room-specific entries.
+     */
+    fun updateGlobalProfile(userId: String, profile: MemberProfile) {
+        val existingGlobalProfileRef = globalProfileCache[userId]
+        val existingGlobalProfile = existingGlobalProfileRef?.get()
+        
+        // Update global profile
+        globalProfileCache[userId] = WeakReference(profile)
+        
+        // If global profile changed, clean up room-specific entries that now match global
+        if (existingGlobalProfile != null && 
+            (existingGlobalProfile.displayName != profile.displayName ||
+             existingGlobalProfile.avatarUrl != profile.avatarUrl)) {
+            
+            // Find all room-specific entries for this user and remove those that now match global
+            val keysToRemove = mutableListOf<String>()
+            for ((key, roomProfile) in flattenedMemberCache) {
+                if (key.endsWith(":$userId")) {
+                    // Check if room profile now matches the new global profile
+                    if (roomProfile.displayName == profile.displayName &&
+                        roomProfile.avatarUrl == profile.avatarUrl) {
+                        keysToRemove.add(key)
+                        
+                        // Also remove from index
+                        val roomId = key.substringBefore(":")
+                        roomMemberIndex[roomId]?.remove(userId)
+                    }
+                }
+            }
+            
+            // Remove matching entries
+            for (key in keysToRemove) {
+                flattenedMemberCache.remove(key)
+            }
+            
+            if (keysToRemove.isNotEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: Cleaned up ${keysToRemove.size} room-specific profile entries that now match global for $userId")
+            }
         }
     }
     
@@ -1734,38 +1826,130 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Gets all profiles from memory cache (flattenedMemberCache + globalProfileCache).
-     * @return List of pairs (userId, MemberProfile) sorted by display name
+     * Data class for room-specific profile entry
      */
-    suspend fun getAllMemoryCachedProfiles(): List<Pair<String, MemberProfile>> = withContext(Dispatchers.Default) {
-        val profiles = mutableMapOf<String, MemberProfile>()
+    data class RoomProfileEntry(
+        val roomId: String?,
+        val userId: String,
+        val profile: MemberProfile
+    )
+    
+    /**
+     * Gets all profiles from memory cache (flattenedMemberCache + globalProfileCache).
+     * For memory cache, we preserve room-specific profiles since Matrix allows different
+     * display names/avatars per room.
+     * @return List of RoomProfileEntry with roomId and profile info, sorted by display name
+     */
+    suspend fun getAllMemoryCachedProfiles(): List<RoomProfileEntry> = withContext(Dispatchers.Default) {
+        val profiles = mutableListOf<RoomProfileEntry>()
         
         // Collect from flattened member cache (room-specific profiles)
-        // Use a map to deduplicate by userId (preferring the first occurrence)
+        // Keys are in format "roomId:userId" where roomId starts with '!' and userId starts with '@'
         for ((key, profile) in flattenedMemberCache) {
-            val userId = key.substringAfter(":")
-            if (userId.isNotEmpty() && userId != key) { // Valid roomId:userId format
-                // Only add if not already present (to avoid duplicates)
-                if (!profiles.containsKey(userId)) {
-                    profiles[userId] = profile
+            // Find the last colon (userId starts with '@' so we need to find the separator correctly)
+            val lastColonIndex = key.lastIndexOf(':')
+            if (lastColonIndex > 0 && lastColonIndex < key.length - 1) {
+                val roomId = key.substring(0, lastColonIndex)
+                val userId = key.substring(lastColonIndex + 1)
+                // Validate that userId is a valid Matrix user ID (starts with '@' and contains ':')
+                // Also ensure it's not just a domain (like "aguiarvieira.pt")
+                if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
+                    // Additional validation: userId should have format @name:domain
+                    val parts = userId.split(":", limit = 2)
+                    if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
+                        // Validate roomId format (should start with '!' or be a valid room ID)
+                        // Allow roomId to be present even if it doesn't start with '!' (for edge cases)
+                        profiles.add(RoomProfileEntry(
+                            roomId = roomId.takeIf { it.isNotEmpty() },
+                            userId = userId,
+                            profile = profile
+                        ))
+                    }
                 }
             }
         }
         
         // Collect from global profile cache (weak references)
+        // These are global (not room-specific), so roomId is null
         for ((userId, weakRef) in globalProfileCache) {
             val profile = weakRef.get()
             if (profile != null) {
-                // Only add if not already present
-                if (!profiles.containsKey(userId)) {
-                    profiles[userId] = profile
+                // Validate userId format: must be @name:domain
+                if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
+                    val parts = userId.split(":", limit = 2)
+                    if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
+                        profiles.add(RoomProfileEntry(
+                            roomId = null, // Global profile, not room-specific
+                            userId = userId,
+                            profile = profile
+                        ))
+                    }
                 }
             }
         }
         
-        // Sort by display name (nulls last), then by userId
+        // Sort by display name (nulls last), then by userId, then by roomId
+        profiles.sortedWith(compareBy(
+            { it.profile.displayName ?: "\uFFFF" }, // Put nulls at the end
+            { it.userId },
+            { it.roomId ?: "" }
+        ))
+    }
+    
+    /**
+     * Gets unique user profiles from memory cache (deduplicated by userId).
+     * Use this if you want to show only one entry per user (merged profile data).
+     * @return List of pairs (userId, MemberProfile) sorted by display name
+     */
+    suspend fun getUniqueMemoryCachedProfiles(): List<Pair<String, MemberProfile>> = withContext(Dispatchers.Default) {
+        val profiles = mutableMapOf<String, MemberProfile>()
+        
+        // Collect from flattened member cache (room-specific profiles)
+        for ((key, profile) in flattenedMemberCache) {
+            val lastColonIndex = key.lastIndexOf(':')
+            if (lastColonIndex > 0 && lastColonIndex < key.length - 1) {
+                val userId = key.substring(lastColonIndex + 1)
+                if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
+                    val parts = userId.split(":", limit = 2)
+                    if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
+                        // Merge profile data intelligently: prefer non-null values
+                        val existing = profiles[userId]
+                        if (existing == null) {
+                            profiles[userId] = profile
+                        } else {
+                            profiles[userId] = MemberProfile(
+                                displayName = profile.displayName ?: existing.displayName,
+                                avatarUrl = profile.avatarUrl ?: existing.avatarUrl
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Collect from global profile cache
+        for ((userId, weakRef) in globalProfileCache) {
+            val profile = weakRef.get()
+            if (profile != null) {
+                if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
+                    val parts = userId.split(":", limit = 2)
+                    if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
+                        val existing = profiles[userId]
+                        if (existing == null) {
+                            profiles[userId] = profile
+                        } else {
+                            profiles[userId] = MemberProfile(
+                                displayName = profile.displayName ?: existing.displayName,
+                                avatarUrl = profile.avatarUrl ?: existing.avatarUrl
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
         profiles.toList().sortedWith(compareBy(
-            { it.second.displayName ?: "\uFFFF" }, // Put nulls at the end
+            { it.second.displayName ?: "\uFFFF" },
             { it.first }
         ))
     }
@@ -1783,6 +1967,259 @@ class AppViewModel : ViewModel() {
             emptyList()
         }
     }
+    
+    /**
+     * Gets all cached media from memory cache.
+     * 
+     * IMPORTANT: Coil's MemoryCache stores bitmaps in RAM and doesn't support enumeration.
+     * This method shows media that COULD be in Coil's memory cache by checking Coil's disk cache,
+     * since disk cache is what gets loaded into memory when accessed.
+     * 
+     * For true RAM enumeration, Coil's MemoryCache API doesn't provide this capability.
+     */
+    suspend fun getAllMemoryCachedMedia(context: Context): List<CachedMediaEntry> = withContext(Dispatchers.IO) {
+        try {
+            // IMPORTANT: Coil's MemoryCache stores bitmaps in RAM and CANNOT be enumerated.
+            // The MemoryCache API doesn't provide a way to list what's cached.
+            // 
+            // Instead, we show Coil's DISK cache, which represents images that:
+            // 1. Are stored on disk (persistent)
+            // 2. Get loaded into RAM (MemoryCache) when accessed via AsyncImage
+            // 
+            // So "Memory" cache shows what COULD be in RAM, but we can't verify actual RAM presence.
+            val entries = mutableListOf<CachedMediaEntry>()
+            
+            // Show Coil's disk cache (these get loaded into RAM when accessed)
+            val coilCacheDir = java.io.File(context.cacheDir, "image_cache")
+            android.util.Log.d("Andromuks", "AppViewModel: Checking Coil disk cache at: ${coilCacheDir.absolutePath}, exists: ${coilCacheDir.exists()}")
+            
+            if (coilCacheDir.exists() && coilCacheDir.isDirectory) {
+                val files = coilCacheDir.walkTopDown().filter { it.isFile }.toList()
+                android.util.Log.d("Andromuks", "AppViewModel: Found ${files.size} files in Coil disk cache")
+                
+                for (file in files) {
+                    // Try to find MXC URL from event database
+                    val mxcUrl = findMxcUrlForCoilFile(context, file)
+                    
+                    entries.add(CachedMediaEntry(
+                        mxcUrl = mxcUrl,
+                        filePath = file.absolutePath,
+                        fileSize = file.length(),
+                        cacheType = "memory",
+                        file = file
+                    ))
+                }
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: Coil disk cache directory does not exist or is not a directory")
+            }
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Returning ${entries.size} memory cached media entries")
+            entries.sortedByDescending { it.fileSize }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to get memory cached media", e)
+            emptyList()
+        }
+    }
+    
+    /**
+     * Find MXC URL for a Coil cached file by checking event database.
+     */
+    private suspend fun findMxcUrlForCoilFile(context: Context, file: File): String? = withContext(Dispatchers.IO) {
+        try {
+            // Coil's disk cache uses URL-based keys, so we need to check event database
+            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+            val eventDao = database.eventDao()
+            
+            val rooms = roomMap.keys.toList().take(20) // Limit to first 20 rooms
+            
+            for (roomId in rooms) {
+                try {
+                    val events = eventDao.getEventsForRoomDesc(roomId, 50) // Get last 50 events per room
+                    for (event in events) {
+                        val content = event.rawJson ?: continue
+                        val mxcUrls = extractMxcUrlsFromJson(content)
+                        
+                        for (mxcUrl in mxcUrls) {
+                            // Convert MXC to HTTP URL and check if it matches the file
+                            val httpUrl = net.vrkknn.andromuks.utils.MediaUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
+                            if (httpUrl != null) {
+                                // Coil uses URL hash as cache key - try to match
+                                val urlHash = httpUrl.hashCode().toString()
+                                if (file.name.contains(urlHash) || file.absolutePath.contains(httpUrl.replace("https://", "").replace("http://", ""))) {
+                                    return@withContext mxcUrl
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Continue with next room
+                }
+            }
+            
+            null
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Error finding MXC URL for Coil file ${file.name}", e)
+            null
+        }
+    }
+    
+    /**
+     * Gets all cached media from disk cache (IntelligentMediaCache + Coil disk cache).
+     */
+    suspend fun getAllDiskCachedMedia(context: Context): List<CachedMediaEntry> = withContext(Dispatchers.IO) {
+        try {
+            val entries = mutableListOf<CachedMediaEntry>()
+            
+            // 1. Get entries from IntelligentMediaCache (has MXC URLs stored)
+            val cacheDir = IntelligentMediaCache.getCacheDir(context)
+            if (cacheDir.exists() && cacheDir.isDirectory) {
+                val files: Array<File>? = cacheDir.listFiles()
+                if (files != null) {
+                    for (file in files) {
+                        if (file.isFile) {
+                            // Try to find MXC URL by matching cache key
+                            val mxcUrl = findMxcUrlForFile(context, file)
+                            
+                            entries.add(CachedMediaEntry(
+                                mxcUrl = mxcUrl,
+                                filePath = file.absolutePath,
+                                fileSize = file.length(),
+                                cacheType = "disk",
+                                file = file
+                            ))
+                        }
+                    }
+                }
+            }
+            
+            // 2. Get entries from Coil's disk cache
+            val coilCacheDir = java.io.File(context.cacheDir, "image_cache")
+            if (coilCacheDir.exists() && coilCacheDir.isDirectory) {
+                val files = coilCacheDir.walkTopDown().filter { it.isFile }
+                for (file in files) {
+                    // Try to find MXC URL from event database
+                    val mxcUrl = findMxcUrlForCoilFile(context, file)
+                    
+                    entries.add(CachedMediaEntry(
+                        mxcUrl = mxcUrl, // May be null if not found
+                        filePath = file.absolutePath,
+                        fileSize = file.length(),
+                        cacheType = "disk",
+                        file = file
+                    ))
+                }
+            }
+            
+            entries.sortedByDescending { it.fileSize }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to get disk cached media", e)
+            emptyList()
+        }
+    }
+    
+    /**
+     * Find MXC URL for a cached file by checking IntelligentMediaCache first, then event database.
+     */
+    private suspend fun findMxcUrlForFile(context: Context, file: File): String? = withContext(Dispatchers.IO) {
+        try {
+            val fileName = file.name
+            
+            // First, try IntelligentMediaCache's direct lookup
+            val mxcUrl: String? = IntelligentMediaCache.getMxcUrlForFile(fileName)
+            if (mxcUrl != null) {
+                return@withContext mxcUrl
+            }
+            
+            // Fallback: check event database (limited to avoid performance issues)
+            // This is slower but necessary for files not tracked by IntelligentMediaCache
+            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+            val eventDao = database.eventDao()
+            
+            val rooms = roomMap.keys.toList().take(20) // Limit to first 20 rooms
+            
+            for (roomId in rooms) {
+                try {
+                    val events = eventDao.getEventsForRoomDesc(roomId, 50) // Get last 50 events per room
+                    for (event in events) {
+                        val content = event.rawJson ?: continue
+                        val mxcUrls = extractMxcUrlsFromJson(content)
+                        
+                        for (mxcUrl in mxcUrls) {
+                            val cacheKey = IntelligentMediaCache.getCacheKey(mxcUrl)
+                            if (fileName.contains(cacheKey) || fileName == cacheKey || cacheKey.contains(fileName)) {
+                                return@withContext mxcUrl
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    // Continue with next room
+                }
+            }
+            
+            null
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Error finding MXC URL for file ${file.name}", e)
+            null
+        }
+    }
+    
+    /**
+     * Extract MXC URLs from JSON content (checks common fields like url, thumbnail_url, avatar_url, etc.)
+     */
+    private fun extractMxcUrlsFromJson(json: String): List<String> {
+        val mxcUrls = mutableListOf<String>()
+        try {
+            val jsonObj = org.json.JSONObject(json)
+            
+            // Check common fields that contain MXC URLs
+            val fieldsToCheck = listOf("url", "thumbnail_url", "avatar_url", "info", "file")
+            
+            for (field in fieldsToCheck) {
+                val value = jsonObj.optString(field, null)
+                if (value != null && value.startsWith("mxc://")) {
+                    mxcUrls.add(value)
+                }
+                
+                // Check nested objects
+                val nestedObj = jsonObj.optJSONObject(field)
+                if (nestedObj != null) {
+                    val nestedUrl = nestedObj.optString("url", null)
+                    if (nestedUrl != null && nestedUrl.startsWith("mxc://")) {
+                        mxcUrls.add(nestedUrl)
+                    }
+                    
+                    val thumbnailUrl = nestedObj.optString("thumbnail_url", null)
+                    if (thumbnailUrl != null && thumbnailUrl.startsWith("mxc://")) {
+                        mxcUrls.add(thumbnailUrl)
+                    }
+                    
+                    // Check info.url for media messages
+                    val infoObj = nestedObj.optJSONObject("info")
+                    if (infoObj != null) {
+                        val infoUrl = infoObj.optString("url", null)
+                        if (infoUrl != null && infoUrl.startsWith("mxc://")) {
+                            mxcUrls.add(infoUrl)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore parsing errors
+        }
+        
+        return mxcUrls
+    }
+    
+    /**
+     * Data class for cached media entry
+     */
+    data class CachedMediaEntry(
+        val mxcUrl: String?,
+        val filePath: String,
+        val fileSize: Long,
+        val cacheType: String, // "memory" or "disk"
+        val file: java.io.File
+    )
     
     /**
      * Gets the latest version of a message (O(1) lookup)
@@ -2089,17 +2526,8 @@ class AppViewModel : ViewModel() {
                                 val isProfileChange = prevMembership == "join" && membership == "join" && !isNewJoin &&
                                     (previousProfile?.displayName != displayName || previousProfile?.avatarUrl != avatarUrl)
                                 
-                                memberMap[userId] = profile
-                                
-                                // CRITICAL FIX: Add to flattened cache (used by getUserProfile)
-                                val flattenedKey = "$roomId:$userId"
-                                flattenedMemberCache[flattenedKey] = profile
-                                
-                                // OPTIMIZED: Update indexed cache for fast lookups
-                                roomMemberIndex.getOrPut(roomId) { ConcurrentHashMap.newKeySet() }.add(userId)
-                                
-                                // PERFORMANCE: Also add to global cache for O(1) lookups
-                                globalProfileCache[userId] = WeakReference(profile)
+                                // Use storeMemberProfile to ensure optimization (only store room-specific if differs from global)
+                                storeMemberProfile(roomId, userId, profile)
                                 
                                 if (isNewJoin) {
                                     android.util.Log.d("Andromuks", "AppViewModel: New member joined: $userId in room $roomId - triggering immediate UI update")
@@ -6046,30 +6474,17 @@ class AppViewModel : ViewModel() {
         val username = userId.removePrefix("@").substringBefore(":")
         val memberProfile = MemberProfile(username, null)
         
-        // PERFORMANCE: Add to global cache first
-        globalProfileCache[userId] = WeakReference(memberProfile)
-        
-        // If we know which room requested the profile, add it to that room's cache
+        // Use storeMemberProfile to ensure optimization (only store room-specific if differs from global)
+        // This is a fallback profile (username only), so it should be set as global
         if (requestingRoomId != null) {
-            // CRITICAL FIX: Store in flattened cache (used by getUserProfile)
-            val flattenedKey = "$requestingRoomId:$userId"
-            flattenedMemberCache[flattenedKey] = memberProfile
-            
-            // OPTIMIZED: Update indexed cache for fast lookups
-            roomMemberIndex.getOrPut(requestingRoomId) { ConcurrentHashMap.newKeySet() }.add(userId)
-            
-            val memberMap = roomMemberCache.getOrPut(requestingRoomId) { mutableMapOf() }
-            memberMap[userId] = memberProfile
+            storeMemberProfile(requestingRoomId, userId, memberProfile)
             android.util.Log.d("Andromuks", "AppViewModel: Added fallback profile for $userId to room $requestingRoomId")
         }
         
         // Also update member cache for all rooms that already contain this user
         roomMemberCache.forEach { (roomId, memberMap) ->
             if (memberMap.containsKey(userId)) {
-                // CRITICAL FIX: Also update flattened cache for existing rooms
-                val flattenedKey = "$roomId:$userId"
-                flattenedMemberCache[flattenedKey] = memberProfile
-                
+                storeMemberProfile(roomId, userId, memberProfile)
                 memberMap[userId] = memberProfile
                 android.util.Log.d("Andromuks", "AppViewModel: Updated member cache with username '$username' for $userId in room $roomId")
             }
@@ -6092,48 +6507,28 @@ class AppViewModel : ViewModel() {
         
         val memberProfile = MemberProfile(display, avatar)
         
-        // PERFORMANCE: Add to global profile cache first (O(1) access)
-        globalProfileCache[userId] = WeakReference(memberProfile)
+        // Update global profile (canonical profile from explicit request)
+        // This will automatically clean up room-specific entries that now match global
+        updateGlobalProfile(userId, memberProfile)
         
-        // If we know which room requested the profile, add it to that room's cache
+        // Update legacy cache for compatibility (but this will be deprecated)
         if (requestingRoomId != null) {
-            // CRITICAL FIX: Store in flattened cache (used by getUserProfile)
-            val flattenedKey = "$requestingRoomId:$userId"
-            flattenedMemberCache[flattenedKey] = memberProfile
-            
-            // OPTIMIZED: Update indexed cache for fast lookups
-            roomMemberIndex.getOrPut(requestingRoomId) { ConcurrentHashMap.newKeySet() }.add(userId)
-            
             val memberMap = roomMemberCache.getOrPut(requestingRoomId) { mutableMapOf() }
             memberMap[userId] = memberProfile
-            android.util.Log.d("Andromuks", "AppViewModel: Added profile for $userId to room $requestingRoomId (display=$display)")
         }
         
-        // Also update member cache for all rooms that already contain this user
+        // Also update legacy cache for all rooms that already contain this user
         roomMemberCache.forEach { (roomId, memberMap) ->
             if (memberMap.containsKey(userId)) {
-                // CRITICAL FIX: Also update flattened cache for existing rooms
-                val flattenedKey = "$roomId:$userId"
-                flattenedMemberCache[flattenedKey] = memberProfile
-                
                 memberMap[userId] = memberProfile
-                android.util.Log.d("Andromuks", "AppViewModel: Updated member cache for $userId in room $roomId")
             }
         }
         
         if (userId == currentUserId) {
             currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
-            // CRITICAL FIX: Also add current user's profile to all active room caches so it's accessible via getUserProfile
-            // This ensures the profile is available even when roomId is provided
-            roomMemberCache.keys.forEach { activeRoomId ->
-                val flattenedKey = "$activeRoomId:$userId"
-                flattenedMemberCache[flattenedKey] = memberProfile
-                val memberMap = roomMemberCache.getOrPut(activeRoomId) { mutableMapOf() }
-                memberMap[userId] = memberProfile
-                android.util.Log.d("Andromuks", "AppViewModel: Added current user profile to room cache: $activeRoomId")
-            }
         }
-        android.util.Log.d("Andromuks", "AppViewModel: Profile updated for $userId display=$display avatar=${avatar != null} (added to global cache)")
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Profile updated for $userId display=$display avatar=${avatar != null} (updated global cache)")
         
         // Check if this is part of a full user info request
         val fullUserInfoCallback = fullUserInfoCallbacks.remove(requestId)
@@ -7219,18 +7614,13 @@ class AppViewModel : ViewModel() {
                             val newProfile = MemberProfile(displayName, avatarUrl)
                             memberMap[stateKey] = newProfile
                             
-                            // MEMORY MANAGEMENT: Add to flattened cache for efficient getMemberMap lookups
-                            val flattenedKey = "$roomId:$stateKey"
-                            flattenedMemberCache[flattenedKey] = newProfile
+                            // Use storeMemberProfile to ensure optimization (only store room-specific if differs from global)
+                            storeMemberProfile(roomId, stateKey, newProfile)
                             
-                            // OPTIMIZED: Update indexed cache for fast lookups
-                            roomMemberIndex.getOrPut(roomId) { ConcurrentHashMap.newKeySet() }.add(stateKey)
-                            
-                            // PERFORMANCE: Also add to global cache for O(1) lookups
+                            // MEMORY MANAGEMENT: Cleanup if needed
                             manageGlobalCacheSize()
                             manageRoomMemberCacheSize(roomId)
                             manageFlattenedMemberCacheSize()
-                            globalProfileCache[stateKey] = WeakReference(newProfile)
                             
                             android.util.Log.d("Andromuks", "AppViewModel: Added member $stateKey to room $roomId - displayName: '$displayName', avatarUrl: '$avatarUrl'")
                             updatedMembers++
@@ -7324,18 +7714,13 @@ class AppViewModel : ViewModel() {
                             
                             memberMap[stateKey] = newProfile
                             
-                            // CRITICAL FIX: Add to flattened cache (used by getUserProfile)
-                            val flattenedKey = "$roomId:$stateKey"
-                            flattenedMemberCache[flattenedKey] = newProfile
+                            // Use storeMemberProfile to ensure optimization (only store room-specific if differs from global)
+                            storeMemberProfile(roomId, stateKey, newProfile)
                             
-                            // OPTIMIZED: Update indexed cache for fast lookups
-                            roomMemberIndex.getOrPut(roomId) { ConcurrentHashMap.newKeySet() }.add(stateKey)
-                            
-                            // PERFORMANCE: Also add to global cache for O(1) lookups
+                            // MEMORY MANAGEMENT: Cleanup if needed
                             manageGlobalCacheSize()
                             manageRoomMemberCacheSize(roomId)
                             manageFlattenedMemberCacheSize()
-                            globalProfileCache[stateKey] = WeakReference(newProfile)
                             
                             android.util.Log.d("Andromuks", "AppViewModel: Updated profile for $stateKey - displayName: '$displayName', avatarUrl: '$avatarUrl'")
                             android.util.Log.d("Andromuks", "AppViewModel: Profile update completed for $stateKey, triggering memberUpdateCounter")

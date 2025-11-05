@@ -328,7 +328,9 @@ class WebSocketService : Service() {
             
             // Check if reconnection callback is available
             if (reconnectionCallback == null) {
-                android.util.Log.e("WebSocketService", "CRITICAL: Reconnection callback not set!")
+                android.util.Log.w("WebSocketService", "Reconnection callback not set (AppViewModel may be destroyed) - attempting fallback reconnection")
+                val serviceInstance = instance ?: return
+                serviceInstance.attemptFallbackReconnection(reason)
                 return
             }
             
@@ -586,11 +588,6 @@ class WebSocketService : Service() {
                         android.util.Log.w("WebSocketService", "FAILSAFE: State corruption detected and recovered")
                     }
                     
-                    // Skip failsafe reconnection if reconnectionCallback is not set (AppViewModel not initialized)
-                    if (reconnectionCallback == null) {
-                        continue
-                    }
-                    
                     val isNetworkAvailable = serviceInstance.networkMonitor?.isNetworkAvailable() ?: false
                     val isConnected = serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.webSocket != null
                     val isReconnecting = serviceInstance.isReconnecting || serviceInstance.connectionState == ConnectionState.RECONNECTING
@@ -612,10 +609,18 @@ class WebSocketService : Service() {
                             }
                         }
                         
-                        android.util.Log.w("WebSocketService", "FAILSAFE: Stuck in disconnected state with network available - forcing reconnection (attempt ${serviceInstance.consecutiveFailsafeAttempts + 1})")
-                        serviceInstance.lastFailsafeAttemptTime = System.currentTimeMillis()
-                        serviceInstance.consecutiveFailsafeAttempts++
-                        triggerReconnectionSafely("Failsafe reconnection - stuck disconnected with network available")
+                        // If reconnection callback is not available (AppViewModel destroyed), try fallback reconnection
+                        if (reconnectionCallback == null) {
+                            android.util.Log.w("WebSocketService", "FAILSAFE: AppViewModel destroyed - attempting fallback reconnection (attempt ${serviceInstance.consecutiveFailsafeAttempts + 1})")
+                            serviceInstance.lastFailsafeAttemptTime = currentTime
+                            serviceInstance.consecutiveFailsafeAttempts++
+                            serviceInstance.attemptFallbackReconnection("Failsafe reconnection - AppViewModel destroyed")
+                        } else {
+                            android.util.Log.w("WebSocketService", "FAILSAFE: Stuck in disconnected state with network available - forcing reconnection (attempt ${serviceInstance.consecutiveFailsafeAttempts + 1})")
+                            serviceInstance.lastFailsafeAttemptTime = currentTime
+                            serviceInstance.consecutiveFailsafeAttempts++
+                            triggerReconnectionSafely("Failsafe reconnection - stuck disconnected with network available")
+                        }
                     } else {
                         // We're connected or reconnecting - reset failsafe counter
                         if (serviceInstance.consecutiveFailsafeAttempts > 0) {
@@ -1409,6 +1414,99 @@ class WebSocketService : Service() {
         stateCorruptionJob?.cancel()
         stateCorruptionJob = null
         android.util.Log.d("WebSocketService", "State corruption monitoring stopped")
+    }
+    
+    /**
+     * Attempt fallback reconnection when AppViewModel is destroyed
+     * This reads credentials from SharedPreferences and attempts to reconnect
+     * Note: Messages won't be processed until AppViewModel is recreated
+     */
+    private fun attemptFallbackReconnection(reason: String) {
+        android.util.Log.w("WebSocketService", "Attempting fallback reconnection: $reason")
+        
+        val serviceInstance = this // Capture instance for lambda
+        serviceScope.launch {
+            try {
+                // Read credentials from SharedPreferences
+                val sharedPrefs = serviceInstance.getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                
+                if (homeserverUrl.isEmpty() || authToken.isEmpty()) {
+                    android.util.Log.e("WebSocketService", "Fallback reconnection failed: Missing credentials in SharedPreferences")
+                    return@launch
+                }
+                
+                // Get reconnection parameters from service state
+                val (runId, lastReceivedId, vapidKey) = WebSocketService.getReconnectionParameters()
+                
+                // Create OkHttpClient
+                val client = okhttp3.OkHttpClient.Builder()
+                    .build()
+                
+                // Build WebSocket URL (reuse logic from NetworkUtils)
+                val webSocketUrl = homeserverUrl.replace("http://", "ws://").replace("https://", "wss://") + "/_matrix/client/r0/sync"
+                
+                val finalWebSocketUrl = if (runId.isNotEmpty() && lastReceivedId != 0) {
+                    "$webSocketUrl?run_id=$runId&last_received_event=$lastReceivedId"
+                } else if (runId.isNotEmpty() && lastReceivedId == 0) {
+                    "$webSocketUrl?run_id=$runId"
+                } else {
+                    webSocketUrl
+                }
+                
+                android.util.Log.d("WebSocketService", "Fallback reconnection: Connecting to $finalWebSocketUrl")
+                
+                val request = okhttp3.Request.Builder()
+                    .url(finalWebSocketUrl)
+                    .addHeader("Cookie", "gomuks_auth=$authToken")
+                    .addHeader("User-Agent", "Andromuks/1.0 (Android)")
+                    .build()
+                
+                // Create WebSocket connection with minimal listener
+                // Messages won't be processed until AppViewModel is recreated
+                val websocketListener = object : okhttp3.WebSocketListener() {
+                    override fun onOpen(webSocket: okhttp3.WebSocket, response: okhttp3.Response) {
+                        android.util.Log.i("WebSocketService", "Fallback reconnection successful")
+                        // Set WebSocket in service (AppViewModel will attach later)
+                        WebSocketService.setWebSocket(webSocket)
+                        serviceInstance.updateConnectionStatus(true, null, null)
+                    }
+                    
+                    override fun onFailure(webSocket: okhttp3.WebSocket, t: Throwable, response: okhttp3.Response?) {
+                        android.util.Log.e("WebSocketService", "Fallback reconnection failed", t)
+                        WebSocketService.clearWebSocket("Fallback reconnection failed: ${t.message}")
+                        // Schedule retry
+                        WebSocketService.scheduleReconnection("Fallback reconnection retry: ${t.message}")
+                    }
+                    
+                    override fun onMessage(webSocket: okhttp3.WebSocket, text: String) {
+                        // Messages are received but not processed until AppViewModel is recreated
+                        // This is okay - the connection is maintained and messages will be processed
+                        // when AppViewModel reconnects and takes over
+                        android.util.Log.d("WebSocketService", "Fallback: Message received (AppViewModel not available to process)")
+                    }
+                    
+                    override fun onClosing(webSocket: okhttp3.WebSocket, code: Int, reason: String) {
+                        android.util.Log.w("WebSocketService", "Fallback: WebSocket closing: $code $reason")
+                        WebSocketService.clearWebSocket("WebSocket closed: $reason")
+                    }
+                    
+                    override fun onClosed(webSocket: okhttp3.WebSocket, code: Int, reason: String) {
+                        android.util.Log.w("WebSocketService", "Fallback: WebSocket closed: $code $reason")
+                        WebSocketService.clearWebSocket("WebSocket closed: $reason")
+                    }
+                }
+                
+                // Connect WebSocket
+                client.newWebSocket(request, websocketListener)
+                
+            } catch (e: Exception) {
+                android.util.Log.e("WebSocketService", "Error in fallback reconnection", e)
+                // Schedule retry
+                WebSocketService.scheduleReconnection("Fallback reconnection error: ${e.message}")
+            }
+        }
     }
     
     /**

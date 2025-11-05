@@ -300,4 +300,30 @@ object IntelligentMediaCache {
         val files = cacheDir.listFiles() ?: emptyArray()
         return files.sumOf { it.length() }
     }
+    
+    /**
+     * Get all cached MXC URLs (for gallery display).
+     * Returns a map of cache key (file name) to MXC URL.
+     */
+    fun getAllCachedMxcUrls(): Map<String, String> {
+        return cacheEntries.map { (mxcUrl, entry) ->
+            val cacheKey = getCacheKey(mxcUrl)
+            cacheKey to mxcUrl
+        }.toMap()
+    }
+    
+    /**
+     * Get MXC URL for a cache file by matching cache key.
+     */
+    fun getMxcUrlForFile(fileName: String): String? {
+        // Try direct match first
+        val cacheKey = fileName
+        for ((mxcUrl, entry) in cacheEntries) {
+            val entryCacheKey = getCacheKey(mxcUrl)
+            if (entryCacheKey == cacheKey || fileName.contains(entryCacheKey) || entryCacheKey.contains(fileName)) {
+                return mxcUrl
+            }
+        }
+        return null
+    }
 }

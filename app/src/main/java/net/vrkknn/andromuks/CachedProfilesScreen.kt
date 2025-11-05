@@ -21,7 +21,8 @@ import net.vrkknn.andromuks.ui.components.AvatarImage
 data class CachedProfileEntry(
     val userId: String,
     val displayName: String?,
-    val avatarUrl: String?
+    val avatarUrl: String?,
+    val roomId: String? = null // Room ID if this is a room-specific profile
 )
 
 /**
@@ -40,18 +41,26 @@ fun CachedProfilesScreen(
     
     LaunchedEffect(cacheType) {
         isLoading = true
-        val profileList = if (cacheType == "memory") {
-            appViewModel.getAllMemoryCachedProfiles()
+        if (cacheType == "memory") {
+            val roomProfiles = appViewModel.getAllMemoryCachedProfiles()
+            profiles = roomProfiles.map { roomProfile ->
+                CachedProfileEntry(
+                    userId = roomProfile.userId,
+                    displayName = roomProfile.profile.displayName,
+                    avatarUrl = roomProfile.profile.avatarUrl,
+                    roomId = roomProfile.roomId
+                )
+            }
         } else {
-            appViewModel.getAllDiskCachedProfiles(context)
-        }
-        
-        profiles = profileList.map { (userId, profile) ->
-            CachedProfileEntry(
-                userId = userId,
-                displayName = profile.displayName,
-                avatarUrl = profile.avatarUrl
-            )
+            val diskProfiles = appViewModel.getAllDiskCachedProfiles(context)
+            profiles = diskProfiles.map { (userId, profile) ->
+                CachedProfileEntry(
+                    userId = userId,
+                    displayName = profile.displayName,
+                    avatarUrl = profile.avatarUrl,
+                    roomId = null // Disk cache doesn't store room-specific info
+                )
+            }
         }
         isLoading = false
     }
@@ -98,12 +107,23 @@ fun CachedProfilesScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 item {
-                    Text(
-                        text = "${profiles.size} profile${if (profiles.size != 1) "s" else ""}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
+                    Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                        Text(
+                            text = "${profiles.size} profile${if (profiles.size != 1) "s" else ""}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        if (cacheType == "memory") {
+                            val uniqueUsers = profiles.map { it.userId }.distinct().size
+                            if (uniqueUsers < profiles.size) {
+                                Text(
+                                    text = "$uniqueUsers unique user${if (uniqueUsers != 1) "s" else ""} (some appear in multiple rooms)",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
                 }
                 
                 items(profiles) { profile ->
@@ -153,7 +173,7 @@ fun CachedProfileItem(
                 displayName = profile.displayName
             )
             
-            // Display Name and User ID
+            // Display Name, User ID, and Room ID (if room-specific)
             Column(
                 modifier = Modifier.weight(1f)
             ) {
@@ -171,6 +191,17 @@ fun CachedProfileItem(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+                // Show room ID if this is a room-specific profile
+                if (profile.roomId != null) {
+                    Text(
+                        text = "Room: ${profile.roomId}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
             }
         }
     }
