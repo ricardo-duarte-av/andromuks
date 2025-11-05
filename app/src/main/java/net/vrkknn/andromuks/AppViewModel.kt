@@ -200,9 +200,12 @@ class AppViewModel : ViewModel() {
     var pendingSendCount by mutableStateOf(0)
         private set
     
-    // Recent emojis for reactions
+    // Recent emojis for reactions (stored as list of strings for UI)
     var recentEmojis by mutableStateOf(listOf<String>())
         private set
+    
+    // Internal storage for emoji frequencies: list of [emoji, count] pairs
+    private var recentEmojiFrequencies = mutableListOf<Pair<String, Int>>()
     
     // Cache for DM room IDs from m.direct account data
     private var directMessageRoomIds by mutableStateOf(setOf<String>())
@@ -2594,18 +2597,28 @@ class AppViewModel : ViewModel() {
             val recentEmojiArray = content?.optJSONArray("recent_emoji")
             
             if (recentEmojiArray != null) {
-                val emojis = mutableListOf<String>()
+                val frequencies = mutableListOf<Pair<String, Int>>()
                 for (i in 0 until recentEmojiArray.length()) {
                     val emojiEntry = recentEmojiArray.optJSONArray(i)
                     if (emojiEntry != null && emojiEntry.length() >= 1) {
                         val emoji = emojiEntry.optString(0)
                         if (emoji.isNotBlank()) {
-                            emojis.add(emoji)
+                            // Get count from entry, default to 1 if not present
+                            val count = if (emojiEntry.length() >= 2) {
+                                emojiEntry.optInt(1, 1)
+                            } else {
+                                1
+                            }
+                            frequencies.add(Pair(emoji, count))
                         }
                     }
                 }
-                recentEmojis = emojis
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded ${emojis.size} recent emojis from account_data")
+                // Sort by frequency (descending) to ensure proper order
+                val sortedFrequencies = frequencies.sortedByDescending { it.second }
+                // Store frequencies and update UI list
+                recentEmojiFrequencies = sortedFrequencies.toMutableList()
+                recentEmojis = sortedFrequencies.map { it.first }
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data with frequencies (sorted by count)")
             }
         }
         
@@ -5897,30 +5910,42 @@ class AppViewModel : ViewModel() {
     }
     
     private fun updateRecentEmojis(emoji: String) {
-        val currentEmojis = recentEmojis.toMutableList()
+        // Find existing emoji in frequencies
+        val existingIndex = recentEmojiFrequencies.indexOfFirst { it.first == emoji }
         
-        // Remove emoji if it already exists
-        currentEmojis.remove(emoji)
+        if (existingIndex >= 0) {
+            // Emoji exists - increment its count
+            val existingPair = recentEmojiFrequencies[existingIndex]
+            val newCount = existingPair.second + 1
+            recentEmojiFrequencies[existingIndex] = Pair(emoji, newCount)
+        } else {
+            // New emoji - add with count 1
+            recentEmojiFrequencies.add(Pair(emoji, 1))
+        }
         
-        // Add emoji to the beginning
-        currentEmojis.add(0, emoji)
+        // Sort by frequency (descending), then by insertion order (maintain order for same frequency)
+        // We'll sort by count descending, keeping the order stable
+        val sortedFrequencies = recentEmojiFrequencies.sortedByDescending { it.second }
         
-        // Keep only the first 20 emojis
-        val updatedEmojis = currentEmojis.take(20)
+        // Keep only top 20
+        val updatedFrequencies = sortedFrequencies.take(20)
         
-        // Update local state
-        recentEmojis = updatedEmojis
+        // Update internal storage and UI list
+        recentEmojiFrequencies = updatedFrequencies.toMutableList()
+        recentEmojis = updatedFrequencies.map { it.first }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Updated recent emojis, ${updatedFrequencies.size} total, emoji '$emoji' now has count ${updatedFrequencies.find { it.first == emoji }?.second ?: 1}")
         
         // Send to server
-        sendAccountDataUpdate(updatedEmojis)
+        sendAccountDataUpdate(updatedFrequencies)
     }
     
-    private fun sendAccountDataUpdate(emojis: List<String>) {
+    private fun sendAccountDataUpdate(frequencies: List<Pair<String, Int>>) {
         val ws = webSocket ?: return
         val accountDataRequestId = requestIdCounter++
         
-        // Create the recent_emoji array format: [["emoji", 1], ...]
-        val recentEmojiArray = emojis.map { listOf(it, 1) }
+        // Create the recent_emoji array format: [["emoji", count], ...]
+        val recentEmojiArray = frequencies.map { listOf(it.first, it.second) }
         
         val commandData = mapOf(
             "type" to "io.element.recent_emoji",

@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.Mood
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -406,6 +407,9 @@ fun RoomTimelineScreen(
     // Emoji selection state
     var showEmojiSelection by remember { mutableStateOf(false) }
     var reactingToEvent by remember { mutableStateOf<TimelineEvent?>(null) }
+    
+    // Emoji selection state for text input
+    var showEmojiPickerForText by remember { mutableStateOf(false) }
 
     // Media picker state
     var selectedMediaUri by remember { mutableStateOf<Uri?>(null) }
@@ -1691,6 +1695,18 @@ fun RoomTimelineScreen(
                                     placeholder = { Text("Type a message...") },
                                     modifier = Modifier.fillMaxWidth().height(56.dp),
                                     singleLine = true,
+                                    trailingIcon = {
+                                        IconButton(
+                                            onClick = { showEmojiPickerForText = true },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Mood,
+                                                contentDescription = "Emoji",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
+                                    },
                                     keyboardOptions = KeyboardOptions(
                                         capitalization = KeyboardCapitalization.Sentences,
                                         keyboardType = KeyboardType.Text,
@@ -2036,6 +2052,36 @@ fun RoomTimelineScreen(
                         onDismiss = {
                             showEmojiSelection = false
                             reactingToEvent = null
+                        }
+                    )
+                }
+                
+                // Emoji selection dialog for text input
+                if (showEmojiPickerForText) {
+                    EmojiSelectionDialog(
+                        recentEmojis = appViewModel.recentEmojis,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onEmojiSelected = { emoji ->
+                            // Insert emoji at cursor position
+                            val currentText = textFieldValue.text
+                            val cursorPosition = textFieldValue.selection.start
+                            val newText = currentText.substring(0, cursorPosition) + 
+                                         emoji + 
+                                         currentText.substring(cursorPosition)
+                            val newCursorPosition = cursorPosition + emoji.length
+                            
+                            // Update both draft and textFieldValue
+                            draft = newText
+                            textFieldValue = TextFieldValue(
+                                text = newText,
+                                selection = TextRange(newCursorPosition)
+                            )
+                            
+                            // Don't close the picker - user might want to add more emojis
+                        },
+                        onDismiss = {
+                            showEmojiPickerForText = false
                         }
                     )
                 }
