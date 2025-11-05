@@ -1328,36 +1328,47 @@ fun RoomListContent(
         
         // Use the cached filteredRooms from the remember block above
         items(
-            items = filteredRooms,
-            key = { it.id }, // Stable key for animations
+            count = filteredRooms.size,
+            key = { index -> filteredRooms[index].id }, // Stable key for animations
             contentType = { "room_item" } // Fixed: Use constant content type, not room ID
-        ) { room ->
+        ) { index ->
+            val room = filteredRooms[index]
             // PERFORMANCE FIX: Removed AnimatedVisibility wrapper that caused animation overhead
             // The items() already handles insertions/deletions efficiently
             // CRITICAL FIX: Capture room.id OUTSIDE the lambda to prevent wrong room navigation
             val roomIdForNavigation = room.id
             
-            RoomListItem(
-                room = room,
-                homeserverUrl = appViewModel.homeserverUrl,
-                authToken = authToken,
-                onRoomClick = { 
-                    // Add haptic feedback for room click
-                    hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                    // OPTIMIZATION #4: Use cache-first navigation for instant loading
-                    appViewModel.navigateToRoomWithCache(roomIdForNavigation)
-                    // Use captured roomIdForNavigation to prevent race conditions
-                    navController.navigate("room_timeline/$roomIdForNavigation")
-                },
-                onRoomLongClick = { selectedRoom ->
-                    // Navigate to room info on long press
-                    // selectedRoom parameter is still safe to use here
-                    navController.navigate("room_info/${selectedRoom.id}")
-                },
-                timestampUpdateTrigger = timestampUpdateTrigger,
-                appViewModel = appViewModel,
-                modifier = Modifier.animateContentSize()
-            )
+            Column {
+                RoomListItem(
+                    room = room,
+                    homeserverUrl = appViewModel.homeserverUrl,
+                    authToken = authToken,
+                    onRoomClick = { 
+                        // Add haptic feedback for room click
+                        hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        // OPTIMIZATION #4: Use cache-first navigation for instant loading
+                        appViewModel.navigateToRoomWithCache(roomIdForNavigation)
+                        // Use captured roomIdForNavigation to prevent race conditions
+                        navController.navigate("room_timeline/$roomIdForNavigation")
+                    },
+                    onRoomLongClick = { selectedRoom ->
+                        // Navigate to room info on long press
+                        // selectedRoom parameter is still safe to use here
+                        navController.navigate("room_info/${selectedRoom.id}")
+                    },
+                    timestampUpdateTrigger = timestampUpdateTrigger,
+                    appViewModel = appViewModel,
+                    modifier = Modifier.animateContentSize()
+                )
+                
+                // Material 3 divider between rooms (except after the last item)
+                if (index < filteredRooms.size - 1) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    )
+                }
+            }
         }
     }
 }
