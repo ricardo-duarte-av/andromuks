@@ -374,7 +374,8 @@ fun RoomListScreen(
                 ) {
                     Icon(
                         imageVector = Icons.Filled.Settings,
-                        contentDescription = "Settings"
+                        contentDescription = "Settings",
+                        tint = MaterialTheme.colorScheme.onSurface
                     )
                 }
             }
