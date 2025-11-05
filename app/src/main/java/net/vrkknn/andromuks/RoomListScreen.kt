@@ -128,15 +128,27 @@ fun RoomListScreen(
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     
-    // Force recomposition by observing the room list update counter
+    // PERFORMANCE: Only recompose when room list actually changes
+    // Use derivedStateOf to prevent recomposition when counter increments but rooms are identical
     val roomListUpdateCounter = appViewModel.roomListUpdateCounter
-    var currentSection by remember { mutableStateOf(appViewModel.getCurrentRoomSection()) }
-    var previousSectionType by remember { mutableStateOf(currentSection.type) }
+    var stableSection by remember { mutableStateOf(appViewModel.getCurrentRoomSection()) }
+    var previousSectionType by remember { mutableStateOf(stableSection.type) }
     var sectionAnimationDirection by remember { mutableStateOf(0) }
 
+    // PERFORMANCE: Only update section if data actually changed
     LaunchedEffect(roomListUpdateCounter) {
         val newSection = appViewModel.getCurrentRoomSection()
-        if (newSection.type != currentSection.type) {
+        
+        // PERFORMANCE: Deep comparison - only update if rooms/spaces/bridges actually changed
+        val roomsChanged = stableSection.rooms.map { "${it.id}:${it.unreadCount}:${it.sortingTimestamp}" } != 
+                          newSection.rooms.map { "${it.id}:${it.unreadCount}:${it.sortingTimestamp}" }
+        val spacesChanged = stableSection.spaces.map { "${it.id}:${it.name}" } != 
+                           newSection.spaces.map { "${it.id}:${it.name}" }
+        val bridgesChanged = stableSection.bridges.map { "${it.id}:${it.name}" } != 
+                            newSection.bridges.map { "${it.id}:${it.name}" }
+        
+        if (newSection.type != stableSection.type) {
+            // Section type changed - update with animation
             val oldIndex = RoomSectionType.values().indexOf(previousSectionType)
             val newIndex = RoomSectionType.values().indexOf(newSection.type)
             sectionAnimationDirection = when {
@@ -144,16 +156,19 @@ fun RoomListScreen(
                 newIndex < oldIndex -> -1
                 else -> 0
             }
-            previousSectionType = currentSection.type
-            currentSection = newSection
-        } else {
+            previousSectionType = stableSection.type
+            stableSection = newSection
+            android.util.Log.d("Andromuks", "RoomListScreen: Section type changed from ${previousSectionType} to ${newSection.type}")
+        } else if (roomsChanged || spacesChanged || bridgesChanged) {
+            // Same section type but data changed - update without animation
             sectionAnimationDirection = 0
-            currentSection = newSection
+            stableSection = newSection
+            android.util.Log.d("Andromuks", "RoomListScreen: Section data changed - rooms:$roomsChanged spaces:$spacesChanged bridges:$bridgesChanged")
         }
+        // If nothing changed, skip update - prevents unnecessary recomposition and avatar flashing
     }
-    android.util.Log.d("Andromuks", "RoomListScreen: currentSection = ${currentSection.type}, roomListUpdateCounter = $roomListUpdateCounter")
     
-    android.util.Log.d("Andromuks", "RoomListScreen: currentSection.type = ${currentSection.type}, rooms.size = ${currentSection.rooms.size}, spaces.size = ${currentSection.spaces.size}")
+    android.util.Log.d("Andromuks", "RoomListScreen: stableSection = ${stableSection.type}, roomListUpdateCounter = $roomListUpdateCounter, rooms.size = ${stableSection.rooms.size}")
     
     // Always show the interface, even if rooms/spaces are empty
     var searchQuery by remember { mutableStateOf("") }
@@ -257,24 +272,24 @@ fun RoomListScreen(
     
     // OPPORTUNISTIC PROFILE LOADING: Request missing profiles for message senders in visible rooms
     // This ensures proper display names and avatars are loaded for room list message previews
-    LaunchedEffect(currentSection.rooms, currentSection.spaces, currentSection.bridges) {
+    LaunchedEffect(stableSection.rooms, stableSection.spaces, stableSection.bridges) {
         // Process rooms
-        if (currentSection.rooms.isNotEmpty()) {
+        if (stableSection.rooms.isNotEmpty()) {
             // Get unique message senders from visible rooms (limit to first 50 rooms to avoid overwhelming)
-            val messageSenders = currentSection.rooms.take(50)
+            val messageSenders = stableSection.rooms.take(50)
                 .mapNotNull { room -> room.messageSender }
                 .distinct()
                 .filter { sender -> sender != appViewModel.currentUserId }
             
             android.util.Log.d(
                 "Andromuks",
-                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${messageSenders.size} message senders from ${currentSection.rooms.size} rooms"
+                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${messageSenders.size} message senders from ${stableSection.rooms.size} rooms"
             )
             
             // Request profiles for each message sender
             messageSenders.forEach { sender ->
                 // Find the room where this sender appears (for room context)
-                val roomWithSender = currentSection.rooms.find { it.messageSender == sender }
+                val roomWithSender = stableSection.rooms.find { it.messageSender == sender }
                 if (roomWithSender != null) {
                     appViewModel.requestUserProfileOnDemand(sender, roomWithSender.id)
                 }
@@ -282,8 +297,8 @@ fun RoomListScreen(
         }
         
         // Process spaces (if we're viewing space rooms)
-        if (appViewModel.currentSpaceId != null && currentSection.rooms.isNotEmpty()) {
-            val spaceMessageSenders = currentSection.rooms.take(50)
+        if (appViewModel.currentSpaceId != null && stableSection.rooms.isNotEmpty()) {
+            val spaceMessageSenders = stableSection.rooms.take(50)
                 .mapNotNull { room -> room.messageSender }
                 .distinct()
                 .filter { sender -> sender != appViewModel.currentUserId }
@@ -294,7 +309,7 @@ fun RoomListScreen(
             )
             
             spaceMessageSenders.forEach { sender ->
-                val roomWithSender = currentSection.rooms.find { it.messageSender == sender }
+                val roomWithSender = stableSection.rooms.find { it.messageSender == sender }
                 if (roomWithSender != null) {
                     appViewModel.requestUserProfileOnDemand(sender, roomWithSender.id)
                 }
@@ -302,8 +317,8 @@ fun RoomListScreen(
         }
         
         // Process bridges (if we're viewing bridge rooms)
-        if (appViewModel.currentBridgeId != null && currentSection.rooms.isNotEmpty()) {
-            val bridgeMessageSenders = currentSection.rooms.take(50)
+        if (appViewModel.currentBridgeId != null && stableSection.rooms.isNotEmpty()) {
+            val bridgeMessageSenders = stableSection.rooms.take(50)
                 .mapNotNull { room -> room.messageSender }
                 .distinct()
                 .filter { sender -> sender != appViewModel.currentUserId }
@@ -314,7 +329,7 @@ fun RoomListScreen(
             )
             
             bridgeMessageSenders.forEach { sender ->
-                val roomWithSender = currentSection.rooms.find { it.messageSender == sender }
+                val roomWithSender = stableSection.rooms.find { it.messageSender == sender }
                 if (roomWithSender != null) {
                     appViewModel.requestUserProfileOnDemand(sender, roomWithSender.id)
                 }
@@ -438,7 +453,7 @@ fun RoomListScreen(
                     .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             ) {
                 AnimatedContent(
-                    targetState = sectionAnimationDirection to currentSection,
+                    targetState = sectionAnimationDirection to stableSection,
                     transitionSpec = {
                         val direction = targetState.first
                         val enter = if (direction > 0) {
@@ -564,7 +579,7 @@ fun RoomListScreen(
             
             // Tab bar at the bottom (outside the Surface)
             TabBar(
-                currentSection = currentSection,
+                currentSection = stableSection,
                 onSectionSelected = { section ->
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     appViewModel.changeSelectedSection(section)
@@ -1334,8 +1349,8 @@ fun RoomListContent(
         // Use the cached filteredRooms from the remember block above
         items(
             count = filteredRooms.size,
-            key = { index -> filteredRooms[index].id }, // Stable key for animations
-            contentType = { "room_item" } // Fixed: Use constant content type, not room ID
+            key = { index -> filteredRooms[index].id }, // PERFORMANCE: Stable key - room ID stays constant
+            contentType = { "room_item" } // Fixed: Use constant content type
         ) { index ->
             val room = filteredRooms[index]
             // PERFORMANCE FIX: Removed AnimatedVisibility wrapper that caused animation overhead

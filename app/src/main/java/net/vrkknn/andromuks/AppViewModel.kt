@@ -3149,23 +3149,37 @@ class AppViewModel : ViewModel() {
                     android.util.Log.d("Andromuks", "AppViewModel: Initializing allRooms with ${sortedRooms.size} sorted rooms")
                 } else {
                     // Update existing rooms in current order, add new rooms at end
+                    // PERFORMANCE: Only create new RoomItem instances when data actually changes
                     val existingRoomIds = allRooms.map { it.id }.toSet()
-                    val updatedExistingRooms = allRooms.map { existingRoom ->
-                        roomMap[existingRoom.id] ?: existingRoom
+                    var hasChanges = false
+                    val updatedExistingRooms = allRooms.mapIndexed { index, existingRoom ->
+                        val updatedRoom = roomMap[existingRoom.id] ?: existingRoom
+                        // Only create new instance if data actually changed (data class equality check)
+                        if (updatedRoom != existingRoom) {
+                            hasChanges = true
+                            updatedRoom
+                        } else {
+                            existingRoom // Keep existing instance to avoid recomposition
+                        }
                     }
                     
                     // Add any new rooms that appeared in roomMap (at the end, will be sorted later)
                     val newRooms = roomMap.values.filter { it.id !in existingRoomIds }
                     
-                    // Combine existing (in current order) with new rooms (will be sorted on next reorder)
-                    allRooms = updatedExistingRooms + newRooms
+                    // Only update if there are actual changes (new rooms or updated rooms)
+                    if (newRooms.isNotEmpty() || hasChanges) {
+                        // Combine existing (in current order) with new rooms (will be sorted on next reorder)
+                        allRooms = updatedExistingRooms + newRooms
+                        invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
+                        
+                        // Mark for batched UI update (for badges/timestamps - no sorting)
+                        needsRoomListUpdate = true
+                        scheduleUIUpdate("roomList")
+                    } else {
+                        // No changes - skip cache invalidation and UI updates to avoid recomposition
+                        android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room data unchanged, skipping updates")
+                    }
                 }
-                
-                invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
-                
-                // Mark for batched UI update (for badges/timestamps - no sorting)
-                needsRoomListUpdate = true
-                scheduleUIUpdate("roomList")
                 
                 // PERFORMANCE: Use debounced room reordering (30 seconds) to prevent "room jumping"
                 // This allows real-time badge/timestamp updates while only re-sorting periodically
@@ -3181,19 +3195,37 @@ class AppViewModel : ViewModel() {
                     conversationsApi?.updateConversationShortcuts(sortedRoomsForShortcuts)
                 }
             } else {
-                // Room state hash unchanged - still refresh room data from roomMap (for timestamp updates)
+                // Room state hash unchanged - check if individual rooms need timestamp updates
+                // PERFORMANCE: Only update rooms that actually changed to avoid unnecessary recomposition
                 if (allRooms.isNotEmpty()) {
+                    var needsUpdate = false
                     val updatedRooms = allRooms.map { existingRoom ->
-                        roomMap[existingRoom.id] ?: existingRoom
+                        val updatedRoom = roomMap[existingRoom.id] ?: existingRoom
+                        // Only create new instance if data actually changed (data class equality check)
+                        if (updatedRoom != existingRoom) {
+                            needsUpdate = true
+                            updatedRoom
+                        } else {
+                            existingRoom // Keep existing instance to avoid recomposition
+                        }
                     }
-                    allRooms = updatedRooms
-                    invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
                     
-                    // Trigger UI update for timestamp changes only
-                    needsRoomListUpdate = true
-                    scheduleUIUpdate("roomList")
+                    // Only update if something actually changed
+                    if (needsUpdate) {
+                        allRooms = updatedRooms
+                        invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
+                        
+                        // Trigger UI update for timestamp changes only
+                        needsRoomListUpdate = true
+                        scheduleUIUpdate("roomList")
+                        android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Some room timestamps changed, updating UI")
+                    } else {
+                        // No changes at all - skip all updates to avoid unnecessary recomposition
+                        android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - No room changes detected, skipping all updates")
+                    }
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room state unchanged, allRooms empty")
                 }
-                android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room state unchanged, updated timestamps only")
             }
             
             // SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
