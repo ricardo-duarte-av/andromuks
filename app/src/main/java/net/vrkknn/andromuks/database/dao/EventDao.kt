@@ -43,6 +43,12 @@ interface EventDao {
     
     @Query("SELECT MAX(timestamp) FROM events WHERE roomId = :roomId AND timestamp > 0")
     suspend fun getLastEventTimestamp(roomId: String): Long?
+    
+    @Query("SELECT * FROM events WHERE roomId = :roomId AND eventId = :eventId LIMIT 1")
+    suspend fun getEventById(roomId: String, eventId: String): EventEntity?
+    
+    @Query("SELECT * FROM events WHERE roomId = :roomId AND relatesToEventId = :relatesToEventId ORDER BY timestamp ASC")
+    suspend fun getEventsByRelatesTo(roomId: String, relatesToEventId: String): List<EventEntity>
 }
 
 

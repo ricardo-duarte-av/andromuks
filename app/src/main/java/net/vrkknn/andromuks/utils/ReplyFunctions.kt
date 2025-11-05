@@ -811,11 +811,10 @@ fun MessageBubbleWithMenu(
                                     },
                                     modifier = Modifier.size(40.dp)
                                 ) {
-                                    Text(
-                                        text = "e",
-                                        style = MaterialTheme.typography.labelLarge,
-                                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
-                                        color = MaterialTheme.colorScheme.primary
+                                    Icon(
+                                        imageVector = Icons.Filled.History,
+                                        contentDescription = "View Edit History",
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
                                 }
                             }
@@ -827,10 +826,28 @@ fun MessageBubbleWithMenu(
         
         // Show edit history dialog
         if (showEditHistory && appViewModel != null) {
-            val versioned = appViewModel.getMessageVersions(event.eventId)
-            if (versioned != null) {
+            var versioned by remember { mutableStateOf<net.vrkknn.andromuks.VersionedMessage?>(null) }
+            var isLoading by remember { mutableStateOf(true) }
+            
+            // Try to get from memory first, then load from database if needed
+            LaunchedEffect(event.eventId, showEditHistory) {
+                if (showEditHistory) {
+                    versioned = appViewModel.getMessageVersions(event.eventId)
+                    
+                    // If not in memory, try loading from database
+                    if (versioned == null && event.roomId.isNotBlank()) {
+                        versioned = appViewModel.loadMessageVersionsFromDb(event.eventId, event.roomId)
+                    }
+                    
+                    isLoading = false
+                }
+            }
+            
+            // Extract to local variable for smart cast
+            val currentVersioned = versioned
+            if (!isLoading && currentVersioned != null) {
                 EditHistoryDialog(
-                    versioned = versioned,
+                    versioned = currentVersioned,
                     onDismiss = { showEditHistory = false }
                 )
             }

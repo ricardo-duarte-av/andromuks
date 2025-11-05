@@ -1620,6 +1620,83 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Loads edit history from database if not in memory.
+     * This is useful when the user requests edit history on a cold start or after memory was cleared.
+     * @param eventId The original event ID (not the edit event ID)
+     * @param roomId The room ID containing the event
+     * @return VersionedMessage if found in database, null otherwise
+     */
+    suspend fun loadMessageVersionsFromDb(eventId: String, roomId: String): VersionedMessage? = withContext(Dispatchers.IO) {
+        try {
+            val context = appContext ?: return@withContext null
+            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+            val eventDao = database.eventDao()
+            
+            // Get the original event
+            val originalEntity = eventDao.getEventById(roomId, eventId) ?: return@withContext null
+            val originalJson = org.json.JSONObject(originalEntity.rawJson)
+            // Add missing fields that TimelineEvent.fromJson expects
+            originalJson.put("rowid", originalEntity.timelineRowId.toLong())
+            originalJson.put("timeline_rowid", originalEntity.timelineRowId)
+            originalJson.put("room_id", originalEntity.roomId)
+            val originalEvent = TimelineEvent.fromJson(originalJson)
+            
+            // Get all edit events that relate to this event
+            val editEntities = eventDao.getEventsByRelatesTo(roomId, eventId)
+            
+            val versions = mutableListOf<MessageVersion>()
+            
+            // Add original event
+            versions.add(MessageVersion(
+                eventId = originalEvent.eventId,
+                event = originalEvent,
+                timestamp = originalEvent.timestamp,
+                isOriginal = true
+            ))
+            
+            // Add edit events
+            for (editEntity in editEntities) {
+                val editJson = org.json.JSONObject(editEntity.rawJson)
+                // Add missing fields that TimelineEvent.fromJson expects
+                editJson.put("rowid", editEntity.timelineRowId.toLong())
+                editJson.put("timeline_rowid", editEntity.timelineRowId)
+                editJson.put("room_id", editEntity.roomId)
+                val editEvent = TimelineEvent.fromJson(editJson)
+                
+                versions.add(MessageVersion(
+                    eventId = editEvent.eventId,
+                    event = editEvent,
+                    timestamp = editEvent.timestamp,
+                    isOriginal = false
+                ))
+                
+                // Store reverse mapping for quick lookup
+                editToOriginal[editEvent.eventId] = eventId
+            }
+            
+            // Sort by timestamp (newest first)
+            val sortedVersions = versions.sortedByDescending { it.timestamp }
+            
+            val versioned = VersionedMessage(
+                originalEventId = eventId,
+                originalEvent = originalEvent,
+                versions = sortedVersions
+            )
+            
+            // Cache in memory for future lookups
+            messageVersions[eventId] = versioned
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedVersions.size} versions from DB for event $eventId (${editEntities.size} edits)")
+            
+            return@withContext versioned
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to load message versions from DB for $eventId", e)
+            return@withContext null
+        }
+    }
+    
+    
+    /**
      * Gets the redaction event for a deleted message (O(1) lookup)
      * @param eventId The event ID that was redacted
      * @return The redaction event, or null if not redacted
@@ -1629,11 +1706,31 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Checks if a message has been edited (O(1) lookup)
+     * Checks if a message has been edited (O(1) lookup from memory)
+     * Note: This only checks in-memory cache. For database check, use loadMessageVersionsFromDb.
      */
     fun isMessageEdited(eventId: String): Boolean {
         val versioned = getMessageVersions(eventId)
         return versioned != null && versioned.versions.size > 1
+    }
+    
+    /**
+     * Checks if a message has been edited by querying the database.
+     * This is useful when checking edit status on cold start.
+     */
+    suspend fun isMessageEditedInDb(eventId: String, roomId: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val context = appContext ?: return@withContext false
+            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+            val eventDao = database.eventDao()
+            
+            // Check if there are any edit events that relate to this event
+            val editCount = eventDao.getEventsByRelatesTo(roomId, eventId).size
+            return@withContext editCount > 0
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to check if message is edited in DB for $eventId", e)
+            return@withContext false
+        }
     }
     
     /**
