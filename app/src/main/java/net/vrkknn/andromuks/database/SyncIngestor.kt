@@ -120,13 +120,45 @@ class SyncIngestor(private val context: Context) {
         val since = data.optString("since", "")
         
         // Process account_data if present (must be done before other processing)
-        val accountDataJson = data.optJSONObject("account_data")
-        if (accountDataJson != null) {
-            // Store entire account_data JSON object
-            // This replaces any existing account_data (as per user requirement)
-            val accountDataStr = accountDataJson.toString()
-            accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
-            Log.d(TAG, "Persisted account_data to database (${accountDataStr.length} chars)")
+        // IMPORTANT: Partial updates - only replace keys present in incoming sync, merge with existing
+        val incomingAccountData = data.optJSONObject("account_data")
+        if (incomingAccountData != null) {
+            try {
+                // Load existing account_data from database
+                val existingAccountDataStr = accountDataDao.getAccountData()
+                val mergedAccountData = if (existingAccountDataStr != null) {
+                    // Merge: existing + incoming (incoming keys replace existing keys)
+                    val existingAccountData = JSONObject(existingAccountDataStr)
+                    
+                    // Copy all keys from existing
+                    val merged = JSONObject(existingAccountData.toString())
+                    
+                    // Overwrite/replace with incoming keys
+                    val incomingKeys = incomingAccountData.keys()
+                    while (incomingKeys.hasNext()) {
+                        val key = incomingKeys.next()
+                        merged.put(key, incomingAccountData.get(key))
+                        Log.d(TAG, "Account data: Merged key '$key' from incoming sync")
+                    }
+                    
+                    merged
+                } else {
+                    // No existing data, use incoming as-is
+                    Log.d(TAG, "Account data: No existing data, using incoming as-is")
+                    incomingAccountData
+                }
+                
+                // Store merged account_data
+                val mergedAccountDataStr = mergedAccountData.toString()
+                accountDataDao.upsert(AccountDataEntity("account_data", mergedAccountDataStr))
+                Log.d(TAG, "Persisted merged account_data to database (${mergedAccountDataStr.length} chars, ${mergedAccountData.length()} keys)")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error merging account_data: ${e.message}", e)
+                // Fallback: store incoming as-is if merge fails
+                val accountDataStr = incomingAccountData.toString()
+                accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
+                Log.w(TAG, "Stored incoming account_data as-is (merge failed)")
+            }
         }
         
         // Store sync metadata
