@@ -472,7 +472,8 @@ class AppViewModel : ViewModel() {
     // PERFORMANCE: Debounced room reordering to prevent frustrating "room jumping"
     private var lastRoomReorderTime = 0L
     private var roomReorderJob: Job? = null
-    private val ROOM_REORDER_DEBOUNCE_MS = 1000L // 1 second debounce
+    private val ROOM_REORDER_DEBOUNCE_MS = 30000L // 30 seconds debounce - reduces visual jumping
+    private var forceSortNextReorder = false // Flag to force immediate sort on next reorder
     
     // SYNC OPTIMIZATION: Diff-based update tracking
     private var lastRoomStateHash: String = ""
@@ -569,11 +570,19 @@ class AppViewModel : ViewModel() {
     }
     
     fun changeSelectedSection(section: RoomSectionType) {
+        val previousSection = selectedSection
         selectedSection = section
         // Reset space navigation when switching tabs
         if (section != RoomSectionType.SPACES) {
             currentSpaceId = null
         }
+        
+        // PERFORMANCE: Force immediate sort when switching tabs to show correct order
+        if (previousSection != section) {
+            android.util.Log.d("Andromuks", "AppViewModel: Tab changed from $previousSection to $section - forcing immediate sort")
+            forceRoomListSort()
+        }
+        
         roomListUpdateCounter++
         updateCounter++ // Keep for backward compatibility temporarily
     }
@@ -2715,18 +2724,19 @@ class AppViewModel : ViewModel() {
     
     /**
      * PERFORMANCE OPTIMIZATION: Debounced room reordering
-     * Updates badges and timestamps immediately, but only reorders the list every 1 second
+     * Updates badges and timestamps immediately, but only reorders the list every 30 seconds
      * This prevents the frustrating "room jumping" effect when new messages arrive
+     * Can be forced to sort immediately via forceImmediate parameter
      */
-    private fun scheduleRoomReorder() {
+    private fun scheduleRoomReorder(forceImmediate: Boolean = false) {
         val currentTime = System.currentTimeMillis()
         val timeSinceLastReorder = currentTime - lastRoomReorderTime
         
         // Cancel existing reorder job
         roomReorderJob?.cancel()
         
-        if (timeSinceLastReorder >= ROOM_REORDER_DEBOUNCE_MS) {
-            // Enough time has passed, reorder immediately
+        if (forceImmediate || timeSinceLastReorder >= ROOM_REORDER_DEBOUNCE_MS) {
+            // Force immediate sort or enough time has passed, reorder immediately
             performRoomReorder()
         } else {
             // Schedule reorder for later
@@ -2736,6 +2746,15 @@ class AppViewModel : ViewModel() {
                 performRoomReorder()
             }
         }
+    }
+    
+    /**
+     * Force immediate room list re-sorting
+     * Called when switching tabs or returning to RoomListScreen
+     */
+    fun forceRoomListSort() {
+        android.util.Log.d("Andromuks", "AppViewModel: Force sorting room list (tab change or screen return)")
+        scheduleRoomReorder(forceImmediate = true)
     }
     
     /**
@@ -3101,14 +3120,15 @@ class AppViewModel : ViewModel() {
         // Always cache timeline events (lightweight, needed for instant room opening)
         cacheTimelineEventsFromSync(syncJson)
         
-        // SYNC OPTIMIZATION: Always update data first, then check for diff-based UI updates
-        val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+        // SYNC OPTIMIZATION: Update room data (last message, unread count) without immediate sorting
+        // This prevents visual jumping while still showing real-time updates
+        val allRoomsUnsorted = roomMap.values.toList()
         
         // Update low priority rooms set for notification filtering (always needed)
-        updateLowPriorityRooms(sortedRooms)
+        updateLowPriorityRooms(allRoomsUnsorted)
         
         // Diff-based update: Only update UI if room state actually changed
-        val newRoomStateHash = generateRoomStateHash(sortedRooms)
+        val newRoomStateHash = generateRoomStateHash(allRoomsUnsorted)
         val roomStateChanged = newRoomStateHash != lastRoomStateHash
         
         // BATTERY OPTIMIZATION: Skip expensive UI updates when app is in background
@@ -3118,42 +3138,63 @@ class AppViewModel : ViewModel() {
             
             // SYNC OPTIMIZATION: Selective updates - only update what actually changed
             if (roomStateChanged) {
-                android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room state changed, scheduling UI update")
+                android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room state changed, updating data without sorting")
                 
-                // OPTIMIZED: Use background thread for non-UI operations
-                viewModelScope.launch(Dispatchers.Default) {
-                    // Update animation states with new positions (lightweight operation)
-                    sortedRooms.forEachIndexed { index, room ->
-                        updateRoomAnimationState(room.id, isAnimating = false, newPosition = index)
+                // PERFORMANCE: Update room data in current order (preserves visual stability)
+                // If allRooms is empty or this is first sync, initialize with sorted list
+                if (allRooms.isEmpty()) {
+                    // First sync - initialize with sorted list
+                    val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+                    allRooms = sortedRooms
+                    android.util.Log.d("Andromuks", "AppViewModel: Initializing allRooms with ${sortedRooms.size} sorted rooms")
+                } else {
+                    // Update existing rooms in current order, add new rooms at end
+                    val existingRoomIds = allRooms.map { it.id }.toSet()
+                    val updatedExistingRooms = allRooms.map { existingRoom ->
+                        roomMap[existingRoom.id] ?: existingRoom
                     }
+                    
+                    // Add any new rooms that appeared in roomMap (at the end, will be sorted later)
+                    val newRooms = roomMap.values.filter { it.id !in existingRoomIds }
+                    
+                    // Combine existing (in current order) with new rooms (will be sorted on next reorder)
+                    allRooms = updatedExistingRooms + newRooms
                 }
                 
-                // PERFORMANCE: Use debounced room reordering to prevent "room jumping"
-                // This updates badges/timestamps immediately but only reorders every 1 second
-                scheduleRoomReorder()
-                
-                // Update allRooms for filtering (without reordering)
-                allRooms = sortedRooms
                 invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
                 
-                // Mark for batched UI update (for badges/timestamps)
+                // Mark for batched UI update (for badges/timestamps - no sorting)
                 needsRoomListUpdate = true
                 scheduleUIUpdate("roomList")
                 
+                // PERFORMANCE: Use debounced room reordering (30 seconds) to prevent "room jumping"
+                // This allows real-time badge/timestamp updates while only re-sorting periodically
+                scheduleRoomReorder()
+                
                 lastRoomStateHash = newRoomStateHash
-                android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room list update scheduled")
+                android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room data updated (no sorting), debounced sort scheduled")
                 
                 // OPTIMIZED: Update conversation shortcuts in background (non-UI operation)
                 viewModelScope.launch(Dispatchers.Default) {
-                    conversationsApi?.updateConversationShortcuts(sortedRooms)
+                    // Use sorted rooms for shortcuts (they need to be sorted)
+                    val sortedRoomsForShortcuts = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+                    conversationsApi?.updateConversationShortcuts(sortedRoomsForShortcuts)
                 }
             } else {
-                android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room state unchanged, skipping UI update")
+                // Room state hash unchanged - still refresh room data from roomMap (for timestamp updates)
+                if (allRooms.isNotEmpty()) {
+                    val updatedRooms = allRooms.map { existingRoom ->
+                        roomMap[existingRoom.id] ?: existingRoom
+                    }
+                    allRooms = updatedRooms
+                    invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
+                    
+                    // Trigger UI update for timestamp changes only
+                    needsRoomListUpdate = true
+                    scheduleUIUpdate("roomList")
+                }
+                android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room state unchanged, updated timestamps only")
             }
-            
-            // Always update allRooms for data consistency
-            allRooms = sortedRooms
-            invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
             
             // SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
             checkAndUpdateCurrentRoomTimelineOptimized(syncJson)
@@ -3170,6 +3211,8 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: BATTERY SAVE MODE - App in background, skipping UI updates")
             
             // Still update allRooms for data consistency (needed for notifications)
+            // Sort rooms for background processing (needed for shortcuts and consistency)
+            val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
             allRooms = sortedRooms
             invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
             

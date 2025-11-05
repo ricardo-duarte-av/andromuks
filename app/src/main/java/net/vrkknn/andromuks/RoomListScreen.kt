@@ -173,6 +173,11 @@ fun RoomListScreen(
     LaunchedEffect(Unit) {
         android.util.Log.d("Andromuks", "RoomListScreen: Clearing current room ID - user is viewing room list, not a specific room")
         appViewModel.clearCurrentRoomId()
+        
+        // PERFORMANCE: Force immediate sort when returning to RoomListScreen
+        // This ensures the list is properly sorted when the user navigates back
+        android.util.Log.d("Andromuks", "RoomListScreen: Returning to room list - forcing immediate sort")
+        appViewModel.forceRoomListSort()
     }
     
     // OPTIMIZATION #1 + #4: Check for direct room navigation first (faster path) with cache-first loading
