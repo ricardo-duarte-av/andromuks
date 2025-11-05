@@ -2429,6 +2429,10 @@ class AppViewModel : ViewModel() {
                     isLowPriority = room.isLowPriority || existingRoom.isLowPriority, // Keep true if either is true
                     isDirectMessage = room.isDirectMessage || existingRoom.isDirectMessage // Preserve DM status
                 )
+                // Log if favorite status was preserved (for debugging)
+                if (existingRoom.isFavourite && !room.isFavourite && updatedRoom.isFavourite) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Preserved isFavourite=true for room ${room.id} (sync didn't include account_data.m.tag)")
+                }
                 roomMap[room.id] = updatedRoom
                 // Update animation state only if app is visible (battery optimization)
                 if (isAppVisible) {
