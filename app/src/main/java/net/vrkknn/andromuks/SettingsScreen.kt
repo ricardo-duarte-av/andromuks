@@ -3,6 +3,7 @@ package net.vrkknn.andromuks
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -140,7 +141,7 @@ fun SettingsScreen(
                 modifier = Modifier.padding(top = 16.dp)
             )
             
-            CacheStatisticsSection(appViewModel = appViewModel)
+            CacheStatisticsSection(appViewModel = appViewModel, navController = navController)
             
             // Room Disk Usage Section
             Card(
@@ -532,7 +533,7 @@ fun FCMInfoItem(
 }
 
 @Composable
-fun CacheStatisticsSection(appViewModel: AppViewModel) {
+fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavController) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var cacheStats by remember { mutableStateOf<Map<String, String>?>(null) }
@@ -619,7 +620,8 @@ fun CacheStatisticsSection(appViewModel: AppViewModel) {
                 CacheStatItem(
                     label = "User Profiles (Memory)",
                     value = cacheStats!!["user_profiles_memory_cache"] ?: "N/A",
-                    description = cacheStats!!["user_profiles_count"] ?: ""
+                    description = cacheStats!!["user_profiles_count"] ?: "",
+                    onClick = { navController.navigate("cached_profiles/memory") }
                 )
                 
                 HorizontalDivider()
@@ -628,7 +630,8 @@ fun CacheStatisticsSection(appViewModel: AppViewModel) {
                 CacheStatItem(
                     label = "User Profiles (Disk)",
                     value = cacheStats!!["user_profiles_disk_cache"] ?: "N/A",
-                    description = "Stored in SQLite database"
+                    description = "Stored in SQLite database",
+                    onClick = { navController.navigate("cached_profiles/disk") }
                 )
                 
                 HorizontalDivider()
@@ -657,9 +660,18 @@ fun CacheStatisticsSection(appViewModel: AppViewModel) {
 fun CacheStatItem(
     label: String,
     value: String,
-    description: String
+    description: String,
+    onClick: (() -> Unit)? = null
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    val modifier = if (onClick != null) {
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+    } else {
+        Modifier.fillMaxWidth()
+    }
+    
+    Column(modifier = modifier) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodyMedium,

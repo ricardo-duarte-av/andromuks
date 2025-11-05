@@ -1734,6 +1734,57 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Gets all profiles from memory cache (flattenedMemberCache + globalProfileCache).
+     * @return List of pairs (userId, MemberProfile) sorted by display name
+     */
+    suspend fun getAllMemoryCachedProfiles(): List<Pair<String, MemberProfile>> = withContext(Dispatchers.Default) {
+        val profiles = mutableMapOf<String, MemberProfile>()
+        
+        // Collect from flattened member cache (room-specific profiles)
+        // Use a map to deduplicate by userId (preferring the first occurrence)
+        for ((key, profile) in flattenedMemberCache) {
+            val userId = key.substringAfter(":")
+            if (userId.isNotEmpty() && userId != key) { // Valid roomId:userId format
+                // Only add if not already present (to avoid duplicates)
+                if (!profiles.containsKey(userId)) {
+                    profiles[userId] = profile
+                }
+            }
+        }
+        
+        // Collect from global profile cache (weak references)
+        for ((userId, weakRef) in globalProfileCache) {
+            val profile = weakRef.get()
+            if (profile != null) {
+                // Only add if not already present
+                if (!profiles.containsKey(userId)) {
+                    profiles[userId] = profile
+                }
+            }
+        }
+        
+        // Sort by display name (nulls last), then by userId
+        profiles.toList().sortedWith(compareBy(
+            { it.second.displayName ?: "\uFFFF" }, // Put nulls at the end
+            { it.first }
+        ))
+    }
+    
+    /**
+     * Gets all profiles from disk cache (ProfileRepository).
+     * @return List of pairs (userId, MemberProfile) sorted by display name
+     */
+    suspend fun getAllDiskCachedProfiles(context: Context): List<Pair<String, MemberProfile>> = withContext(Dispatchers.IO) {
+        try {
+            val profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
+            profileRepository.getAllProfiles()
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to get disk cached profiles", e)
+            emptyList()
+        }
+    }
+    
+    /**
      * Gets the latest version of a message (O(1) lookup)
      */
     fun getLatestMessageVersion(eventId: String): TimelineEvent? {

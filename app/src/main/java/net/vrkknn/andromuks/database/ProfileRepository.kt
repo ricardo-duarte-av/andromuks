@@ -148,6 +148,41 @@ class ProfileRepository(private val context: Context) {
     }
     
     /**
+     * Gets all profiles from the database.
+     * @return List of pairs (userId, MemberProfile) sorted by display name
+     */
+    suspend fun getAllProfiles(): List<Pair<String, MemberProfile>> = withContext(Dispatchers.IO) {
+        try {
+            val db = dbHelper.readableDatabase
+            val cursor = db.query(
+                "user_profiles",
+                arrayOf("user_id", "display_name", "avatar_url"),
+                null, null, null, null,
+                null // Don't sort in SQL, we'll sort in Kotlin to handle nulls properly
+            )
+            
+            val profiles = mutableListOf<Pair<String, MemberProfile>>()
+            while (cursor.moveToNext()) {
+                val userId = cursor.getString(0)
+                val displayName = cursor.getString(1).takeIf { it.isNotEmpty() }
+                val avatarUrl = cursor.getString(2).takeIf { it.isNotEmpty() }
+                profiles.add(userId to MemberProfile(displayName, avatarUrl))
+            }
+            
+            cursor.close()
+            
+            // Sort by display name (nulls last), then by userId
+            profiles.sortedWith(compareBy(
+                { it.second.displayName ?: "\uFFFF" }, // Put nulls at the end
+                { it.first }
+            ))
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "ProfileRepository: Failed to get all profiles", e)
+            emptyList()
+        }
+    }
+    
+    /**
      * Cleans up old profiles to prevent database bloat.
      * Removes profiles older than the specified cutoff time.
      */
