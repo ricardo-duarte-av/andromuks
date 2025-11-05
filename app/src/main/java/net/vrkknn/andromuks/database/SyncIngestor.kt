@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.database.dao.AccountDataDao
 import net.vrkknn.andromuks.database.dao.EventDao
 import net.vrkknn.andromuks.database.dao.ReceiptDao
 import net.vrkknn.andromuks.database.dao.RoomStateDao
@@ -12,6 +13,7 @@ import net.vrkknn.andromuks.database.dao.RoomSummaryDao
 import net.vrkknn.andromuks.database.dao.SpaceDao
 import net.vrkknn.andromuks.database.dao.SpaceRoomDao
 import net.vrkknn.andromuks.database.dao.SyncMetaDao
+import net.vrkknn.andromuks.database.entities.AccountDataEntity
 import net.vrkknn.andromuks.database.entities.EventEntity
 import net.vrkknn.andromuks.database.entities.ReceiptEntity
 import net.vrkknn.andromuks.database.entities.RoomStateEntity
@@ -41,6 +43,7 @@ class SyncIngestor(private val context: Context) {
     private val syncMetaDao = database.syncMetaDao()
     private val spaceDao = database.spaceDao()
     private val spaceRoomDao = database.spaceRoomDao()
+    private val accountDataDao = database.accountDataDao()
     
     private val TAG = "SyncIngestor"
     
@@ -80,11 +83,14 @@ class SyncIngestor(private val context: Context) {
             spaceRoomDao.deleteAllSpaceRooms()
             spaceDao.deleteAllSpaces()
             
+            // Clear account data
+            accountDataDao.deleteAll()
+            
             // Clear sync metadata except run_id (which we just set)
             syncMetaDao.upsert(SyncMetaEntity("last_received_id", "0"))
             syncMetaDao.upsert(SyncMetaEntity("since", ""))
         }
-        Log.d(TAG, "Cleared all sync data: events, room states, summaries, receipts, spaces")
+        Log.d(TAG, "Cleared all sync data: events, room states, summaries, receipts, spaces, account_data")
     }
     
     /**
@@ -112,6 +118,16 @@ class SyncIngestor(private val context: Context) {
         
         // Extract "since" token (sync token from server)
         val since = data.optString("since", "")
+        
+        // Process account_data if present (must be done before other processing)
+        val accountDataJson = data.optJSONObject("account_data")
+        if (accountDataJson != null) {
+            // Store entire account_data JSON object
+            // This replaces any existing account_data (as per user requirement)
+            val accountDataStr = accountDataJson.toString()
+            accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
+            Log.d(TAG, "Persisted account_data to database (${accountDataStr.length} chars)")
+        }
         
         // Store sync metadata
         database.withTransaction {

@@ -7,6 +7,7 @@ import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.RoomItem
 import net.vrkknn.andromuks.RoomTimelineCache
 import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.database.dao.AccountDataDao
 import net.vrkknn.andromuks.database.dao.EventDao
 import net.vrkknn.andromuks.database.dao.RoomStateDao
 import net.vrkknn.andromuks.database.dao.RoomSummaryDao
@@ -34,6 +35,7 @@ class BootstrapLoader(private val context: Context) {
     private val syncMetaDao = database.syncMetaDao()
     private val spaceDao = database.spaceDao()
     private val spaceRoomDao = database.spaceRoomDao()
+    private val accountDataDao = database.accountDataDao()
     
     private val TAG = "BootstrapLoader"
     
@@ -53,6 +55,7 @@ class BootstrapLoader(private val context: Context) {
                 runId = "",
                 lastReceivedId = 0,
                 sinceToken = "",
+                accountDataJson = null,
                 isValid = false
             )
         }
@@ -60,6 +63,10 @@ class BootstrapLoader(private val context: Context) {
         // 2. Load sync metadata
         val lastReceivedId = syncMetaDao.get("last_received_id")?.toIntOrNull() ?: 0
         val sinceToken = syncMetaDao.get("since") ?: ""
+        
+        // 2.5. Load account_data
+        val accountDataJson = accountDataDao.getAccountData()
+        Log.d(TAG, "Loaded account_data from database: ${if (accountDataJson != null) "${accountDataJson.length} chars" else "null"}")
         
         // 3. Load ALL room summaries (not just top 200) - needed for complete room list
         val roomSummaries = roomSummaryDao.getAllRooms()
@@ -255,7 +262,20 @@ class BootstrapLoader(private val context: Context) {
         val runId: String,
         val lastReceivedId: Int,
         val sinceToken: String,
+        val accountDataJson: String? = null,
         val isValid: Boolean
     )
+    
+    /**
+     * Load account_data from database (standalone method)
+     */
+    suspend fun loadAccountData(): String? = withContext(Dispatchers.IO) {
+        try {
+            accountDataDao.getAccountData()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading account_data from database: ${e.message}", e)
+            null
+        }
+    }
 }
 

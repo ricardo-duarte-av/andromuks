@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import net.vrkknn.andromuks.database.dao.AccountDataDao
 import net.vrkknn.andromuks.database.dao.EventDao
 import net.vrkknn.andromuks.database.dao.ReceiptDao
 import net.vrkknn.andromuks.database.dao.RoomStateDao
@@ -11,6 +12,7 @@ import net.vrkknn.andromuks.database.dao.RoomSummaryDao
 import net.vrkknn.andromuks.database.dao.SpaceDao
 import net.vrkknn.andromuks.database.dao.SpaceRoomDao
 import net.vrkknn.andromuks.database.dao.SyncMetaDao
+import net.vrkknn.andromuks.database.entities.AccountDataEntity
 import net.vrkknn.andromuks.database.entities.EventEntity
 import net.vrkknn.andromuks.database.entities.ReceiptEntity
 import net.vrkknn.andromuks.database.entities.RoomStateEntity
@@ -27,9 +29,10 @@ import net.vrkknn.andromuks.database.entities.SyncMetaEntity
         RoomSummaryEntity::class,
         SyncMetaEntity::class,
         SpaceEntity::class,
-        SpaceRoomEntity::class
+        SpaceRoomEntity::class,
+        AccountDataEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class AndromuksDatabase : RoomDatabase() {
@@ -40,6 +43,7 @@ abstract class AndromuksDatabase : RoomDatabase() {
     abstract fun syncMetaDao(): SyncMetaDao
     abstract fun spaceDao(): SpaceDao
     abstract fun spaceRoomDao(): SpaceRoomDao
+    abstract fun accountDataDao(): AccountDataDao
 
     companion object {
         @Volatile private var instance: AndromuksDatabase? = null

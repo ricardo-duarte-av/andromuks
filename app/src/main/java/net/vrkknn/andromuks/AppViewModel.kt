@@ -2586,12 +2586,15 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: MEMBER PROCESSING - Updated ${currentSyncRooms.size} rooms with member changes")
     }
     
-    private fun processAccountData(syncJson: JSONObject) {
-        val data = syncJson.optJSONObject("data") ?: return
-        val accountData = data.optJSONObject("account_data") ?: return
+    /**
+     * Process account_data from sync_complete or database
+     * Can be called with either a sync JSON object or a direct account_data JSON string
+     */
+    private fun processAccountData(accountDataJson: JSONObject) {
+        // Account data is already extracted, process it directly
         
         // Process recent emoji account data
-        val recentEmojiData = accountData.optJSONObject("io.element.recent_emoji")
+        val recentEmojiData = accountDataJson.optJSONObject("io.element.recent_emoji")
         if (recentEmojiData != null) {
             val content = recentEmojiData.optJSONObject("content")
             val recentEmojiArray = content?.optJSONArray("recent_emoji")
@@ -2623,7 +2626,7 @@ class AppViewModel : ViewModel() {
         }
         
         // Process m.direct account data for DM room detection
-        val mDirectData = accountData.optJSONObject("m.direct")
+        val mDirectData = accountDataJson.optJSONObject("m.direct")
         if (mDirectData != null) {
             val content = mDirectData.optJSONObject("content")
             if (content != null) {
@@ -2955,8 +2958,12 @@ class AppViewModel : ViewModel() {
         val newMemberStateHash = generateMemberStateHash()
         val memberStateChanged = newMemberStateHash != oldMemberStateHash
         
-        // Process account_data for recent emojis
-        processAccountData(syncJson)
+        // Process account_data for recent emojis and m.direct
+        val data = syncJson.optJSONObject("data")
+        val accountData = data?.optJSONObject("account_data")
+        if (accountData != null) {
+            processAccountData(accountData)
+        }
         
         // Auto-save state periodically (every 10 sync_complete messages) for crash recovery
         if (syncMessageCount > 0 && syncMessageCount % 10 == 0) {
@@ -2983,8 +2990,12 @@ class AppViewModel : ViewModel() {
         val newMemberStateHash = generateMemberStateHash()
         val memberStateChanged = newMemberStateHash != oldMemberStateHash
         
-        // Process account_data for recent emojis
-        processAccountData(syncJson)
+        // Process account_data for recent emojis and m.direct
+        val data = syncJson.optJSONObject("data")
+        val accountData = data?.optJSONObject("account_data")
+        if (accountData != null) {
+            processAccountData(accountData)
+        }
         
         // Auto-save state periodically (every 10 sync_complete messages) for crash recovery
         if (syncMessageCount > 0 && syncMessageCount % 10 == 0) {
@@ -4271,6 +4282,17 @@ class AppViewModel : ViewModel() {
                                     android.util.Log.d("Andromuks", "AppViewModel: Loaded ${loadedSpaces.size} spaces from database")
                                 } else {
                                     android.util.Log.d("Andromuks", "AppViewModel: No spaces found in database")
+                                }
+                            }
+                            
+                            // Load account_data from database
+                            if (bootstrapResult.accountDataJson != null) {
+                                try {
+                                    val accountDataObj = org.json.JSONObject(bootstrapResult.accountDataJson)
+                                    processAccountData(accountDataObj)
+                                    android.util.Log.d("Andromuks", "AppViewModel: Processed account_data from database (m.direct, recent_emoji, etc.)")
+                                } catch (e: Exception) {
+                                    android.util.Log.e("Andromuks", "AppViewModel: Error processing account_data from database: ${e.message}", e)
                                 }
                             }
                             
