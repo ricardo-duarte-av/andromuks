@@ -2078,6 +2078,10 @@ fun RoomTimelineScreen(
                                 selection = TextRange(newCursorPosition)
                             )
                             
+                            // Update recent emojis (updates in-memory state and sends to backend)
+                            // This will persist via account_data and update the recent emoji tab
+                            appViewModel.updateRecentEmojis(emoji)
+                            
                             // Don't close the picker - user might want to add more emojis
                         },
                         onDismiss = {

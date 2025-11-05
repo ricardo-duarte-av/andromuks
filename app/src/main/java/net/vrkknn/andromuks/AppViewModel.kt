@@ -5931,7 +5931,7 @@ class AppViewModel : ViewModel() {
         updateRecentEmojis(emoji)
     }
     
-    private fun updateRecentEmojis(emoji: String) {
+    fun updateRecentEmojis(emoji: String) {
         // Find existing emoji in frequencies
         val existingIndex = recentEmojiFrequencies.indexOfFirst { it.first == emoji }
         
