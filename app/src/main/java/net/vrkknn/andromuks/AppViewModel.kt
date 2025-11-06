@@ -4409,9 +4409,10 @@ class AppViewModel : ViewModel() {
                             updateBadgeCounts(allRooms)
                             android.util.Log.d("Andromuks", "AppViewModel: Updated cached room sections and badge counts (allRooms.size=${allRooms.size})")
                             
-                            // Trigger UI update to show the restored rooms
-                            roomListUpdateCounter++
-                            android.util.Log.d("Andromuks", "AppViewModel: Triggered room list UI update after loading from database")
+                            // CRITICAL FIX: Force room list sort to ensure proper sorting and UI update
+                            // This ensures rooms are properly sorted and the UI update mechanism is triggered
+                            forceRoomListSort()
+                            android.util.Log.d("Andromuks", "AppViewModel: Triggered room list sort and UI update after loading from database")
                             
                             true
                         } else {
