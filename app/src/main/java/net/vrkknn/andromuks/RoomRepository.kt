@@ -89,10 +89,10 @@ object RoomRepository {
     }
     
     /**
-     * Get all rooms
+     * Get all rooms (sorted by sortingTimestamp descending)
      */
     fun getAllRooms(): List<RoomItem> {
-        return _roomMap.value.values.toList()
+        return _roomMap.value.values.sortedByDescending { it.sortingTimestamp ?: 0L }
     }
     
     /**
