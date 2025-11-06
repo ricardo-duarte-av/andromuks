@@ -138,6 +138,7 @@ class BootstrapLoader(private val context: Context) {
             runId = storedRunId,
             lastReceivedId = lastReceivedId,
             sinceToken = sinceToken,
+            accountDataJson = accountDataJson,
             isValid = true
         )
     }

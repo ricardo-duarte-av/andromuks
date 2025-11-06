@@ -2661,7 +2661,38 @@ class AppViewModel : ViewModel() {
                 // Update the DM room IDs cache
                 directMessageRoomIds = dmRoomIds
                 android.util.Log.d("Andromuks", "AppViewModel: Loaded ${dmRoomIds.size} DM room IDs from m.direct account data: ${dmRoomIds.take(5)}")
+                
+                // PERFORMANCE: Update existing rooms in roomMap with correct DM status from account_data
+                // This ensures rooms loaded from database have correct isDirectMessage flag
+                updateRoomsDirectMessageStatus(dmRoomIds)
             }
+        }
+    }
+    
+    /**
+     * Updates the isDirectMessage flag for all rooms in roomMap based on m.direct account data
+     * This ensures the Direct tab is correctly populated even when rooms are loaded from database
+     */
+    private fun updateRoomsDirectMessageStatus(dmRoomIds: Set<String>) {
+        var updatedCount = 0
+        
+        // Update each room's isDirectMessage flag based on m.direct account data
+        // Update the map in place (roomMap is a val but points to a mutable map)
+        for ((roomId, room) in roomMap) {
+            val shouldBeDirect = dmRoomIds.contains(roomId)
+            if (room.isDirectMessage != shouldBeDirect) {
+                // Update room with correct DM status
+                roomMap[roomId] = room.copy(isDirectMessage = shouldBeDirect)
+                updatedCount++
+            }
+        }
+        
+        if (updatedCount > 0) {
+            // Update allRooms to reflect the changes
+            allRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+            // Invalidate cache to force refresh of filtered sections
+            invalidateRoomSectionCache()
+            android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedCount rooms with correct DM status from m.direct account data")
         }
     }
 
