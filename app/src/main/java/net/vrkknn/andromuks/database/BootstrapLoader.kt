@@ -96,14 +96,60 @@ class BootstrapLoader(private val context: Context) {
                 }
             }
             
+            // CRITICAL FIX: If messagePreview is missing, load it from the most recent message event
+            var messagePreview = summary.messagePreview
+            var messageSender = summary.messageSender
+            if (messagePreview.isNullOrBlank()) {
+                try {
+                    // Get the most recent events and find the last message
+                    val recentEvents = eventDao.getEventsForRoomDesc(summary.roomId, 50)
+                    for (eventEntity in recentEvents) {
+                        try {
+                            val eventJson = JSONObject(eventEntity.rawJson)
+                            val eventType = eventJson.optString("type")
+                            
+                            if (eventType == "m.room.message" || eventType == "m.room.encrypted") {
+                                // Extract message preview
+                                val content = eventJson.optJSONObject("content")
+                                if (content != null) {
+                                    val body = content.optString("body")?.takeIf { it.isNotBlank() }
+                                    if (body != null) {
+                                        messagePreview = body
+                                        messageSender = eventJson.optString("sender")?.takeIf { it.isNotBlank() }
+                                        Log.d(TAG, "Room ${summary.roomId}: Loaded message preview from events: '${messagePreview.take(50)}...'")
+                                        break
+                                    }
+                                }
+                                
+                                // For encrypted messages, check decrypted content
+                                if (messagePreview.isNullOrBlank() && eventType == "m.room.encrypted") {
+                                    val decrypted = eventJson.optJSONObject("decrypted")
+                                    val body = decrypted?.optString("body")?.takeIf { it.isNotBlank() }
+                                    if (body != null) {
+                                        messagePreview = body
+                                        messageSender = eventJson.optString("sender")?.takeIf { it.isNotBlank() }
+                                        Log.d(TAG, "Room ${summary.roomId}: Loaded encrypted message preview from events: '${messagePreview.take(50)}...'")
+                                        break
+                                    }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to parse event for room ${summary.roomId}: ${e.message}")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to get last message event for room ${summary.roomId}: ${e.message}")
+                }
+            }
+            
             // BUG FIX #1: Always include unreadCount and highlightCount (even if 0) for proper badge display
             // Also ensure sortingTimestamp is set (either from summary or from last event)
             val room = RoomItem(
                 id = summary.roomId,
                 name = roomState?.name ?: summary.roomId,
                 avatarUrl = roomState?.avatarUrl,
-                messagePreview = summary.messagePreview,
-                messageSender = summary.messageSender,
+                messagePreview = messagePreview,
+                messageSender = messageSender,
                 sortingTimestamp = sortingTimestamp.takeIf { it > 0 }, // Only set if > 0 (for time diff display)
                 unreadCount = summary.unreadCount.takeIf { it > 0 }, // Only show if > 0 for badge
                 highlightCount = summary.highlightCount.takeIf { it > 0 }, // Only show if > 0 for badge

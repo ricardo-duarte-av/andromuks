@@ -20,6 +20,10 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
@@ -29,6 +33,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.utils.CrashHandler
+import net.vrkknn.andromuks.utils.CrashReportDialog
 
 class MainActivity : ComponentActivity() {
     private lateinit var appViewModel: AppViewModel
@@ -37,10 +43,29 @@ class MainActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize crash handler
+        CrashHandler.initialize(this)
+        
         enableEdgeToEdge()
         
         setContent {
             AndromuksTheme {
+                // Check for crash and show dialog if needed
+                var showCrashDialog by remember { mutableStateOf(CrashHandler.checkAndShowCrashDialog(this@MainActivity)) }
+                val crashLogPath = remember { CrashHandler.getLastCrashLogPath(this@MainActivity) }
+                
+                if (showCrashDialog && crashLogPath != null) {
+                    CrashReportDialog(
+                        crashLogPath = crashLogPath,
+                        onDismiss = { showCrashDialog = false },
+                        onEmail = {
+                            CrashHandler.emailCrashLog(this@MainActivity, crashLogPath)
+                            showCrashDialog = false
+                        }
+                    )
+                }
+                
                 AppNavigation(
                     modifier = Modifier.fillMaxSize(),
                     onViewModelCreated = { viewModel ->
@@ -54,6 +79,9 @@ class MainActivity : ComponentActivity() {
                         
                         // Schedule database maintenance (daily at 2 AM)
                         net.vrkknn.andromuks.database.DatabaseMaintenanceWorker.schedule(this)
+                        
+                        // Schedule WebSocket health checks (every 15 minutes)
+                        WebSocketHealthCheckWorker.schedule(this)
                         
                         // OPTIMIZATION #2: Optimized intent processing
                         val roomId = intent.getStringExtra("room_id")

@@ -682,8 +682,11 @@ class WebSocketService : Service() {
             serviceInstance.connectionState = ConnectionState.CONNECTING
             serviceInstance.webSocket = webSocket
             serviceInstance.connectionState = ConnectionState.CONNECTED
+            // Track connection start time for duration display
+            serviceInstance.connectionStartTime = System.currentTimeMillis()
             android.util.Log.d("WebSocketService", "Connection state set to CONNECTED")
             android.util.Log.d("WebSocketService", "WebSocket reference set: ${webSocket != null}")
+            android.util.Log.d("WebSocketService", "Connection start time recorded: ${serviceInstance.connectionStartTime}")
             serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
             
             // Ensure network connectivity is marked as available when WebSocket connects
@@ -733,6 +736,9 @@ class WebSocketService : Service() {
             serviceInstance.webSocket?.close(1000, "Clearing connection")
             serviceInstance.webSocket = null
             serviceInstance.connectionState = ConnectionState.DISCONNECTED
+            
+            // Reset connection start time
+            serviceInstance.connectionStartTime = 0
             
             // Cancel any pending pong timeouts (ping loop keeps running)
             serviceInstance.pongTimeoutJob?.cancel()
@@ -946,6 +952,20 @@ class WebSocketService : Service() {
             serviceInstance.currentRunId = runId
             serviceInstance.lastReceivedSyncId = lastReceivedId
             serviceInstance.vapidKey = vapidKey
+            
+            // RESILIENCE: Persist to SharedPreferences so they survive app restarts
+            try {
+                val context = serviceInstance.applicationContext
+                val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                prefs.edit()
+                    .putString("ws_run_id", runId)
+                    .putInt("ws_last_received_sync_id", lastReceivedId)
+                    .putString("ws_vapid_key", vapidKey)
+                    .apply()
+                android.util.Log.d("WebSocketService", "Reconnection state persisted to SharedPreferences")
+            } catch (e: Exception) {
+                android.util.Log.e("WebSocketService", "Failed to persist reconnection state", e)
+            }
         }
         
         /**
@@ -1206,6 +1226,7 @@ class WebSocketService : Service() {
     private var webSocket: WebSocket? = null
     private var connectionState = ConnectionState.DISCONNECTED
     private var lastPongTimestamp = 0L // Track last pong for heartbeat monitoring
+    private var connectionStartTime: Long = 0 // Track when WebSocket connection was established (0 = not connected)
     
         // Reconnection state management
         private var currentRunId: String = ""
@@ -1437,8 +1458,27 @@ class WebSocketService : Service() {
                     return@launch
                 }
                 
-                // Get reconnection parameters from service state
-                val (runId, lastReceivedId, vapidKey) = WebSocketService.getReconnectionParameters()
+                // Get reconnection parameters from service state, fallback to SharedPreferences
+                var (runId, lastReceivedId, vapidKey) = WebSocketService.getReconnectionParameters()
+                
+                // RESILIENCE: If service state is empty, try reading from SharedPreferences
+                // This handles the case where service was restarted and lost in-memory state
+                if (runId.isEmpty() || lastReceivedId == 0) {
+                    android.util.Log.d("WebSocketService", "Service state empty, reading from SharedPreferences")
+                    val savedRunId = sharedPrefs.getString("ws_run_id", "") ?: ""
+                    val savedLastReceivedId = sharedPrefs.getInt("ws_last_received_sync_id", 0)
+                    val savedVapidKey = sharedPrefs.getString("ws_vapid_key", "") ?: ""
+                    
+                    if (savedRunId.isNotEmpty() || savedLastReceivedId > 0) {
+                        runId = savedRunId
+                        lastReceivedId = savedLastReceivedId
+                        vapidKey = savedVapidKey
+                        android.util.Log.d("WebSocketService", "Restored reconnection parameters from SharedPreferences: runId='$runId', lastReceivedId=$lastReceivedId")
+                        
+                        // Update service state with restored values
+                        WebSocketService.setReconnectionState(runId, lastReceivedId, vapidKey)
+                    }
+                }
                 
                 // Create OkHttpClient
                 val client = okhttp3.OkHttpClient.Builder()
@@ -2179,6 +2219,24 @@ class WebSocketService : Service() {
         createNotificationChannel()
         Log.d("WebSocketService", "Service created")
         
+        // RESILIENCE: Restore reconnection parameters from SharedPreferences on service startup
+        // This ensures we can reconnect even if AppViewModel was destroyed
+        try {
+            val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+            val savedRunId = prefs.getString("ws_run_id", "") ?: ""
+            val savedLastReceivedId = prefs.getInt("ws_last_received_sync_id", 0)
+            val savedVapidKey = prefs.getString("ws_vapid_key", "") ?: ""
+            
+            if (savedRunId.isNotEmpty() || savedLastReceivedId > 0) {
+                currentRunId = savedRunId
+                lastReceivedSyncId = savedLastReceivedId
+                vapidKey = savedVapidKey
+                android.util.Log.d("WebSocketService", "Restored reconnection parameters from SharedPreferences on service startup: runId='$savedRunId', lastReceivedId=$savedLastReceivedId")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to restore reconnection parameters on startup", e)
+        }
+        
         // Start network monitoring immediately when service is created
         android.util.Log.d("WebSocketService", "Starting network monitoring from onCreate")
         startNetworkMonitoring(this)
@@ -2208,6 +2266,41 @@ class WebSocketService : Service() {
         } catch (e: Exception) {
             android.util.Log.e("WebSocketService", "Failed to start foreground service", e)
             // Don't crash - service will run in background
+        }
+        
+        // RESILIENCE: Check connection state on service restart
+        // If service was restarted by Android and WebSocket is disconnected, attempt reconnection
+        serviceScope.launch {
+            delay(2000) // Wait 2 seconds for service to fully initialize
+            
+            val isConnected = connectionState == ConnectionState.CONNECTED && webSocket != null
+            val isNetworkAvailable = networkMonitor?.isNetworkAvailable() ?: false
+            
+            android.util.Log.d("WebSocketService", "Service restart check: connected=$isConnected, network=$isNetworkAvailable, reconnectionCallback=${reconnectionCallback != null}")
+            
+            // If we have network but no connection, and we're not already reconnecting, attempt reconnection
+            if (isNetworkAvailable && !isConnected && !isReconnecting) {
+                android.util.Log.w("WebSocketService", "Service restarted but WebSocket disconnected - attempting reconnection")
+                
+                // Try using reconnection callback first (if AppViewModel is available)
+                if (reconnectionCallback != null) {
+                    android.util.Log.d("WebSocketService", "Using AppViewModel reconnection callback")
+                    try {
+                        reconnectionCallback?.invoke("Service restarted - reconnecting")
+                    } catch (e: Exception) {
+                        android.util.Log.e("WebSocketService", "Reconnection callback failed, trying fallback", e)
+                        attemptFallbackReconnection("Service restarted - callback failed")
+                    }
+                } else {
+                    // AppViewModel not available - use fallback reconnection
+                    android.util.Log.w("WebSocketService", "AppViewModel not available - using fallback reconnection")
+                    attemptFallbackReconnection("Service restarted - AppViewModel not available")
+                }
+            } else if (!isNetworkAvailable) {
+                android.util.Log.d("WebSocketService", "Service restarted but network unavailable - waiting for network")
+            } else if (isConnected) {
+                android.util.Log.d("WebSocketService", "Service restarted and WebSocket already connected")
+            }
         }
         
         return START_STICKY // Restart if killed by system
@@ -2393,7 +2486,19 @@ class WebSocketService : Service() {
                     "no sync yet"
                 }
                 
-                "⚠️ Degraded • ${getNetworkTypeDisplayName(currentNetworkType)} • Lag: $lagText • Last: $lastSyncText"
+                // Calculate and format connection duration
+                val durationText = if (connectionStartTime > 0) {
+                    val durationSeconds = (System.currentTimeMillis() - connectionStartTime) / 1000
+                    when {
+                        durationSeconds < 60 -> "${durationSeconds}s"
+                        durationSeconds < 3600 -> "${durationSeconds / 60}m"
+                        else -> "${durationSeconds / 3600}h"
+                    }
+                } else {
+                    "0s"
+                }
+                
+                "⚠️ Degraded • ${getNetworkTypeDisplayName(currentNetworkType)} • Lag: $lagText • Last: $lastSyncText • Up: $durationText"
             }
             else -> {
             // Format lag
@@ -2423,7 +2528,19 @@ class WebSocketService : Service() {
             // Get connection health indicator
             val healthIndicator = getConnectionHealthIndicator(lagMs, lastSyncTimestamp)
             
-            "$healthIndicator • ${getNetworkTypeDisplayName(currentNetworkType)} • Lag: $lagText • Last: $lastSyncText"
+            // Calculate and format connection duration
+            val durationText = if (connectionStartTime > 0) {
+                val durationSeconds = (System.currentTimeMillis() - connectionStartTime) / 1000
+                when {
+                    durationSeconds < 60 -> "${durationSeconds}s"
+                    durationSeconds < 3600 -> "${durationSeconds / 60}m"
+                    else -> "${durationSeconds / 3600}h"
+                }
+            } else {
+                "0s"
+            }
+            
+            "$healthIndicator • ${getNetworkTypeDisplayName(currentNetworkType)} • Lag: $lagText • Last: $lastSyncText • Up: $durationText"
             }
         }
         
