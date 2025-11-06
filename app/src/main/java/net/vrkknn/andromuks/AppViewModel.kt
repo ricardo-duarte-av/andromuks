@@ -1484,6 +1484,10 @@ class AppViewModel : ViewModel() {
     // Use a Map for efficient room lookups and updates
     private val roomMap = mutableMapOf<String, RoomItem>()
     private var syncMessageCount = 0
+    
+    // Track newly joined rooms (rooms that appeared in sync_complete for the first time)
+    // These should be sorted to the top of the room list
+    private val newlyJoinedRoomIds = mutableSetOf<String>()
 
     // MEMORY MANAGEMENT: Flattened member cache for better memory usage and performance
     // Using roomId:userId as key instead of nested maps to reduce memory fragmentation
@@ -2794,7 +2798,24 @@ class AppViewModel : ViewModel() {
     private fun performRoomReorder() {
         lastRoomReorderTime = System.currentTimeMillis()
         
-        val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+        // Separate newly joined rooms from existing rooms
+        val newlyJoinedRooms = roomMap.values.filter { newlyJoinedRoomIds.contains(it.id) }
+        val existingRooms = roomMap.values.filter { !newlyJoinedRoomIds.contains(it.id) }
+        
+        // Sort existing rooms by timestamp (newest first)
+        val sortedExistingRooms = existingRooms.sortedByDescending { it.sortingTimestamp ?: 0L }
+        
+        // Sort newly joined rooms by timestamp (newest first) - these go at the top
+        val sortedNewlyJoinedRooms = newlyJoinedRooms.sortedByDescending { it.sortingTimestamp ?: 0L }
+        
+        // Combine: newly joined rooms first, then existing rooms
+        val sortedRooms = sortedNewlyJoinedRooms + sortedExistingRooms
+        
+        // Clear newly joined set after sorting (rooms are no longer "new" after first sort)
+        if (newlyJoinedRoomIds.isNotEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: Sorting ${newlyJoinedRoomIds.size} newly joined rooms to the top")
+            newlyJoinedRoomIds.clear()
+        }
         
         // Update UI with new room order
         setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)), skipCounterUpdate = true)
@@ -3034,6 +3055,9 @@ class AppViewModel : ViewModel() {
      * Called on main thread after background parsing completes
      */
     private fun processParsedSyncResult(syncResult: SyncUpdateResult, syncJson: JSONObject) {
+        // CRITICAL: Increment sync message count FIRST to prevent duplicate processing
+        syncMessageCount++
+        
         // Populate member cache from sync data and check for changes
         val oldMemberStateHash = generateMemberStateHash()
         populateMemberCacheFromSync(syncJson)
@@ -3102,35 +3126,36 @@ class AppViewModel : ViewModel() {
         // Add new rooms
         syncResult.newRooms.forEach { room ->
             roomMap[room.id] = room
+            // Mark as newly joined - will be sorted to the top
+            newlyJoinedRoomIds.add(room.id)
+            android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (marked as newly joined)")
+            
             // Update animation state only if app is visible (battery optimization)
             if (isAppVisible) {
                 updateRoomAnimationState(room.id, isAnimating = true)
             }
-            android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name}")
             
             // Bridge cache invalidation: New rooms need to be checked for bridge state
             // Remove from checked rooms set so it gets checked on next bridge load
             bridgeCacheCheckedRooms = bridgeCacheCheckedRooms - room.id
-            
-            // Check if this is a room we just joined and need to navigate to
-            pendingJoinedRoomNavigation?.let { (pendingRoomId, navController) ->
-                if (room.id == pendingRoomId) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Joined room appeared in sync, navigating to $pendingRoomId")
-                    // Navigate to the newly joined room
-                    val encodedRoomId = java.net.URLEncoder.encode(room.id, "UTF-8")
-                    navController.navigate("room_timeline/$encodedRoomId")
-                    // Request timeline for the room
-                    requestRoomTimeline(room.id)
-                    // Clear the pending navigation
-                    pendingJoinedRoomNavigation = null
-                }
-            }
+        }
+        
+        // CRITICAL: If we have newly joined rooms, force immediate sort to show them at the top
+        if (syncResult.newRooms.isNotEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: New rooms detected - forcing immediate sort to show them at the top")
+            scheduleRoomReorder(forceImmediate = true)
         }
         
         // Remove left rooms
+        var roomsWereRemoved = false
+        val removedRoomIdsSet = syncResult.removedRoomIds.toSet()
         syncResult.removedRoomIds.forEach { roomId ->
             val removedRoom = roomMap.remove(roomId)
             if (removedRoom != null) {
+                roomsWereRemoved = true
+                // Remove from newly joined set if it was there
+                newlyJoinedRoomIds.remove(roomId)
+                
                 // Remove animation state only if app is visible (battery optimization)
                 if (isAppVisible) {
                     roomAnimationStates = roomAnimationStates - roomId
@@ -3141,6 +3166,23 @@ class AppViewModel : ViewModel() {
                 bridgeCacheCheckedRooms = bridgeCacheCheckedRooms - roomId
                 android.util.Log.d("Andromuks", "AppViewModel: Removed room: ${removedRoom.name}")
             }
+        }
+        
+        // CRITICAL: If rooms were removed, immediately filter them out from allRooms and update UI
+        if (roomsWereRemoved) {
+            android.util.Log.d("Andromuks", "AppViewModel: Rooms removed - immediately filtering from allRooms and updating UI")
+            // Immediately filter out removed rooms from allRooms
+            val filteredRooms = allRooms.filter { it.id !in removedRoomIdsSet }
+            allRooms = filteredRooms
+            invalidateRoomSectionCache()
+            
+            // Also update spaces list
+            setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = filteredRooms)), skipCounterUpdate = true)
+            
+            // Trigger immediate UI update (bypass debounce)
+            needsRoomListUpdate = true
+            roomListUpdateCounter++
+            android.util.Log.d("Andromuks", "AppViewModel: Immediately updated UI after room removal (roomListUpdateCounter: $roomListUpdateCounter)")
         }
         
         android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${roomMap.size} (updated: ${syncResult.updatedRooms.size}, new: ${syncResult.newRooms.size}, removed: ${syncResult.removedRoomIds.size}) - sync message #$syncMessageCount [App visible: $isAppVisible]")
@@ -4402,6 +4444,21 @@ class AppViewModel : ViewModel() {
                                 }
                             }
                             
+                            // Load pending invites from database
+                            kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                                val loadedInvites = bootstrapLoader!!.loadInvitesFromDb()
+                                if (loadedInvites.isNotEmpty()) {
+                                    for (invite in loadedInvites) {
+                                        pendingInvites[invite.roomId] = invite
+                                    }
+                                    android.util.Log.d("Andromuks", "AppViewModel: Loaded ${loadedInvites.size} pending invites from database")
+                                    // Trigger UI update to show invites
+                                    roomListUpdateCounter++
+                                } else {
+                                    android.util.Log.d("Andromuks", "AppViewModel: No pending invites found in database")
+                                }
+                            }
+                            
                             // BUG FIX #2: Force update cached room sections after all data is loaded
                             // Reset hash to force recalculation since we're loading from DB
                             lastAllRoomsHash = 0
@@ -5228,13 +5285,16 @@ class AppViewModel : ViewModel() {
         if (currentCachedCount < 100) {
             val paginateRequestId = requestIdCounter++
             timelineRequests[paginateRequestId] = roomId
+            // For newly joined rooms (no cache), use reset=true to get fresh data from server
+            // For rooms with partial cache, use reset=false to append to existing cache
+            val shouldReset = currentCachedCount == 0
             sendWebSocketCommand("paginate", paginateRequestId, mapOf(
                 "room_id" to roomId,
                 "max_timeline_id" to 0,
                 "limit" to 200,
-                "reset" to false
+                "reset" to shouldReset
             ))
-            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Requested 200 timeline events (cachedCount: $currentCachedCount, need 100)")
+            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Requested 200 timeline events (cachedCount: $currentCachedCount, need 100, reset: $shouldReset)")
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Skipped timeline request, already cached: $currentCachedCount")
         }
@@ -8962,6 +9022,7 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    
     /**
      * Gets the final event for a bubble, following the edit chain to the latest edit.
      */
@@ -9252,6 +9313,7 @@ class AppViewModel : ViewModel() {
                             var roomTopic: String? = null
                             var roomCanonicalAlias: String? = null
                             var inviteReason: String? = null
+                            var isDirectMessage = false
                             
                             // Parse invite state events
                             for (j in 0 until inviteState.length()) {
@@ -9269,6 +9331,25 @@ class AppViewModel : ViewModel() {
                                                 inviterUserId = sender
                                                 inviterDisplayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
                                                 inviteReason = content?.optString("reason")?.takeIf { it.isNotBlank() }
+                                                // Check if is_direct is true in the member event
+                                                val isDirect = content?.optBoolean("is_direct", false) ?: false
+                                                if (isDirect) {
+                                                    isDirectMessage = true
+                                                }
+                                            }
+                                        }
+                                        "m.room.create" -> {
+                                            // Check if additional_creators contains our user ID (indicates DM request)
+                                            val additionalCreators = content?.optJSONArray("additional_creators")
+                                            if (additionalCreators != null) {
+                                                for (k in 0 until additionalCreators.length()) {
+                                                    val creatorId = additionalCreators.optString(k, "")
+                                                    if (creatorId == currentUserId) {
+                                                        isDirectMessage = true
+                                                        android.util.Log.d("Andromuks", "AppViewModel: Detected DM invite - additional_creators contains current user")
+                                                        break
+                                                    }
+                                                }
                                             }
                                         }
                                         "m.room.name" -> {
@@ -9297,11 +9378,48 @@ class AppViewModel : ViewModel() {
                                     roomAvatar = roomAvatar,
                                     roomTopic = roomTopic,
                                     roomCanonicalAlias = roomCanonicalAlias,
-                                    inviteReason = inviteReason
+                                    inviteReason = inviteReason,
+                                    isDirectMessage = isDirectMessage
                                 )
                                 
+                                val isNewInvite = !pendingInvites.containsKey(roomId)
                                 pendingInvites[roomId] = invite
-                                android.util.Log.d("Andromuks", "AppViewModel: Added room invite: $roomName from $inviterUserId")
+                                android.util.Log.d("Andromuks", "AppViewModel: Added room invite: $roomName from $inviterUserId (DM: $isDirectMessage)")
+                                
+                                // CRITICAL: Save invite to database for persistence
+                                appContext?.let { context ->
+                                    viewModelScope.launch(Dispatchers.IO) {
+                                        try {
+                                            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                                            val inviteEntity = net.vrkknn.andromuks.database.entities.InviteEntity(
+                                                roomId = invite.roomId,
+                                                createdAt = invite.createdAt,
+                                                inviterUserId = invite.inviterUserId,
+                                                inviterDisplayName = invite.inviterDisplayName,
+                                                roomName = invite.roomName,
+                                                roomAvatar = invite.roomAvatar,
+                                                roomTopic = invite.roomTopic,
+                                                roomCanonicalAlias = invite.roomCanonicalAlias,
+                                                inviteReason = invite.inviteReason,
+                                                isDirectMessage = invite.isDirectMessage
+                                            )
+                                            database.inviteDao().upsert(inviteEntity)
+                                            android.util.Log.d("Andromuks", "AppViewModel: Saved invite to database: $roomId")
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("Andromuks", "AppViewModel: Error saving invite to database", e)
+                                        }
+                                    }
+                                }
+                                
+                                // CRITICAL: If this is a new invite, immediately trigger UI update
+                                // This bypasses the debounce to show invites as soon as they arrive
+                                if (isNewInvite) {
+                                    android.util.Log.d("Andromuks", "AppViewModel: New invite detected - immediately updating room list UI")
+                                    needsRoomListUpdate = true
+                                    // Force immediate UI update (bypass debounce for invites)
+                                    roomListUpdateCounter++
+                                    android.util.Log.d("Andromuks", "AppViewModel: Invite UI update triggered immediately (roomListUpdateCounter: $roomListUpdateCounter)")
+                                }
                             }
                         }
                     }
@@ -9370,6 +9488,10 @@ class AppViewModel : ViewModel() {
     fun acceptRoomInvite(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Accepting room invite: $roomId")
         
+        // CRITICAL: Preemptively mark room as newly joined so it appears at top when sync arrives
+        newlyJoinedRoomIds.add(roomId)
+        android.util.Log.d("Andromuks", "AppViewModel: Preemptively marked room $roomId as newly joined")
+        
         val acceptRequestId = requestIdCounter++
         joinRoomRequests[acceptRequestId] = roomId
         val via = roomId.substringAfter(":").substringBefore(".") // Extract server from room ID
@@ -9380,6 +9502,20 @@ class AppViewModel : ViewModel() {
         
         // Remove from pending invites
         pendingInvites.remove(roomId)
+        
+        // Remove from database
+        appContext?.let { context ->
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                    database.inviteDao().deleteInvite(roomId)
+                    android.util.Log.d("Andromuks", "AppViewModel: Removed invite from database: $roomId")
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Error removing invite from database", e)
+                }
+            }
+        }
+        
         roomListUpdateCounter++
         updateCounter++ // Keep for backward compatibility temporarily
     }
@@ -9395,6 +9531,20 @@ class AppViewModel : ViewModel() {
         
         // Remove from pending invites
         pendingInvites.remove(roomId)
+        
+        // Remove from database
+        appContext?.let { context ->
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                    database.inviteDao().deleteInvite(roomId)
+                    android.util.Log.d("Andromuks", "AppViewModel: Removed invite from database: $roomId")
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Error removing invite from database", e)
+                }
+            }
+        }
+        
         roomListUpdateCounter++
         updateCounter++ // Keep for backward compatibility temporarily
     }
@@ -9429,11 +9579,23 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    fun leaveRoom(roomId: String) {
+        android.util.Log.d("Andromuks", "AppViewModel: Leaving room: $roomId")
+        
+        val leaveRequestId = requestIdCounter++
+        leaveRoomRequests[leaveRequestId] = roomId
+        sendWebSocketCommand("leave_room", leaveRequestId, mapOf(
+            "room_id" to roomId
+        ))
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sent leave_room command for $roomId with requestId=$leaveRequestId")
+    }
+    
     fun handleLeaveRoomResponse(requestId: Int, data: Any) {
         val roomId = leaveRoomRequests[requestId]
         if (roomId != null) {
             android.util.Log.d("Andromuks", "AppViewModel: Leave room response for room $roomId")
-            // Room leave successful - invite will be removed from sync
+            // Room leave successful - room will be removed from sync
             leaveRoomRequests.remove(requestId)
         }
     }
@@ -10020,24 +10182,12 @@ class AppViewModel : ViewModel() {
     fun joinRoomAndNavigate(roomId: String, navController: androidx.navigation.NavController) {
         android.util.Log.d("Andromuks", "AppViewModel: joinRoomAndNavigate called for $roomId")
         
-        // Check if room already exists in our list
-        val existingRoom = getRoomById(roomId)
-        if (existingRoom != null) {
-            // Room already exists (already joined), navigate immediately
-            android.util.Log.d("Andromuks", "AppViewModel: Room already in list, navigating immediately")
-            val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
-            navController.navigate("room_timeline/$encodedRoomId")
-            // Request timeline for the room
-            requestRoomTimeline(roomId)
-        } else {
-            // Room not in list yet, wait for sync
-            android.util.Log.d("Andromuks", "AppViewModel: Room not in list yet, setting pending navigation")
-            pendingJoinedRoomNavigation = Pair(roomId, navController)
-            // The actual navigation will happen when the room appears in sync update
-        }
+        // Navigate directly - RoomTimelineScreen's LaunchedEffect will handle timeline loading
+        val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
+        navController.navigate("room_timeline/$encodedRoomId")
+        // Timeline loading will be handled by RoomTimelineScreen's LaunchedEffect(roomId)
+        // which calls requestRoomTimeline, which will use reset=true for newly joined rooms
     }
-    
-    private var pendingJoinedRoomNavigation: Pair<String, androidx.navigation.NavController>? = null
     
     private fun getRoomDisplayName(roomId: String): String {
         val roomItem = getRoomById(roomId)
@@ -10089,6 +10239,9 @@ class AppViewModel : ViewModel() {
     fun joinRoomWithCallback(roomIdOrAlias: String, viaServers: List<String>, callback: (Pair<String?, String?>?) -> Unit) {
         val requestId = requestIdCounter++
         joinRoomCallbacks[requestId] = callback
+        
+        // Store the roomIdOrAlias so we can mark it as newly joined when we get the response
+        // We'll mark it in handleJoinRoomCallbackResponse when we get the actual room ID
         
         val request = org.json.JSONObject().apply {
             put("command", "join_room")
@@ -10159,6 +10312,11 @@ class AppViewModel : ViewModel() {
             val roomId = data.optString("room_id")
             if (roomId.isNotEmpty()) {
                 android.util.Log.d("Andromuks", "AppViewModel: Joined room successfully, roomId=$roomId")
+                
+                // CRITICAL: Preemptively mark room as newly joined so it appears at top when sync arrives
+                newlyJoinedRoomIds.add(roomId)
+                android.util.Log.d("Andromuks", "AppViewModel: Preemptively marked room $roomId as newly joined from joinRoomWithCallback")
+                
                 callback(Pair(roomId, null))
             } else {
                 callback(Pair(null, null))

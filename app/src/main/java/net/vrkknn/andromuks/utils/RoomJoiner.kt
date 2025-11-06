@@ -361,7 +361,8 @@ fun RoomJoinerScreen(
     authToken: String,
     appViewModel: net.vrkknn.andromuks.AppViewModel,
     onDismiss: () -> Unit,
-    onJoinSuccess: (String) -> Unit
+    onJoinSuccess: (String) -> Unit,
+    inviteId: String? = null // Optional: if provided, this is an invite and we should use acceptRoomInvite/refuseRoomInvite
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -373,72 +374,151 @@ fun RoomJoinerScreen(
     var viaServers by remember { mutableStateOf(roomLink.viaServers) }
     var isJoining by remember { mutableStateOf(false) }
     
+    // For invites, get the invite info
+    val inviteInfo = remember(inviteId) {
+        if (inviteId != null) {
+            appViewModel.getPendingInvites().find { it.roomId == inviteId }
+        } else {
+            null
+        }
+    }
+    
     // Handle back button
     BackHandler(enabled = true) {
         if (!isJoining) {
+            if (inviteId != null) {
+                // This is an invite - use refuseRoomInvite and go back
+                appViewModel.refuseRoomInvite(inviteId)
+            }
             onDismiss()
         }
     }
     
     // Load room summary on launch
-    LaunchedEffect(roomLink) {
+    LaunchedEffect(roomLink, inviteId) {
         try {
-            var targetRoomId = roomLink.roomIdOrAlias
-            var servers = roomLink.viaServers
-            
-            // If it's an alias, resolve it first
-            if (roomLink.roomIdOrAlias.startsWith("#")) {
-                appViewModel.resolveRoomAlias(roomLink.roomIdOrAlias) { result ->
-                    if (result != null) {
-                        targetRoomId = result.first
-                        servers = result.second
-                        resolvedRoomId = targetRoomId
-                        viaServers = servers
-                        
-                        // Now get room summary
-                        appViewModel.getRoomSummary(targetRoomId, servers) { summaryResult ->
-                            val (summary, summaryError) = summaryResult ?: Pair(null, null)
-                            if (summaryError != null) {
-                                errorMessage = summaryError
-                                roomSummary = null
-                            } else if (summary != null) {
-                                roomSummary = summary
-                                errorMessage = null
-                                // If already joined, navigate directly
-                                if (summary.membership == "join") {
-                                    Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
-                                    onJoinSuccess(summary.roomId)
-                                }
-                            } else {
-                                errorMessage = "Failed to load room information"
-                            }
-                            isLoading = false
-                        }
+            // For invites, we can skip summary loading and show invite info directly
+            // Or still try to load it for better UX (shows room details)
+            if (inviteId != null) {
+                // For invites, set resolvedRoomId immediately and try to get summary
+                resolvedRoomId = inviteId
+                // Extract via server from room ID (for v12 rooms, this might not work, so use empty list)
+                val via = try {
+                    if (inviteId.contains(":")) {
+                        listOf(inviteId.substringAfter(":").substringBefore("."))
                     } else {
-                        errorMessage = "Failed to resolve room alias"
-                        isLoading = false
+                        emptyList<String>()
                     }
+                } catch (e: Exception) {
+                    emptyList<String>()
                 }
-            } else {
-                resolvedRoomId = targetRoomId
-                // Get room summary
-                appViewModel.getRoomSummary(targetRoomId, servers) { summaryResult ->
+                viaServers = via
+                
+                // For invites, try to get room summary but don't block - show invite info if it fails
+                var summaryLoaded = false
+                appViewModel.getRoomSummary(inviteId, via) { summaryResult ->
+                    summaryLoaded = true
                     val (summary, summaryError) = summaryResult ?: Pair(null, null)
                     if (summaryError != null) {
-                        errorMessage = summaryError
+                        // For invites, errors are OK - we'll show the invite info
+                        Log.d("RoomJoiner", "Room summary error for invite (this is OK): $summaryError")
                         roomSummary = null
+                        errorMessage = null // Don't show error for invites
                     } else if (summary != null) {
-                        roomSummary = summary
+                        // If num_joined_members is 0 or missing, also request get_room_state with include_members to get actual count
+                        if (summary.numJoinedMembers <= 0) {
+                            Log.d("RoomJoiner", "Room summary has no member count, requesting get_room_state with members for invite")
+                            appViewModel.requestRoomStateWithMembers(inviteId) { roomStateInfo, stateError ->
+                                if (roomStateInfo != null && roomStateInfo.members.isNotEmpty()) {
+                                    // Update summary with actual member count
+                                    val updatedSummary = summary.copy(
+                                        numJoinedMembers = roomStateInfo.members.size
+                                    )
+                                    roomSummary = updatedSummary
+                                    Log.d("RoomJoiner", "Updated room summary with member count: ${roomStateInfo.members.size}")
+                                } else {
+                                    // Use summary as-is (member count will show as "Unknown")
+                                    roomSummary = summary
+                                }
+                            }
+                        } else {
+                            roomSummary = summary
+                        }
                         errorMessage = null
                         // If already joined, navigate directly
                         if (summary.membership == "join") {
                             Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
                             onJoinSuccess(summary.roomId)
                         }
-                    } else {
-                        errorMessage = "Failed to load room information"
                     }
                     isLoading = false
+                }
+                
+                // Timeout: if summary doesn't load in 3 seconds, show the invite anyway
+                kotlinx.coroutines.delay(3000)
+                if (isLoading && !summaryLoaded) {
+                    Log.d("RoomJoiner", "Room summary timeout for invite, showing invite info anyway")
+                    isLoading = false
+                }
+            } else {
+                // Regular room link - load summary normally
+                var targetRoomId = roomLink.roomIdOrAlias
+                var servers = roomLink.viaServers
+                
+                // If it's an alias, resolve it first
+                if (roomLink.roomIdOrAlias.startsWith("#")) {
+                    appViewModel.resolveRoomAlias(roomLink.roomIdOrAlias) { result ->
+                        if (result != null) {
+                            targetRoomId = result.first
+                            servers = result.second
+                            resolvedRoomId = targetRoomId
+                            viaServers = servers
+                            
+                            // Now get room summary
+                            appViewModel.getRoomSummary(targetRoomId, servers) { summaryResult ->
+                                val (summary, summaryError) = summaryResult ?: Pair(null, null)
+                                if (summaryError != null) {
+                                    errorMessage = summaryError
+                                    roomSummary = null
+                                } else if (summary != null) {
+                                    roomSummary = summary
+                                    errorMessage = null
+                                    // If already joined, navigate directly
+                                    if (summary.membership == "join") {
+                                        Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
+                                        onJoinSuccess(summary.roomId)
+                                    }
+                                } else {
+                                    errorMessage = "Failed to load room information"
+                                }
+                                isLoading = false
+                            }
+                        } else {
+                            errorMessage = "Failed to resolve room alias"
+                            isLoading = false
+                        }
+                    }
+                } else {
+                    resolvedRoomId = targetRoomId
+                    // Get room summary
+                    appViewModel.getRoomSummary(targetRoomId, servers) { summaryResult ->
+                        val (summary, summaryError) = summaryResult ?: Pair(null, null)
+                        if (summaryError != null) {
+                            errorMessage = summaryError
+                            roomSummary = null
+                        } else if (summary != null) {
+                            roomSummary = summary
+                            errorMessage = null
+                            // If already joined, navigate directly
+                            if (summary.membership == "join") {
+                                Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
+                                onJoinSuccess(summary.roomId)
+                            }
+                        } else {
+                            errorMessage = "Failed to load room information"
+                        }
+                        isLoading = false
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -464,6 +544,38 @@ fun RoomJoinerScreen(
                 isLoading -> {
                     CircularProgressIndicator(
                         modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+                inviteId != null && inviteInfo != null && roomSummary == null && errorMessage == null -> {
+                    // For invites, show invite info if summary isn't available
+                    // Use actual summary if it loaded, otherwise create one from invite info
+                    val summaryToShow = roomSummary ?: RoomSummary(
+                        roomId = inviteInfo.roomId,
+                        avatarUrl = inviteInfo.roomAvatar,
+                        canonicalAlias = inviteInfo.roomCanonicalAlias,
+                        guestCanJoin = false,
+                        joinRule = "invite",
+                        name = inviteInfo.roomName,
+                        numJoinedMembers = -1, // Use -1 to indicate "unknown" instead of 0
+                        roomType = null,
+                        worldReadable = false,
+                        membership = "invite",
+                        roomVersion = null
+                    )
+                    RoomSummaryContent(
+                        summary = summaryToShow,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        isJoining = isJoining,
+                        onJoinClick = {
+                            isJoining = true
+                            appViewModel.acceptRoomInvite(inviteId)
+                            onJoinSuccess(inviteId)
+                        },
+                        onCancelClick = {
+                            appViewModel.refuseRoomInvite(inviteId)
+                            onDismiss()
+                        }
                     )
                 }
                 errorMessage != null && roomSummary == null -> {
@@ -509,19 +621,27 @@ fun RoomJoinerScreen(
                             Button(
                                 onClick = {
                                     isJoining = true
-                                    appViewModel.joinRoomWithCallback(
-                                        resolvedRoomId ?: roomLink.roomIdOrAlias,
-                                        viaServers
-                                    ) { result ->
-                                        val (joinedRoomId, joinError) = result ?: Pair(null, null)
-                                        if (joinError != null) {
-                                            errorMessage = joinError
-                                            isJoining = false
-                                        } else if (joinedRoomId != null) {
-                                            onJoinSuccess(joinedRoomId)
-                                        } else {
-                                            errorMessage = "Failed to join room"
-                                            isJoining = false
+                                    if (inviteId != null) {
+                                        // This is an invite - use acceptRoomInvite
+                                        appViewModel.acceptRoomInvite(inviteId)
+                                        // Navigate to room immediately
+                                        onJoinSuccess(inviteId)
+                                    } else {
+                                        // Regular room join via link
+                                        appViewModel.joinRoomWithCallback(
+                                            resolvedRoomId ?: roomLink.roomIdOrAlias,
+                                            viaServers
+                                        ) { result ->
+                                            val (joinedRoomId, joinError) = result ?: Pair(null, null)
+                                            if (joinError != null) {
+                                                errorMessage = joinError
+                                                isJoining = false
+                                            } else if (joinedRoomId != null) {
+                                                onJoinSuccess(joinedRoomId)
+                                            } else {
+                                                errorMessage = "Failed to join room"
+                                                isJoining = false
+                                            }
                                         }
                                     }
                                 },
@@ -543,7 +663,16 @@ fun RoomJoinerScreen(
                         }
                         
                         OutlinedButton(
-                            onClick = onDismiss,
+                            onClick = {
+                                if (inviteId != null) {
+                                    // This is an invite - use refuseRoomInvite and go back
+                                    appViewModel.refuseRoomInvite(inviteId)
+                                    onDismiss()
+                                } else {
+                                    // Regular dismiss
+                                    onDismiss()
+                                }
+                            },
                             enabled = !isJoining,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -561,23 +690,40 @@ fun RoomJoinerScreen(
                         isJoining = isJoining,
                         onJoinClick = {
                             isJoining = true
-                            appViewModel.joinRoomWithCallback(
-                                resolvedRoomId ?: roomLink.roomIdOrAlias,
-                                viaServers
-                            ) { result ->
-                                val (joinedRoomId, joinError) = result ?: Pair(null, null)
-                                if (joinError != null) {
-                                    errorMessage = joinError
-                                    isJoining = false
-                                } else if (joinedRoomId != null) {
-                                    onJoinSuccess(joinedRoomId)
-                                } else {
-                                    errorMessage = "Failed to join room"
-                                    isJoining = false
+                            if (inviteId != null) {
+                                // This is an invite - use acceptRoomInvite
+                                appViewModel.acceptRoomInvite(inviteId)
+                                // Navigate to room immediately
+                                onJoinSuccess(inviteId)
+                            } else {
+                                // Regular room join via link
+                                appViewModel.joinRoomWithCallback(
+                                    resolvedRoomId ?: roomLink.roomIdOrAlias,
+                                    viaServers
+                                ) { result ->
+                                    val (joinedRoomId, joinError) = result ?: Pair(null, null)
+                                    if (joinError != null) {
+                                        errorMessage = joinError
+                                        isJoining = false
+                                    } else if (joinedRoomId != null) {
+                                        onJoinSuccess(joinedRoomId)
+                                    } else {
+                                        errorMessage = "Failed to join room"
+                                        isJoining = false
+                                    }
                                 }
                             }
                         },
-                        onCancelClick = onDismiss
+                        onCancelClick = {
+                            if (inviteId != null) {
+                                // This is an invite - use refuseRoomInvite and go back
+                                appViewModel.refuseRoomInvite(inviteId)
+                                onDismiss()
+                            } else {
+                                // Regular dismiss
+                                onDismiss()
+                            }
+                        }
                     )
                 }
             }
@@ -674,7 +820,11 @@ private fun RoomSummaryContent(
         InfoCard(
             icon = Icons.Default.Group,
             title = "Members",
-            value = "${summary.numJoinedMembers} ${if (summary.numJoinedMembers == 1) "member" else "members"}"
+            value = if (summary.numJoinedMembers >= 0) {
+                "${summary.numJoinedMembers} ${if (summary.numJoinedMembers == 1) "member" else "members"}"
+            } else {
+                "Unknown"
+            }
         )
         
         Spacer(modifier = Modifier.height(8.dp))

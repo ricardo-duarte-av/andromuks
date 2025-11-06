@@ -20,6 +20,9 @@ interface RoomSummaryDao {
     @Query("SELECT * FROM room_summary ORDER BY lastTimestamp DESC")
     suspend fun getAllRooms(): List<RoomSummaryEntity>
     
+    @Query("DELETE FROM room_summary WHERE roomId = :roomId")
+    suspend fun deleteForRoom(roomId: String)
+    
     @Query("DELETE FROM room_summary WHERE roomId NOT IN (SELECT DISTINCT roomId FROM events)")
     suspend fun deleteOrphanedSummaries(): Int
     

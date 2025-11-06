@@ -44,6 +44,7 @@ class SyncIngestor(private val context: Context) {
     private val spaceDao = database.spaceDao()
     private val spaceRoomDao = database.spaceRoomDao()
     private val accountDataDao = database.accountDataDao()
+    private val inviteDao = database.inviteDao()
     
     private val TAG = "SyncIngestor"
     
@@ -174,6 +175,33 @@ class SyncIngestor(private val context: Context) {
         
         // Process spaces (top_level_spaces and space_edges)
         processSpaces(data)
+        
+        // Process left_rooms - delete all data for rooms we've left
+        val leftRooms = data.optJSONArray("left_rooms")
+        if (leftRooms != null && leftRooms.length() > 0) {
+            val leftRoomIds = mutableListOf<String>()
+            for (i in 0 until leftRooms.length()) {
+                val roomId = leftRooms.optString(i)
+                if (roomId.isNotBlank()) {
+                    leftRoomIds.add(roomId)
+                }
+            }
+            
+            if (leftRoomIds.isNotEmpty()) {
+                // Delete all data for left rooms in a single transaction
+                database.withTransaction {
+                    for (roomId in leftRoomIds) {
+                        eventDao.deleteAllForRoom(roomId)
+                        roomStateDao.deleteForRoom(roomId)
+                        roomSummaryDao.deleteForRoom(roomId)
+                        receiptDao.deleteForRoom(roomId)
+                        // Also delete invite if it exists
+                        inviteDao.deleteInvite(roomId)
+                    }
+                }
+                Log.d(TAG, "Deleted all data for ${leftRoomIds.size} left rooms: ${leftRoomIds.joinToString(", ")}")
+            }
+        }
         
         // Process rooms
         val roomsJson = data.optJSONObject("rooms")

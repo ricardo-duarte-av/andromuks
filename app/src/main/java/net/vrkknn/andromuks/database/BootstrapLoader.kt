@@ -9,6 +9,7 @@ import net.vrkknn.andromuks.RoomTimelineCache
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.database.dao.AccountDataDao
 import net.vrkknn.andromuks.database.dao.EventDao
+import net.vrkknn.andromuks.database.dao.InviteDao
 import net.vrkknn.andromuks.database.dao.RoomStateDao
 import net.vrkknn.andromuks.database.dao.RoomSummaryDao
 import net.vrkknn.andromuks.database.dao.SpaceDao
@@ -36,6 +37,7 @@ class BootstrapLoader(private val context: Context) {
     private val spaceDao = database.spaceDao()
     private val spaceRoomDao = database.spaceRoomDao()
     private val accountDataDao = database.accountDataDao()
+    private val inviteDao = database.inviteDao()
     
     private val TAG = "BootstrapLoader"
     
@@ -322,6 +324,34 @@ class BootstrapLoader(private val context: Context) {
         } catch (e: Exception) {
             Log.e(TAG, "Error loading account_data from database: ${e.message}", e)
             null
+        }
+    }
+    
+    /**
+     * Load pending invites from database
+     */
+    suspend fun loadInvitesFromDb(): List<net.vrkknn.andromuks.RoomInvite> = withContext(Dispatchers.IO) {
+        try {
+            val inviteEntities = inviteDao.getAllInvites()
+            val invites = inviteEntities.map { entity ->
+                net.vrkknn.andromuks.RoomInvite(
+                    roomId = entity.roomId,
+                    createdAt = entity.createdAt,
+                    inviterUserId = entity.inviterUserId,
+                    inviterDisplayName = entity.inviterDisplayName,
+                    roomName = entity.roomName,
+                    roomAvatar = entity.roomAvatar,
+                    roomTopic = entity.roomTopic,
+                    roomCanonicalAlias = entity.roomCanonicalAlias,
+                    inviteReason = entity.inviteReason,
+                    isDirectMessage = entity.isDirectMessage
+                )
+            }
+            Log.d(TAG, "Loaded ${invites.size} pending invites from database")
+            invites
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading invites from database: ${e.message}", e)
+            emptyList()
         }
     }
 }

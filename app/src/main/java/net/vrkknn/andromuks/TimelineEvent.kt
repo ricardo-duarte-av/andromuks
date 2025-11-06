@@ -177,7 +177,8 @@ data class RoomInvite(
     val roomAvatar: String?,
     val roomTopic: String?,
     val roomCanonicalAlias: String?,
-    val inviteReason: String?
+    val inviteReason: String?,
+    val isDirectMessage: Boolean = false
 )
 
 @Immutable

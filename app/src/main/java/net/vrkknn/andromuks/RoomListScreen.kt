@@ -114,6 +114,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import net.vrkknn.andromuks.utils.RoomJoinerScreen
+import net.vrkknn.andromuks.utils.RoomLink
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
@@ -173,6 +175,10 @@ fun RoomListScreen(
     // Always show the interface, even if rooms/spaces are empty
     var searchQuery by remember { mutableStateOf("") }
     val me = appViewModel.currentUserProfile
+    
+    // State for showing RoomJoinerScreen for invites
+    var showRoomJoiner by remember { mutableStateOf(false) }
+    var inviteToJoin by remember { mutableStateOf<RoomInvite?>(null) }
     
     // Handle back button - suspend app and move to background
     // When user presses back from room list, app suspends and moves to background
@@ -495,7 +501,11 @@ fun RoomListScreen(
                                 authToken = authToken,
                                 navController = navController,
                                 timestampUpdateTrigger = timestampUpdateTrigger,
-                                hapticFeedback = hapticFeedback
+                                hapticFeedback = hapticFeedback,
+                                onInviteClick = { invite ->
+                                    inviteToJoin = invite
+                                    showRoomJoiner = true
+                                }
                             )
                         }
                         RoomSectionType.SPACES -> {
@@ -507,7 +517,11 @@ fun RoomListScreen(
                                     authToken = authToken,
                                     navController = navController,
                                     timestampUpdateTrigger = timestampUpdateTrigger,
-                                    hapticFeedback = hapticFeedback
+                                    hapticFeedback = hapticFeedback,
+                                    onInviteClick = { invite ->
+                                        inviteToJoin = invite
+                                        showRoomJoiner = true
+                                    }
                                 )
                             } else {
                                 SpacesListContent(
@@ -527,7 +541,11 @@ fun RoomListScreen(
                                 authToken = authToken,
                                 navController = navController,
                                 timestampUpdateTrigger = timestampUpdateTrigger,
-                                hapticFeedback = hapticFeedback
+                                hapticFeedback = hapticFeedback,
+                                onInviteClick = { invite ->
+                                    inviteToJoin = invite
+                                    showRoomJoiner = true
+                                }
                             )
                         }
                         RoomSectionType.UNREAD -> {
@@ -538,7 +556,11 @@ fun RoomListScreen(
                                 authToken = authToken,
                                 navController = navController,
                                 timestampUpdateTrigger = timestampUpdateTrigger,
-                                hapticFeedback = hapticFeedback
+                                hapticFeedback = hapticFeedback,
+                                onInviteClick = { invite ->
+                                    inviteToJoin = invite
+                                    showRoomJoiner = true
+                                }
                             )
                         }
                         RoomSectionType.FAVOURITES -> {
@@ -549,7 +571,11 @@ fun RoomListScreen(
                                 authToken = authToken,
                                 navController = navController,
                                 timestampUpdateTrigger = timestampUpdateTrigger,
-                                hapticFeedback = hapticFeedback
+                                hapticFeedback = hapticFeedback,
+                                onInviteClick = { invite ->
+                                    inviteToJoin = invite
+                                    showRoomJoiner = true
+                                }
                             )
                         }
                         RoomSectionType.BRIDGES -> {
@@ -561,7 +587,11 @@ fun RoomListScreen(
                                     authToken = authToken,
                                     navController = navController,
                                     timestampUpdateTrigger = timestampUpdateTrigger,
-                                    hapticFeedback = hapticFeedback
+                                    hapticFeedback = hapticFeedback,
+                                    onInviteClick = { invite ->
+                                        inviteToJoin = invite
+                                        showRoomJoiner = true
+                                    }
                                 )
                             } else {
                                 BridgesListContent(
@@ -594,6 +624,35 @@ fun RoomListScreen(
             state = refreshState,
             modifier = Modifier.align(Alignment.TopCenter)
         )
+        
+        // RoomJoinerScreen for invites
+        if (showRoomJoiner && inviteToJoin != null) {
+            val invite = inviteToJoin!!
+            // Create RoomLink from invite
+            val roomLink = RoomLink(
+                roomIdOrAlias = invite.roomId,
+                viaServers = emptyList(), // Invites don't need via servers
+                displayText = invite.roomName ?: invite.inviterDisplayName ?: invite.roomId
+            )
+            
+            RoomJoinerScreen(
+                roomLink = roomLink,
+                homeserverUrl = appViewModel.homeserverUrl,
+                authToken = authToken,
+                appViewModel = appViewModel,
+                onDismiss = {
+                    showRoomJoiner = false
+                    inviteToJoin = null
+                },
+                onJoinSuccess = { joinedRoomId ->
+                    showRoomJoiner = false
+                    inviteToJoin = null
+                    // Don't navigate - let the room appear at the top of the list
+                    // The room will appear in sync_complete and be sorted to the top
+                },
+                inviteId = invite.roomId // Pass invite ID so RoomJoinerScreen uses acceptRoomInvite/refuseRoomInvite
+            )
+        }
     }
 }
 
@@ -1255,7 +1314,8 @@ fun RoomListContent(
     authToken: String,
     navController: NavController,
     timestampUpdateTrigger: Int,
-    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    onInviteClick: (RoomInvite) -> Unit
 ) {
     // Handle Android back key when inside a space or bridge
     androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null || appViewModel.currentBridgeId != null) {
@@ -1305,6 +1365,10 @@ fun RoomListContent(
         }
     }
     
+    // CRITICAL: Observe roomListUpdateCounter to recompose when invites are added
+    val roomListUpdateCounter = appViewModel.roomListUpdateCounter
+    val pendingInvites = remember(roomListUpdateCounter) { appViewModel.getPendingInvites() }
+    
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -1315,7 +1379,6 @@ fun RoomListContent(
         )
     ) {
         // Show pending invites at the top
-        val pendingInvites = appViewModel.getPendingInvites()
         if (pendingInvites.isNotEmpty()) {
             item {
                 Text(
@@ -1332,8 +1395,8 @@ fun RoomListContent(
                 InviteListItem(
                     invite = invite,
                     onClick = {
-                        // Navigate to invite detail screen
-                        navController.navigate("invite_detail/${invite.roomId}")
+                        // Show RoomJoinerScreen for invite
+                        onInviteClick(invite)
                     },
                     homeserverUrl = appViewModel.homeserverUrl,
                     authToken = authToken
@@ -1481,15 +1544,29 @@ fun InviteListItem(
     homeserverUrl: String,
     authToken: String
 ) {
+    // For DMs, use inviter display name instead of room name
+    val displayName = if (invite.isDirectMessage && invite.roomName.isNullOrBlank()) {
+        invite.inviterDisplayName ?: invite.inviterUserId
+    } else {
+        invite.roomName ?: (if (invite.isDirectMessage) invite.inviterDisplayName ?: invite.inviterUserId else "Unknown Room")
+    }
+    
+    // Use inviter avatar for DMs if room avatar is not available
+    val avatarUrl = if (invite.isDirectMessage && invite.roomAvatar.isNullOrBlank()) {
+        null // Will use fallback with display name
+    } else {
+        invite.roomAvatar
+    }
+    
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
             .padding(horizontal = 16.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
         Row(
             modifier = Modifier
@@ -1497,15 +1574,15 @@ fun InviteListItem(
                 .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Room avatar
+            // Room/inviter avatar
             AvatarImage(
-                mxcUrl = invite.roomAvatar,
+                mxcUrl = avatarUrl,
                 homeserverUrl = homeserverUrl,
                 authToken = authToken,
-                fallbackText = (invite.roomName ?: invite.roomId).take(1),
+                fallbackText = displayName.take(1),
                 size = 48.dp,
-                userId = invite.roomId,
-                displayName = invite.roomName
+                userId = if (invite.isDirectMessage && invite.roomAvatar.isNullOrBlank()) invite.inviterUserId else invite.roomId,
+                displayName = displayName
             )
             
             Spacer(modifier = Modifier.width(12.dp))
@@ -1516,7 +1593,7 @@ fun InviteListItem(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = invite.roomName ?: "Unknown Room",
+                        text = displayName,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface,
@@ -1543,14 +1620,16 @@ fun InviteListItem(
                 
                 Spacer(modifier = Modifier.height(4.dp))
                 
-                // Inviter info
-                Text(
-                    text = "Invited by ${invite.inviterDisplayName ?: invite.inviterUserId}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                // Inviter info (only show if not a DM or if room name exists)
+                if (!invite.isDirectMessage || invite.roomName != null) {
+                    Text(
+                        text = "Invited by ${invite.inviterDisplayName ?: invite.inviterUserId}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
                 
                 // Room topic if available
                 invite.roomTopic?.let { topic ->

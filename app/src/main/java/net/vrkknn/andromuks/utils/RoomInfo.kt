@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -110,6 +111,9 @@ fun RoomInfoScreen(
     // State for topic expansion
     var isTopicExpanded by remember { mutableStateOf(false) }
     
+    // State for leave room confirmation dialog
+    var showLeaveRoomDialog by remember { mutableStateOf(false) }
+    
     // Request room state when the screen is created
     LaunchedEffect(roomId) {
         android.util.Log.d("Andromuks", "RoomInfoScreen: Requesting room state for $roomId")
@@ -135,7 +139,18 @@ fun RoomInfoScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Room Info") }
+                title = { Text("Room Info") },
+                actions = {
+                    IconButton(
+                        onClick = { showLeaveRoomDialog = true }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.ExitToApp,
+                            contentDescription = "Leave Room",
+                            tint = MaterialTheme.colorScheme.error
+                        )
+                    }
+                }
             )
         }
     ) { paddingValues ->
@@ -392,6 +407,63 @@ fun RoomInfoScreen(
                 }
             }
         }
+    }
+    
+    // Leave Room Confirmation Dialog
+    if (showLeaveRoomDialog && roomStateInfo != null) {
+        AlertDialog(
+            onDismissRequest = { showLeaveRoomDialog = false },
+            title = {
+                Text("Leave Room")
+            },
+            text = {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Are you sure you want to leave")
+                    Text(
+                        text = roomStateInfo!!.name ?: roomStateInfo!!.canonicalAlias ?: "Unknown Room",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = roomId,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showLeaveRoomDialog = false
+                        appViewModel.leaveRoom(roomId)
+                        // Navigate back to room list
+                        // Try to pop back to room_list, if not in stack, navigate to it
+                        if (!navController.popBackStack("room_list", inclusive = false)) {
+                            navController.navigate("room_list") {
+                                popUpTo(0) { inclusive = true }
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    Text("Leave")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { showLeaveRoomDialog = false }
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
     }
     
     // Power Levels Dialog

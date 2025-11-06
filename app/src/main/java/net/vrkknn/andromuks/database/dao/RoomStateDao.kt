@@ -20,6 +20,9 @@ interface RoomStateDao {
     @Query("SELECT * FROM room_state")
     suspend fun getAllRoomStates(): List<RoomStateEntity>
     
+    @Query("DELETE FROM room_state WHERE roomId = :roomId")
+    suspend fun deleteForRoom(roomId: String)
+    
     @Query("DELETE FROM room_state")
     suspend fun deleteAll()
 }

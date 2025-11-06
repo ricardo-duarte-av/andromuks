@@ -14,6 +14,9 @@ interface ReceiptDao {
     @Query("DELETE FROM receipts WHERE roomId = :roomId AND userId = :userId")
     suspend fun deleteUserReceiptsInRoom(roomId: String, userId: String)
     
+    @Query("DELETE FROM receipts WHERE roomId = :roomId")
+    suspend fun deleteForRoom(roomId: String)
+    
     @Query("DELETE FROM receipts WHERE eventId NOT IN (SELECT eventId FROM events)")
     suspend fun deleteOrphanedReceipts(): Int
     
