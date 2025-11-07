@@ -327,24 +327,30 @@ fun connectToWebsocket(
                         Log.d("Andromuks", "NetworkUtils: Received run_id: $runId, vapid_key: ${vapidKey?.take(20)}...")
                         Log.d("Andromuks", "NetworkUtils: DEBUG - Full data object: ${data?.toString()}")
                         Log.d("Andromuks", "NetworkUtils: DEBUG - runId type: ${runId?.javaClass?.simpleName}, length: ${runId?.length}")
-                        // Use service scope for background processing
+                        // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                            appViewModel.handleRunId(runId ?: "", vapidKey ?: "")
+                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                viewModel.handleRunId(runId ?: "", vapidKey ?: "")
+                            }
                         }
                     }
                     "sync_complete" -> {
                         Log.d("Andromuks", "NetworkUtils: Processing sync_complete message with async parsing")
-                        // Use service scope for background processing - this is critical for background message processing
+                        // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                            appViewModel.updateRoomsFromSyncJsonAsync(jsonObject)
+                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                viewModel.updateRoomsFromSyncJsonAsync(jsonObject)
+                            }
                         }
                     }
                     "init_complete" -> {
                         Log.d("Andromuks", "NetworkUtils: Received init_complete - initialization finished")
-                        // Use service scope but switch to main thread for UI operations
+                        // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                             Log.d("Andromuks", "NetworkUtils: Calling onInitComplete on main thread")
-                            appViewModel.onInitComplete()
+                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                viewModel.onInitComplete()
+                            }
                         }
                     }
                     "client_state" -> {
@@ -353,17 +359,21 @@ fun connectToWebsocket(
                         val deviceId = data?.optString("device_id")
                         val hs = data?.optString("homeserver_url")
                         Log.d("Andromuks", "NetworkUtils: client_state user=$userId device=$deviceId homeserver=$hs")
-                        // Use service scope for background processing
+                        // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                            appViewModel.handleClientState(userId, deviceId, hs)
+                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                viewModel.handleClientState(userId, deviceId, hs)
+                            }
                         }
                     }
                     "image_auth_token" -> {
                         val token = jsonObject.optString("data", "")
                         Log.d("Andromuks", "NetworkUtils: image_auth_token received: ${token.isNotBlank()}")
-                        // Use service scope for background processing
+                        // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                            appViewModel.updateImageAuthToken(token)
+                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                viewModel.updateImageAuthToken(token)
+                            }
                         }
                     }
                     "response" -> {
@@ -371,9 +381,11 @@ fun connectToWebsocket(
                         val data = jsonObject.opt("data")
                         Log.d("Andromuks", "NetworkUtils: Routing response, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
                         
-                        // Use service scope for background processing
+                        // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                            appViewModel.handleResponse(requestId, data ?: Any())
+                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                viewModel.handleResponse(requestId, data ?: Any())
+                            }
                         }
                     }
                     "send_complete" -> {
@@ -385,11 +397,13 @@ fun connectToWebsocket(
                             val eventId = event.optString("event_id", "unknown")
                             Log.d("Andromuks", "NetworkUtils: send_complete event - type: $eventType, eventId: $eventId")
                         }
-                        // Use service scope for background processing
+                        // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             if (event != null) {
-                                // Use the dedicated processSendCompleteEvent function
-                                appViewModel.processSendCompleteEvent(event)
+                                for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                    // Use the dedicated processSendCompleteEvent function
+                                    viewModel.processSendCompleteEvent(event)
+                                }
                             }
                         }
                     }
@@ -397,9 +411,11 @@ fun connectToWebsocket(
                         val requestId = jsonObject.optInt("request_id")
                         val errorMessage = jsonObject.optString("data", "Unknown error")
                         Log.d("Andromuks", "NetworkUtils: Received error for requestId=$requestId: $errorMessage")
-                        // Use service scope for background processing
+                        // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                            appViewModel.handleError(requestId, errorMessage)
+                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                viewModel.handleError(requestId, errorMessage)
+                            }
                         }
                     }
                     "typing" -> {
@@ -413,9 +429,11 @@ fun connectToWebsocket(
                             }
                         }
                         Log.d("Andromuks", "NetworkUtils: Received typing event for room=$roomId, users=$userIds")
-                        // Use service scope for background processing
+                        // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                            appViewModel.updateTypingUsers(roomId ?: "", userIds)
+                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                viewModel.updateTypingUsers(roomId ?: "", userIds)
+                            }
                         }
                     }
                 }
@@ -467,24 +485,30 @@ fun connectToWebsocket(
                                     Log.d("Andromuks", "NetworkUtils: Received compressed run_id: $runId, vapid_key: ${vapidKey?.take(20)}...")
                                     Log.d("Andromuks", "NetworkUtils: DEBUG - Full compressed data object: ${data?.toString()}")
                                     Log.d("Andromuks", "NetworkUtils: DEBUG - compressed runId type: ${runId?.javaClass?.simpleName}, length: ${runId?.length}")
-                                    // Use service scope for background processing
+                                    // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                                        appViewModel.handleRunId(runId ?: "", vapidKey ?: "")
+                                        for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                            viewModel.handleRunId(runId ?: "", vapidKey ?: "")
+                                        }
                                     }
                                 }
                                 "sync_complete" -> {
                                     Log.d("Andromuks", "NetworkUtils: Processing compressed sync_complete message with async parsing")
-                                    // Use service scope for background processing - this is critical for background message processing
+                                    // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                                        appViewModel.updateRoomsFromSyncJsonAsync(jsonObject)
+                                        for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                            viewModel.updateRoomsFromSyncJsonAsync(jsonObject)
+                                        }
                                     }
                                 }
                                 "init_complete" -> {
                                     Log.d("Andromuks", "NetworkUtils: Received compressed init_complete - initialization finished")
-                                    // Use service scope but switch to main thread for UI operations
+                                    // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                                         Log.d("Andromuks", "NetworkUtils: Calling onInitComplete on main thread")
-                                        appViewModel.onInitComplete()
+                                        for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                            viewModel.onInitComplete()
+                                        }
                                     }
                                 }
                                 "client_state" -> {
@@ -493,17 +517,21 @@ fun connectToWebsocket(
                                     val deviceId = data?.optString("device_id")
                                     val hs = data?.optString("homeserver_url")
                                     Log.d("Andromuks", "NetworkUtils: client_state user=$userId device=$deviceId homeserver=$hs")
-                                    // Use service scope for background processing
+                                    // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                                        appViewModel.handleClientState(userId, deviceId, hs)
+                                        for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                            viewModel.handleClientState(userId, deviceId, hs)
+                                        }
                                     }
                                 }
                                 "image_auth_token" -> {
                                     val token = jsonObject.optString("data", "")
                                     Log.d("Andromuks", "NetworkUtils: Received image auth token")
-                                    // Use service scope for background processing
+                                    // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                                        appViewModel.updateImageAuthToken(token)
+                                        for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                            viewModel.updateImageAuthToken(token)
+                                        }
                                     }
                                 }
                                  "typing" -> {
@@ -513,9 +541,11 @@ fun connectToWebsocket(
                                          (0 until array.length()).mapNotNull { array.optString(it).takeIf { it.isNotEmpty() } }
                                      } ?: emptyList()
                                      Log.d("Andromuks", "NetworkUtils: Received compressed typing event for room=$roomId, users=$userIds")
-                                     // Use service scope for background processing
+                                     // PHASE 4: Distribute to all registered ViewModels
                                      WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                                         appViewModel.updateTypingUsers(roomId ?: "", userIds)
+                                         for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                             viewModel.updateTypingUsers(roomId ?: "", userIds)
+                                         }
                                      }
                                  }
                                 "response" -> {
@@ -523,9 +553,11 @@ fun connectToWebsocket(
                                     val data = jsonObject.opt("data")
                                     Log.d("Andromuks", "NetworkUtils: Routing compressed response, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
                                     
-                                    // Use service scope for background processing
+                                    // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                                        appViewModel.handleResponse(requestId, data ?: Any())
+                                        for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                            viewModel.handleResponse(requestId, data ?: Any())
+                                        }
                                     }
                                 }
                              }

@@ -22,6 +22,9 @@ interface ReceiptDao {
     
     @Query("DELETE FROM receipts")
     suspend fun deleteAll()
+
+    @Query("SELECT * FROM receipts WHERE roomId = :roomId")
+    suspend fun getReceiptsForRoom(roomId: String): List<ReceiptEntity>
 }
 
 

@@ -19,8 +19,9 @@ import org.json.JSONObject
  */
 object RoomTimelineCache {
     private const val TAG = "RoomTimelineCache"
-    private const val MAX_EVENTS_PER_ROOM = 5000 // Allow loading many historical messages (increased from 150)
-    private const val TARGET_EVENTS_FOR_INSTANT_RENDER = 100 // Minimum events to skip paginate
+    private const val MAX_EVENTS_PER_ROOM = 200 // Keep only the most recent events per room in RAM
+    private const val TARGET_EVENTS_FOR_INSTANT_RENDER = 50 // Minimum events to skip paginate
+    private const val MAX_ROOMS_IN_CACHE = 30 // Limit number of rooms kept in RAM at once
     
     private data class RoomCache(
         val events: MutableList<TimelineEvent> = mutableListOf(),
@@ -28,7 +29,18 @@ object RoomTimelineCache {
     )
 
     // Per-room cache: roomId -> RoomCache
-    private val roomEventsCache = mutableMapOf<String, RoomCache>()
+    private val roomEventsCache = object : LinkedHashMap<String, RoomCache>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, RoomCache>?): Boolean {
+            val shouldRemove = size > MAX_ROOMS_IN_CACHE
+            if (shouldRemove && eldest != null) {
+                Log.d(TAG, "Evicting room ${eldest.key} from timeline cache (max rooms $MAX_ROOMS_IN_CACHE)")
+                roomsInitialized.remove(eldest.key)
+                eldest.value.events.clear()
+                eldest.value.eventIds.clear()
+            }
+            return shouldRemove
+        }
+    }
     
     // Track which rooms have received their initial paginate (to avoid duplicate caching)
     private val roomsInitialized = mutableSetOf<String>()

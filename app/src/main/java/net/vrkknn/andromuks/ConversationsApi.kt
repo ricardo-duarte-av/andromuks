@@ -47,8 +47,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     companion object {
         private const val TAG = "ConversationsApi"
         private const val MAX_SHORTCUTS = 4
-        private const val SHORTCUT_UPDATE_DEBOUNCE_MS = 2000L // 2 seconds debounce
-        private const val MIN_SHORTCUT_UPDATE_INTERVAL_MS = 30000L // 30s: cooldown after actual update to prevent spam
+        private const val SHORTCUT_UPDATE_DEBOUNCE_MS = 30000L // 30 seconds debounce
+        private const val MIN_SHORTCUT_UPDATE_INTERVAL_MS = 360000000L // 3600s: cooldown after actual update to prevent spam
     }
     
     // Debouncing mechanism to prevent excessive shortcut updates

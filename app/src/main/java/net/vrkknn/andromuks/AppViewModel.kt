@@ -26,7 +26,6 @@ import android.content.Context
 import android.media.MediaPlayer
 import android.media.AudioManager
 import android.os.Build
-import java.lang.ref.WeakReference
 import java.util.concurrent.ConcurrentHashMap
 import java.io.File
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
@@ -85,7 +84,13 @@ class AppViewModel : ViewModel() {
         private const val MAX_MESSAGE_VERSIONS_PER_EVENT = 50
         const val NEW_MESSAGE_ANIMATION_DURATION_MS = 450L
         const val NEW_MESSAGE_ANIMATION_DELAY_MS = 500L
+        
+        // PHASE 4: Counter for generating unique ViewModel IDs
+        private var viewModelCounter = 0
     }
+    
+    // PHASE 4: Unique ID for this ViewModel instance (for WebSocket callback registration)
+    private val viewModelId: String = "AppViewModel_${viewModelCounter++}"
     var isLoading by mutableStateOf(false)
     var homeserverUrl by mutableStateOf("")
         private set
@@ -690,6 +695,11 @@ class AppViewModel : ViewModel() {
         allSpaces = emptyList()
         spaceList = emptyList()
         spacesLoaded = false
+        synchronized(readReceiptsLock) {
+            readReceipts.clear()
+        }
+        roomsWithLoadedReceiptsFromDb.clear()
+        readReceiptsUpdateCounter++
         
         // 3. Reset requestIdCounter to 1
         requestIdCounter = 1
@@ -787,7 +797,6 @@ class AppViewModel : ViewModel() {
     fun getPendingInvites(): List<RoomInvite> {
         return pendingInvites.values.toList()
     }
-    
     /**
      * Returns a read-only copy of the read receipts map.
      * 
@@ -1496,8 +1505,9 @@ class AppViewModel : ViewModel() {
     // OPTIMIZED: Indexed cache for fast room lookups (avoids string prefix checks)
     private val roomMemberIndex = ConcurrentHashMap<String, MutableSet<String>>() // Key: roomId, Value: Set of userIds
     
-    // Global user profile cache with weak references to allow garbage collection
-    private val globalProfileCache = ConcurrentHashMap<String, WeakReference<MemberProfile>>()
+    // Global user profile cache with access timestamps for LRU-style cleanup
+    private data class CachedProfileEntry(var profile: MemberProfile, var lastAccess: Long)
+    private val globalProfileCache = ConcurrentHashMap<String, CachedProfileEntry>()
     
     // Legacy room member cache (deprecated, kept for compatibility)
     private val roomMemberCache = mutableMapOf<String, MutableMap<String, MemberProfile>>()
@@ -1521,9 +1531,10 @@ class AppViewModel : ViewModel() {
         }
         
         // If no room-specific profile, check global cache
-        val globalProfileRef = globalProfileCache[userId]
-        val globalProfile = globalProfileRef?.get()
+        val globalProfileEntry = globalProfileCache[userId]
+        val globalProfile = globalProfileEntry?.profile
         if (globalProfile != null) {
+            globalProfileEntry.lastAccess = System.currentTimeMillis()
             return globalProfile
         }
         
@@ -1545,9 +1556,10 @@ class AppViewModel : ViewModel() {
                     memberMap[userId] = profile
                 } else {
                     // Room-specific profile doesn't exist, check global cache
-                    val globalProfileRef = globalProfileCache[userId]
-                    val globalProfile = globalProfileRef?.get()
+                    val globalProfileEntry = globalProfileCache[userId]
+                    val globalProfile = globalProfileEntry?.profile
                     if (globalProfile != null) {
+                        globalProfileEntry.lastAccess = System.currentTimeMillis()
                         memberMap[userId] = globalProfile
                     }
                 }
@@ -1576,9 +1588,10 @@ class AppViewModel : ViewModel() {
                 val sender = event.sender
                 if (!memberMap.containsKey(sender)) {
                     // Check global cache and add to member map if found
-                    val globalProfileRef = globalProfileCache[sender]
-                    val globalProfile = globalProfileRef?.get()
+                    val globalProfileEntry = globalProfileCache[sender]
+                    val globalProfile = globalProfileEntry?.profile
                     if (globalProfile != null) {
+                        globalProfileEntry.lastAccess = System.currentTimeMillis()
                         memberMap[sender] = globalProfile
                         android.util.Log.d("Andromuks", "AppViewModel: Added global profile fallback for $sender in room $roomId")
                     }
@@ -1588,7 +1601,6 @@ class AppViewModel : ViewModel() {
         
         return memberMap
     }
-    
     fun isMemberCacheEmpty(roomId: String): Boolean {
         // MEMORY MANAGEMENT: Check if any flattened entries exist for this room
         val hasFlattenedEntries = flattenedMemberCache.keys.any { it.startsWith("$roomId:") }
@@ -1614,14 +1626,14 @@ class AppViewModel : ViewModel() {
      */
     private fun storeMemberProfile(roomId: String, userId: String, profile: MemberProfile) {
         // Check existing global profile BEFORE updating (to compare)
-        val existingGlobalProfileRef = globalProfileCache[userId]
-        val existingGlobalProfile = existingGlobalProfileRef?.get()
+        val existingGlobalProfileEntry = globalProfileCache[userId]
+        val existingGlobalProfile = existingGlobalProfileEntry?.profile
         
         val flattenedKey = "$roomId:$userId"
         
         if (existingGlobalProfile == null) {
             // No global profile yet - set this as global, don't store room-specific
-            globalProfileCache[userId] = WeakReference(profile)
+            globalProfileCache[userId] = CachedProfileEntry(profile, System.currentTimeMillis())
             // Remove any existing room-specific entry (cleanup)
             flattenedMemberCache.remove(flattenedKey)
             roomMemberIndex[roomId]?.remove(userId)
@@ -1663,11 +1675,11 @@ class AppViewModel : ViewModel() {
      * When global profile is updated, we should re-evaluate room-specific entries.
      */
     fun updateGlobalProfile(userId: String, profile: MemberProfile) {
-        val existingGlobalProfileRef = globalProfileCache[userId]
-        val existingGlobalProfile = existingGlobalProfileRef?.get()
+        val existingGlobalProfileEntry = globalProfileCache[userId]
+        val existingGlobalProfile = existingGlobalProfileEntry?.profile
         
         // Update global profile
-        globalProfileCache[userId] = WeakReference(profile)
+        globalProfileCache[userId] = CachedProfileEntry(profile, System.currentTimeMillis())
         
         // If global profile changed, clean up room-specific entries that now match global
         if (existingGlobalProfile != null && 
@@ -1708,9 +1720,19 @@ class AppViewModel : ViewModel() {
         val currentTime = System.currentTimeMillis()
         val cutoffTime = currentTime - (24 * 60 * 60 * 1000) // 24 hours ago
         
-        // Clean up stale global profile cache entries
-        globalProfileCache.entries.removeAll { (_, weakRef) ->
-            weakRef.get() == null // Remove cleared weak references
+        // Clean up stale global profile cache entries (LRU-style)
+        globalProfileCache.entries.removeIf { (_, entry) ->
+            currentTime - entry.lastAccess > cutoffTime
+        }
+
+        // Enforce cache size limit by evicting least recently accessed entries
+        if (globalProfileCache.size > MAX_MEMBER_CACHE_SIZE) {
+            val overflow = globalProfileCache.size - MAX_MEMBER_CACHE_SIZE
+            val oldestKeys = globalProfileCache.entries
+                .sortedBy { it.value.lastAccess }
+                .take(overflow)
+                .map { it.key }
+            oldestKeys.forEach { globalProfileCache.remove(it) }
         }
         
         android.util.Log.d("Andromuks", "AppViewModel: Performed member cache cleanup - flattened: ${flattenedMemberCache.size}, global: ${globalProfileCache.size}")
@@ -1885,21 +1907,19 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Collect from global profile cache (weak references)
+        // Collect from global profile cache (room-agnostic profiles)
         // These are global (not room-specific), so roomId is null
-        for ((userId, weakRef) in globalProfileCache) {
-            val profile = weakRef.get()
-            if (profile != null) {
-                // Validate userId format: must be @name:domain
-                if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
-                    val parts = userId.split(":", limit = 2)
-                    if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
-                        profiles.add(RoomProfileEntry(
-                            roomId = null, // Global profile, not room-specific
-                            userId = userId,
-                            profile = profile
-                        ))
-                    }
+        for ((userId, entry) in globalProfileCache) {
+            val profile = entry.profile
+            // Validate userId format: must be @name:domain
+            if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
+                val parts = userId.split(":", limit = 2)
+                if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
+                    profiles.add(RoomProfileEntry(
+                        roomId = null, // Global profile, not room-specific
+                        userId = userId,
+                        profile = profile
+                    ))
                 }
             }
         }
@@ -1944,21 +1964,19 @@ class AppViewModel : ViewModel() {
         }
         
         // Collect from global profile cache
-        for ((userId, weakRef) in globalProfileCache) {
-            val profile = weakRef.get()
-            if (profile != null) {
-                if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
-                    val parts = userId.split(":", limit = 2)
-                    if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
-                        val existing = profiles[userId]
-                        if (existing == null) {
-                            profiles[userId] = profile
-                        } else {
-                            profiles[userId] = MemberProfile(
-                                displayName = profile.displayName ?: existing.displayName,
-                                avatarUrl = profile.avatarUrl ?: existing.avatarUrl
-                            )
-                        }
+        for ((userId, entry) in globalProfileCache) {
+            val profile = entry.profile
+            if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
+                val parts = userId.split(":", limit = 2)
+                if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
+                    val existing = profiles[userId]
+                    if (existing == null) {
+                        profiles[userId] = profile
+                    } else {
+                        profiles[userId] = MemberProfile(
+                            displayName = profile.displayName ?: existing.displayName,
+                            avatarUrl = profile.avatarUrl ?: existing.avatarUrl
+                        )
                     }
                 }
             }
@@ -2094,15 +2112,16 @@ class AppViewModel : ViewModel() {
                     for (file in files) {
                         if (file.isFile) {
                             // Try to find MXC URL by matching cache key
-                            val mxcUrl = findMxcUrlForFile(context, file)
-                            
-                            entries.add(CachedMediaEntry(
-                                mxcUrl = mxcUrl,
-                                filePath = file.absolutePath,
-                                fileSize = file.length(),
-                                cacheType = "disk",
-                                file = file
-                            ))
+                            val mxcUrl: String? = IntelligentMediaCache.getMxcUrlForFile(file.name)
+                            if (mxcUrl != null) {
+                                entries.add(CachedMediaEntry(
+                                    mxcUrl = mxcUrl,
+                                    filePath = file.absolutePath,
+                                    fileSize = file.length(),
+                                    cacheType = "disk",
+                                    file = file
+                                ))
+                            }
                         }
                     }
                 }
@@ -2285,24 +2304,20 @@ class AppViewModel : ViewModel() {
                 )
             }
             // Also check global cache for current user (in case profile was loaded but currentUserProfile not set yet)
-            val globalProfileRef = globalProfileCache[userId]
-            val globalProfile = globalProfileRef?.get()
+            val globalProfileEntry = globalProfileCache[userId]
+            val globalProfile = globalProfileEntry?.profile
             if (globalProfile != null) {
+                globalProfileEntry.lastAccess = System.currentTimeMillis()
                 return globalProfile
-            } else if (globalProfileRef != null) {
-                // Weak reference was cleared, remove the stale entry
-                globalProfileCache.remove(userId)
             }
         }
         
         // OPTIMIZED: Check global profile cache (fallback for when no roomId or room-specific not found)
-        val globalProfileRef = globalProfileCache[userId]
-        val globalProfile = globalProfileRef?.get()
+        val globalProfileEntry = globalProfileCache[userId]
+        val globalProfile = globalProfileEntry?.profile
         if (globalProfile != null) {
+            globalProfileEntry.lastAccess = System.currentTimeMillis()
             return globalProfile
-        } else if (globalProfileRef != null) {
-            // Weak reference was cleared, remove the stale entry
-            globalProfileCache.remove(userId)
         }
         
         // NOT FOUND - Return null immediately (don't block UI)
@@ -2345,7 +2360,6 @@ class AppViewModel : ViewModel() {
             else -> false
         }
     }
-    
     /**
      * OPTIMIZED: Process events to build version cache (O(n) where n = number of events)
      * This replaces the old chain-following approach with direct version storage
@@ -2563,7 +2577,7 @@ class AppViewModel : ViewModel() {
                                 val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
                                 
                                 val profile = MemberProfile(displayName, avatarUrl)
-                                globalProfileCache[userId] = WeakReference(profile)
+                                globalProfileCache[userId] = CachedProfileEntry(profile, System.currentTimeMillis())
                                 //android.util.Log.d("Andromuks", "AppViewModel: Cached invited member '$userId' profile in global cache only -> displayName: '$displayName'")
                             }
                             "leave", "ban" -> {
@@ -2910,21 +2924,6 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Prefetched room state for: $roomId")
         }
         
-        // Check if we have enough timeline cache, if not, do a lightweight prefetch
-        val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
-        if (cachedEventCount < 20) {
-            // Lightweight timeline prefetch (smaller limit)
-            val prefetchRequestId = requestIdCounter++
-            backgroundPrefetchRequests[prefetchRequestId] = roomId
-            sendWebSocketCommand("paginate", prefetchRequestId, mapOf(
-                "room_id" to roomId,
-                "max_timeline_id" to 0,
-                "limit" to 25, // Smaller limit for prefetching
-                "reset" to false
-            ))
-            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Prefetched timeline for: $roomId")
-        }
-        
         // Update navigation state
         val currentState = navigationCache[roomId] ?: RoomNavigationState(roomId)
         navigationCache[roomId] = currentState.copy(
@@ -2946,19 +2945,6 @@ class AppViewModel : ViewModel() {
         
         // Load additional timeline data if needed
         if (navigationState.essentialDataLoaded && !navigationState.timelineDataLoaded) {
-            val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
-            if (cachedEventCount < 50) {
-                val prefetchRequestId = requestIdCounter++
-                backgroundPrefetchRequests[prefetchRequestId] = roomId
-                sendWebSocketCommand("paginate", prefetchRequestId, mapOf(
-                    "room_id" to roomId,
-                    "max_timeline_id" to 0,
-                    "limit" to 50,
-                    "reset" to false
-                ))
-                android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Loading timeline details for: $roomId")
-            }
-            
             navigationCache[roomId] = navigationState.copy(timelineDataLoaded = true)
         }
     }
@@ -2983,6 +2969,17 @@ class AppViewModel : ViewModel() {
         
         // Extract request_id from sync_complete (used as last_received_id)
         val requestId = syncJson.optInt("request_id", 0)
+        
+        if (requestId != 0) {
+            var forwardRoomId = forwardPaginateRequests.remove(requestId)
+            if (forwardRoomId == null && requestId != Int.MIN_VALUE) {
+                forwardRoomId = forwardPaginateRequests.remove(-requestId)
+            }
+            if (forwardRoomId != null) {
+                forwardPaginateInFlight.remove(forwardRoomId)
+                android.util.Log.d("Andromuks", "AppViewModel: Forward paginate completed for $forwardRoomId (requestId=$requestId)")
+            }
+        }
         
         // Persist sync_complete to database (run in background)
         appContext?.let { context ->
@@ -3049,7 +3046,6 @@ class AppViewModel : ViewModel() {
         // Process the sync result
         processParsedSyncResult(syncResult, syncJson)
     }
-    
     /**
      * Process parsed sync result and update UI
      * Called on main thread after background parsing completes
@@ -3195,6 +3191,38 @@ class AppViewModel : ViewModel() {
         }
         
         android.util.Log.d("Andromuks", "AppViewModel: Total rooms now: ${roomMap.size} (updated: ${syncResult.updatedRooms.size}, new: ${syncResult.newRooms.size}, removed: ${syncResult.removedRoomIds.size}) - sync message #$syncMessageCount [App visible: $isAppVisible]")
+        
+        // DETECT INVITES ACCEPTED ON OTHER DEVICES: Remove pending invites for rooms already joined
+        if (pendingInvites.isNotEmpty()) {
+            val acceptedInvites = pendingInvites.keys.filter { roomMap.containsKey(it) }
+            if (acceptedInvites.isNotEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: Detected ${acceptedInvites.size} invites already joined via sync - removing pending invites")
+                
+                acceptedInvites.forEach { roomId ->
+                    pendingInvites.remove(roomId)
+                }
+                
+                // Remove from database asynchronously
+                appContext?.let { context ->
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                            acceptedInvites.forEach { roomId ->
+                                database.inviteDao().deleteInvite(roomId)
+                            }
+                            android.util.Log.d("Andromuks", "AppViewModel: Removed ${acceptedInvites.size} invites from database (accepted elsewhere)")
+                        } catch (e: Exception) {
+                            android.util.Log.e("Andromuks", "AppViewModel: Error removing accepted invites from database", e)
+                        }
+                    }
+                }
+                
+                // Trigger UI update to remove invites from RoomListScreen
+                needsRoomListUpdate = true
+                roomListUpdateCounter++
+                android.util.Log.d("Andromuks", "AppViewModel: Room list updated after removing accepted invites (roomListUpdateCounter: $roomListUpdateCounter)")
+            }
+        }
         
         // Process room invitations first
         processRoomInvites(syncJson)
@@ -3805,7 +3833,11 @@ class AppViewModel : ViewModel() {
     
     override fun onCleared() {
         super.onCleared()
-        android.util.Log.d("Andromuks", "AppViewModel: onCleared - cleaning up resources")
+        android.util.Log.d("Andromuks", "AppViewModel: onCleared - cleaning up resources for $viewModelId")
+        
+        // PHASE 4: Unregister this ViewModel from receiving WebSocket messages
+        android.util.Log.d("Andromuks", "AppViewModel: Unregistering $viewModelId from WebSocket callbacks")
+        WebSocketService.unregisterReceiveCallback(viewModelId)
         
         // Cancel any pending jobs
         appInvisibleJob?.cancel()
@@ -3827,7 +3859,6 @@ class AppViewModel : ViewModel() {
     // Room timeline state
     var currentRoomId by mutableStateOf("")
         private set
-    
     /**
      * Helper function to set currentRoomId and save it to SharedPreferences.
      * This allows notification services to check if a room is currently open.
@@ -3903,6 +3934,7 @@ class AppViewModel : ViewModel() {
     private val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
     private val readReceiptsLock = Any() // Synchronization lock for readReceipts access
+    private val roomsWithLoadedReceiptsFromDb = mutableSetOf<String>() // Track which rooms had receipts restored from DB
     
     // Track receipt movements for animation - userId -> (previousEventId, currentEventId, timestamp)
     // THREAD SAFETY: Protected by readReceiptsLock since it's accessed from background threads
@@ -3936,6 +3968,8 @@ class AppViewModel : ViewModel() {
     private val eventRequests = mutableMapOf<Int, Pair<String, (TimelineEvent?) -> Unit>>() // requestId -> (roomId, callback)
     private val paginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for pagination)
     private val backgroundPrefetchRequests = mutableMapOf<Int, String>() // requestId -> roomId (for background prefetch)
+    private val forwardPaginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for forward/manual paginate)
+    private val forwardPaginateInFlight = mutableSetOf<String>() // Rooms currently awaiting forward paginate response
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     private val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val mutualRoomsRequests = mutableMapOf<Int, (List<String>?, String?) -> Unit>() // requestId -> callback
@@ -4048,11 +4082,16 @@ class AppViewModel : ViewModel() {
     }
 
     fun setWebSocket(webSocket: WebSocket) {
-        android.util.Log.d("Andromuks", "AppViewModel: setWebSocket() called")
+        android.util.Log.d("Andromuks", "AppViewModel: setWebSocket() called for $viewModelId")
         this.webSocket = webSocket
         
-        // Set up service callbacks for ping/pong
+        // PHASE 4: Register this ViewModel to receive WebSocket messages
+        android.util.Log.d("Andromuks", "AppViewModel: Registering $viewModelId to receive WebSocket messages")
+        WebSocketService.registerReceiveCallback(viewModelId, this)
+        
+        // Set up service callbacks for ping/pong (using deprecated method for now)
         android.util.Log.d("Andromuks", "AppViewModel: Setting up service callbacks")
+        @Suppress("DEPRECATION")
         WebSocketService.setWebSocketSendCallback { command, requestId, data ->
             sendWebSocketCommand(command, requestId, data) == WebSocketResult.SUCCESS
         }
@@ -4355,7 +4394,6 @@ class AppViewModel : ViewModel() {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to save state to storage", e)
         }
     }
-    
     /**
      * Loads the previously saved WebSocket state and room data from persistent storage.
      * Tries Room database first, then falls back to SharedPreferences.
@@ -4920,6 +4958,9 @@ class AppViewModel : ViewModel() {
         
         android.util.Log.d("Andromuks", "AppViewModel: Built timeline with ${timelineEvents.size} events from ${cachedEvents.size} cached events")
         
+        // Restore read receipts from database for cached events (only once per room)
+        loadReceiptsForCachedEvents(roomId, cachedEvents)
+        
         // Set smallest rowId from cached events for pagination
         val smallestCached = cachedEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
         if (smallestCached > 0) {
@@ -4968,8 +5009,142 @@ class AppViewModel : ViewModel() {
             "reset" to false
         ))
         android.util.Log.d("Andromuks", "AppViewModel: ✅ Sent reaction request for cached room: $roomId (requestId: $reactionRequestId, smallestCached: $smallestCached, effectiveMaxTimelineId: $effectiveMaxTimelineId, currentRoomId: $currentRoomId)")
+
+        requestForwardPaginationIfNeeded(roomId, cachedEvents)
     }
-    
+
+    /**
+     * Ensure we are up to date by requesting any newer events beyond the latest cached row.
+     * Uses the custom paginateManual command to fetch forward data from the server.
+     */
+    private fun requestForwardPaginationIfNeeded(roomId: String, cachedEvents: List<TimelineEvent>) {
+        if (webSocket == null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping forward paginate for $roomId - WebSocket not connected")
+            return
+        }
+
+        if (roomId != currentRoomId) {
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping forward paginate for $roomId - not the active room (currentRoomId=$currentRoomId)")
+            return
+        }
+
+        if (forwardPaginateInFlight.contains(roomId)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Forward paginate already in-flight for $roomId, skipping duplicate request")
+            return
+        }
+
+        val latestEvent = cachedEvents
+            .filter { it.timelineRowid > 0 }
+            .maxByOrNull { it.timelineRowid }
+
+        val sinceRowId = latestEvent?.timelineRowid ?: -1L
+        if (sinceRowId <= 0L) {
+            android.util.Log.d("Andromuks", "AppViewModel: No valid timeline_rowid found for $roomId, skipping forward paginate")
+            return
+        }
+
+        val requestId = requestIdCounter++
+        forwardPaginateRequests[requestId] = roomId
+        forwardPaginateInFlight.add(roomId)
+
+        val commandData = mapOf(
+            "room_id" to roomId,
+            "since" to sinceRowId,
+            "direction" to "f",
+            "limit" to 100
+        )
+
+        android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Sending forward paginate for $roomId (requestId=$requestId, since=$sinceRowId, cachedEvents=${cachedEvents.size})"
+        )
+        val result = sendWebSocketCommand("paginateManual", requestId, commandData)
+        if (result != WebSocketResult.SUCCESS) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Failed to send forward paginate for $roomId (requestId=$requestId, result=$result)"
+            )
+            forwardPaginateRequests.remove(requestId)
+            forwardPaginateInFlight.remove(roomId)
+        }
+    }
+
+    private fun loadReceiptsForCachedEvents(roomId: String, cachedEvents: List<TimelineEvent>) {
+        if (cachedEvents.isEmpty()) {
+            return
+        }
+
+        val context = appContext ?: run {
+            android.util.Log.w("Andromuks", "AppViewModel: Cannot restore receipts for $roomId - appContext is null")
+            return
+        }
+
+        if (!roomsWithLoadedReceiptsFromDb.add(roomId)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Read receipts for room $roomId already restored from database, skipping")
+            return
+        }
+
+        val eventIds = cachedEvents.map { it.eventId }.toSet()
+        if (eventIds.isEmpty()) {
+            return
+        }
+
+        val applicationContext = context.applicationContext
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(applicationContext)
+                val receiptEntities = database.receiptDao().getReceiptsForRoom(roomId)
+
+                if (receiptEntities.isEmpty()) {
+                    android.util.Log.d("Andromuks", "AppViewModel: No stored receipts found in database for room $roomId")
+                    return@launch
+                }
+
+                val receiptsByEvent = receiptEntities
+                    .filter { eventIds.contains(it.eventId) }
+                    .groupBy { it.eventId }
+                    .mapValues { (_, entities) ->
+                        entities.sortedBy { it.timestamp }.map { entity ->
+                            ReadReceipt(
+                                userId = entity.userId,
+                                eventId = entity.eventId,
+                                timestamp = entity.timestamp,
+                                receiptType = entity.type
+                            )
+                        }
+                    }
+
+                if (receiptsByEvent.isEmpty()) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Stored receipts did not match cached events for room $roomId")
+                    return@launch
+                }
+
+                var didChange = false
+                synchronized(readReceiptsLock) {
+                    for ((eventId, receipts) in receiptsByEvent) {
+                        val newList = receipts.toMutableList()
+                        val existing = readReceipts[eventId]
+                        if (existing == null || existing.size != newList.size || !existing.zip(newList).all { (a, b) -> a == b }) {
+                            readReceipts[eventId] = newList
+                            didChange = true
+                        }
+                    }
+                }
+
+                if (didChange) {
+                    withContext(Dispatchers.Main) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Restored ${receiptsByEvent.size} read receipt groups from database for room $roomId")
+                        readReceiptsUpdateCounter++
+                    }
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: Database read receipts already match in-memory state for room $roomId")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to restore read receipts from database for room $roomId", e)
+            }
+        }
+    }
+
     fun requestRoomTimeline(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId")
         
@@ -5704,6 +5879,31 @@ class AppViewModel : ViewModel() {
      * OPPORTUNISTIC PROFILE LOADING: Request profile for a single user only when needed for rendering.
      * This prevents loading 15,000+ profiles upfront and only loads what's actually displayed.
      */
+    private fun logProfileCacheStats(source: String) {
+        val totalProfiles = globalProfileCache.size + flattenedMemberCache.size
+        val flattenedBytes = flattenedMemberCache.entries.sumOf { (key, profile) ->
+            estimateProfileEntryBytes(key, profile)
+        }
+        val globalBytes = globalProfileCache.entries.sumOf { (key, entry) ->
+            estimateProfileEntryBytes(key, entry.profile)
+        }
+        val runtime = Runtime.getRuntime()
+        val usedMem = runtime.totalMemory() - runtime.freeMemory()
+        android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: ProfileCacheStats[$source] - totalProfiles=$totalProfiles, flattened=${flattenedMemberCache.size} (~${formatBytes(flattenedBytes)}), global=${globalProfileCache.size} (~${formatBytes(globalBytes)}), usedMem=${formatBytes(usedMem)}"
+        )
+    }
+
+    private fun estimateProfileEntryBytes(key: String, profile: MemberProfile): Long {
+        var bytes = (key.length * 2).toLong()
+        profile.displayName?.let { bytes += it.length * 2L }
+        profile.avatarUrl?.let { bytes += it.length * 2L }
+        // overhead fudge factor
+        bytes += 64
+        return bytes
+    }
+
     fun requestUserProfileOnDemand(userId: String, roomId: String) {
         // Check if we already have this profile in cache
         val existingProfile = getUserProfile(userId, roomId)
@@ -5714,51 +5914,77 @@ class AppViewModel : ViewModel() {
         
         val requestKey = "$roomId:$userId"
         
-        // Check if we're already requesting this profile to avoid duplicates
-        if (pendingProfileRequests.contains(requestKey)) {
-            android.util.Log.d("Andromuks", "AppViewModel: Profile request already pending for $userId, skipping duplicate")
-            return
-        }
-        
-        // PERFORMANCE: Throttle rapid re-requests during animation bursts
-        val currentTime = System.currentTimeMillis()
-        val lastRequestTime = recentProfileRequestTimes[requestKey]
-        if (lastRequestTime != null && (currentTime - lastRequestTime) < PROFILE_REQUEST_THROTTLE_MS) {
-            android.util.Log.d("Andromuks", "AppViewModel: Profile request throttled for $userId (requested ${currentTime - lastRequestTime}ms ago)")
-            return
-        }
-        
-        // Clean up old throttle entries (older than throttle window) to prevent memory leaks
-        val cutoffTime = currentTime - PROFILE_REQUEST_THROTTLE_MS
-        recentProfileRequestTimes.entries.removeAll { (_, timestamp) -> timestamp < cutoffTime }
-        
-        android.util.Log.d("Andromuks", "AppViewModel: Requesting profile on-demand for $userId in room $roomId")
-        
-        // Check if WebSocket is connected
-        if (webSocket == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, skipping on-demand profile request")
-            return
-        }
-        
-        val requestId = requestIdCounter++
-        
-        // Track this request to prevent duplicates
-        pendingProfileRequests.add(requestKey)
-        recentProfileRequestTimes[requestKey] = currentTime // Record request time for throttling
-        roomSpecificStateRequests[requestId] = roomId  // Use roomSpecificStateRequests for get_specific_room_state responses
-        
-        // Request specific room state for this user
-        sendWebSocketCommand("get_specific_room_state", requestId, mapOf(
-            "keys" to listOf(mapOf(
-                "room_id" to roomId,
-                "type" to "m.room.member",
-                "state_key" to userId
+        fun enqueueNetworkRequest() {
+            // Avoid duplicate network requests
+            if (pendingProfileRequests.contains(requestKey)) {
+                android.util.Log.d("Andromuks", "AppViewModel: Profile request already pending for $userId, skipping duplicate")
+                return
+            }
+            
+            val currentTime = System.currentTimeMillis()
+            val lastRequestTime = recentProfileRequestTimes[requestKey]
+            if (lastRequestTime != null && (currentTime - lastRequestTime) < PROFILE_REQUEST_THROTTLE_MS) {
+                android.util.Log.d("Andromuks", "AppViewModel: Profile request throttled for $userId (requested ${currentTime - lastRequestTime}ms ago)")
+                return
+            }
+            
+            // Clean up old throttle entries (older than throttle window) to prevent memory leaks
+            val cutoffTime = currentTime - PROFILE_REQUEST_THROTTLE_MS
+            recentProfileRequestTimes.entries.removeAll { (_, timestamp) -> timestamp < cutoffTime }
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Requesting profile on-demand (network) for $userId in room $roomId")
+            
+            // Check if WebSocket is connected
+            if (webSocket == null) {
+                android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, skipping on-demand profile request")
+                return
+            }
+            
+            val requestId = requestIdCounter++
+            
+            // Track this request to prevent duplicates
+            pendingProfileRequests.add(requestKey)
+            recentProfileRequestTimes[requestKey] = currentTime // Record request time for throttling
+            roomSpecificStateRequests[requestId] = roomId  // Use roomSpecificStateRequests for get_specific_room_state responses
+            
+            // Request specific room state for this user
+            sendWebSocketCommand("get_specific_room_state", requestId, mapOf(
+                "keys" to listOf(mapOf(
+                    "room_id" to roomId,
+                    "type" to "m.room.member",
+                    "state_key" to userId
+                ))
             ))
-        ))
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Sent on-demand profile request with ID $requestId for $userId")
+        }
         
-        android.util.Log.d("Andromuks", "AppViewModel: Sent on-demand profile request with ID $requestId for $userId")
+        val context = appContext
+        if (context != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val diskProfile = loadProfileFromDatabase(userId)
+                if (diskProfile != null) {
+                    withContext(Dispatchers.Main) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Restored profile for $userId from disk cache (room $roomId)")
+                        storeMemberProfile(roomId, userId, diskProfile)
+                        updateGlobalProfile(userId, diskProfile)
+                        logProfileCacheStats("disk-restore:$userId")
+                        needsMemberUpdate = true
+                        scheduleUIUpdate("member")
+                    }
+                    return@launch
+                }
+                
+                withContext(Dispatchers.Main) {
+                    enqueueNetworkRequest()
+                    logProfileCacheStats("enqueue-network:$userId")
+                }
+            }
+        } else {
+            enqueueNetworkRequest()
+            logProfileCacheStats("enqueue-network:$userId")
+        }
     }
-    
     /**
      * Requests updated profile information for users in a room using get_specific_room_state.
      * This is used to refresh stale profile cache data when opening a room.
@@ -6548,7 +6774,6 @@ class AppViewModel : ViewModel() {
         sendWebSocketCommand("send_message", messageRequestId, commandData)
         android.util.Log.d("Andromuks", "AppViewModel: File message command sent with request_id: $messageRequestId")
     }
-
     fun handleResponse(requestId: Int, data: Any) {
         android.util.Log.d("Andromuks", "AppViewModel: handleResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
         android.util.Log.d("Andromuks", "AppViewModel: outgoingRequests contains $requestId: ${outgoingRequests.containsKey(requestId)}")
@@ -6558,8 +6783,10 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: roomStateRequests contains $requestId: ${roomStateRequests.containsKey(requestId)}")
         android.util.Log.d("Andromuks", "AppViewModel: bridgeStateRequests contains $requestId: ${bridgeStateRequests.containsKey(requestId)}")
         // THREAD SAFETY: Create safe copies to avoid ConcurrentModificationException during logging
-        android.util.Log.d("Andromuks", "AppViewModel: Current bridge state requests: ${bridgeStateRequests.keys.toList()}")
-        android.util.Log.d("Andromuks", "AppViewModel: Current room state requests: ${roomStateRequests.keys.toList()}")
+        val bridgeStateKeysSnapshot = synchronized(bridgeStateRequests) { bridgeStateRequests.keys.toList() }
+        val roomStateKeysSnapshot = synchronized(roomStateRequests) { roomStateRequests.keys.toList() }
+        android.util.Log.d("Andromuks", "AppViewModel: Current bridge state requests: $bridgeStateKeysSnapshot")
+        android.util.Log.d("Andromuks", "AppViewModel: Current room state requests: $roomStateKeysSnapshot")
         
         if (profileRequests.containsKey(requestId)) {
             handleProfileResponse(requestId, data)
@@ -7342,7 +7569,6 @@ class AppViewModel : ViewModel() {
         paginateRequests.remove(requestId)
         backgroundPrefetchRequests.remove(requestId)
     }
-    
     private fun handleRoomStateResponse(requestId: Int, data: Any) {
         val roomId = roomStateRequests.remove(requestId) ?: return
         
@@ -8107,41 +8333,20 @@ class AppViewModel : ViewModel() {
         val rooms = data.optJSONObject("rooms") ?: return
         
         val roomKeys = rooms.keys()
-        val currentRoomData = mutableListOf<Pair<String, JSONArray>>()
-        val otherRoomsData = mutableListOf<Pair<String, JSONArray>>()
-        
-        // Separate current room from other rooms
         while (roomKeys.hasNext()) {
             val roomId = roomKeys.next()
+            if (roomId != currentRoomId) {
+                continue // Only cache events for the currently opened room
+            }
+
             val roomData = rooms.optJSONObject(roomId) ?: continue
             val events = roomData.optJSONArray("events") ?: continue
-            
-            if (roomId == currentRoomId) {
-                currentRoomData.add(Pair(roomId, events))
-            } else {
-                otherRoomsData.add(Pair(roomId, events))
-            }
-        }
-        
-        // Process current room immediately (synchronously) for instant updates
-        for ((roomId, events) in currentRoomData) {
+
             android.util.Log.d("Andromuks", "AppViewModel: Caching ${events.length()} events for current room: $roomId (PRIORITY)")
             val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
             RoomTimelineCache.addEventsFromSync(roomId, events, memberMap)
         }
-        
-        // Process other rooms in background thread (non-blocking)
-        if (otherRoomsData.isNotEmpty()) {
-            viewModelScope.launch(Dispatchers.Default) {
-                for ((roomId, events) in otherRoomsData) {
-                    val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
-                    RoomTimelineCache.addEventsFromSync(roomId, events, memberMap)
-                }
-                android.util.Log.d("Andromuks", "AppViewModel: Background cached ${otherRoomsData.size} non-current rooms")
-            }
-        }
     }
-    
     private fun updateTimelineFromSync(syncJson: JSONObject, roomId: String) {
         val data = syncJson.optJSONObject("data")
         if (data != null) {
@@ -8149,6 +8354,17 @@ class AppViewModel : ViewModel() {
             if (rooms != null) {
                 val roomData = rooms.optJSONObject(roomId)
                 if (roomData != null) {
+                    if (forwardPaginateInFlight.remove(roomId)) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Cleared forward paginate in-flight flag for $roomId after sync_complete")
+                    }
+                    if (forwardPaginateRequests.isNotEmpty()) {
+                        val completedRequestIds = forwardPaginateRequests.filterValues { it == roomId }.keys.toList()
+                        for (id in completedRequestIds) {
+                            forwardPaginateRequests.remove(id)
+                            android.util.Log.d("Andromuks", "AppViewModel: Cleared forward paginate requestId=$id for $roomId after sync_complete without explicit request_id match")
+                        }
+                    }
+                    
                     // Update room state if present
                     val meta = roomData.optJSONObject("meta")
                     if (meta != null) {
@@ -8270,7 +8486,7 @@ class AppViewModel : ViewModel() {
                         val profile = MemberProfile(displayName, avatarUrl)
                         memberMap[userId] = profile
                         // PERFORMANCE: Also add to global cache for O(1) lookups
-                        globalProfileCache[userId] = WeakReference(profile)
+                        globalProfileCache[userId] = CachedProfileEntry(profile, System.currentTimeMillis())
                         android.util.Log.d("Andromuks", "AppViewModel: [SYNC] ✓ Updated member cache for $userId: displayName='$displayName' (NOT added to timeline - correct)")
                     }
                 }
@@ -8869,7 +9085,6 @@ class AppViewModel : ViewModel() {
             throw e
         }
     }
-    
     private fun mergePaginationEvents(newEvents: List<TimelineEvent>) {
         android.util.Log.d("Andromuks", "AppViewModel: mergePaginationEvents called with ${newEvents.size} new events")
         android.util.Log.d("Andromuks", "AppViewModel: Current timeline has ${timelineEvents.size} events")
@@ -9651,7 +9866,6 @@ class AppViewModel : ViewModel() {
             leaveRoomRequests.remove(requestId)
         }
     }
-    
     /**
      * Send WebSocket command to the backend
      * Commands are sent individually with sequential request IDs
@@ -10452,7 +10666,6 @@ class AppViewModel : ViewModel() {
             fun empty() = TimelineResponseData(events = JSONArray())
         }
     }
-    
     /**
      * Parse timeline response data into structured format
      */
@@ -10550,7 +10763,7 @@ class AppViewModel : ViewModel() {
         val previousProfile = memberMap[userId]
         
         memberMap[userId] = profile
-        globalProfileCache[userId] = WeakReference(profile)
+        globalProfileCache[userId] = CachedProfileEntry(profile, System.currentTimeMillis())
         
         return if (isProfileChange(previousProfile, profile, event)) {
             memberUpdateCounter++

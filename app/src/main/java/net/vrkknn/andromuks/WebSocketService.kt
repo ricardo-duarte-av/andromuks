@@ -21,6 +21,7 @@ import kotlinx.coroutines.*
 import java.util.concurrent.atomic.AtomicLong
 import okhttp3.WebSocket
 import org.json.JSONObject
+import net.vrkknn.andromuks.utils.trimWebsocketHost
 
 /**
  * WebSocketService - Foreground service that maintains app process
@@ -58,8 +59,16 @@ class WebSocketService : Service() {
         private val TOGGLE_STACK_DEPTH = 6
         private val toggleCounter = AtomicLong(0)
         
-        // Callback for sending WebSocket commands
-        private var webSocketSendCallback: ((String, Int, Map<String, Any>) -> Boolean)? = null
+        // PHASE 4: WebSocket Callback Queues (allows multiple ViewModels to interact)
+        
+        // Send callbacks: For sending commands FROM service TO ViewModels (e.g., ping/pong)
+        private val webSocketSendCallbacks = mutableListOf<Pair<String, (String, Int, Map<String, Any>) -> Boolean>>()
+        
+        // PHASE 4: Receive callbacks: For distributing messages FROM server TO ViewModels
+        // When a message arrives from server, all registered ViewModels are notified
+        private val webSocketReceiveCallbacks = mutableListOf<Pair<String, AppViewModel>>()
+        
+        private val callbacksLock = Any() // Thread safety for callback lists
         
         // Callback for triggering reconnection
         private var reconnectionCallback: ((String) -> Unit)? = null
@@ -220,9 +229,101 @@ class WebSocketService : Service() {
         /**
          * Set callback for sending WebSocket commands
          */
+        /**
+         * PHASE 4: Register WebSocket send callback (supports multiple callbacks)
+         * 
+         * @param callbackId Unique identifier for this callback (e.g., "MainActivity", "BubbleActivity")
+         * @param callback Function to handle WebSocket responses
+         * @return true if registered successfully, false if already registered
+         */
+        fun registerWebSocketSendCallback(callbackId: String, callback: (String, Int, Map<String, Any>) -> Boolean): Boolean {
+            synchronized(callbacksLock) {
+                // Check if already registered
+                if (webSocketSendCallbacks.any { it.first == callbackId }) {
+                    android.util.Log.w("WebSocketService", "Callback already registered for: $callbackId")
+                    return false
+                }
+                
+                webSocketSendCallbacks.add(Pair(callbackId, callback))
+                android.util.Log.d("WebSocketService", "Registered WebSocket callback for: $callbackId (total: ${webSocketSendCallbacks.size})")
+                return true
+            }
+        }
+        
+        /**
+         * PHASE 4: Unregister WebSocket send callback
+         * 
+         * @param callbackId Unique identifier for the callback to remove
+         * @return true if unregistered successfully, false if not found
+         */
+        fun unregisterWebSocketSendCallback(callbackId: String): Boolean {
+            synchronized(callbacksLock) {
+                val removed = webSocketSendCallbacks.removeIf { it.first == callbackId }
+                if (removed) {
+                    android.util.Log.d("WebSocketService", "Unregistered WebSocket callback for: $callbackId (remaining: ${webSocketSendCallbacks.size})")
+                } else {
+                    android.util.Log.w("WebSocketService", "No callback found to unregister for: $callbackId")
+                }
+                return removed
+            }
+        }
+        
+        /**
+         * PHASE 4: Register AppViewModel to receive WebSocket messages
+         * Multiple ViewModels can register to receive all server messages
+         * 
+         * @param viewModelId Unique identifier (e.g., "MainActivity", "BubbleActivity")
+         * @param viewModel The AppViewModel instance to receive messages
+         */
+        fun registerReceiveCallback(viewModelId: String, viewModel: AppViewModel) {
+            synchronized(callbacksLock) {
+                // Check if already registered
+                if (webSocketReceiveCallbacks.any { it.first == viewModelId }) {
+                    android.util.Log.w("WebSocketService", "Receive callback already registered for: $viewModelId")
+                    return
+                }
+                
+                webSocketReceiveCallbacks.add(Pair(viewModelId, viewModel))
+                android.util.Log.d("WebSocketService", "Registered receive callback for: $viewModelId (total: ${webSocketReceiveCallbacks.size})")
+            }
+        }
+        
+        /**
+         * PHASE 4: Unregister AppViewModel from receiving messages
+         * 
+         * @param viewModelId Unique identifier
+         */
+        fun unregisterReceiveCallback(viewModelId: String) {
+            synchronized(callbacksLock) {
+                val removed = webSocketReceiveCallbacks.removeIf { it.first == viewModelId }
+                if (removed) {
+                    android.util.Log.d("WebSocketService", "Unregistered receive callback for: $viewModelId (remaining: ${webSocketReceiveCallbacks.size})")
+                } else {
+                    android.util.Log.w("WebSocketService", "No receive callback found for: $viewModelId")
+                }
+            }
+        }
+        
+        /**
+         * PHASE 4: Get all registered AppViewModels
+         * Used by NetworkUtils to distribute incoming messages
+         * 
+         * @return List of registered AppViewModel instances
+         */
+        fun getRegisteredViewModels(): List<AppViewModel> {
+            synchronized(callbacksLock) {
+                return webSocketReceiveCallbacks.map { it.second }
+            }
+        }
+        
+        /**
+         * DEPRECATED: Use registerWebSocketSendCallback instead
+         * Kept for backward compatibility
+         */
+        @Deprecated("Use registerWebSocketSendCallback instead", ReplaceWith("registerWebSocketSendCallback(\"legacy\", callback)"))
         fun setWebSocketSendCallback(callback: (String, Int, Map<String, Any>) -> Boolean) {
-            android.util.Log.d("WebSocketService", "setWebSocketSendCallback() called")
-            webSocketSendCallback = callback
+            android.util.Log.d("WebSocketService", "setWebSocketSendCallback() called (deprecated - use registerWebSocketSendCallback)")
+            registerWebSocketSendCallback("legacy", callback)
         }
         
         /**
@@ -1484,18 +1585,47 @@ class WebSocketService : Service() {
                 val client = okhttp3.OkHttpClient.Builder()
                     .build()
                 
-                // Build WebSocket URL (reuse logic from NetworkUtils)
-                val webSocketUrl = homeserverUrl.replace("http://", "ws://").replace("https://", "wss://") + "/_matrix/client/r0/sync"
-                
-                val finalWebSocketUrl = if (runId.isNotEmpty() && lastReceivedId != 0) {
-                    "$webSocketUrl?run_id=$runId&last_received_event=$lastReceivedId"
-                } else if (runId.isNotEmpty() && lastReceivedId == 0) {
-                    "$webSocketUrl?run_id=$runId"
-                } else {
-                    webSocketUrl
+                // Build WebSocket URL using the same logic as NetworkUtils.trimWebsocketHost()
+                val baseWebSocketUrl = try {
+                    trimWebsocketHost(homeserverUrl)
+                } catch (e: Exception) {
+                    android.util.Log.e("WebSocketService", "Fallback reconnection: Failed to build WebSocket URL from $homeserverUrl", e)
+                    trimWebsocketHost("https://$homeserverUrl")
                 }
                 
-                android.util.Log.d("WebSocketService", "Fallback reconnection: Connecting to $finalWebSocketUrl")
+                // Determine compression setting (default to true)
+                val compressionEnabled = sharedPrefs.getBoolean("enable_compression", true)
+                
+                // Ensure run_id is not JSON-encoded (match NetworkUtils.connectToWebsocket logic)
+                val actualRunId = if (runId.startsWith("{")) {
+                    try {
+                        JSONObject(runId).optString("run_id", "")
+                    } catch (e: Exception) {
+                        android.util.Log.e("WebSocketService", "Fallback reconnection: Failed to extract run_id from JSON string: $runId", e)
+                        runId
+                    }
+                } else {
+                    runId
+                }
+                
+                val queryParams = mutableListOf<String>()
+                if (actualRunId.isNotEmpty()) {
+                    queryParams.add("run_id=$actualRunId")
+                }
+                if (actualRunId.isNotEmpty() && lastReceivedId != 0) {
+                    queryParams.add("last_received_event=$lastReceivedId")
+                }
+                if (compressionEnabled) {
+                    queryParams.add("compress=1")
+                }
+                
+                val finalWebSocketUrl = if (queryParams.isEmpty()) {
+                    baseWebSocketUrl
+                } else {
+                    "$baseWebSocketUrl?${queryParams.joinToString("&")}"
+                }
+                
+                android.util.Log.d("WebSocketService", "Fallback reconnection: Connecting to $finalWebSocketUrl (compression=$compressionEnabled)")
                 
                 val request = okhttp3.Request.Builder()
                     .url(finalWebSocketUrl)
