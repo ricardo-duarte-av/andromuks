@@ -984,14 +984,27 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 }
                 .build()
             
-            // Add the reply message to the style
-            existingStyle.addMessage(
-                MessagingStyle.Message(
-                    replyText,
-                    System.currentTimeMillis(),
-                    mePerson
+            // Avoid duplicate reply entries - system may already add the reply automatically
+            val replyAlreadyPresent = existingStyle.messages.any { message ->
+                val messageText = message.text?.toString()
+                val messagePersonKey = message.person?.key
+                val matchesText = messageText == replyText
+                val matchesPerson = messagePersonKey == currentUserId
+                matchesText && matchesPerson
+            }
+
+            if (!replyAlreadyPresent) {
+                // Add the reply message to the style
+                existingStyle.addMessage(
+                    MessagingStyle.Message(
+                        replyText,
+                        System.currentTimeMillis(),
+                        mePerson
+                    )
                 )
-            )
+            } else {
+                Log.d(TAG, "Reply already present in notification, skipping duplicate entry")
+            }
             
             // Get the channel ID from the notification
             val channelId = "${CONVERSATION_CHANNEL_ID}_${roomId}"
