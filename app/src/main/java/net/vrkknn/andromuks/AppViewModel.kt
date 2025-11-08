@@ -28,6 +28,7 @@ import android.media.AudioManager
 import android.os.Build
 import java.util.concurrent.ConcurrentHashMap
 import java.io.File
+import java.util.Collections
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 
 data class MemberProfile(
@@ -1486,6 +1487,10 @@ class AppViewModel : ViewModel() {
         if (!userId.isNullOrBlank()) {
             currentUserId = userId
             android.util.Log.d("Andromuks", "AppViewModel: Set currentUserId: $userId")
+            appContext?.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                ?.edit()
+                ?.putString("current_user_id", userId)
+                ?.apply()
         }
         if (!device.isNullOrBlank()) {
             deviceId = device
@@ -1529,7 +1534,7 @@ class AppViewModel : ViewModel() {
     private val globalProfileCache = ConcurrentHashMap<String, CachedProfileEntry>()
     
     // Legacy room member cache (deprecated, kept for compatibility)
-    private val roomMemberCache = mutableMapOf<String, MutableMap<String, MemberProfile>>()
+    private val roomMemberCache = ConcurrentHashMap<String, ConcurrentHashMap<String, MemberProfile>>()
     
     // OPTIMIZED EDIT/REDACTION SYSTEM - O(1) lookups for all operations
     // Maps original event ID to its complete version history
@@ -1679,7 +1684,7 @@ class AppViewModel : ViewModel() {
         }
         
         // Also maintain legacy cache for compatibility (but this will be deprecated)
-        val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+        val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
         memberMap[userId] = profile
         
         // MEMORY MANAGEMENT: Cleanup if cache gets too large
@@ -2542,7 +2547,7 @@ class AppViewModel : ViewModel() {
             val events = roomObj.optJSONArray("events") ?: continue
             
             var hasMemberEvents = false
-            val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+            val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
             
             // Process all events to find member events
             for (i in 0 until events.length()) {
@@ -4034,6 +4039,8 @@ class AppViewModel : ViewModel() {
     
     private val eventChainMap = mutableMapOf<String, EventChainEntry>()
     private val editEventsMap = mutableMapOf<String, TimelineEvent>() // Store edit events separately
+    private val roomsPendingDbRehydrate = Collections.synchronizedSet(mutableSetOf<String>())
+    private val roomRehydrateJobs = Collections.synchronizedMap(mutableMapOf<String, Job>())
     
     // Made public to allow access for RoomJoiner WebSocket operations
     var requestIdCounter = 1
@@ -5102,7 +5109,7 @@ class AppViewModel : ViewModel() {
         
         // Ensure member cache exists for this room
         if (roomMemberCache[roomId] == null) {
-            roomMemberCache[roomId] = mutableMapOf()
+            roomMemberCache[roomId] = ConcurrentHashMap()
         }
         
         // Populate edit chain mapping from cached events
@@ -5490,7 +5497,7 @@ class AppViewModel : ViewModel() {
                 
                 // Ensure member cache exists for this room
                 if (roomMemberCache[roomId] == null) {
-                    roomMemberCache[roomId] = mutableMapOf()
+                    roomMemberCache[roomId] = ConcurrentHashMap()
                 }
                 
                 // OPTIMIZED: Populate edit chain mapping from cached events in background if large
@@ -5641,7 +5648,7 @@ class AppViewModel : ViewModel() {
         
         // Ensure member cache exists for this room
         if (roomMemberCache[roomId] == null) {
-            roomMemberCache[roomId] = mutableMapOf()
+            roomMemberCache[roomId] = ConcurrentHashMap()
         }
         
         // NAVIGATION PERFORMANCE: Partial loading - only request what's not already available
@@ -5683,100 +5690,138 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Fully refreshes the room timeline by dropping all on-disk and in-RAM data, then fetching fresh data.
-     * This method:
-     * 1. Deletes all events for this room from the database
-     * 2. Clears all in-RAM cache for this room
-     * 3. Clears timeline state
-     * 4. Requests 200 events from backend via paginate
-     * 5. Events are automatically persisted to disk and populated in RAM by the paginate handler
+     * Fully refreshes the room timeline by resetting in-memory state and fetching a clean snapshot.
+     * Steps:
+     * 1. Marks the room as the current timeline so downstream handlers know which room is active
+     * 2. Clears all RAM caches and timeline bookkeeping for the room
+     * 3. Resets pagination flags
+     * 4. Requests fresh room state
+     * 5. Sends a paginate command for up to 200 events (ingest pipeline upserts the database)
+     * 6. Flags the room for a database-backed rehydrate once new data is persisted
      */
     fun fullRefreshRoomTimeline(roomId: String) {
-        android.util.Log.d("Andromuks", "AppViewModel: Full refresh for room: $roomId (dropping all disk and RAM data)")
+        android.util.Log.d("Andromuks", "AppViewModel: Full refresh for room: $roomId (resetting caches and requesting fresh snapshot)")
         
-        // Set current room ID to ensure proper request handling
+        // 1. Mark room as current so sync handlers and pagination know which timeline is active
         updateCurrentRoomIdInPrefs(roomId)
+        roomsPendingDbRehydrate.add(roomId)
         
-        // 1. Drop all on-disk data for this room
-        val context = appContext
-        if (context != null) {
-            if (bootstrapLoader == null) {
-                bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
-            }
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    // Double-check context is still valid
-                    val currentContext = appContext ?: return@launch
-                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(currentContext)
-                    database.eventDao().deleteAllForRoom(roomId)
-                    android.util.Log.d("Andromuks", "AppViewModel: Deleted all events from database for room: $roomId")
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error deleting events from database: ${e.message}", e)
-                }
-            }
-        } else {
-            android.util.Log.w("Andromuks", "AppViewModel: Cannot delete database events - appContext is null")
-        }
-        
-        // 2. Drop all in-RAM cache for this room
+        // 2. Wipe in-memory cache/state for this room
         RoomTimelineCache.clearRoomCache(roomId)
         android.util.Log.d("Andromuks", "AppViewModel: Cleared timeline cache for room: $roomId")
         
-        // 3. Clear current timeline state
         timelineEvents = emptyList()
-        // PHASE 1: Update Repository in parallel with AppViewModel
         if (currentRoomId.isNotEmpty()) {
             RoomRepository.clearTimeline(currentRoomId)
         }
         isTimelineLoading = true
         
-        // 4. Reset pagination state
+        // 3. Reset pagination flags and bookkeeping
         smallestRowId = -1L
         isPaginating = false
         hasMoreMessages = true
         
-        // 5. Clear edit chain mapping and version cache
         eventChainMap.clear()
         editEventsMap.clear()
         messageVersions.clear()
         editToOriginal.clear()
         redactionCache.clear()
-        android.util.Log.d("Andromuks", "AppViewModel: Cleared version cache for room: $roomId")
-        
-        // 6. Clear message reactions
         messageReactions = emptyMap()
         
-        // 7. Clear animation state to prevent corruption
+        // Clear animation and room-open tracking state
         newMessageAnimations.clear()
         runningBubbleAnimations.clear()
         bubbleAnimationCompletionCounter = 0L
         newMessageAnimationTrigger = 0L
-        animationsEnabledForRoom.remove(roomId) // Reset animation state for this room
-        roomOpenTimestamps.remove(roomId) // Clear room open timestamp
-        android.util.Log.d("Andromuks", "AppViewModel: Cleared animation state for room: $roomId")
+        animationsEnabledForRoom.remove(roomId)
+        roomOpenTimestamps.remove(roomId)
         
-        // 8. Reset member update counter to prevent stale state
+        // Reset member update counter to avoid stale diffs
         memberUpdateCounter = 0
-        android.util.Log.d("Andromuks", "AppViewModel: Reset member update counter for room: $roomId")
         
-        // 9. Request fresh room state
+        // 4. Request fresh room state
         requestRoomState(roomId)
         
-        // 10. Send paginate command to fetch 200 events from backend
-        // The paginate response handler will automatically:
-        // - Persist events to database via syncIngestor.persistPaginatedEvents()
-        // - Populate RAM cache via RoomTimelineCache.seedCacheWithPaginatedEvents()
-        // - Build timeline via handleInitialTimelineBuild()
+        // 5. Request up to 200 events from the backend; ingest path will upsert into the database
         val paginateRequestId = requestIdCounter++
         timelineRequests[paginateRequestId] = roomId
-        sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-            "room_id" to roomId,
-            "max_timeline_id" to 0,
-            "limit" to 200,
-            "reset" to false
-        ))
+        sendWebSocketCommand(
+            "paginate",
+            paginateRequestId,
+            mapOf(
+                "room_id" to roomId,
+                "max_timeline_id" to 0,
+                "limit" to 200,
+                "reset" to false
+            )
+        )
         
-        android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request for room: $roomId (200 events) - will populate disk and RAM cache")
+        android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request for room: $roomId (200 events) - awaiting response to rebuild timeline")
+    }
+    
+    private fun scheduleRoomRehydrateFromDb(roomId: String) {
+        if (!roomsPendingDbRehydrate.contains(roomId)) {
+            return
+        }
+        
+        synchronized(roomRehydrateJobs) {
+            if (roomRehydrateJobs.containsKey(roomId)) {
+                return
+            }
+            
+            val job = viewModelScope.launch(Dispatchers.IO) {
+                val maxAttempts = 5
+                var attempt = 0
+                
+                while (roomsPendingDbRehydrate.contains(roomId) && attempt < maxAttempts && isActive) {
+                    val delayMs = 500L * (attempt + 1)
+                    android.util.Log.d("Andromuks", "AppViewModel: Waiting ${delayMs}ms before DB rehydrate attempt ${attempt + 1} for room $roomId")
+                    delay(delayMs)
+                    
+                    val loader = ensureBootstrapLoader()
+                    if (loader == null) {
+                        android.util.Log.w("Andromuks", "AppViewModel: Cannot rehydrate $roomId from DB - bootstrapLoader unavailable")
+                        break
+                    }
+                    
+                    val dbEvents = try {
+                        loader.loadRoomEvents(roomId, 200)
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Error loading events from database for $roomId during rehydrate: ${e.message}", e)
+                        emptyList()
+                    }
+                    
+                    if (dbEvents.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            android.util.Log.d("Andromuks", "AppViewModel: Rehydrating $roomId from database with ${dbEvents.size} events")
+                            roomsPendingDbRehydrate.remove(roomId)
+                            RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, dbEvents)
+                            processCachedEvents(
+                                roomId = roomId,
+                                cachedEvents = dbEvents,
+                                openingFromNotification = false,
+                                skipNetworkRequests = true
+                            )
+                        }
+                        break
+                    } else {
+                        android.util.Log.d("Andromuks", "AppViewModel: Rehydrate attempt ${attempt + 1} for $roomId returned no events from DB")
+                        attempt++
+                    }
+                }
+                
+                if (roomsPendingDbRehydrate.contains(roomId)) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Unable to rehydrate $roomId from database after $maxAttempts attempts")
+                    roomsPendingDbRehydrate.remove(roomId)
+                }
+                
+                synchronized(roomRehydrateJobs) {
+                    roomRehydrateJobs.remove(roomId)
+                }
+            }
+            
+            roomRehydrateJobs[roomId] = job
+        }
     }
     
     /**
@@ -5944,7 +5989,7 @@ class AppViewModel : ViewModel() {
                 
                 // Ensure member cache exists for this room
                 if (roomMemberCache[roomId] == null) {
-                    roomMemberCache[roomId] = mutableMapOf()
+                    roomMemberCache[roomId] = ConcurrentHashMap()
                 }
                 
                 // Populate edit chain mapping from cached events
@@ -7169,7 +7214,7 @@ class AppViewModel : ViewModel() {
         
         // Update legacy cache for compatibility (but this will be deprecated)
         if (requestingRoomId != null) {
-            val memberMap = roomMemberCache.getOrPut(requestingRoomId) { mutableMapOf() }
+            val memberMap = roomMemberCache.computeIfAbsent(requestingRoomId) { ConcurrentHashMap() }
             memberMap[userId] = memberProfile
         }
         
@@ -7230,6 +7275,14 @@ class AppViewModel : ViewModel() {
     private var profileRepository: net.vrkknn.andromuks.database.ProfileRepository? = null
     private var syncIngestor: net.vrkknn.andromuks.database.SyncIngestor? = null
     private var bootstrapLoader: net.vrkknn.andromuks.database.BootstrapLoader? = null
+
+    private fun ensureBootstrapLoader(): net.vrkknn.andromuks.database.BootstrapLoader? {
+        val context = appContext ?: return null
+        if (bootstrapLoader == null) {
+            bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
+        }
+        return bootstrapLoader
+    }
     
     /**
      * Manages global profile cache size to prevent memory issues.
@@ -7521,7 +7574,7 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: processEventsArray called with ${eventsArray.length()} events from server")
             val timelineList = mutableListOf<TimelineEvent>()
             val allEvents = mutableListOf<TimelineEvent>()  // For version processing
-            val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+            val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
             
             var ownMessageCount = 0
             var reactionProcessedCount = 0
@@ -8242,7 +8295,7 @@ class AppViewModel : ViewModel() {
         val startTime = System.currentTimeMillis()
         android.util.Log.d("Andromuks", "AppViewModel: Parsing full member list from ${events.length()} room state events for room: $roomId")
         
-        val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+        val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
         
         // Clear existing cache to ensure we don't have stale invite members or other invalid entries
         // Since this is a full member list request, we want to start fresh
@@ -8343,7 +8396,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Parsing ${events.length()} member events for profile update in room: $roomId")
         android.util.Log.d("Andromuks", "AppViewModel: Member events data: ${events.toString()}")
         
-        val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+        val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
         var updatedProfiles = 0
         
         for (i in 0 until events.length()) {
@@ -8524,7 +8577,7 @@ class AppViewModel : ViewModel() {
             val roomData = rooms.optJSONObject(roomId) ?: continue
             val events = roomData.optJSONArray("events") ?: continue
 
-            val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+            val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
             RoomTimelineCache.addEventsFromSync(roomId, events, memberMap)
         }
     }
@@ -8610,7 +8663,7 @@ class AppViewModel : ViewModel() {
     
     private fun processSyncEventsArray(eventsArray: JSONArray, roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: processSyncEventsArray called with ${eventsArray.length()} events")
-        val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
+        val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
         
         // Process events in timestamp order for clean edit handling
         val events = mutableListOf<TimelineEvent>()
@@ -11097,6 +11150,9 @@ class AppViewModel : ViewModel() {
         smallestRowId = newSmallestRowId
         
         android.util.Log.d("Andromuks", "AppViewModel: ========================================")
+        if (roomsPendingDbRehydrate.contains(roomId)) {
+            scheduleRoomRehydrateFromDb(roomId)
+        }
     }
     
     /**
@@ -11111,6 +11167,9 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
         android.util.Log.d("Andromuks", "AppViewModel: Seeding cache with ${timelineList.size} paginated events for room $roomId")
         RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineList)
+        if (roomsPendingDbRehydrate.contains(roomId)) {
+            scheduleRoomRehydrateFromDb(roomId)
+        }
         
         // Persist initial paginated events to database
         appContext?.let { context ->

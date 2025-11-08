@@ -12,6 +12,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
@@ -252,12 +253,31 @@ fun ChatBubbleNavigation(
         ) { backStackEntry: NavBackStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
             val roomName = appViewModel.getRoomById(roomId)?.name ?: ""
-            ChatBubbleScreen(
+            val context = LocalContext.current
+            BubbleTimelineScreen(
                 roomId = roomId,
                 roomName = roomName,
+                navController = navController,
                 modifier = modifier,
                 appViewModel = appViewModel,
-                onCloseBubble = onCloseBubble
+                onCloseBubble = onCloseBubble,
+                onOpenInApp = {
+                    try {
+                        val intent = Intent(context, MainActivity::class.java).apply {
+                            action = Intent.ACTION_VIEW
+                            putExtra("room_id", roomId)
+                            putExtra("direct_navigation", true)
+                            putExtra("from_notification", true)
+                            data = android.net.Uri.parse(
+                                "matrix:roomid/${roomId.removePrefix("!")}"
+                            )
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        }
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        Log.e("Andromuks", "ChatBubbleNavigation: Failed to open main app for room $roomId", e)
+                    }
+                }
             )
         }
     }

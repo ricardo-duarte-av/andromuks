@@ -75,6 +75,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 enableVibration(true)
                 setShowBadge(true)
                 setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + R.raw.bright), null)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    setAllowBubbles(true)
+                }
             }
             
             // Create Group Messages channel
@@ -88,6 +91,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 enableVibration(true)
                 setShowBadge(true)
                 setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + R.raw.descending), null)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    setAllowBubbles(true)
+                }
             }
             
             notificationManager.createNotificationChannel(dmChannel)
@@ -103,6 +109,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 enableVibration(true)
                 enableLights(true)
                 setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + R.raw.bright), null)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    setAllowBubbles(true)
+                }
             }
             
             notificationManager.createNotificationChannel(conversationChannel)
@@ -133,6 +142,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 enableVibration(true)
                 enableLights(true)
                 setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + soundResource), null)
+                setAllowBubbles(true)
             }
             
             // Set conversation ID for Android 11+ conversation features

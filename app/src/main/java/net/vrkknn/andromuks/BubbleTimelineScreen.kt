@@ -26,9 +26,6 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -50,6 +47,8 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Mood
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -149,7 +148,7 @@ import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
 
 /** Sealed class for timeline items (events and date dividers) */
-sealed class TimelineItem {
+sealed class BubbleTimelineItem {
     // PERFORMANCE: Stable key for LazyColumn items
     abstract val stableKey: String
     
@@ -157,49 +156,42 @@ sealed class TimelineItem {
         val event: TimelineEvent,
         val isConsecutive: Boolean = false,
         val hasPerMessageProfile: Boolean = false
-    ) : TimelineItem() {
+    ) : BubbleTimelineItem() {
         override val stableKey: String get() = event.eventId
     }
 
-    data class DateDivider(val date: String) : TimelineItem() {
+    data class DateDivider(val date: String) : BubbleTimelineItem() {
         override val stableKey: String get() = "date_$date"
     }
 }
 
-/** Format timestamp to date string (dd / MM / yyyy) */
-internal fun formatDate(timestamp: Long): String {
-    val date = Date(timestamp)
-    val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
-    return formatter.format(date)
-}
-
 /** PERFORMANCE: Helper function to process timeline events in background */
-suspend fun processTimelineEvents(
+suspend fun bubbleProcessTimelineEvents(
     timelineEvents: List<TimelineEvent>,
     showUnprocessedEvents: Boolean,
     allowedEventTypes: Set<String>
 ): List<TimelineEvent> = withContext(Dispatchers.Default) {
     Log.d(
         "Andromuks",
-        "RoomTimelineScreen: Background processing ${timelineEvents.size} timeline events, showUnprocessedEvents: $showUnprocessedEvents"
+        "BubbleTimelineScreen: Background processing ${timelineEvents.size} timeline events, showUnprocessedEvents: $showUnprocessedEvents"
     )
 
     // Debug: Log event types in timeline
     val eventTypes = timelineEvents.groupBy { it.type }
     Log.d(
         "Andromuks",
-        "RoomTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(", ")}"
+        "BubbleTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(", ")}"
     )
 
     val filteredEvents = if (showUnprocessedEvents) {
         // Show all events when unprocessed events are enabled, but always exclude redaction events
         val filtered = timelineEvents.filter { event -> event.type != "m.room.redaction" }
-        Log.d("Andromuks", "RoomTimelineScreen: After redaction filtering: ${filtered.size} events")
+        Log.d("Andromuks", "BubbleTimelineScreen: After redaction filtering: ${filtered.size} events")
         filtered
     } else {
         // Only show allowed events when unprocessed events are disabled
         val filtered = timelineEvents.filter { event -> allowedEventTypes.contains(event.type) }
-        Log.d("Andromuks", "RoomTimelineScreen: After type filtering: ${filtered.size} events")
+        Log.d("Andromuks", "BubbleTimelineScreen: After type filtering: ${filtered.size} events")
         filtered
     }
 
@@ -216,7 +208,7 @@ suspend fun processTimelineEvents(
         if (event.type == "m.room.message") {
             val isSuperseded = editedEventIds.contains(event.eventId)
             if (isSuperseded) {
-                Log.d("Andromuks", "RoomTimelineScreen: Filtering out edited event: ${event.eventId}")
+                Log.d("Andromuks", "BubbleTimelineScreen: Filtering out edited event: ${event.eventId}")
             }
             !isSuperseded
         } else {
@@ -224,17 +216,17 @@ suspend fun processTimelineEvents(
         }
     }
 
-    Log.d("Andromuks", "RoomTimelineScreen: After edit filtering: ${eventsWithoutSuperseded.size} events")
+    Log.d("Andromuks", "BubbleTimelineScreen: After edit filtering: ${eventsWithoutSuperseded.size} events")
 
     val sorted = eventsWithoutSuperseded.sortedBy { it.timestamp }
-    Log.d("Andromuks", "RoomTimelineScreen: Final sorted events: ${sorted.size} events")
+    Log.d("Andromuks", "BubbleTimelineScreen: Final sorted events: ${sorted.size} events")
 
     sorted
 }
 
 /** Floating member list for mentions */
 @Composable
-fun MentionMemberList(
+fun BubbleMentionMemberList(
     members: Map<String, MemberProfile>,
     query: String,
     onMemberSelect: (String, String?) -> Unit,
@@ -310,7 +302,7 @@ fun MentionMemberList(
 
 /** Date divider component for timeline events */
 @Composable
-fun DateDivider(date: String) {
+fun BubbleDateDivider(date: String) {
     Row(
         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -339,29 +331,34 @@ fun DateDivider(date: String) {
     }
 }
 
-// NOTE: Keep this screen in sync with `BubbleTimelineScreen`. Any structural or data-flow changes
-// should be mirrored between both implementations. Refer to `docs/BUBBLE_IMPLEMENTATION.md`.
+// NOTE: Keep this screen in sync with `RoomTimelineScreen`. Any structural or data-flow changes
+// should be mirrored in both places. See `docs/BUBBLE_IMPLEMENTATION.md` for architectural details.
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RoomTimelineScreen(
+fun BubbleTimelineScreen(
     roomId: String,
     roomName: String,
     navController: NavController,
     modifier: Modifier = Modifier,
-    appViewModel: AppViewModel = viewModel()
+    appViewModel: AppViewModel = viewModel(),
+    onCloseBubble: () -> Unit = {},
+    onOpenInApp: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
-    val sharedPreferences =
-        remember(context) {
-            context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-        }
-    val authToken =
-        remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
+    val sharedPreferences = remember(context) {
+        context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+    }
+    val authToken = remember(sharedPreferences) {
+        sharedPreferences.getString("gomuks_auth_token", "") ?: ""
+    }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
-    val myUserId = appViewModel.currentUserId
+    val storedUserId = remember(sharedPreferences) {
+        sharedPreferences.getString("current_user_id", "") ?: ""
+    }
+    val myUserId = appViewModel.currentUserId.ifBlank { storedUserId }
     val homeserverUrl = appViewModel.homeserverUrl
-    Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
+    Log.d("Andromuks", "BubbleTimelineScreen: appViewModel instance: $appViewModel")
     val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
 
@@ -393,7 +390,7 @@ fun RoomTimelineScreen(
 
     Log.d(
         "Andromuks",
-        "RoomTimelineScreen: Timeline events count: ${timelineEvents.size}, isLoading: $isLoading"
+        "BubbleTimelineScreen: Timeline events count: ${timelineEvents.size}, isLoading: $isLoading"
     )
 
     // Reply state
@@ -755,9 +752,9 @@ fun RoomTimelineScreen(
     LaunchedEffect(timelineEvents, appViewModel.showUnprocessedEvents, appViewModel.timelineUpdateCounter) {
         Log.d(
             "Andromuks",
-            "RoomTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, updateCounter=${appViewModel.timelineUpdateCounter}, roomId=$roomId"
+            "BubbleTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, updateCounter=${appViewModel.timelineUpdateCounter}, roomId=$roomId"
         )
-        sortedEvents = processTimelineEvents(
+        sortedEvents = bubbleProcessTimelineEvents(
             timelineEvents = timelineEvents,
             showUnprocessedEvents = appViewModel.showUnprocessedEvents,
             allowedEventTypes = allowedEventTypes
@@ -767,7 +764,7 @@ fun RoomTimelineScreen(
     // PERFORMANCE: Create timeline items with date dividers and pre-compute consecutive flags
     val timelineItems =
         remember(sortedEvents, appViewModel.timelineUpdateCounter) {
-            val items = mutableListOf<TimelineItem>()
+            val items = mutableListOf<BubbleTimelineItem>()
             var lastDate: String? = null
             var previousEvent: TimelineEvent? = null
 
@@ -779,7 +776,7 @@ fun RoomTimelineScreen(
 
                 // Add date divider if this is a new date
                 if (lastDate == null || eventDate != lastDate) {
-                    items.add(TimelineItem.DateDivider(eventDate))
+                    items.add(BubbleTimelineItem.DateDivider(eventDate))
                     lastDate = eventDate
                     // Date divider breaks consecutive grouping
                     previousEvent = null
@@ -795,7 +792,7 @@ fun RoomTimelineScreen(
                     previousEvent?.sender == event.sender
 
                 // Add the event with pre-computed flags
-                items.add(TimelineItem.Event(
+                items.add(BubbleTimelineItem.Event(
                     event = event,
                     isConsecutive = isConsecutive,
                     hasPerMessageProfile = hasPerMessageProfile
@@ -856,7 +853,7 @@ fun RoomTimelineScreen(
             // Update attachment state based on current position
             if (isAtBottom && !isAttachedToBottom) {
                 // User scrolled back to bottom, re-attach
-                Log.d("Andromuks", "RoomTimelineScreen: User reached bottom, re-attaching")
+                Log.d("Andromuks", "BubbleTimelineScreen: User reached bottom, re-attaching")
                 isAttachedToBottom = true
                 if (!hasInitialSnapCompleted) {
                     hasInitialSnapCompleted = true
@@ -865,7 +862,7 @@ fun RoomTimelineScreen(
                 !isAtBottom && isAttachedToBottom && listState.firstVisibleItemIndex > 0
             ) {
                 // User scrolled up from bottom, detach
-                Log.d("Andromuks", "RoomTimelineScreen: User scrolled up, detaching from bottom")
+                Log.d("Andromuks", "BubbleTimelineScreen: User scrolled up, detaching from bottom")
                 isAttachedToBottom = false
             }
             
@@ -880,16 +877,16 @@ fun RoomTimelineScreen(
             
             // Only log when near the top to avoid spam
             if (firstVisibleIndex <= 10) {
-                Log.d("Andromuks", "RoomTimelineScreen: [PAGINATION CHECK] firstVisible=$firstVisibleIndex/$totalItems, hasMore=${appViewModel.hasMoreMessages}, isPaginating=${appViewModel.isPaginating}, pendingRestore=$pendingScrollRestoration, shouldTrigger=$shouldTriggerPagination")
+                Log.d("Andromuks", "BubbleTimelineScreen: [PAGINATION CHECK] firstVisible=$firstVisibleIndex/$totalItems, hasMore=${appViewModel.hasMoreMessages}, isPaginating=${appViewModel.isPaginating}, pendingRestore=$pendingScrollRestoration, shouldTrigger=$shouldTriggerPagination")
             }
             
             if (firstVisibleIndex <= 5 && !shouldTriggerPagination) {
                 // Debug why pagination didn't trigger
-                Log.w("Andromuks", "RoomTimelineScreen: ⚠️ PAGINATION BLOCKED at index $firstVisibleIndex - hasMore=${appViewModel.hasMoreMessages}, isPaginating=${appViewModel.isPaginating}, pendingRestore=$pendingScrollRestoration")
+                Log.w("Andromuks", "BubbleTimelineScreen: ⚠️ PAGINATION BLOCKED at index $firstVisibleIndex - hasMore=${appViewModel.hasMoreMessages}, isPaginating=${appViewModel.isPaginating}, pendingRestore=$pendingScrollRestoration")
             }
             
             if (shouldTriggerPagination) {
-                Log.d("Andromuks", "RoomTimelineScreen: ✅✅✅ AUTO-PAGINATION TRIGGERED at index $firstVisibleIndex/$totalItems ✅✅✅")
+                Log.d("Andromuks", "BubbleTimelineScreen: ✅✅✅ AUTO-PAGINATION TRIGGERED at index $firstVisibleIndex/$totalItems ✅✅✅")
                 
                 // Find the first visible event to use as anchor
                 var anchorEventId: String? = null
@@ -898,12 +895,12 @@ fun RoomTimelineScreen(
                 // Search visible items for the first actual event
                 for (visibleItem in listState.layoutInfo.visibleItemsInfo) {
                     val item = timelineItems.getOrNull(visibleItem.index)
-                    if (item is TimelineItem.Event) {
+                    if (item is BubbleTimelineItem.Event) {
                         anchorEventId = item.event.eventId
                         anchorOffset = visibleItem.offset
                         Log.d(
                             "Andromuks",
-                            "RoomTimelineScreen: Auto-pagination anchor - index ${visibleItem.index}, " +
+                            "BubbleTimelineScreen: Auto-pagination anchor - index ${visibleItem.index}, " +
                             "eventId: $anchorEventId, offset: $anchorOffset"
                         )
                         break
@@ -917,7 +914,7 @@ fun RoomTimelineScreen(
                     isLoadingMore = true
                     pendingScrollRestoration = true
                     
-                    Log.d("Andromuks", "RoomTimelineScreen: Triggering auto-pagination with anchor $anchorEventId")
+                    Log.d("Andromuks", "BubbleTimelineScreen: Triggering auto-pagination with anchor $anchorEventId")
                     appViewModel.loadOlderMessages(roomId)
                 }
             }
@@ -928,11 +925,11 @@ fun RoomTimelineScreen(
     LaunchedEffect(timelineItems.size) {
         // When pagination finishes and we have an anchor event to restore to
         if (!appViewModel.isPaginating && pendingScrollRestoration && anchorEventIdForRestore != null) {
-            Log.d("Andromuks", "RoomTimelineScreen: Pagination completed, restoring scroll to anchor event: $anchorEventIdForRestore")
+            Log.d("Andromuks", "BubbleTimelineScreen: Pagination completed, restoring scroll to anchor event: $anchorEventIdForRestore")
             
             // Find the index of the anchor event in the new list
             val anchorIndex = timelineItems.indexOfFirst { item ->
-                (item as? TimelineItem.Event)?.event?.eventId == anchorEventIdForRestore
+                (item as? BubbleTimelineItem.Event)?.event?.eventId == anchorEventIdForRestore
             }
             
             if (anchorIndex >= 0) {
@@ -940,15 +937,15 @@ fun RoomTimelineScreen(
                 
                 Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Found anchor event at index $targetIndex, " +
+                    "BubbleTimelineScreen: Found anchor event at index $targetIndex, " +
                     "restoring with offset $anchorScrollOffsetForRestore"
                 )
                 
                 // Scroll immediately (we're in a LaunchedEffect coroutine context)
                 listState.scrollToItem(targetIndex, anchorScrollOffsetForRestore)
-                Log.d("Andromuks", "RoomTimelineScreen: ✅ Scroll position restored to event at index $targetIndex")
+                Log.d("Andromuks", "BubbleTimelineScreen: ✅ Scroll position restored to event at index $targetIndex")
             } else {
-                Log.w("Andromuks", "RoomTimelineScreen: ⚠️ Could not find anchor event $anchorEventIdForRestore in new timeline")
+                Log.w("Andromuks", "BubbleTimelineScreen: ⚠️ Could not find anchor event $anchorEventIdForRestore in new timeline")
             }
             
             // Clear restoration state
@@ -965,7 +962,7 @@ fun RoomTimelineScreen(
             // Just reset the refreshing state after a short delay
             kotlinx.coroutines.delay(1000) // Give time for cache to populate
             isRefreshing = false
-            Log.d("Andromuks", "RoomTimelineScreen: Silent refresh completed")
+            Log.d("Andromuks", "BubbleTimelineScreen: Silent refresh completed")
         }
     }
 
@@ -976,14 +973,14 @@ fun RoomTimelineScreen(
     LaunchedEffect(timelineItems.size, isLoading, appViewModel.isPaginating, appViewModel.timelineUpdateCounter, appViewModel.bubbleAnimationCompletionCounter) {
         Log.d(
             "Andromuks",
-            "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, timelineUpdateCounter: ${appViewModel.timelineUpdateCounter}, hasInitialSnapCompleted: $hasInitialSnapCompleted"
+            "BubbleTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, timelineUpdateCounter: ${appViewModel.timelineUpdateCounter}, hasInitialSnapCompleted: $hasInitialSnapCompleted"
         )
 
         if (isLoading || timelineItems.isEmpty()) {
             return@LaunchedEffect
         }
 
-        val lastEventId = (timelineItems.lastOrNull() as? TimelineItem.Event)?.event?.eventId
+        val lastEventId = (timelineItems.lastOrNull() as? BubbleTimelineItem.Event)?.event?.eventId
 
         if (!hasInitialSnapCompleted) {
             coroutineScope.launch {
@@ -1022,7 +1019,7 @@ fun RoomTimelineScreen(
                         stableCount++
                         if (stableCount >= requiredStableChecks) {
                             // Timeline has been stable - safe to scroll
-                            Log.d("Andromuks", "RoomTimelineScreen: Timeline stabilized at ${currentSize} items (updateCounter: $currentUpdateCounter) after ${i * 50}ms")
+                            Log.d("Andromuks", "BubbleTimelineScreen: Timeline stabilized at ${currentSize} items (updateCounter: $currentUpdateCounter) after ${i * 50}ms")
                             lastKnownTimelineUpdateCounter = currentUpdateCounter
                             break
                         }
@@ -1036,7 +1033,7 @@ fun RoomTimelineScreen(
                 
                 // Final check before scrolling
                 if (timelineItems.isEmpty() || isLoading || appViewModel.isPaginating) {
-                    Log.d("Andromuks", "RoomTimelineScreen: Timeline not ready for scroll (empty: ${timelineItems.isEmpty()}, loading: $isLoading, paginating: ${appViewModel.isPaginating})")
+                    Log.d("Andromuks", "BubbleTimelineScreen: Timeline not ready for scroll (empty: ${timelineItems.isEmpty()}, loading: $isLoading, paginating: ${appViewModel.isPaginating})")
                     // Still mark as completed to avoid infinite loop
                     hasInitialSnapCompleted = true
                     return@launch
@@ -1056,10 +1053,10 @@ fun RoomTimelineScreen(
                     // CRITICAL: Enable animations AFTER initial load and scroll complete
                     // Animations should only occur for NEW messages when room is already open
                     appViewModel.enableAnimationsForRoom(roomId)
-                    Log.d("Andromuks", "RoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index $targetIndex, updateCounter: ${appViewModel.timelineUpdateCounter}) - timeline stabilized, animations enabled")
+                    Log.d("Andromuks", "BubbleTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index $targetIndex, updateCounter: ${appViewModel.timelineUpdateCounter}) - timeline stabilized, animations enabled")
                 } else {
                     hasInitialSnapCompleted = true
-                    Log.w("Andromuks", "RoomTimelineScreen: Invalid target index for scroll")
+                    Log.w("Andromuks", "BubbleTimelineScreen: Invalid target index for scroll")
                 }
             }
             return@LaunchedEffect
@@ -1069,7 +1066,7 @@ fun RoomTimelineScreen(
 
         // Skip handling new items if we're waiting for scroll restoration after pagination
         if (pendingScrollRestoration) {
-            Log.d("Andromuks", "RoomTimelineScreen: Skipping new items handling - pending scroll restoration")
+            Log.d("Andromuks", "BubbleTimelineScreen: Skipping new items handling - pending scroll restoration")
             return@LaunchedEffect
         }
 
@@ -1101,7 +1098,7 @@ fun RoomTimelineScreen(
     // This ensures we scroll after each message is rendered, not just when all animations finish
     LaunchedEffect(appViewModel.bubbleAnimationCompletionCounter, isAttachedToBottom) {
         if (isAttachedToBottom && timelineItems.isNotEmpty() && !isLoading && !pendingScrollRestoration) {
-            Log.d("Andromuks", "RoomTimelineScreen: Individual bubble animation completed, auto-scrolling to bottom")
+            Log.d("Andromuks", "BubbleTimelineScreen: Individual bubble animation completed, auto-scrolling to bottom")
             coroutineScope.launch {
                 listState.animateScrollToItem(timelineItems.lastIndex)
             }
@@ -1109,7 +1106,7 @@ fun RoomTimelineScreen(
     }
 
     LaunchedEffect(roomId) {
-        Log.d("Andromuks", "RoomTimelineScreen: Loading timeline for room: $roomId")
+        Log.d("Andromuks", "BubbleTimelineScreen: Loading timeline for room: $roomId")
         // Reset state for new room
         isLoadingMore = false
         pendingScrollRestoration = false
@@ -1126,7 +1123,7 @@ fun RoomTimelineScreen(
     // Refresh timeline when app resumes (to show new events received while suspended)
     LaunchedEffect(appViewModel.timelineRefreshTrigger) {
         if (appViewModel.timelineRefreshTrigger > 0 && appViewModel.currentRoomId == roomId) {
-            Log.d("Andromuks", "RoomTimelineScreen: App resumed, refreshing timeline for room: $roomId")
+            Log.d("Andromuks", "BubbleTimelineScreen: App resumed, refreshing timeline for room: $roomId")
             // Don't reset state flags - this is just a refresh, not a new room load
             appViewModel.requestRoomTimeline(roomId)
         }
@@ -1137,7 +1134,7 @@ fun RoomTimelineScreen(
         val foregroundRefreshReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action == "net.vrkknn.andromuks.FOREGROUND_REFRESH") {
-                    Log.d("Andromuks", "RoomTimelineScreen: Received FOREGROUND_REFRESH broadcast, refreshing timeline UI from cache for room: $roomId")
+                    Log.d("Andromuks", "BubbleTimelineScreen: Received FOREGROUND_REFRESH broadcast, refreshing timeline UI from cache for room: $roomId")
                     // Lightweight timeline refresh from cached data (no network requests)
                     appViewModel.refreshTimelineUI()
                 }
@@ -1146,14 +1143,14 @@ fun RoomTimelineScreen(
         
         val filter = IntentFilter("net.vrkknn.andromuks.FOREGROUND_REFRESH")
         context.registerReceiver(foregroundRefreshReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        Log.d("Andromuks", "RoomTimelineScreen: Registered FOREGROUND_REFRESH broadcast receiver")
+        Log.d("Andromuks", "BubbleTimelineScreen: Registered FOREGROUND_REFRESH broadcast receiver")
         
         onDispose {
             try {
                 context.unregisterReceiver(foregroundRefreshReceiver)
-                Log.d("Andromuks", "RoomTimelineScreen: Unregistered FOREGROUND_REFRESH broadcast receiver")
+                Log.d("Andromuks", "BubbleTimelineScreen: Unregistered FOREGROUND_REFRESH broadcast receiver")
             } catch (e: Exception) {
-                Log.w("Andromuks", "RoomTimelineScreen: Error unregistering foreground refresh receiver", e)
+                Log.w("Andromuks", "BubbleTimelineScreen: Error unregistering foreground refresh receiver", e)
             }
         }
     }
@@ -1161,7 +1158,7 @@ fun RoomTimelineScreen(
     // After initial batch loads, automatically load second batch in background
     // LaunchedEffect(hasLoadedInitialBatch) {
     //    if (hasLoadedInitialBatch && sortedEvents.isNotEmpty()) {
-    //        Log.d("Andromuks", "RoomTimelineScreen: Initial batch loaded, automatically loading
+    //        Log.d("Andromuks", "BubbleTimelineScreen: Initial batch loaded, automatically loading
     // second batch")
     //        kotlinx.coroutines.delay(500) // Small delay to let UI settle
     //        appViewModel.loadOlderMessages(roomId)
@@ -1175,7 +1172,7 @@ fun RoomTimelineScreen(
         if (sortedEvents.isNotEmpty()) {
             Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Validating user profiles for ${sortedEvents.size} events"
+                "BubbleTimelineScreen: Validating user profiles for ${sortedEvents.size} events"
             )
             appViewModel.validateAndRequestMissingProfiles(roomId, sortedEvents)
         }
@@ -1186,7 +1183,7 @@ fun RoomTimelineScreen(
     LaunchedEffect(sortedEvents, roomId) {
         Log.d(
             "Andromuks",
-            "RoomTimelineScreen: Using opportunistic profile loading for $roomId (no bulk loading)"
+            "BubbleTimelineScreen: Using opportunistic profile loading for $roomId (no bulk loading)"
         )
         
         // Only request profiles for users that are actually visible in the timeline
@@ -1198,7 +1195,7 @@ fun RoomTimelineScreen(
             
             Log.d(
                 "Andromuks",
-                "RoomTimelineScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${sortedEvents.size} events)"
+                "BubbleTimelineScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${sortedEvents.size} events)"
             )
             
             // Request profiles one by one as needed (including current user if missing)
@@ -1225,7 +1222,7 @@ fun RoomTimelineScreen(
             if (profilesToSave.isNotEmpty()) {
                 android.util.Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Saving ${profilesToSave.size} profiles to disk for users in timeline"
+                    "BubbleTimelineScreen: Saving ${profilesToSave.size} profiles to disk for users in timeline"
                 )
                 for (userId in profilesToSave) {
                     val profile = memberMap[userId]
@@ -1240,11 +1237,11 @@ fun RoomTimelineScreen(
     // Ensure timeline reactively updates when new events arrive from sync
     // OPTIMIZED: Only track timelineEvents changes directly, updateCounter is handled by receipt updates
     LaunchedEffect(timelineEvents) {
-        Log.d("Andromuks", "RoomTimelineScreen: Timeline events changed - timelineEvents.size: ${timelineEvents.size}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId")
+        Log.d("Andromuks", "BubbleTimelineScreen: Timeline events changed - timelineEvents.size: ${timelineEvents.size}, currentRoomId: ${appViewModel.currentRoomId}, roomId: $roomId")
         
         // Only react to changes for the current room
         if (appViewModel.currentRoomId == roomId) {
-            Log.d("Andromuks", "RoomTimelineScreen: Detected timeline update for current room $roomId with ${timelineEvents.size} events")
+            Log.d("Andromuks", "BubbleTimelineScreen: Detected timeline update for current room $roomId with ${timelineEvents.size} events")
             
             // Force recomposition when timeline events change
             // This ensures the UI updates even when battery optimization might skip updates
@@ -1252,42 +1249,7 @@ fun RoomTimelineScreen(
     }
 
     // Handle Android back key
-    BackHandler { navController.popBackStack() }
-
-    // Use imePadding for keyboard handling
-    val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
-    val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    // Choose IME if present, otherwise navigation bar padding
-    val bottomInset = if (imeBottom > 0.dp) imeBottom else navBarBottom
-    
-    // Track when keyboard opens to maintain scroll position at bottom
-    var wasAtBottomBeforeKeyboard by remember { mutableStateOf(true) }
-    
-    // Smoothly animate scroll to bottom when keyboard opens
-    LaunchedEffect(imeBottom) {
-        // When IME (keyboard) height changes
-        if (timelineItems.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
-            val isKeyboardOpening = imeBottom > 0.dp
-            
-            // If keyboard is opening and user was at bottom, maintain bottom position
-            if (isKeyboardOpening && wasAtBottomBeforeKeyboard) {
-                // Animate scroll to ensure last item is fully visible as keyboard opens
-                val lastIndex = timelineItems.lastIndex
-                
-                if (lastIndex >= 0) {
-                    // Use animateScrollToItem for smooth scrolling that matches keyboard animation
-                    listState.animateScrollToItem(lastIndex, scrollOffset = 0)
-                    isAttachedToBottom = true // Re-attach to bottom
-                    Log.d("Andromuks", "RoomTimelineScreen: IME opened (${imeBottom}), animating to bottom")
-                }
-            }
-            
-            // Update tracked state when keyboard closes
-            if (!isKeyboardOpening) {
-                wasAtBottomBeforeKeyboard = isAttachedToBottom
-            }
-        }
-    }
+    BackHandler { onCloseBubble() }
 
     AndromuksTheme {
         Surface {
@@ -1304,7 +1266,7 @@ fun RoomTimelineScreen(
                             )
                 ) {
                     // 1. Room Header (always visible at the top, below status bar)
-                    RoomHeader(
+                    BubbleRoomHeader(
                         roomState = appViewModel.currentRoomState,
                         fallbackName = displayRoomName,
                         fallbackAvatarUrl = displayAvatarUrl,
@@ -1313,12 +1275,12 @@ fun RoomTimelineScreen(
                         roomId = roomId,
                         bridgeInfo = appViewModel.getBridgeInfo(roomId),
                         onHeaderClick = {
-                            // Navigate to room info screen
                             navController.navigate("room_info/$roomId")
                         },
+                        onOpenInApp = onOpenInApp,
+                        onCloseBubble = onCloseBubble,
                         onRefreshClick = {
-                            // Full refresh: drop all on-disk and in-RAM data, then fetch 200 events
-                            Log.d("Andromuks", "RoomTimelineScreen: Full refresh button clicked for room $roomId")
+                            Log.d("Andromuks", "BubbleTimelineScreen: Full refresh button clicked for room $roomId")
                             isRefreshing = true
                             appViewModel.fullRefreshRoomTimeline(roomId)
                         }
@@ -1380,13 +1342,13 @@ fun RoomTimelineScreen(
                                 key = { item -> item.stableKey }
                             ) { item ->
                                 when (item) {
-                                    is TimelineItem.DateDivider -> {
-                                        DateDivider(item.date)
+                                    is BubbleTimelineItem.DateDivider -> {
+                                        BubbleDateDivider(item.date)
                                     }
-                                    is TimelineItem.Event -> {
+                                    is BubbleTimelineItem.Event -> {
                                         val event = item.event
                                         // PERFORMANCE: Removed logging from item rendering to improve scroll performance
-                                        val isMine = myUserId != null && event.sender == myUserId
+                                        val isMine = myUserId.isNotBlank() && event.sender == myUserId
 
                                         // PERFORMANCE: Use pre-computed consecutive flag instead of index-based lookup
                                         val isConsecutive = item.isConsecutive
@@ -1405,8 +1367,8 @@ fun RoomTimelineScreen(
                                                 // PERFORMANCE: Find the index in timelineItems instead of sortedEvents
                                                 val index = timelineItems.indexOfFirst { item ->
                                                     when (item) {
-                                                        is TimelineItem.Event -> item.event.eventId == eventId
-                                                        is TimelineItem.DateDivider -> false
+                                                        is BubbleTimelineItem.Event -> item.event.eventId == eventId
+                                                        is BubbleTimelineItem.DateDivider -> false
                                                     }
                                                 }
                                                 if (index >= 0) {
@@ -1439,26 +1401,26 @@ fun RoomTimelineScreen(
                                                 )
                                             },
                                             onRoomLinkClick = { roomLink ->
-                                                Log.d("Andromuks", "RoomTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}")
+                                                Log.d("Andromuks", "BubbleTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}")
                                                 
                                                 // If it's a room ID, check if we're already joined
                                                 val existingRoom = if (roomLink.roomIdOrAlias.startsWith("!")) {
                                                     val room = appViewModel.getRoomById(roomLink.roomIdOrAlias)
-                                                    Log.d("Andromuks", "RoomTimelineScreen: Checked for existing room ${roomLink.roomIdOrAlias}, found: ${room != null}")
+                                                    Log.d("Andromuks", "BubbleTimelineScreen: Checked for existing room ${roomLink.roomIdOrAlias}, found: ${room != null}")
                                                     room
                                                 } else {
-                                                    Log.d("Andromuks", "RoomTimelineScreen: Room link is an alias, showing joiner")
+                                                    Log.d("Andromuks", "BubbleTimelineScreen: Room link is an alias, showing joiner")
                                                     null
                                                 }
                                                 
                                                 if (existingRoom != null) {
                                                     // Already joined, navigate directly
-                                                    Log.d("Andromuks", "RoomTimelineScreen: Already joined, navigating to ${roomLink.roomIdOrAlias}")
+                                                    Log.d("Andromuks", "BubbleTimelineScreen: Already joined, navigating to ${roomLink.roomIdOrAlias}")
                                                     val encodedRoomId = java.net.URLEncoder.encode(roomLink.roomIdOrAlias, "UTF-8")
                                                     navController.navigate("room_timeline/$encodedRoomId")
                                                 } else {
                                                     // For aliases or non-joined rooms, show room joiner
-                                                    Log.d("Andromuks", "RoomTimelineScreen: Not joined, showing room joiner")
+                                                    Log.d("Andromuks", "BubbleTimelineScreen: Not joined, showing room joiner")
                                                     roomLinkToJoin = roomLink
                                                     showRoomJoiner = true
                                                 }
@@ -1467,7 +1429,7 @@ fun RoomTimelineScreen(
                                                 // Navigate to thread viewer
                                                 val threadInfo = threadEvent.getThreadInfo()
                                                 if (threadInfo != null) {
-                                                    Log.d("Andromuks", "RoomTimelineScreen: Thread message clicked, opening thread for root: ${threadInfo.threadRootEventId}")
+                                                    Log.d("Andromuks", "BubbleTimelineScreen: Thread message clicked, opening thread for root: ${threadInfo.threadRootEventId}")
                                                     val encodedRoomId = java.net.URLEncoder.encode(roomId, "UTF-8")
                                                     val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
                                                     navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
@@ -1495,10 +1457,9 @@ fun RoomTimelineScreen(
                     Surface(
                         color = MaterialTheme.colorScheme.surface,
                         tonalElevation = 0.dp,
-                        modifier =
-                            Modifier.fillMaxWidth()
-                                .navigationBarsPadding()
-                                .imePadding()
+                modifier =
+                    Modifier.fillMaxWidth()
+                        .navigationBarsPadding()
                     ) {
                     Row(
                         modifier =
@@ -1849,7 +1810,7 @@ fun RoomTimelineScreen(
                                 isAttachedToBottom = true
                                 Log.d(
                                     "Andromuks",
-                                    "RoomTimelineScreen: FAB clicked, scrolling to bottom and re-attaching"
+                                    "BubbleTimelineScreen: FAB clicked, scrolling to bottom and re-attaching"
                                 )
                             }
                         },
@@ -1859,8 +1820,7 @@ fun RoomTimelineScreen(
                                     end = 16.dp,
                                     bottom = 16.dp
                                 )
-                                .navigationBarsPadding()
-                                .imePadding(), // Above text input and keyboard
+                                .navigationBarsPadding(),
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                     ) {
@@ -1881,7 +1841,6 @@ fun RoomTimelineScreen(
                                 bottom = 80.dp // Above text input area
                             )
                             .navigationBarsPadding()
-                            .imePadding()
                             .zIndex(5f) // Ensure it's above other content
                     ) {
                         AnimatedVisibility(
@@ -1972,9 +1931,8 @@ fun RoomTimelineScreen(
                                 bottom = 80.dp  // Above text input
                             )
                             .navigationBarsPadding()
-                            .imePadding()
                     ) {
-                        MentionMemberList(
+                        BubbleMentionMemberList(
                             members = roomMembers,
                             query = mentionQuery,
                             onMemberSelect = { userId, displayName ->
@@ -2125,7 +2083,7 @@ fun RoomTimelineScreen(
                                     when {
                                         selectedMediaIsVideo -> {
                                             // Upload video with thumbnail
-                                            Log.d("Andromuks", "RoomTimelineScreen: Starting video upload")
+                                            Log.d("Andromuks", "BubbleTimelineScreen: Starting video upload")
                                             val videoResult = VideoUploadUtils.uploadVideo(
                                                 context = context,
                                                 uri = currentUri,
@@ -2135,7 +2093,7 @@ fun RoomTimelineScreen(
                                             )
                                             
                                             if (videoResult != null) {
-                                                Log.d("Andromuks", "RoomTimelineScreen: Video upload successful, sending message")
+                                                Log.d("Andromuks", "BubbleTimelineScreen: Video upload successful, sending message")
                                                 // Send video message with metadata
                                                 appViewModel.sendVideoMessage(
                                                     roomId = roomId,
@@ -2159,7 +2117,7 @@ fun RoomTimelineScreen(
                                                 selectedMediaIsVideo = false
                                                 isUploading = false
                                             } else {
-                                                Log.e("Andromuks", "RoomTimelineScreen: Video upload failed")
+                                                Log.e("Andromuks", "BubbleTimelineScreen: Video upload failed")
                                                 isUploading = false
                                                 android.widget.Toast.makeText(
                                                     context,
@@ -2170,7 +2128,7 @@ fun RoomTimelineScreen(
                                         }
                                         isAudio -> {
                                             // Upload audio
-                                            Log.d("Andromuks", "RoomTimelineScreen: Starting audio upload")
+                                            Log.d("Andromuks", "BubbleTimelineScreen: Starting audio upload")
                                             val audioResult = MediaUploadUtils.uploadAudio(
                                                 context = context,
                                                 uri = selectedAudioUri!!,
@@ -2180,7 +2138,7 @@ fun RoomTimelineScreen(
                                             )
                                             
                                             if (audioResult != null) {
-                                                Log.d("Andromuks", "RoomTimelineScreen: Audio upload successful, sending message")
+                                                Log.d("Andromuks", "BubbleTimelineScreen: Audio upload successful, sending message")
                                                 // Send audio message with metadata
                                                 appViewModel.sendAudioMessage(
                                                     roomId = roomId,
@@ -2196,7 +2154,7 @@ fun RoomTimelineScreen(
                                                 selectedAudioUri = null
                                                 isUploading = false
                                             } else {
-                                                Log.e("Andromuks", "RoomTimelineScreen: Audio upload failed")
+                                                Log.e("Andromuks", "BubbleTimelineScreen: Audio upload failed")
                                                 isUploading = false
                                                 android.widget.Toast.makeText(
                                                     context,
@@ -2207,7 +2165,7 @@ fun RoomTimelineScreen(
                                         }
                                         isFile -> {
                                             // Upload file
-                                            Log.d("Andromuks", "RoomTimelineScreen: Starting file upload")
+                                            Log.d("Andromuks", "BubbleTimelineScreen: Starting file upload")
                                             val fileResult = MediaUploadUtils.uploadFile(
                                                 context = context,
                                                 uri = selectedFileUri!!,
@@ -2217,7 +2175,7 @@ fun RoomTimelineScreen(
                                             )
                                             
                                             if (fileResult != null) {
-                                                Log.d("Andromuks", "RoomTimelineScreen: File upload successful, sending message")
+                                                Log.d("Andromuks", "BubbleTimelineScreen: File upload successful, sending message")
                                                 // Send file message with metadata
                                                 appViewModel.sendFileMessage(
                                                     roomId = roomId,
@@ -2232,7 +2190,7 @@ fun RoomTimelineScreen(
                                                 selectedFileUri = null
                                                 isUploading = false
                                             } else {
-                                                Log.e("Andromuks", "RoomTimelineScreen: File upload failed")
+                                                Log.e("Andromuks", "BubbleTimelineScreen: File upload failed")
                                                 isUploading = false
                                                 android.widget.Toast.makeText(
                                                     context,
@@ -2243,7 +2201,7 @@ fun RoomTimelineScreen(
                                         }
                                         else -> {
                                             // Upload image
-                                            Log.d("Andromuks", "RoomTimelineScreen: Starting image upload")
+                                            Log.d("Andromuks", "BubbleTimelineScreen: Starting image upload")
                                             val uploadResult = MediaUploadUtils.uploadMedia(
                                                 context = context,
                                                 uri = selectedMediaUri!!,
@@ -2253,7 +2211,7 @@ fun RoomTimelineScreen(
                                             )
                                             
                                             if (uploadResult != null) {
-                                                Log.d("Andromuks", "RoomTimelineScreen: Image upload successful, sending message")
+                                                Log.d("Andromuks", "BubbleTimelineScreen: Image upload successful, sending message")
                                                 // Send image message with metadata
                                                 appViewModel.sendImageMessage(
                                                     roomId = roomId,
@@ -2270,7 +2228,7 @@ fun RoomTimelineScreen(
                                                 selectedMediaUri = null
                                                 isUploading = false
                                             } else {
-                                                Log.e("Andromuks", "RoomTimelineScreen: Image upload failed")
+                                                Log.e("Andromuks", "BubbleTimelineScreen: Image upload failed")
                                                 isUploading = false
                                                 android.widget.Toast.makeText(
                                                     context,
@@ -2281,7 +2239,7 @@ fun RoomTimelineScreen(
                                         }
                                     }
                                 } catch (e: Exception) {
-                                    Log.e("Andromuks", "RoomTimelineScreen: Upload error", e)
+                                    Log.e("Andromuks", "BubbleTimelineScreen: Upload error", e)
                                     isUploading = false
                                     selectedMediaUri = null
                                     selectedAudioUri = null
@@ -2314,7 +2272,7 @@ fun RoomTimelineScreen(
 
 
 @Composable
-fun RoomHeader(
+fun BubbleRoomHeader(
     roomState: RoomState?,
     fallbackName: String,
     fallbackAvatarUrl: String? = null,
@@ -2323,13 +2281,15 @@ fun RoomHeader(
     roomId: String? = null,
     bridgeInfo: BridgeInfo? = null,
     onHeaderClick: () -> Unit = {},
+    onOpenInApp: () -> Unit = {},
+    onCloseBubble: () -> Unit = {},
     onRefreshClick: () -> Unit = {}
 ) {
     // Debug logging
-    android.util.Log.d("Andromuks", "RoomHeader: roomState = $roomState")
-    android.util.Log.d("Andromuks", "RoomHeader: fallbackName = $fallbackName")
-    android.util.Log.d("Andromuks", "RoomHeader: homeserverUrl = $homeserverUrl")
-    android.util.Log.d("Andromuks", "RoomHeader: authToken = ${authToken.take(10)}...")
+    android.util.Log.d("Andromuks", "BubbleRoomHeader: roomState = $roomState")
+    android.util.Log.d("Andromuks", "BubbleRoomHeader: fallbackName = $fallbackName")
+    android.util.Log.d("Andromuks", "BubbleRoomHeader: homeserverUrl = $homeserverUrl")
+    android.util.Log.d("Andromuks", "BubbleRoomHeader: authToken = ${authToken.take(10)}...")
     Surface(
         modifier =
             Modifier.fillMaxWidth()
@@ -2386,24 +2346,37 @@ fun RoomHeader(
                 )
             }
             
-            // Refresh button on the far right - use bridge icon if room is bridged
-            IconButton(onClick = onRefreshClick) {
-                if (bridgeInfo != null && bridgeInfo.protocol.avatarUrl != null) {
-                    // Use bridge protocol icon
-                    AvatarImage(
-                        mxcUrl = bridgeInfo.protocol.avatarUrl,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        fallbackText = bridgeInfo.protocol.displayname.take(1),
-                        size = 24.dp,
-                        userId = bridgeInfo.protocol.id,
-                        displayName = bridgeInfo.protocol.displayname
-                    )
-                } else {
-                    // Use default refresh icon
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onOpenInApp) {
                     Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Filled.Refresh,
-                        contentDescription = "Refresh timeline",
+                        imageVector = Icons.AutoMirrored.Filled.Launch,
+                        contentDescription = "Open in app",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = onRefreshClick) {
+                    if (bridgeInfo != null && bridgeInfo.protocol.avatarUrl != null) {
+                        AvatarImage(
+                            mxcUrl = bridgeInfo.protocol.avatarUrl,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            fallbackText = bridgeInfo.protocol.displayname.take(1),
+                            size = 24.dp,
+                            userId = bridgeInfo.protocol.id,
+                            displayName = bridgeInfo.protocol.displayname
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Filled.Refresh,
+                            contentDescription = "Refresh timeline",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                IconButton(onClick = onCloseBubble) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Close bubble",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

@@ -253,6 +253,24 @@ fun ChatBubbleLoadingScreen(
             navController.navigate("login")
         }
     }
+
+    val spacesLoaded = appViewModel.spacesLoaded
+    var hasNavigated by remember { mutableStateOf(false) }
+
+    LaunchedEffect(spacesLoaded, hasNavigated) {
+        if (!hasNavigated && spacesLoaded) {
+            val contextRoomId = (context as? ComponentActivity)?.intent?.getStringExtra("room_id")
+            val pendingBubbleId = appViewModel.getPendingBubbleNavigation() ?: contextRoomId
+            if (!pendingBubbleId.isNullOrBlank()) {
+                Log.d("Andromuks", "ChatBubbleLoadingScreen: Spaces became loaded - navigating to $pendingBubbleId")
+                appViewModel.clearPendingBubbleNavigation()
+                hasNavigated = true
+                navController.navigate("chat_bubble/$pendingBubbleId") {
+                    popUpTo("chat_bubble_loading") { inclusive = true }
+                }
+            }
+        }
+    }
     
     AndromuksTheme {
         Surface {
