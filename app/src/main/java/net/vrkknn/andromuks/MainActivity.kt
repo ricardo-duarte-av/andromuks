@@ -35,11 +35,13 @@ import androidx.navigation.compose.rememberNavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.CrashHandler
 import net.vrkknn.andromuks.utils.CrashReportDialog
+import androidx.lifecycle.Lifecycle
 
 class MainActivity : ComponentActivity() {
     private lateinit var appViewModel: AppViewModel
     private lateinit var notificationBroadcastReceiver: BroadcastReceiver
     private lateinit var notificationActionReceiver: BroadcastReceiver
+    private var viewModelVisibilitySynced = false
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,49 +74,60 @@ class MainActivity : ComponentActivity() {
                 AppNavigation(
                     modifier = Modifier.fillMaxSize(),
                     onViewModelCreated = { viewModel ->
-                        appViewModel = viewModel
-                        // Load cached user profiles on app startup
-                        // This restores previously saved user profile data from disk
-                        appViewModel.loadCachedProfiles(this)
-                        
-                        // Load app settings from SharedPreferences
-                        appViewModel.loadSettings(this)
-                        
-                        // Schedule database maintenance (daily at 2 AM)
-                        net.vrkknn.andromuks.database.DatabaseMaintenanceWorker.schedule(this)
-                        
-                        // Schedule WebSocket health checks (every 15 minutes)
-                        WebSocketHealthCheckWorker.schedule(this)
-                        
-                        // OPTIMIZATION #2: Optimized intent processing
-                        val roomId = intent.getStringExtra("room_id")
-                        val directNavigation = intent.getBooleanExtra("direct_navigation", false)
-                        val fromNotification = intent.getBooleanExtra("from_notification", false)
-                        val matrixUri = intent.data
-                        
-                        Log.d("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
-                        
-                        val extractedRoomId = if (directNavigation && roomId != null) {
-                            // OPTIMIZATION #2: Fast path - room ID already extracted
-                            Log.d("Andromuks", "MainActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
-                            roomId
-                        } else {
-                            // Fallback to URI parsing for legacy intents
-                            val uriRoomId = extractRoomIdFromMatrixUri(matrixUri)
-                            Log.d("Andromuks", "MainActivity: onCreate - Fallback URI parsing: $uriRoomId")
-                            uriRoomId
+                        if (!::appViewModel.isInitialized) {
+                            appViewModel = viewModel
+                            appViewModel.markAsPrimaryInstance()
+                            // Load cached user profiles on app startup
+                            // This restores previously saved user profile data from disk
+                            appViewModel.loadCachedProfiles(this)
+                            
+                            // Load app settings from SharedPreferences
+                            appViewModel.loadSettings(this)
+                            
+                            // Schedule database maintenance (daily at 2 AM)
+                            net.vrkknn.andromuks.database.DatabaseMaintenanceWorker.schedule(this)
+                            
+                            // Schedule WebSocket health checks (every 15 minutes)
+                            WebSocketHealthCheckWorker.schedule(this)
+                            
+                            // OPTIMIZATION #2: Optimized intent processing
+                            val roomId = intent.getStringExtra("room_id")
+                            val directNavigation = intent.getBooleanExtra("direct_navigation", false)
+                            val fromNotification = intent.getBooleanExtra("from_notification", false)
+                            val matrixUri = intent.data
+                            
+                            Log.d("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
+                            
+                            val extractedRoomId = if (directNavigation && roomId != null) {
+                                // OPTIMIZATION #2: Fast path - room ID already extracted
+                                Log.d("Andromuks", "MainActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
+                                roomId
+                            } else {
+                                // Fallback to URI parsing for legacy intents
+                                val uriRoomId = extractRoomIdFromMatrixUri(matrixUri)
+                                Log.d("Andromuks", "MainActivity: onCreate - Fallback URI parsing: $uriRoomId")
+                                uriRoomId
+                            }
+                            
+                            if (extractedRoomId != null) {
+                                // OPTIMIZATION #1: Direct navigation instead of pending state
+                                Log.d("Andromuks", "MainActivity: onCreate - Direct navigation to room: $extractedRoomId")
+                                // Store for immediate navigation once UI is ready
+                                appViewModel.setDirectRoomNavigation(extractedRoomId)
+                            }
+                            
+                            // Register broadcast receiver for notification actions
+                            registerNotificationBroadcastReceiver()
+                            registerNotificationActionReceiver()
                         }
-                        
-                        if (extractedRoomId != null) {
-                            // OPTIMIZATION #1: Direct navigation instead of pending state
-                            Log.d("Andromuks", "MainActivity: onCreate - Direct navigation to room: $extractedRoomId")
-                            // Store for immediate navigation once UI is ready
-                            appViewModel.setDirectRoomNavigation(extractedRoomId)
+
+                        if (!viewModelVisibilitySynced) {
+                            viewModelVisibilitySynced = true
+                            if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                                Log.d("Andromuks", "MainActivity: ViewModel created after onResume - forcing visible state")
+                                viewModel.onAppBecameVisible()
+                            }
                         }
-                        
-                        // Register broadcast receiver for notification actions
-                        registerNotificationBroadcastReceiver()
-                        registerNotificationActionReceiver()
                     }
                 )
             }

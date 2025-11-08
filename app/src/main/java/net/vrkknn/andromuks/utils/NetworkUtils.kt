@@ -338,8 +338,17 @@ fun connectToWebsocket(
                         Log.d("Andromuks", "NetworkUtils: Processing sync_complete message with async parsing")
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
-                                viewModel.updateRoomsFromSyncJsonAsync(jsonObject)
+                            val registeredViewModels = WebSocketService.getRegisteredViewModels()
+                            for (index in registeredViewModels.indices) {
+                                val viewModel = registeredViewModels[index]
+                                // JSONObject is not thread-safe, so provide an isolated copy per ViewModel
+                                val clonedJson = if (index == registeredViewModels.lastIndex) {
+                                    // Last ViewModel can reuse original to avoid extra allocation
+                                    jsonObject
+                                } else {
+                                    JSONObject(jsonObject.toString())
+                                }
+                                viewModel.updateRoomsFromSyncJsonAsync(clonedJson)
                             }
                         }
                     }

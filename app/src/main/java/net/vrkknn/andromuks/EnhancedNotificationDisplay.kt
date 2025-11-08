@@ -14,6 +14,7 @@ import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
 import android.util.Log
+import android.util.TypedValue
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationCompat.MessagingStyle
 import androidx.core.app.NotificationManagerCompat
@@ -168,9 +169,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             // Check if this room is currently open in the app - skip notifications if user is viewing the room
             val currentOpenRoomId = sharedPrefs.getString("current_open_room_id", null)
-            Log.d(TAG, "Notification check - currentOpenRoomId: '$currentOpenRoomId', notificationRoomId: '${notificationData.roomId}', match: ${currentOpenRoomId == notificationData.roomId}")
-            if (currentOpenRoomId != null && currentOpenRoomId == notificationData.roomId) {
-                Log.d(TAG, "Skipping notification for currently open room: ${notificationData.roomId} (${notificationData.roomName}) - user is already viewing this room")
+            val appIsVisible = sharedPrefs.getBoolean("app_is_visible", false)
+            Log.d(
+                TAG,
+                "Notification check - appVisible: $appIsVisible, currentOpenRoomId: '$currentOpenRoomId', notificationRoomId: '${notificationData.roomId}', match: ${currentOpenRoomId == notificationData.roomId}"
+            )
+            if (appIsVisible && currentOpenRoomId != null && currentOpenRoomId == notificationData.roomId) {
+                Log.d(TAG, "Skipping notification for currently visible room: ${notificationData.roomId} (${notificationData.roomName}) - user is already viewing this room")
                 return
             }
             
@@ -444,8 +449,12 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Use conversation channel for all notifications
             val channelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
             
-            // Chat bubbles disabled - no bubble metadata created
-            val bubbleMetadata = null
+            val bubbleMetadata = createBubbleMetadata(
+                notificationData = notificationData,
+                isGroupRoom = isGroupRoom,
+                roomAvatarIcon = roomAvatarIcon,
+                senderAvatarIcon = senderAvatarIcon
+            )
             
             // Determine large icon based on room type
             // For DMs: use sender's avatar (the conversation-level avatar)
@@ -480,6 +489,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     } else {
                         setShortcutId(notificationData.roomId)
                     }
+                    
+                    bubbleMetadata?.let { setBubbleMetadata(it) }
                     
                     // Store event_id in extras for later retrieval
                     if (notificationData.eventId != null) {
@@ -542,6 +553,62 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+    }
+    
+    /**
+     * Create bubble metadata for conversation notifications
+     */
+    private fun createBubbleMetadata(
+        notificationData: NotificationData,
+        isGroupRoom: Boolean,
+        roomAvatarIcon: IconCompat?,
+        senderAvatarIcon: IconCompat?
+    ): NotificationCompat.BubbleMetadata? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val bubbleIntent = Intent(context, ChatBubbleActivity::class.java).apply {
+                    action = "net.vrkknn.andromuks.ACTION_OPEN_BUBBLE"
+                    data = android.net.Uri.parse("matrix:bubble/${notificationData.roomId.substring(1)}")
+                    putExtra("room_id", notificationData.roomId)
+                    putExtra("direct_navigation", true)
+                    putExtra("bubble_mode", true)
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                }
+                
+                val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+                } else {
+                    PendingIntent.FLAG_UPDATE_CURRENT
+                }
+                
+                val bubblePendingIntent = PendingIntent.getActivity(
+                    context,
+                    notificationData.roomId.hashCode(),
+                    bubbleIntent,
+                    pendingIntentFlags
+                )
+                
+                val bubbleIcon = (if (isGroupRoom) roomAvatarIcon else senderAvatarIcon)
+                    ?: createDefaultAdaptiveIcon()
+                
+                val desiredHeight = TypedValue.applyDimension(
+                    TypedValue.COMPLEX_UNIT_DIP,
+                    480f,
+                    context.resources.displayMetrics
+                ).toInt()
+                
+                NotificationCompat.BubbleMetadata.Builder(bubblePendingIntent, bubbleIcon)
+                    .setDesiredHeight(desiredHeight)
+                    .setAutoExpandBubble(true)
+                    .setSuppressNotification(false)
+                    .build()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error creating bubble metadata", e)
+                null
+            }
+        } else {
+            null
+        }
     }
     
     

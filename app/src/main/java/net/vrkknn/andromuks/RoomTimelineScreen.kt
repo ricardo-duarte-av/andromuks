@@ -751,6 +751,10 @@ fun RoomTimelineScreen(
     
     // Process timeline events in background when dependencies change
     LaunchedEffect(timelineEvents, appViewModel.showUnprocessedEvents, appViewModel.timelineUpdateCounter) {
+        Log.d(
+            "Andromuks",
+            "RoomTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, updateCounter=${appViewModel.timelineUpdateCounter}, roomId=$roomId"
+        )
         sortedEvents = processTimelineEvents(
             timelineEvents = timelineEvents,
             showUnprocessedEvents = appViewModel.showUnprocessedEvents,

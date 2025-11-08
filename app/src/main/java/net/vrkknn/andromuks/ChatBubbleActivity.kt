@@ -29,6 +29,9 @@ class ChatBubbleActivity : ComponentActivity() {
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Ensure repository is initialized when launching directly into a bubble
+        RoomRepository.initialize(this)
         enableEdgeToEdge()
 
         Log.d("Andromuks", "ChatBubbleActivity: onCreate called")
@@ -64,8 +67,11 @@ class ChatBubbleActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     onViewModelCreated = { viewModel ->
                         appViewModel = viewModel
+                        appViewModel.markAsBubbleInstance()
                         // Load cached user profiles on app startup
                         appViewModel.loadCachedProfiles(this)
+                        appViewModel.loadSettings(this)
+                        appViewModel.attachToExistingWebSocketIfAvailable()
                         
                         // IMPORTANT: Mark bubble as visible for live updates WITHOUT expensive UI refresh
                         // Bubbles don't need to update shortcuts or refresh room list
@@ -129,6 +135,7 @@ class ChatBubbleActivity : ComponentActivity() {
         if (::appViewModel.isInitialized) {
             // Lightweight visibility flag - don't trigger expensive UI refresh for bubbles
             appViewModel.setBubbleVisible(true)
+            appViewModel.attachToExistingWebSocketIfAvailable()
         }
     }
     

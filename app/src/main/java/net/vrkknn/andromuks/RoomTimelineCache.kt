@@ -3,6 +3,7 @@ package net.vrkknn.andromuks
 import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
+import net.vrkknn.andromuks.BuildConfig
 
 /**
  * RoomTimelineCache - Singleton cache for timeline events from sync_complete messages
@@ -96,7 +97,7 @@ object RoomTimelineCache {
         // Trim to max size (keep newest events)
         if (cache.events.size > MAX_EVENTS_PER_ROOM) {
             val toRemove = cache.events.size - MAX_EVENTS_PER_ROOM
-            Log.d(TAG, "Trimming cache for room $roomId: removing $toRemove old events")
+            Log.d(TAG, "Trimming cache for room $roomId: removing $toRemove oldest events")
             val removed = cache.events.subList(0, toRemove)
             removed.forEach { cache.eventIds.remove(it.eventId) }
             removed.clear()
@@ -116,7 +117,18 @@ object RoomTimelineCache {
             return
         }
         
-        Log.d(TAG, "Adding ${events.size} events from sync for room $roomId")
+        if (BuildConfig.DEBUG) {
+            val firstIncoming = events.firstOrNull()
+            val lastIncoming = events.lastOrNull()
+            Log.d(
+                TAG,
+                "Adding ${events.size} events from sync for room $roomId " +
+                    "(first=${firstIncoming?.eventId}@${firstIncoming?.timestamp}, " +
+                    "last=${lastIncoming?.eventId}@${lastIncoming?.timestamp})"
+            )
+        } else {
+            Log.d(TAG, "Adding ${events.size} events from sync for room $roomId")
+        }
         
         // Get or create cache for this room
         val added = addEventsToCache(roomId, events)
@@ -135,7 +147,17 @@ object RoomTimelineCache {
         val cache = roomEventsCache[roomId] ?: return null
         
         return if (cache.events.size >= TARGET_EVENTS_FOR_INSTANT_RENDER) {
-            Log.d(TAG, "Cache hit for room $roomId: ${cache.events.size} events available (>= $TARGET_EVENTS_FOR_INSTANT_RENDER)")
+            if (BuildConfig.DEBUG) {
+                val firstEvent = cache.events.firstOrNull()
+                val lastEvent = cache.events.lastOrNull()
+                Log.d(
+                    TAG,
+                    "Cache hit for room $roomId: ${cache.events.size} events available (>= $TARGET_EVENTS_FOR_INSTANT_RENDER). " +
+                    "first=${firstEvent?.eventId}@${firstEvent?.timestamp}, last=${lastEvent?.eventId}@${lastEvent?.timestamp}"
+                )
+            } else {
+                Log.d(TAG, "Cache hit for room $roomId: ${cache.events.size} events available (>= $TARGET_EVENTS_FOR_INSTANT_RENDER)")
+            }
             cache.events.toList() // Return a copy
         } else {
             Log.d(TAG, "Cache miss for room $roomId: only ${cache.events.size} events (need >= $TARGET_EVENTS_FOR_INSTANT_RENDER)")

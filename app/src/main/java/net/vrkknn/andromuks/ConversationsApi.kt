@@ -536,12 +536,13 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             "matrix:roomid/${shortcut.roomId.substring(1)}"
         }
         Log.d(TAG, "Creating conversation shortcut with matrix URI: $matrixUri")
-        val intent = android.content.Intent(context, MainActivity::class.java).apply {
+        val intent = android.content.Intent(context, ChatBubbleActivity::class.java).apply {
             action = android.content.Intent.ACTION_VIEW
             data = android.net.Uri.parse(matrixUri)
             putExtra("room_id", shortcut.roomId)
             putExtra("direct_navigation", true) // Flag for optimized processing
-            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra("bubble_mode", true)
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         
         val icon = if (shortcut.roomAvatarUrl != null) {
@@ -613,12 +614,13 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             "matrix:roomid/${shortcut.roomId.substring(1)}"
         }
         Log.d(TAG, "Creating conversation shortcut with matrix URI: $matrixUri")
-        val intent = android.content.Intent(context, MainActivity::class.java).apply {
+        val intent = android.content.Intent(context, ChatBubbleActivity::class.java).apply {
             action = android.content.Intent.ACTION_VIEW
             data = android.net.Uri.parse(matrixUri)
             putExtra("room_id", shortcut.roomId)
             putExtra("direct_navigation", true) // Flag for optimized processing
-            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra("bubble_mode", true)
+            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         
         val icon = if (shortcut.roomAvatarUrl != null) {

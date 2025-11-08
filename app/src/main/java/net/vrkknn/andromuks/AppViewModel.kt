@@ -91,6 +91,25 @@ class AppViewModel : ViewModel() {
     
     // PHASE 4: Unique ID for this ViewModel instance (for WebSocket callback registration)
     private val viewModelId: String = "AppViewModel_${viewModelCounter++}"
+    
+    private enum class InstanceRole {
+        PRIMARY,
+        BUBBLE,
+        SECONDARY
+    }
+    
+    private var instanceRole: InstanceRole = InstanceRole.SECONDARY
+    
+    fun markAsPrimaryInstance() {
+        instanceRole = InstanceRole.PRIMARY
+        android.util.Log.d("Andromuks", "AppViewModel: Instance role set to PRIMARY for $viewModelId")
+    }
+    
+    fun markAsBubbleInstance() {
+        instanceRole = InstanceRole.BUBBLE
+        android.util.Log.d("Andromuks", "AppViewModel: Instance role set to BUBBLE for $viewModelId")
+    }
+    
     var isLoading by mutableStateOf(false)
     var homeserverUrl by mutableStateOf("")
         private set
@@ -2979,6 +2998,24 @@ class AppViewModel : ViewModel() {
                 forwardPaginateInFlight.remove(forwardRoomId)
                 android.util.Log.d("Andromuks", "AppViewModel: Forward paginate completed for $forwardRoomId (requestId=$requestId)")
             }
+            
+            if (requestId < 0) {
+                synchronized(pendingSyncLock) {
+                    val currentPending = pendingLastReceivedSyncId
+                    if (currentPending == null || requestId < currentPending) {
+                        pendingLastReceivedSyncId = requestId
+                        android.util.Log.d(
+                            "Andromuks",
+                            "AppViewModel: Recorded pending sync_complete requestId=$requestId (previous pending=$currentPending)"
+                        )
+                    } else {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "AppViewModel: Pending sync_complete requestId=$requestId ignored (current pending=$currentPending)"
+                        )
+                    }
+                }
+            }
         }
         
         // Persist sync_complete to database (run in background)
@@ -2990,6 +3027,12 @@ class AppViewModel : ViewModel() {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     syncIngestor?.ingestSyncComplete(syncJson, requestId, currentRunId)
+                    
+                    if (requestId < 0) {
+                        withContext(Dispatchers.Main) {
+                            onSyncCompletePersisted(requestId)
+                        }
+                    }
                 } catch (e: Exception) {
                     android.util.Log.e("Andromuks", "AppViewModel: Error persisting sync_complete: ${e.message}", e)
                     // Don't block UI updates if persistence fails
@@ -3347,6 +3390,24 @@ class AppViewModel : ViewModel() {
             // SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
             checkAndUpdateCurrentRoomTimelineOptimized(syncJson)
             
+            // FAILSAFE: Ensure currently open room timeline matches cached data
+            val openRoomId = currentRoomId
+            if (openRoomId.isNotEmpty()) {
+                val cachedEvents = RoomTimelineCache.getCachedEvents(openRoomId)
+                    ?: RoomTimelineCache.getCachedEventsForNotification(openRoomId)
+                if (cachedEvents != null && cachedEvents.isNotEmpty()) {
+                    val cachedLatest = cachedEvents.maxByOrNull { it.timestamp }?.eventId
+                    val timelineLatest = timelineEvents.maxByOrNull { it.timestamp }?.eventId
+                    if (cachedLatest != null && cachedLatest != timelineLatest) {
+                        android.util.Log.w("Andromuks", "AppViewModel: Timeline desync detected for $openRoomId (cached latest=$cachedLatest, timeline latest=$timelineLatest) - rebuilding from cache")
+                        processCachedEvents(openRoomId, cachedEvents, openingFromNotification = false, skipNetworkRequests = true)
+                        lastTimelineStateHash = generateTimelineStateHash(timelineEvents)
+                        needsTimelineUpdate = true
+                        scheduleUIUpdate("timeline")
+                    }
+                }
+            }
+            
             // SYNC OPTIMIZATION: Schedule member update if member cache actually changed
             if (memberStateChanged) {
                 android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update")
@@ -3699,9 +3760,19 @@ class AppViewModel : ViewModel() {
     fun onAppBecameVisible() {
         android.util.Log.d("Andromuks", "AppViewModel: App became visible")
         isAppVisible = true
+        updateAppVisibilityInPrefs(true)
         
         // Notify service of app visibility change
         WebSocketService.setAppVisibility(true)
+
+        if (currentRoomId.isEmpty()) {
+            val roomToRestore = pendingRoomToRestore
+            if (!roomToRestore.isNullOrEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: Restoring current room to $roomToRestore after visibility change")
+                updateCurrentRoomIdInPrefs(roomToRestore)
+            }
+        }
+        pendingRoomToRestore = null
         
         // Cancel any pending shutdown
         appInvisibleJob?.cancel()
@@ -3726,9 +3797,16 @@ class AppViewModel : ViewModel() {
      */
     fun setBubbleVisible(visible: Boolean) {
         android.util.Log.d("Andromuks", "AppViewModel: Bubble visibility set to $visible (lightweight)")
-        isAppVisible = visible
         
         if (visible) {
+            if (currentRoomId.isEmpty()) {
+                val roomToRestore = pendingRoomToRestore
+                if (!roomToRestore.isNullOrEmpty()) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Restoring bubble room to $roomToRestore after becoming visible")
+                    updateCurrentRoomIdInPrefs(roomToRestore)
+                }
+            }
+            pendingRoomToRestore = null
             // Cancel any pending shutdown
             appInvisibleJob?.cancel()
             appInvisibleJob = null
@@ -3738,8 +3816,24 @@ class AppViewModel : ViewModel() {
                 android.util.Log.d("Andromuks", "AppViewModel: Room is open ($currentRoomId), triggering timeline refresh for bubble")
                 timelineRefreshTrigger++
             }
+        } else {
+            if (currentRoomId.isNotEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: Bubble hidden - clearing current room ($currentRoomId) to allow notifications")
+                clearCurrentRoomId(shouldRestoreOnVisible = true)
+            }
         }
         // Don't call refreshUIState() - bubbles don't need room list updates or shortcut updates
+    }
+    
+    fun attachToExistingWebSocketIfAvailable() {
+        val existingWebSocket = WebSocketService.getWebSocket()
+        if (existingWebSocket != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Attaching $viewModelId to existing WebSocket")
+            webSocket = existingWebSocket
+            WebSocketService.registerReceiveCallback(viewModelId, this)
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: No existing WebSocket to attach for $viewModelId")
+        }
     }
     
     /**
@@ -3793,9 +3887,14 @@ class AppViewModel : ViewModel() {
     fun onAppBecameInvisible() {
         android.util.Log.d("Andromuks", "AppViewModel: App became invisible")
         isAppVisible = false
+        updateAppVisibilityInPrefs(false)
         
         // Notify service of app visibility change
         WebSocketService.setAppVisibility(false)
+        if (currentRoomId.isNotEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: Clearing current room ($currentRoomId) while app invisible to allow notifications")
+            clearCurrentRoomId(shouldRestoreOnVisible = true)
+        }
         
         // Save state to storage for crash recovery (preserves run_id and last_received_sync_id)
         // This allows seamless resumption if app is killed by system
@@ -3841,15 +3940,16 @@ class AppViewModel : ViewModel() {
         
         // Cancel any pending jobs
         appInvisibleJob?.cancel()
+        appInvisibleJob = null
         
-        // Cancel reconnection in service
-        WebSocketService.cancelReconnection()
-        
-        // Stop network monitoring in service
-        WebSocketService.stopNetworkMonitoring()
-        
-        // Clear WebSocket connection
-        clearWebSocket("ViewModel cleared")
+        if (instanceRole == InstanceRole.PRIMARY) {
+            // Only the primary instance should perform global teardown
+            WebSocketService.cancelReconnection()
+            WebSocketService.stopNetworkMonitoring()
+            clearWebSocket("ViewModel cleared")
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping global WebSocket teardown for role=$instanceRole")
+        }
     }
 
     fun getRoomById(roomId: String): RoomItem? {
@@ -3859,11 +3959,15 @@ class AppViewModel : ViewModel() {
     // Room timeline state
     var currentRoomId by mutableStateOf("")
         private set
+    private var pendingRoomToRestore: String? = null
     /**
      * Helper function to set currentRoomId and save it to SharedPreferences.
      * This allows notification services to check if a room is currently open.
      */
     private fun updateCurrentRoomIdInPrefs(roomId: String) {
+        if (roomId.isNotEmpty()) {
+            pendingRoomToRestore = null
+        }
         currentRoomId = roomId
         // PHASE 1: Update Repository in parallel with AppViewModel
         RoomRepository.setCurrentRoom(roomId)
@@ -3885,11 +3989,29 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    private fun updateAppVisibilityInPrefs(visible: Boolean) {
+        appContext?.applicationContext?.let { context ->
+            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val editor = sharedPrefs.edit()
+            editor.putBoolean("app_is_visible", visible)
+            val success = editor.commit()
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: SharedPreferences commit ${if (success) "succeeded" else "failed"} for app visibility: $visible"
+            )
+        }
+    }
+    
     /**
      * Clears the current room ID when user navigates back to room list.
      * This allows notifications to resume for rooms that were previously open.
      */
-    fun clearCurrentRoomId() {
+    fun clearCurrentRoomId(shouldRestoreOnVisible: Boolean = false) {
+        if (shouldRestoreOnVisible && currentRoomId.isNotEmpty()) {
+            pendingRoomToRestore = currentRoomId
+        } else if (!shouldRestoreOnVisible) {
+            pendingRoomToRestore = null
+        }
         updateCurrentRoomIdInPrefs("")
     }
     
@@ -4002,6 +4124,8 @@ class AppViewModel : ViewModel() {
     private var webSocket: WebSocket? = null
     private var lastReceivedRequestId: Int = 0 // Tracks ANY incoming request_id (for pong detection)
     private var lastReceivedSyncId: Int = 0 // Tracks ONLY sync_complete negative request_ids (for reconnection)
+    @Volatile private var pendingLastReceivedSyncId: Int? = null // Candidate sync_complete ID awaiting persistence
+    private val pendingSyncLock = Any()
     private var lastSyncTimestamp: Long = 0 // Timestamp of last sync_complete received
     private var currentRunId: String = "" // Unique connection ID from gomuks backend
     private var vapidKey: String = "" // VAPID key for push notifications
@@ -4248,14 +4372,21 @@ class AppViewModel : ViewModel() {
             
             // Separately track ONLY negative request_ids from sync_complete for reconnection
             if (requestId < 0) {
-                lastReceivedSyncId = requestId
-                android.util.Log.d("Andromuks", "AppViewModel: Updated lastReceivedSyncId to $requestId (sync_complete)")
-                
-                // Update service with sync ID for reconnection
-                WebSocketService.updateLastReceivedSyncId(requestId)
-                
-                // Sync full reconnection state with service
-                WebSocketService.setReconnectionState(currentRunId, lastReceivedSyncId, vapidKey)
+                synchronized(pendingSyncLock) {
+                    val currentPending = pendingLastReceivedSyncId
+                    if (currentPending == null || requestId < currentPending) {
+                        pendingLastReceivedSyncId = requestId
+                        android.util.Log.d(
+                            "Andromuks",
+                            "AppViewModel: Recorded pending sync_complete requestId=$requestId (previous pending=$currentPending)"
+                        )
+                    } else {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "AppViewModel: Pending sync_complete requestId=$requestId ignored (current pending=$currentPending)"
+                        )
+                    }
+                }
             }
             
             // Pong handling is now done directly in NetworkUtils
@@ -4278,6 +4409,43 @@ class AppViewModel : ViewModel() {
         WebSocketService.setReconnectionState(runId, lastReceivedSyncId, vapidKey)
         
         android.util.Log.d("Andromuks", "AppViewModel: Stored run_id: $runId, vapid_key: ${vapidKey.take(20)}...")
+    }
+    
+    /**
+     * Commits a persisted sync_complete request ID after the payload has been written to storage.
+     * This ensures we never advance lastReceivedSyncId before the local database is consistent.
+     */
+    private fun onSyncCompletePersisted(requestId: Int) {
+        if (requestId >= 0) {
+            return
+        }
+        
+        val pendingLog = synchronized(pendingSyncLock) {
+            if (pendingLastReceivedSyncId == requestId) {
+                pendingLastReceivedSyncId = null
+            }
+            pendingLastReceivedSyncId
+        }
+        
+        val shouldUpdate = lastReceivedSyncId == 0 || requestId < lastReceivedSyncId
+        if (!shouldUpdate) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Persisted sync_complete requestId=$requestId ignored (current lastReceivedSyncId=$lastReceivedSyncId, pending=$pendingLog)"
+            )
+            return
+        }
+        
+        val previous = lastReceivedSyncId
+        lastReceivedSyncId = requestId
+        android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Committed lastReceivedSyncId from $previous to $requestId after persistence (pending=$pendingLog)"
+        )
+        
+        // Notify service for reconnection
+        WebSocketService.updateLastReceivedSyncId(lastReceivedSyncId)
+        WebSocketService.setReconnectionState(currentRunId, lastReceivedSyncId, vapidKey)
     }
     
     /**
@@ -4894,12 +5062,26 @@ class AppViewModel : ViewModel() {
     /**
      * Helper function to process cached events and display them
      */
-    private fun processCachedEvents(roomId: String, cachedEvents: List<TimelineEvent>, openingFromNotification: Boolean) {
+    private fun processCachedEvents(
+        roomId: String,
+        cachedEvents: List<TimelineEvent>,
+        openingFromNotification: Boolean,
+        skipNetworkRequests: Boolean = false
+    ) {
         val ownMessagesInCache = cachedEvents.count { it.sender == currentUserId && (it.type == "m.room.message" || it.type == "m.room.encrypted") }
         val cacheType = if (openingFromNotification && cachedEvents.size < 100) "notification-optimized" else "standard"
         android.util.Log.d("Andromuks", "AppViewModel: ✓ CACHE HIT ($cacheType) - Instant room opening: ${cachedEvents.size} events (including $ownMessagesInCache of your own messages)")
         if (ownMessagesInCache > 0) {
             android.util.Log.d("Andromuks", "AppViewModel: ★ Cache contains $ownMessagesInCache messages from YOU")
+        }
+        if (BuildConfig.DEBUG) {
+            val firstCached = cachedEvents.firstOrNull()
+            val lastCached = cachedEvents.lastOrNull()
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Cached snapshot for $roomId -> first=${firstCached?.eventId}@${firstCached?.timestamp}, " +
+                    "last=${lastCached?.eventId}@${lastCached?.timestamp}"
+            )
         }
         
         // Ensure loading is false BEFORE processing to prevent loading flash
@@ -4978,7 +5160,7 @@ class AppViewModel : ViewModel() {
         val currentNavigationState = getRoomNavigationState(roomId)
         
         // Only request essential room state if not already loaded
-        if (currentNavigationState?.essentialDataLoaded != true && !pendingRoomStateRequests.contains(roomId)) {
+        if (!skipNetworkRequests && currentNavigationState?.essentialDataLoaded != true && !pendingRoomStateRequests.contains(roomId)) {
             requestRoomState(roomId)
         }
         
@@ -4998,19 +5180,23 @@ class AppViewModel : ViewModel() {
         
         // IMPORTANT: Request historical reactions even when using cache
         // The cache filters out reaction events, so we need a paginate request to load them
-        val reactionRequestId = requestIdCounter++
-        backgroundPrefetchRequests[reactionRequestId] = roomId
-        val effectiveMaxTimelineId = if (smallestCached > 0) smallestCached else 0L
-        android.util.Log.d("Andromuks", "AppViewModel: About to send reaction request - currentRoomId: $currentRoomId")
-        sendWebSocketCommand("paginate", reactionRequestId, mapOf(
-            "room_id" to roomId,
-            "max_timeline_id" to effectiveMaxTimelineId,
-            "limit" to 100,
-            "reset" to false
-        ))
-        android.util.Log.d("Andromuks", "AppViewModel: ✅ Sent reaction request for cached room: $roomId (requestId: $reactionRequestId, smallestCached: $smallestCached, effectiveMaxTimelineId: $effectiveMaxTimelineId, currentRoomId: $currentRoomId)")
+        if (!skipNetworkRequests) {
+            val reactionRequestId = requestIdCounter++
+            backgroundPrefetchRequests[reactionRequestId] = roomId
+            val effectiveMaxTimelineId = if (smallestCached > 0) smallestCached else 0L
+            android.util.Log.d("Andromuks", "AppViewModel: About to send reaction request - currentRoomId: $currentRoomId")
+            sendWebSocketCommand("paginate", reactionRequestId, mapOf(
+                "room_id" to roomId,
+                "max_timeline_id" to effectiveMaxTimelineId,
+                "limit" to 100,
+                "reset" to false
+            ))
+            android.util.Log.d("Andromuks", "AppViewModel: ✅ Sent reaction request for cached room: $roomId (requestId: $reactionRequestId, smallestCached: $smallestCached, effectiveMaxTimelineId: $effectiveMaxTimelineId, currentRoomId: $currentRoomId)")
+        }
 
-        requestForwardPaginationIfNeeded(roomId, cachedEvents)
+        if (!skipNetworkRequests) {
+            requestForwardPaginationIfNeeded(roomId, cachedEvents)
+        }
     }
 
     /**
@@ -8335,14 +8521,9 @@ class AppViewModel : ViewModel() {
         val roomKeys = rooms.keys()
         while (roomKeys.hasNext()) {
             val roomId = roomKeys.next()
-            if (roomId != currentRoomId) {
-                continue // Only cache events for the currently opened room
-            }
-
             val roomData = rooms.optJSONObject(roomId) ?: continue
             val events = roomData.optJSONArray("events") ?: continue
 
-            android.util.Log.d("Andromuks", "AppViewModel: Caching ${events.length()} events for current room: $roomId (PRIORITY)")
             val memberMap = roomMemberCache.getOrPut(roomId) { mutableMapOf() }
             RoomTimelineCache.addEventsFromSync(roomId, events, memberMap)
         }
@@ -8659,6 +8840,37 @@ class AppViewModel : ViewModel() {
         buildTimelineFromChain()
         val timelineCountAfter = timelineEvents.size
         android.util.Log.d("Andromuks", "AppViewModel: [SYNC] Timeline rebuilt: before=$timelineCountBefore, after=$timelineCountAfter (added ${timelineCountAfter - timelineCountBefore} events)")
+
+        // FAILSAFE: If the rebuilt timeline is significantly smaller than the cached snapshot,
+        // fall back to rebuilding entirely from the cache to prevent data loss.
+        val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
+        if (cachedEventCount >= 50 && timelineEvents.size + 5 < cachedEventCount) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Timeline/cache mismatch detected for $roomId (timeline=${timelineEvents.size}, cache=$cachedEventCount) - rebuilding from cache"
+            )
+            val cachedSnapshot = RoomTimelineCache.getCachedEvents(roomId)
+                ?: RoomTimelineCache.getCachedEventsForNotification(roomId)
+            if (cachedSnapshot != null && cachedSnapshot.size > timelineEvents.size) {
+                processCachedEvents(
+                    roomId = roomId,
+                    cachedEvents = cachedSnapshot,
+                    openingFromNotification = false,
+                    skipNetworkRequests = true
+                )
+                // After rebuilding from cache, ensure counters reflect the updated timeline.
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Timeline rebuilt from cache for $roomId -> timelineEvents=${timelineEvents.size}"
+                )
+            } else {
+                android.util.Log.w(
+                    "Andromuks",
+                    "AppViewModel: Cache snapshot unavailable or not larger (snapshot=${cachedSnapshot?.size
+                        ?: "null"}) - skipping cache rebuild fallback"
+                )
+            }
+        }
         
         // Mark room as read for the newest event since user is actively viewing the room
         val newestEvent = events.maxByOrNull { it.timestamp }
