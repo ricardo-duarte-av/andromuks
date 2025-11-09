@@ -25,6 +25,7 @@ import kotlinx.coroutines.withContext
 import android.content.Context
 import android.media.MediaPlayer
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Build
 import java.util.concurrent.ConcurrentHashMap
 import java.io.File
@@ -34,6 +35,16 @@ import net.vrkknn.andromuks.utils.IntelligentMediaCache
 data class MemberProfile(
     val displayName: String?,
     val avatarUrl: String?
+)
+
+data class SharedMediaItem(
+    val uri: Uri,
+    val mimeType: String?
+)
+
+data class PendingSharePayload(
+    val items: List<SharedMediaItem>,
+    val text: String? = null
 )
 
 data class UserProfile(
@@ -138,6 +149,64 @@ class AppViewModel : ViewModel() {
         private set
     var enableCompression by mutableStateOf(true)
         private set
+
+    var pendingShare by mutableStateOf<PendingSharePayload?>(null)
+        private set
+    var pendingShareNavigationRequested by mutableStateOf(false)
+        private set
+    var pendingShareUpdateCounter by mutableStateOf(0)
+        private set
+    private var pendingShareTargetRoomId: String? = null
+
+    fun setPendingShare(items: List<SharedMediaItem>, text: String?) {
+        if (items.isEmpty() && text.isNullOrBlank()) {
+            android.util.Log.w("Andromuks", "AppViewModel: Ignoring pending share with no content")
+            return
+        }
+        android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Pending share set with ${items.size} items, hasText=${!text.isNullOrBlank()}"
+        )
+        pendingShare = PendingSharePayload(items, text)
+        pendingShareTargetRoomId = null
+        pendingShareNavigationRequested = true
+        pendingShareUpdateCounter++
+    }
+
+    fun clearPendingShare() {
+        pendingShare = null
+        pendingShareTargetRoomId = null
+        pendingShareNavigationRequested = false
+        pendingShareUpdateCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: Cleared pending share state")
+    }
+
+    fun markPendingShareNavigationHandled() {
+        if (pendingShareNavigationRequested) {
+            android.util.Log.d("Andromuks", "AppViewModel: Pending share navigation marked as handled")
+        }
+        pendingShareNavigationRequested = false
+    }
+
+    fun selectPendingShareRoom(roomId: String) {
+        pendingShareTargetRoomId = roomId
+        pendingShareNavigationRequested = false
+        pendingShareUpdateCounter++
+        android.util.Log.d("Andromuks", "AppViewModel: Pending share target room selected: $roomId")
+    }
+
+    fun consumePendingShareForRoom(roomId: String): PendingSharePayload? {
+        val share = pendingShare
+        return if (share != null && pendingShareTargetRoomId == roomId) {
+            android.util.Log.d("Andromuks", "AppViewModel: Consuming pending share for room $roomId")
+            pendingShare = null
+            pendingShareTargetRoomId = null
+            pendingShareUpdateCounter++
+            share
+        } else {
+            null
+        }
+    }
 
 
     // List of spaces, each with their rooms
@@ -4133,6 +4202,7 @@ class AppViewModel : ViewModel() {
     private var lastReceivedSyncId: Int = 0 // Tracks ONLY sync_complete negative request_ids (for reconnection)
     @Volatile private var pendingLastReceivedSyncId: Int? = null // Candidate sync_complete ID awaiting persistence
     private val pendingSyncLock = Any()
+    private var hasPersistedSync = false
     private var lastSyncTimestamp: Long = 0 // Timestamp of last sync_complete received
     private var currentRunId: String = "" // Unique connection ID from gomuks backend
     private var vapidKey: String = "" // VAPID key for push notifications
@@ -4445,6 +4515,7 @@ class AppViewModel : ViewModel() {
         
         val previous = lastReceivedSyncId
         lastReceivedSyncId = requestId
+        hasPersistedSync = true
         android.util.Log.d(
             "Andromuks",
             "AppViewModel: Committed lastReceivedSyncId from $previous to $requestId after persistence (pending=$pendingLog)"
@@ -4453,6 +4524,7 @@ class AppViewModel : ViewModel() {
         // Notify service for reconnection
         WebSocketService.updateLastReceivedSyncId(lastReceivedSyncId)
         WebSocketService.setReconnectionState(currentRunId, lastReceivedSyncId, vapidKey)
+        WebSocketService.markInitialSyncPersisted()
     }
     
     /**
@@ -4464,6 +4536,12 @@ class AppViewModel : ViewModel() {
      * Gets the last received sync_complete request_id for reconnection
      */
     fun getLastReceivedId(): Int = lastReceivedSyncId
+    
+    /**
+     * Determines whether the current session has persisted sync data,
+     * allowing us to include last_received_id on reconnection attempts.
+     */
+    fun shouldIncludeLastReceivedId(): Boolean = hasPersistedSync
     
     /**
      * Gets the current VAPID key for push notifications
@@ -4506,7 +4584,6 @@ class AppViewModel : ViewModel() {
             
             // Save WebSocket connection state
             editor.putString("ws_run_id", currentRunId)
-            editor.putInt("ws_last_received_sync_id", lastReceivedSyncId)
             editor.putString("ws_vapid_key", vapidKey)
             
             // Save room data as JSON
@@ -4601,6 +4678,8 @@ class AppViewModel : ViewModel() {
                             if (bootstrapResult.runId.isNotEmpty()) {
                                 currentRunId = bootstrapResult.runId
                                 lastReceivedSyncId = bootstrapResult.lastReceivedId
+                                hasPersistedSync = false
+                                pendingLastReceivedSyncId = null
                                 
                                 // Get vapid key from SharedPreferences (not stored in DB yet)
                                 val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
@@ -4761,22 +4840,23 @@ class AppViewModel : ViewModel() {
             
             // Restore WebSocket connection state
             val runId = prefs.getString("ws_run_id", "") ?: ""
-            val lastSyncId = prefs.getInt("ws_last_received_sync_id", 0)
             val savedVapidKey = prefs.getString("ws_vapid_key", "") ?: ""
             
-            android.util.Log.d("Andromuks", "AppViewModel: Loading from SharedPreferences - runId='$runId', lastSyncId=$lastSyncId, vapidKey='${savedVapidKey.take(20)}...'")
+            android.util.Log.d("Andromuks", "AppViewModel: Loading from SharedPreferences - runId='$runId', vapidKey='${savedVapidKey.take(20)}...'")
             android.util.Log.d("Andromuks", "AppViewModel: DEBUG - loaded runId type: ${runId.javaClass.simpleName}, length: ${runId.length}")
             android.util.Log.d("Andromuks", "AppViewModel: DEBUG - loaded runId starts with '{': ${runId.startsWith("{")}")
             
             if (runId.isNotEmpty()) {
                 currentRunId = runId
-                lastReceivedSyncId = lastSyncId
+                lastReceivedSyncId = 0
+                pendingLastReceivedSyncId = null
+                hasPersistedSync = false
                 vapidKey = savedVapidKey
                 
-                // Sync restored state with service
-                WebSocketService.setReconnectionState(runId, lastSyncId, savedVapidKey)
+                // Sync restored state with service (without last_received_sync_id)
+                WebSocketService.setReconnectionState(runId, lastReceivedSyncId, savedVapidKey)
                 
-                android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state - run_id: $runId, last_received_sync_id: $lastSyncId")
+                android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state - run_id: $runId (last_received_sync_id not restored)")
             }
             
             // Restore room data
@@ -4887,7 +4967,6 @@ class AppViewModel : ViewModel() {
             val editor = prefs.edit()
             
             editor.remove("ws_run_id")
-            editor.remove("ws_last_received_sync_id")
             editor.remove("ws_vapid_key")
             editor.remove("cached_rooms")
             editor.remove("cached_bridge_info")
@@ -4899,6 +4978,8 @@ class AppViewModel : ViewModel() {
             // Also clear in-memory state
             currentRunId = ""
             lastReceivedSyncId = 0
+            pendingLastReceivedSyncId = null
+            hasPersistedSync = false
             vapidKey = ""
             navigationCallbackTriggered = false // Reset navigation flag for fresh start
             

@@ -423,6 +423,61 @@ fun RoomTimelineScreen(
     var showAttachmentMenu by remember { mutableStateOf(false) }
     var selectedAudioUri by remember { mutableStateOf<Uri?>(null) }
     var selectedFileUri by remember { mutableStateOf<Uri?>(null) }
+
+    // Text input state (moved here to be accessible by mention handler and share intake)
+    var draft by remember { mutableStateOf("") }
+    var lastTypingTime by remember { mutableStateOf(0L) }
+    var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+
+    LaunchedEffect(appViewModel.pendingShareUpdateCounter) {
+        val sharePayload = appViewModel.consumePendingShareForRoom(roomId)
+        if (sharePayload != null) {
+            Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Received pending share for room $roomId with ${sharePayload.items.size} items"
+            )
+            if (!sharePayload.text.isNullOrBlank() && draft.isBlank()) {
+                draft = sharePayload.text
+            }
+
+            val shareItem = sharePayload.items.firstOrNull()
+            if (shareItem != null) {
+                val uri = shareItem.uri
+                val resolvedMime =
+                    shareItem.mimeType ?: context.contentResolver.getType(uri) ?: ""
+
+                // Reset previous selections
+                selectedMediaUri = null
+                selectedAudioUri = null
+                selectedFileUri = null
+                selectedMediaIsVideo = false
+
+                when {
+                    resolvedMime.startsWith("image/") -> {
+                        selectedMediaUri = uri
+                        selectedMediaIsVideo = false
+                        showMediaPreview = true
+                    }
+                    resolvedMime.startsWith("video/") -> {
+                        selectedMediaUri = uri
+                        selectedMediaIsVideo = true
+                        showMediaPreview = true
+                    }
+                    resolvedMime.startsWith("audio/") -> {
+                        selectedAudioUri = uri
+                        showMediaPreview = true
+                    }
+                    else -> {
+                        selectedFileUri = uri
+                        selectedMediaIsVideo = resolvedMime.startsWith("video/")
+                        showMediaPreview = true
+                    }
+                }
+
+                showAttachmentMenu = false
+            }
+        }
+    }
     
     // Room joiner state
     var showRoomJoiner by remember { mutableStateOf(false) }
@@ -432,11 +487,6 @@ fun RoomTimelineScreen(
     var showMentionList by remember { mutableStateOf(false) }
     var mentionQuery by remember { mutableStateOf("") }
     var mentionStartIndex by remember { mutableStateOf(-1) }
-    
-    // Text input state (moved here to be accessible by mention handler)
-    var draft by remember { mutableStateOf("") }
-    var lastTypingTime by remember { mutableStateOf(0L) }
-    var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
     
     // Sync draft with TextFieldValue
     LaunchedEffect(draft) {

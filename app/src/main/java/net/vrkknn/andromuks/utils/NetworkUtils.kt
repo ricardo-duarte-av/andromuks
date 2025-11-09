@@ -222,7 +222,7 @@ fun connectToWebsocket(
     
     // Check if compression is enabled
     val compressionEnabled = appViewModel.enableCompression
-    val compressionParam = if (compressionEnabled) "&compress=1" else ""
+    val shouldIncludeLastId = appViewModel.shouldIncludeLastReceivedId()
     
     // Initialize streaming decompressor if compression is enabled
     if (compressionEnabled) {
@@ -230,25 +230,34 @@ fun connectToWebsocket(
         Log.d("NetworkUtils", "Streaming DEFLATE decompressor initialized")
     }
     
-    val finalWebSocketUrl = if (actualRunId.isNotEmpty() && lastReceivedId != 0) {
-        // Reconnecting with run_id and last_received_event
-        val url = "$webSocketUrl?run_id=$actualRunId&last_received_event=$lastReceivedId$compressionParam"
-        Log.d("NetworkUtils", "Reconnecting with run_id: $actualRunId, last_received_event: $lastReceivedId, compression: $compressionEnabled")
-        Log.d("NetworkUtils", "DEBUG: Final URL: $url")
-        url
-    } else if (actualRunId.isNotEmpty() && lastReceivedId == 0) {
-        // Force refresh: reconnecting with run_id but NO last_received_event (full payload)
-        val url = "$webSocketUrl?run_id=$actualRunId$compressionParam"
-        Log.d("NetworkUtils", "FORCE REFRESH: Reconnecting with run_id: $actualRunId but last_received_event=0 (full payload), compression: $compressionEnabled")
-        Log.d("NetworkUtils", "DEBUG: Final URL: $url")
-        url
-    } else {
-        // First connection
-        val url = if (compressionEnabled) "$webSocketUrl?compress=1" else webSocketUrl
-        Log.d("NetworkUtils", "First connection to websocket, compression: $compressionEnabled")
-        Log.d("NetworkUtils", "DEBUG: Final URL: $url")
-        url
+    val queryParams = mutableListOf<String>()
+    if (actualRunId.isNotEmpty()) {
+        queryParams.add("run_id=$actualRunId")
+        if (shouldIncludeLastId && lastReceivedId != 0) {
+            queryParams.add("last_received_event=$lastReceivedId")
+        } else if (!shouldIncludeLastId && lastReceivedId != 0) {
+            Log.d("NetworkUtils", "Skipping last_received_event (cold start or unsynced) despite stored value=$lastReceivedId")
+        }
     }
+    if (compressionEnabled) {
+        queryParams.add("compress=1")
+    }
+    
+    val finalWebSocketUrl = if (queryParams.isEmpty()) {
+        webSocketUrl
+    } else {
+        "$webSocketUrl?${queryParams.joinToString("&")}"
+    }
+    
+    when {
+        actualRunId.isNotEmpty() && shouldIncludeLastId && lastReceivedId != 0 ->
+            Log.d("NetworkUtils", "Reconnecting with run_id: $actualRunId, last_received_event: $lastReceivedId, compression: $compressionEnabled")
+        actualRunId.isNotEmpty() ->
+            Log.d("NetworkUtils", "Connecting with run_id: $actualRunId (no last_received_event), compression: $compressionEnabled")
+        else ->
+            Log.d("NetworkUtils", "First connection to websocket, compression: $compressionEnabled")
+    }
+    Log.d("NetworkUtils", "DEBUG: Final URL: $finalWebSocketUrl")
 
     val request = Request.Builder()
         .url(finalWebSocketUrl)

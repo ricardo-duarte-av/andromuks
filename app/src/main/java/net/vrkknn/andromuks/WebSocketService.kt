@@ -1054,16 +1054,15 @@ class WebSocketService : Service() {
             serviceInstance.lastReceivedSyncId = lastReceivedId
             serviceInstance.vapidKey = vapidKey
             
-            // RESILIENCE: Persist to SharedPreferences so they survive app restarts
+            // Persist run_id and vapid_key so they survive app restarts (last_received_sync_id is kept in-memory only)
             try {
                 val context = serviceInstance.applicationContext
                 val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
                 prefs.edit()
                     .putString("ws_run_id", runId)
-                    .putInt("ws_last_received_sync_id", lastReceivedId)
                     .putString("ws_vapid_key", vapidKey)
                     .apply()
-                android.util.Log.d("WebSocketService", "Reconnection state persisted to SharedPreferences")
+                android.util.Log.d("WebSocketService", "Reconnection run_id persisted to SharedPreferences (last_received_sync_id kept in memory only)")
             } catch (e: Exception) {
                 android.util.Log.e("WebSocketService", "Failed to persist reconnection state", e)
             }
@@ -1114,12 +1113,25 @@ class WebSocketService : Service() {
         }
         
         /**
+         * Mark that at least one sync_complete has been persisted this session.
+         * This unlocks the ability to include last_received_event on reconnections.
+         */
+        fun markInitialSyncPersisted() {
+            val serviceInstance = instance ?: return
+            if (!serviceInstance.hasPersistedSync) {
+                serviceInstance.hasPersistedSync = true
+                android.util.Log.d("WebSocketService", "Initial sync persisted - last_received_event will be included on reconnections")
+            }
+        }
+        
+        /**
          * Clear reconnection state
          */
         fun clearReconnectionState() {
             val serviceInstance = instance ?: return
             serviceInstance.currentRunId = ""
             serviceInstance.lastReceivedSyncId = 0
+            serviceInstance.hasPersistedSync = false
             serviceInstance.vapidKey = ""
             android.util.Log.d("WebSocketService", "Cleared reconnection state")
         }
@@ -1328,6 +1340,7 @@ class WebSocketService : Service() {
     private var connectionState = ConnectionState.DISCONNECTED
     private var lastPongTimestamp = 0L // Track last pong for heartbeat monitoring
     private var connectionStartTime: Long = 0 // Track when WebSocket connection was established (0 = not connected)
+    private var hasPersistedSync = false
     
         // Reconnection state management
         private var currentRunId: String = ""
@@ -1538,6 +1551,10 @@ class WebSocketService : Service() {
         android.util.Log.d("WebSocketService", "State corruption monitoring stopped")
     }
     
+    private fun shouldIncludeLastReceivedForReconnect(): Boolean {
+        return hasPersistedSync && lastReceivedSyncId != 0
+    }
+    
     /**
      * Attempt fallback reconnection when AppViewModel is destroyed
      * This reads credentials from SharedPreferences and attempts to reconnect
@@ -1564,17 +1581,15 @@ class WebSocketService : Service() {
                 
                 // RESILIENCE: If service state is empty, try reading from SharedPreferences
                 // This handles the case where service was restarted and lost in-memory state
-                if (runId.isEmpty() || lastReceivedId == 0) {
+                if (runId.isEmpty()) {
                     android.util.Log.d("WebSocketService", "Service state empty, reading from SharedPreferences")
                     val savedRunId = sharedPrefs.getString("ws_run_id", "") ?: ""
-                    val savedLastReceivedId = sharedPrefs.getInt("ws_last_received_sync_id", 0)
                     val savedVapidKey = sharedPrefs.getString("ws_vapid_key", "") ?: ""
                     
-                    if (savedRunId.isNotEmpty() || savedLastReceivedId > 0) {
+                    if (savedRunId.isNotEmpty()) {
                         runId = savedRunId
-                        lastReceivedId = savedLastReceivedId
                         vapidKey = savedVapidKey
-                        android.util.Log.d("WebSocketService", "Restored reconnection parameters from SharedPreferences: runId='$runId', lastReceivedId=$lastReceivedId")
+                        android.util.Log.d("WebSocketService", "Restored run_id from SharedPreferences: runId='$runId'")
                         
                         // Update service state with restored values
                         WebSocketService.setReconnectionState(runId, lastReceivedId, vapidKey)
@@ -1611,9 +1626,11 @@ class WebSocketService : Service() {
                 val queryParams = mutableListOf<String>()
                 if (actualRunId.isNotEmpty()) {
                     queryParams.add("run_id=$actualRunId")
-                }
-                if (actualRunId.isNotEmpty() && lastReceivedId != 0) {
-                    queryParams.add("last_received_event=$lastReceivedId")
+                    if (serviceInstance.shouldIncludeLastReceivedForReconnect() && lastReceivedId != 0) {
+                        queryParams.add("last_received_event=$lastReceivedId")
+                    } else if (lastReceivedId != 0) {
+                        android.util.Log.d("WebSocketService", "Fallback reconnection: last_received_event omitted (hasPersistedSync=${serviceInstance.hasPersistedSync})")
+                    }
                 }
                 if (compressionEnabled) {
                     queryParams.add("compress=1")
@@ -2349,19 +2366,18 @@ class WebSocketService : Service() {
         createNotificationChannel()
         Log.d("WebSocketService", "Service created")
         
-        // RESILIENCE: Restore reconnection parameters from SharedPreferences on service startup
-        // This ensures we can reconnect even if AppViewModel was destroyed
+        // Restore run_id from SharedPreferences on service startup
         try {
             val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
             val savedRunId = prefs.getString("ws_run_id", "") ?: ""
-            val savedLastReceivedId = prefs.getInt("ws_last_received_sync_id", 0)
             val savedVapidKey = prefs.getString("ws_vapid_key", "") ?: ""
             
-            if (savedRunId.isNotEmpty() || savedLastReceivedId > 0) {
+            if (savedRunId.isNotEmpty()) {
                 currentRunId = savedRunId
-                lastReceivedSyncId = savedLastReceivedId
                 vapidKey = savedVapidKey
-                android.util.Log.d("WebSocketService", "Restored reconnection parameters from SharedPreferences on service startup: runId='$savedRunId', lastReceivedId=$savedLastReceivedId")
+                lastReceivedSyncId = 0
+                hasPersistedSync = false
+                android.util.Log.d("WebSocketService", "Restored run_id from SharedPreferences on service startup: runId='$savedRunId'")
             }
         } catch (e: Exception) {
             android.util.Log.e("WebSocketService", "Failed to restore reconnection parameters on startup", e)
@@ -2465,6 +2481,7 @@ class WebSocketService : Service() {
             connectionState = ConnectionState.DISCONNECTED
             isReconnecting = false
             isCurrentlyConnected = false
+            hasPersistedSync = false
             
             // Stop foreground service
             stopForeground(true)

@@ -1,10 +1,13 @@
 package net.vrkknn.andromuks
 
 import android.content.BroadcastReceiver
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import android.os.Bundle
+import android.os.Build
 import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -20,6 +23,7 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,12 +40,14 @@ import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.CrashHandler
 import net.vrkknn.andromuks.utils.CrashReportDialog
 import androidx.lifecycle.Lifecycle
+import net.vrkknn.andromuks.SharedMediaItem
 
 class MainActivity : ComponentActivity() {
     private lateinit var appViewModel: AppViewModel
     private lateinit var notificationBroadcastReceiver: BroadcastReceiver
     private lateinit var notificationActionReceiver: BroadcastReceiver
     private var viewModelVisibilitySynced = false
+    private var pendingShareIntent: Intent? = null
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -53,6 +59,8 @@ class MainActivity : ComponentActivity() {
         RoomRepository.initialize(this)
         
         enableEdgeToEdge()
+
+        pendingShareIntent = intent.takeIf { isShareIntent(it) }
         
         setContent {
             AndromuksTheme {
@@ -119,6 +127,11 @@ class MainActivity : ComponentActivity() {
                             // Register broadcast receiver for notification actions
                             registerNotificationBroadcastReceiver()
                             registerNotificationActionReceiver()
+
+                            pendingShareIntent?.let { storedIntent ->
+                                processShareIntent(storedIntent)
+                                pendingShareIntent = null
+                            }
                         }
 
                         if (!viewModelVisibilitySynced) {
@@ -134,6 +147,94 @@ class MainActivity : ComponentActivity() {
         }
     }
     
+    private fun isShareIntent(intent: Intent?): Boolean {
+        if (intent == null) return false
+        val action = intent.action ?: return false
+        return (Intent.ACTION_SEND == action || Intent.ACTION_SEND_MULTIPLE == action)
+    }
+
+    private fun processShareIntent(intent: Intent) {
+        if (!::appViewModel.isInitialized) {
+            Log.d("Andromuks", "MainActivity: ViewModel not ready, storing share intent for later processing")
+            pendingShareIntent = intent
+            return
+        }
+        val shareItems = extractShareItems(intent)
+        val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+        if (shareItems.isEmpty() && sharedText.isNullOrBlank()) {
+            Log.w("Andromuks", "MainActivity: Share intent ignored - no media or text payload")
+            return
+        }
+
+        appViewModel.setPendingShare(shareItems, sharedText)
+        Log.d("Andromuks", "MainActivity: Share intent processed with ${shareItems.size} media items")
+
+        // Prevent re-processing of the same intent
+        pendingShareIntent = null
+        setIntent(Intent(this, javaClass).apply { action = Intent.ACTION_MAIN })
+    }
+
+    private fun extractShareItems(intent: Intent): List<SharedMediaItem> {
+        val items = mutableListOf<SharedMediaItem>()
+        when (intent.action) {
+            Intent.ACTION_SEND -> {
+                getStreamUri(intent)?.let { uri ->
+                    val mimeType = intent.type ?: contentResolver.getType(uri)
+                    grantUriPermissions(uri, intent)
+                    items.add(SharedMediaItem(uri, mimeType))
+                }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val clipData = intent.clipData
+                if (clipData != null && clipData.itemCount > 0) {
+                    for (index in 0 until clipData.itemCount) {
+                        val clipItem = clipData.getItemAt(index)
+                        val uri = clipItem.uri ?: continue
+                        val mimeType =
+                            clipData.description?.getMimeType(index)
+                                ?: contentResolver.getType(uri)
+                                ?: intent.type
+                        grantUriPermissions(uri, intent)
+                        items.add(SharedMediaItem(uri, mimeType))
+                    }
+                } else {
+                    @Suppress("DEPRECATION")
+                    val uriList = intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
+                    uriList?.forEach { uri ->
+                        val mimeType = contentResolver.getType(uri) ?: intent.type
+                        grantUriPermissions(uri, intent)
+                        items.add(SharedMediaItem(uri, mimeType))
+                    }
+                }
+            }
+        }
+        return items
+    }
+
+    private fun grantUriPermissions(uri: Uri, intent: Intent) {
+        try {
+            grantUriPermission(packageName, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (e: Exception) {
+            Log.w("Andromuks", "MainActivity: Unable to grant read permission for $uri", e)
+        }
+        if ((intent.flags and Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION) != 0) {
+            try {
+                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            } catch (e: SecurityException) {
+                Log.w("Andromuks", "MainActivity: Unable to persist read permission for $uri", e)
+            }
+        }
+    }
+
+    private fun getStreamUri(intent: Intent): Uri? {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra(Intent.EXTRA_STREAM)
+        }
+    }
+
     private fun registerNotificationBroadcastReceiver() {
         Log.d("Andromuks", "MainActivity: Registering notification broadcast receiver")
         notificationBroadcastReceiver = object : BroadcastReceiver() {
@@ -310,6 +411,15 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+
+        if (isShareIntent(intent)) {
+            if (::appViewModel.isInitialized) {
+                processShareIntent(intent)
+            } else {
+                pendingShareIntent = intent
+            }
+            return
+        }
         
         // OPTIMIZATION #2: Optimized intent processing for onNewIntent
         val roomId = intent.getStringExtra("room_id")
@@ -430,6 +540,15 @@ fun AppNavigation(
     
     // Notify the parent about the ViewModel creation
     onViewModelCreated(appViewModel)
+
+    LaunchedEffect(appViewModel.pendingShareNavigationRequested) {
+        if (appViewModel.pendingShareNavigationRequested) {
+            navController.navigate("simple_room_list") {
+                launchSingleTop = true
+            }
+            appViewModel.markPendingShareNavigationHandled()
+        }
+    }
     
     NavHost(
         navController = navController,
@@ -473,6 +592,13 @@ fun AppNavigation(
                 }
             }
         ) { RoomListScreen(navController = navController, modifier = modifier, appViewModel = appViewModel) }
+        composable("simple_room_list") {
+            SimplerRoomListScreen(
+                navController = navController,
+                modifier = modifier,
+                appViewModel = appViewModel
+            )
+        }
         composable(
             route = "room_timeline/{roomId}",
             arguments = listOf(navArgument("roomId") { type = NavType.StringType }),

@@ -82,6 +82,20 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             // Set homeserver URL and auth token in ViewModel for avatar loading
             appViewModel.updateHomeserverUrl(homeserverUrl)
             appViewModel.updateAuthToken(token)
+            fun navigateToRoomListIfNeeded(reason: String) {
+                val currentRoute = navController.currentBackStackEntry?.destination?.route
+                if (currentRoute != null) {
+                    if (currentRoute == "simple_room_list" ||
+                        currentRoute.startsWith("room_timeline/") ||
+                        currentRoute.startsWith("chat_bubble/")
+                    ) {
+                        Log.d("AuthCheckScreen", "Skipping navigation to room_list ($reason) because current route is $currentRoute")
+                        return
+                    }
+                }
+                navController.navigate("room_list")
+            }
+            
             // Set up navigation callback BEFORE connecting websocket
             appViewModel.setNavigationCallback {
                 android.util.Log.d("Andromuks", "AuthCheck: Navigation callback triggered - navigating to room_list")
@@ -120,16 +134,16 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                         android.util.Log.d("Andromuks", "AuthCheck: Room exists, navigating to room_list first (pending room will auto-navigate)")
                         // Navigate to room_list first to establish proper back stack
                         // RoomListScreen will detect pending navigation and auto-navigate to room
-                        navController.navigate("room_list")
+                        navigateToRoomListIfNeeded("pendingRoomId exists")
                     } else {
                         android.util.Log.w("Andromuks", "AuthCheck: Room $pendingRoomId not found in room list, showing toast and going to room list")
                         // Show toast and navigate to room list
                         appViewModel.clearPendingRoomNavigation()
                         android.widget.Toast.makeText(context, "Room $pendingRoomId not found. Please try again later.", android.widget.Toast.LENGTH_LONG).show()
-                        navController.navigate("room_list")
+                        navigateToRoomListIfNeeded("pendingRoomId missing")
                     }
                 } else {
-                    navController.navigate("room_list")
+                    navigateToRoomListIfNeeded("default flow")
                 }
             }
             Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
