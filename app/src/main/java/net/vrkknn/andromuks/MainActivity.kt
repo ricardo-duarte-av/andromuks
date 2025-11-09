@@ -17,6 +17,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -29,6 +33,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
@@ -718,24 +723,36 @@ fun AppNavigation(
             route = "room_info/{roomId}",
             arguments = listOf(navArgument("roomId") { type = NavType.StringType }),
             enterTransition = {
-                if (initialState.destination.route == "room_timeline/{roomId}") {
-                    slideInVertically(
-                        initialOffsetY = { -it },
-                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
+                    scaleIn(
+                        initialScale = 0.85f,
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                        transformOrigin = TransformOrigin.Center
                     )
-                } else {
-                    null
-                }
+            },
+            exitTransition = {
+                fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
+                    scaleOut(
+                        targetScale = 0.85f,
+                        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
+                        transformOrigin = TransformOrigin.Center
+                    )
+            },
+            popEnterTransition = {
+                fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
+                    scaleIn(
+                        initialScale = 0.85f,
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                        transformOrigin = TransformOrigin.Center
+                    )
             },
             popExitTransition = {
-                if (targetState.destination.route == "room_timeline/{roomId}") {
-                    slideOutVertically(
-                        targetOffsetY = { -it },
-                        animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)
+                fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
+                    scaleOut(
+                        targetScale = 0.85f,
+                        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
+                        transformOrigin = TransformOrigin.Center
                     )
-                } else {
-                    null
-                }
             }
         ) { backStackEntry: NavBackStackEntry ->
             val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
@@ -748,7 +765,39 @@ fun AppNavigation(
         }
         composable(
             route = "user_info/{userId}",
-            arguments = listOf(navArgument("userId") { type = NavType.StringType })
+            arguments = listOf(navArgument("userId") { type = NavType.StringType }),
+            enterTransition = {
+                fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
+                    scaleIn(
+                        initialScale = 0.85f,
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                        transformOrigin = TransformOrigin.Center
+                    )
+            },
+            exitTransition = {
+                fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
+                    scaleOut(
+                        targetScale = 0.85f,
+                        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
+                        transformOrigin = TransformOrigin.Center
+                    )
+            },
+            popEnterTransition = {
+                fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
+                    scaleIn(
+                        initialScale = 0.85f,
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing),
+                        transformOrigin = TransformOrigin.Center
+                    )
+            },
+            popExitTransition = {
+                fadeOut(animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing)) +
+                    scaleOut(
+                        targetScale = 0.85f,
+                        animationSpec = tween(durationMillis = 160, easing = FastOutSlowInEasing),
+                        transformOrigin = TransformOrigin.Center
+                    )
+            }
         ) { backStackEntry: NavBackStackEntry ->
             val userId = backStackEntry.arguments?.getString("userId") ?: ""
             net.vrkknn.andromuks.utils.UserInfoScreen(

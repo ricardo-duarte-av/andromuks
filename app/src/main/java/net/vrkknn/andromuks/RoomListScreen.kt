@@ -16,6 +16,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
@@ -69,11 +71,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -1049,87 +1054,126 @@ fun RoomListItem(
         
         // Context menu dialog with blur effect
         if (showContextMenu) {
+            val coroutineScope = rememberCoroutineScope()
+            var menuVisible by remember { mutableStateOf(false) }
+            var menuDismissing by remember { mutableStateOf(false) }
+            val enterDuration = 220
+            val exitDuration = 160
+
+            LaunchedEffect(Unit) {
+                menuDismissing = false
+                menuVisible = true
+            }
+
+            fun dismissMenu(afterDismiss: () -> Unit = {}) {
+                if (menuDismissing) return
+                menuDismissing = true
+                coroutineScope.launch {
+                    menuVisible = false
+                    delay(exitDuration.toLong())
+                    showContextMenu = false
+                    afterDismiss()
+                }
+            }
+
             Dialog(
-                onDismissRequest = { showContextMenu = false },
+                onDismissRequest = { dismissMenu() },
                 properties = DialogProperties(
                     dismissOnBackPress = true,
                     dismissOnClickOutside = true,
                     usePlatformDefaultWidth = false
                 )
             ) {
-                // Darkened scrim overlay that simulates blur by dimming background
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f))
-                        .clickable(
-                            interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
-                            indication = null
-                        ) { showContextMenu = false },
-                    contentAlignment = Alignment.Center
-                ) {
-                    // Menu card with strong elevation and Material Design styling
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth(0.75f),
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                AnimatedVisibility(
+                    visible = menuVisible,
+                    enter = fadeIn(animationSpec = tween(durationMillis = enterDuration, easing = FastOutSlowInEasing)) +
+                        scaleIn(
+                            initialScale = 0.85f,
+                            animationSpec = tween(durationMillis = enterDuration, easing = FastOutSlowInEasing),
+                            transformOrigin = TransformOrigin.Center
                         ),
-                        elevation = CardDefaults.cardElevation(
-                            defaultElevation = 16.dp
+                    exit = fadeOut(animationSpec = tween(durationMillis = exitDuration, easing = FastOutSlowInEasing)) +
+                        scaleOut(
+                            targetScale = 0.85f,
+                            animationSpec = tween(durationMillis = exitDuration, easing = FastOutSlowInEasing),
+                            transformOrigin = TransformOrigin.Center
                         )
+                ) {
+                    // Darkened scrim overlay that simulates blur by dimming background
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f))
+                            .clickable(
+                                interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                                indication = null
+                            ) { dismissMenu() },
+                        contentAlignment = Alignment.Center
                     ) {
-                        Column(
+                        // Menu card with strong elevation and Material Design styling
+                        Card(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp)
+                                .fillMaxWidth(0.75f),
+                            shape = RoundedCornerShape(24.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+                            ),
+                            elevation = CardDefaults.cardElevation(
+                                defaultElevation = 16.dp
+                            )
                         ) {
-                            // Menu header with room name
-                            Text(
-                                text = room.name,
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.padding(bottom = 8.dp)
-                            )
-                            
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant,
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
-                            
-                            // Room Info menu item with ripple effect
-                            Surface(
-                                onClick = {
-                                    showContextMenu = false
-                                    onRoomLongClick?.invoke(room)
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp)
                             ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                // Menu header with room name
+                                Text(
+                                    text = room.name,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(bottom = 8.dp)
+                                )
+                                
+                                HorizontalDivider(
+                                    color = MaterialTheme.colorScheme.outlineVariant,
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                                
+                                // Room Info menu item with ripple effect
+                                Surface(
+                                    onClick = {
+                                        dismissMenu {
+                                            onRoomLongClick?.invoke(room)
+                                        }
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHighest
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Info,
-                                        contentDescription = "Room Info",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(24.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Text(
-                                        text = "Room Info",
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Info,
+                                            contentDescription = "Room Info",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(24.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Text(
+                                            text = "Room Info",
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
                                 }
                             }
                         }

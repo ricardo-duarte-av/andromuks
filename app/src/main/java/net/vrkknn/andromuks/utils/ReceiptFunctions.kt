@@ -18,19 +18,24 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -46,6 +51,8 @@ import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Utility functions for handling read receipts in Matrix rooms.
@@ -311,10 +318,7 @@ fun InlineReadReceiptAvatars(
             homeserverUrl = homeserverUrl,
             authToken = authToken,
             onDismiss = { showReceiptDialog = false },
-            onUserClick = { userId ->
-                showReceiptDialog = false
-                onUserClick(userId)
-            },
+            onUserClick = onUserClick,
             appViewModel = appViewModel,
             roomId = roomId
         )
@@ -461,10 +465,7 @@ fun AnimatedInlineReadReceiptAvatars(
             homeserverUrl = homeserverUrl,
             authToken = authToken,
             onDismiss = { showReceiptDialog = false },
-            onUserClick = { userId ->
-                showReceiptDialog = false
-                onUserClick(userId)
-            },
+            onUserClick = onUserClick,
             appViewModel = appViewModel,
             roomId = roomId
         )
@@ -584,44 +585,86 @@ fun ReadReceiptDetailsDialog(
         }
     }
 
+    val coroutineScope = rememberCoroutineScope()
+    var isVisible by remember { mutableStateOf(false) }
+    var isDismissing by remember { mutableStateOf(false) }
+    val enterDuration = 220
+    val exitDuration = 160
+
+    LaunchedEffect(Unit) {
+        isDismissing = false
+        isVisible = true
+    }
+
+    fun dismissWithAnimation(afterDismiss: () -> Unit = {}) {
+        if (isDismissing) return
+        isDismissing = true
+        coroutineScope.launch {
+            isVisible = false
+            delay(exitDuration.toLong())
+            onDismiss()
+            afterDismiss()
+        }
+    }
+
     Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = { dismissWithAnimation() },
         properties = DialogProperties(
             dismissOnBackPress = true,
             dismissOnClickOutside = true
         )
     ) {
-        Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Text(
-                    text = "Read by",
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(bottom = 16.dp)
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = fadeIn(animationSpec = tween(durationMillis = enterDuration, easing = FastOutSlowInEasing)) +
+                scaleIn(
+                    initialScale = 0.85f,
+                    animationSpec = tween(durationMillis = enterDuration, easing = FastOutSlowInEasing),
+                    transformOrigin = TransformOrigin.Center
+                ),
+            exit = fadeOut(animationSpec = tween(durationMillis = exitDuration, easing = FastOutSlowInEasing)) +
+                scaleOut(
+                    targetScale = 0.85f,
+                    animationSpec = tween(durationMillis = exitDuration, easing = FastOutSlowInEasing),
+                    transformOrigin = TransformOrigin.Center
                 )
-                
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
+            ) {
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                    modifier = Modifier.padding(16.dp)
                 ) {
-                    receipts.forEach { receipt ->
-                        // Prioritize AppViewModel profile over cache
-                        val userProfile = appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
-                        ReadReceiptItem(
-                            receipt = receipt,
-                            userProfile = userProfile,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            onUserClick = onUserClick
-                        )
+                    Text(
+                        text = "Read by",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(bottom = 16.dp)
+                    )
+                    
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        receipts.forEach { receipt ->
+                            // Prioritize AppViewModel profile over cache
+                            val userProfile = appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
+                            ReadReceiptItem(
+                                receipt = receipt,
+                                userProfile = userProfile,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                onUserClick = { userId ->
+                                    dismissWithAnimation {
+                                        onUserClick(userId)
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
