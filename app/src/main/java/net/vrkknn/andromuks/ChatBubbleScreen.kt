@@ -82,6 +82,7 @@ import androidx.compose.ui.zIndex
 import okhttp3.OkHttpClient
 import kotlin.math.min
 import net.vrkknn.andromuks.utils.connectToWebsocket
+import net.vrkknn.andromuks.utils.waitForBackendHealth
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.HtmlMessageText
@@ -219,6 +220,7 @@ fun ChatBubbleLoadingScreen(
                 Log.w("Andromuks", "ChatBubbleLoadingScreen: WebSocket not connected - starting foreground service and connecting")
                 appViewModel.startWebSocketService()
                 WebSocketService.setAppVisibility(true)
+                waitForBackendHealth(homeserverUrl, loggerTag = "ChatBubbleLoading")
                 connectToWebsocket(homeserverUrl, httpClient, token, appViewModel, reason = "chat_bubble_launch")
             } else {
                 // Ensure service stays awake for bubble interaction

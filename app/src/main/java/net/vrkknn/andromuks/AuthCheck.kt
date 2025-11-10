@@ -22,6 +22,7 @@ import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.connectToWebsocket
+import net.vrkknn.andromuks.utils.waitForBackendHealth
 import okhttp3.OkHttpClient
 import androidx.compose.ui.Modifier
 
@@ -163,6 +164,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             // Set app as visible since we're starting the app
             android.util.Log.d("Andromuks", "AuthCheckScreen: Setting app as visible")
             WebSocketService.setAppVisibility(true)
+
+            android.util.Log.d("Andromuks", "AuthCheckScreen: Verifying backend health before opening WebSocket")
+            waitForBackendHealth(homeserverUrl, loggerTag = "AuthCheckScreen")
             
             // Connect websocket - service is now ready to receive the connection
             connectToWebsocket(homeserverUrl, client, token, appViewModel)

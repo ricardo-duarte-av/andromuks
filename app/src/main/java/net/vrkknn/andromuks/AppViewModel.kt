@@ -4064,7 +4064,6 @@ class AppViewModel : ViewModel() {
         if (instanceRole == InstanceRole.PRIMARY) {
             // Only the primary instance should perform global teardown
         WebSocketService.cancelReconnection()
-        WebSocketService.stopNetworkMonitoring()
         clearWebSocket("ViewModel cleared")
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: Skipping global WebSocket teardown for role=$instanceRole")
@@ -6422,7 +6421,7 @@ class AppViewModel : ViewModel() {
         
         // Check if WebSocket is connected
         if (webSocket == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - calling back with error, NetworkMonitor will handle reconnection")
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - calling back with error, health monitor will handle reconnection")
             callback(null, "WebSocket not connected")
             return
         }
@@ -6976,9 +6975,9 @@ class AppViewModel : ViewModel() {
         // Try to send the reply immediately
         val result = sendReplyInternal(roomId, text, originalEvent)
         
-        // If WebSocket is not available, just log it - let NetworkMonitor handle reconnection
+        // If WebSocket is not available, just log it - health monitoring will handle reconnection
         if (result != WebSocketResult.SUCCESS) {
-            android.util.Log.w("Andromuks", "AppViewModel: sendReply failed with result: $result - NetworkMonitor will handle reconnection")
+            android.util.Log.w("Andromuks", "AppViewModel: sendReply failed with result: $result - health monitor will handle reconnection")
         }
     }
     
@@ -10551,7 +10550,7 @@ class AppViewModel : ViewModel() {
         
         // Check if WebSocket is connected
         if (webSocket == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - calling back with null, NetworkMonitor will handle reconnection")
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - calling back with null, health monitor will handle reconnection")
             callback(null)
             return
         }
@@ -10648,7 +10647,7 @@ class AppViewModel : ViewModel() {
             val intent = android.content.Intent(context, WebSocketService::class.java)
             context.startForegroundService(intent)
             
-            // Network monitoring will be started automatically in service onCreate
+            // Service will manage connection lifecycle once started
         }
     }
 
@@ -10784,7 +10783,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: sendThreadReply called - roomId: $roomId, text: '$text', threadRoot: $threadRootEventId, fallbackReply: $fallbackReplyToEventId")
         
         if (webSocket == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - cannot send thread reply, NetworkMonitor will handle reconnection")
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - cannot send thread reply, health monitor will handle reconnection")
             return
         }
         

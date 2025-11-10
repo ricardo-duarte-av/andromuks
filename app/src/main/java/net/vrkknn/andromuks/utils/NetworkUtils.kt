@@ -24,6 +24,7 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.Inflater
 import java.util.zip.InflaterInputStream
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.TimeUnit
 import net.vrkknn.andromuks.TimelineEvent
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
@@ -182,6 +183,49 @@ fun buildRequest(url: String, credentials: String): Request {
     Log.d("LoginScreen", "Request: $request with Authorization header")
 
     return request
+}
+
+suspend fun waitForBackendHealth(
+    homeserverUrl: String,
+    delayMillis: Long = 5_000L,
+    loggerTag: String = "NetworkUtils"
+) {
+    withContext(Dispatchers.IO) {
+        val healthClient = OkHttpClient.Builder()
+            .connectTimeout(5, TimeUnit.SECONDS)
+            .readTimeout(5, TimeUnit.SECONDS)
+            .build()
+
+        while (true) {
+            val isHealthy = try {
+                val request = Request.Builder()
+                    .url(homeserverUrl)
+                    .get()
+                    .build()
+
+                healthClient.newCall(request).execute().use { response ->
+                    val healthy = response.isSuccessful && response.code == 200
+                    Log.d(loggerTag, "Backend health check: HTTP ${response.code} (healthy=$healthy)")
+                    healthy
+                }
+            } catch (e: Exception) {
+                Log.w(loggerTag, "Backend health check failed: ${e.message}")
+                false
+            }
+
+            if (isHealthy) {
+                Log.i(loggerTag, "Backend health check succeeded (HTTP 200). Proceeding with WebSocket connection.")
+                return@withContext
+            }
+
+            Log.w(loggerTag, "Backend not reachable (non-200 response). Retrying in ${delayMillis}ms.")
+            delay(delayMillis)
+
+            if (!isActive) {
+                return@withContext
+            }
+        }
+    }
 }
 
 fun connectToWebsocket(
