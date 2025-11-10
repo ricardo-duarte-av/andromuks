@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -161,7 +162,7 @@ fun ReplyPreview(
     // Use a semi-transparent overlay to blend with the outer bubble color
     Surface(
         modifier = modifier
-            .fillMaxWidth()
+            .wrapContentWidth(Alignment.Start)
             .clickable { onOriginalMessageClick() },
         shape = RoundedCornerShape(8.dp),
         //color = MaterialTheme.colorScheme.surface.copy(alpha = 0.1f),
