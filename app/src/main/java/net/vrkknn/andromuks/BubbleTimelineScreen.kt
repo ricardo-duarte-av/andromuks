@@ -1115,6 +1115,7 @@ fun BubbleTimelineScreen(
         isAttachedToBottom = true
         isInitialLoad = true
         hasInitialSnapCompleted = false
+        appViewModel.ensureTimelineCacheIsFresh(roomId)
         // Request room state first, then timeline
         appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId)

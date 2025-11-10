@@ -20,13 +20,19 @@ data class TimelineEvent(
     val redactedBy: String? = null,
     val localContent: JSONObject? = null,
     val relationType: String? = null, // "m.thread" for thread messages
-    val relatesTo: String? = null // Thread root event ID for thread messages
+    val relatesTo: String? = null, // Thread root event ID for thread messages
+    val aggregatedReactions: JSONObject? = null
 ) {
     companion object {
         fun fromJson(json: JSONObject): TimelineEvent {
             // BUG FIX #4: Check for both "timestamp" and "origin_server_ts" since DB stores origin_server_ts
             val timestamp = json.optLong("timestamp", 0L).takeIf { it > 0 }
                 ?: json.optLong("origin_server_ts", 0L)
+            val content = json.optJSONObject("content")
+            val aggregatedReactions = json.optJSONObject("reactions") ?: content?.optJSONObject("reactions")
+            if (aggregatedReactions != null && content != null && !content.has("reactions")) {
+                content.put("reactions", aggregatedReactions)
+            }
             
             return TimelineEvent(
                 rowid = json.optLong("rowid", 0),
@@ -36,7 +42,7 @@ data class TimelineEvent(
                 sender = json.optString("sender", ""),
                 type = json.optString("type", ""),
                 timestamp = timestamp,
-                content = json.optJSONObject("content"),
+                content = content,
                 stateKey = json.optString("state_key")?.takeIf { it.isNotBlank() },
                 decrypted = json.optJSONObject("decrypted"),
                 decryptedType = json.optString("decrypted_type")?.takeIf { it.isNotBlank() },
@@ -44,7 +50,8 @@ data class TimelineEvent(
                 redactedBy = json.optString("redacted_by")?.takeIf { it.isNotBlank() },
                 localContent = json.optJSONObject("local_content"),
                 relationType = json.optString("relation_type")?.takeIf { it.isNotBlank() },
-                relatesTo = json.optString("relates_to")?.takeIf { it.isNotBlank() }
+                relatesTo = json.optString("relates_to")?.takeIf { it.isNotBlank() },
+                aggregatedReactions = aggregatedReactions
             )
         }
     }
@@ -128,6 +135,7 @@ data class MessageReaction(
 
 @Immutable
 data class ReactionEvent(
+    val roomId: String,
     val eventId: String,
     val sender: String,
     val emoji: String,

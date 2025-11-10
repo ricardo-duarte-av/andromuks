@@ -361,7 +361,7 @@ fun RoomTimelineScreen(
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     val myUserId = appViewModel.currentUserId
     val homeserverUrl = appViewModel.homeserverUrl
-    Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
+    //Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
     val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
 
@@ -1168,6 +1168,7 @@ fun RoomTimelineScreen(
         isAttachedToBottom = true
         isInitialLoad = true
         hasInitialSnapCompleted = false
+        appViewModel.ensureTimelineCacheIsFresh(roomId)
         // Request room state first, then timeline
         appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId)

@@ -40,7 +40,8 @@ object DatabaseTestUtils {
         relatesToEventId: String? = null,
         threadRootEventId: String? = null,
         isRedaction: Boolean = false,
-        rawJson: String = """{"type":"$type","sender":"$sender","event_id":"$eventId"}"""
+        rawJson: String = """{"type":"$type","sender":"$sender","event_id":"$eventId"}""",
+        aggregatedReactionsJson: String? = null
     ): EventEntity {
         return EventEntity(
             eventId = eventId,
@@ -53,7 +54,8 @@ object DatabaseTestUtils {
             relatesToEventId = relatesToEventId,
             threadRootEventId = threadRootEventId,
             isRedaction = isRedaction,
-            rawJson = rawJson
+            rawJson = rawJson,
+            aggregatedReactionsJson = aggregatedReactionsJson
         )
     }
     

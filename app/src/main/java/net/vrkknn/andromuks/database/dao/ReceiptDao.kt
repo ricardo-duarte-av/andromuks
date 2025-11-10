@@ -10,7 +10,6 @@ import net.vrkknn.andromuks.database.entities.ReceiptEntity
 interface ReceiptDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(receipts: List<ReceiptEntity>)
-
     @Query("DELETE FROM receipts WHERE roomId = :roomId AND userId = :userId")
     suspend fun deleteUserReceiptsInRoom(roomId: String, userId: String)
     

@@ -11,6 +11,7 @@ import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.SpaceRoomParser
 import net.vrkknn.andromuks.utils.ReceiptFunctions
 import net.vrkknn.andromuks.utils.processReactionEvent
+import net.vrkknn.andromuks.database.entities.EventEntity
 import org.json.JSONObject
 import okhttp3.WebSocket
 import org.json.JSONArray
@@ -788,6 +789,9 @@ class AppViewModel : ViewModel() {
             readReceipts.clear()
         }
         roomsWithLoadedReceiptsFromDb.clear()
+        roomsWithLoadedReactionsFromDb.clear()
+        lastKnownDbLatestEventId.clear()
+        messageReactions = emptyMap()
         readReceiptsUpdateCounter++
         
         // 3. Reset requestIdCounter to 1
@@ -1518,6 +1522,14 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    private fun normalizeTimestamp(primary: Long, vararg fallbacks: Long): Long {
+        if (primary > 0) return primary
+        for (candidate in fallbacks) {
+            if (candidate > 0) return candidate
+        }
+        return System.currentTimeMillis()
+    }
+
     fun processReactionEvent(reactionEvent: ReactionEvent, isHistorical: Boolean = false) {
         // Create a unique key for this logical reaction (sender + emoji + target message)
         // This prevents the same logical reaction from being processed twice even if it comes
@@ -1544,10 +1556,52 @@ class AppViewModel : ViewModel() {
             processedReactions.removeAll(toRemove)
         }
         
-        val oldReactions = messageReactions[reactionEvent.relatesToEventId]?.size ?: 0
+        val previousReactions = messageReactions[reactionEvent.relatesToEventId] ?: emptyList()
         messageReactions = net.vrkknn.andromuks.utils.processReactionEvent(reactionEvent, currentRoomId, messageReactions)
-        val newReactions = messageReactions[reactionEvent.relatesToEventId]?.size ?: 0
-        android.util.Log.d("Andromuks", "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, oldCount: $oldReactions, newCount: $newReactions, reactionUpdateCounter: $reactionUpdateCounter")
+        val updatedReactions = messageReactions[reactionEvent.relatesToEventId] ?: emptyList()
+        android.util.Log.d("Andromuks", "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, previous=${previousReactions.size}, updated=${updatedReactions.size}, reactionUpdateCounter: $reactionUpdateCounter")
+        
+        if (!isHistorical) {
+            val previousPairs = previousReactions.flatMap { reaction ->
+                reaction.users.map { userId -> reaction.emoji to userId }
+            }.toSet()
+            val updatedPairs = updatedReactions.flatMap { reaction ->
+                reaction.users.map { userId -> reaction.emoji to userId }
+            }.toSet()
+
+            val additionOccurred = updatedPairs.contains(reactionEvent.emoji to reactionEvent.sender) &&
+                !previousPairs.contains(reactionEvent.emoji to reactionEvent.sender)
+            val removalOccurred = previousPairs.contains(reactionEvent.emoji to reactionEvent.sender) &&
+                !updatedPairs.contains(reactionEvent.emoji to reactionEvent.sender)
+
+            val applicationContext = appContext?.applicationContext
+            if (applicationContext != null && (additionOccurred || removalOccurred)) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(applicationContext)
+                        if (additionOccurred) {
+                            val reactionEntity = net.vrkknn.andromuks.database.entities.ReactionEntity(
+                                roomId = reactionEvent.roomId,
+                                targetEventId = reactionEvent.relatesToEventId,
+                                key = reactionEvent.emoji,
+                                sender = reactionEvent.sender,
+                                eventId = reactionEvent.eventId,
+                                timestamp = normalizeTimestamp(reactionEvent.timestamp)
+                            )
+                            database.reactionDao().upsertAll(listOf(reactionEntity))
+                            android.util.Log.d("Andromuks", "AppViewModel: Persisted reaction to DB for event ${reactionEvent.relatesToEventId}")
+                        }
+                        if (removalOccurred) {
+                            database.reactionDao().deleteByEventIds(listOf(reactionEvent.eventId))
+                            android.util.Log.d("Andromuks", "AppViewModel: Removed reaction from DB for reaction event ${reactionEvent.eventId}")
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Failed to persist reaction change for ${reactionEvent.eventId}", e)
+                    }
+                }
+            }
+        }
+
         reactionUpdateCounter++ // Trigger UI recomposition for reactions only
         updateCounter++ // Keep for backward compatibility temporarily
     }
@@ -2562,7 +2616,7 @@ class AppViewModel : ViewModel() {
                             versions = updatedVersions
                         )
                         
-                        android.util.Log.d("Andromuks", "AppViewModel: Updated original event ${event.eventId} with ${updatedVersions.size} total versions")
+                        //android.util.Log.d("Andromuks", "AppViewModel: Updated original event ${event.eventId} with ${updatedVersions.size} total versions")
                     } else {
                         // First time seeing this message - create new versioned message
                         messageVersions[event.eventId] = VersionedMessage(
@@ -4133,6 +4187,8 @@ class AppViewModel : ViewModel() {
     private val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
     private val readReceiptsLock = Any() // Synchronization lock for readReceipts access
     private val roomsWithLoadedReceiptsFromDb = mutableSetOf<String>() // Track which rooms had receipts restored from DB
+    private val roomsWithLoadedReactionsFromDb = mutableSetOf<String>() // Track which rooms had reactions restored from DB
+    private val lastKnownDbLatestEventId = ConcurrentHashMap<String, String>()
     
     // Track receipt movements for animation - userId -> (previousEventId, currentEventId, timestamp)
     // THREAD SAFETY: Protected by readReceiptsLock since it's accessed from background threads
@@ -4189,6 +4245,7 @@ class AppViewModel : ViewModel() {
     // Tracks recent profile request timestamps to skip rapid re-requests during animation window
     private val recentProfileRequestTimes = mutableMapOf<String, Long>() // "roomId:userId" -> timestamp
     private val PROFILE_REQUEST_THROTTLE_MS = 5000L // Skip if requested within last 5 seconds
+    private val REACTION_BACKFILL_ON_OPEN_ENABLED = false
     
     // Pagination state
     private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
@@ -5182,6 +5239,9 @@ class AppViewModel : ViewModel() {
         editToOriginal.clear()
         redactionCache.clear()
         messageReactions = emptyMap()
+        roomsWithLoadedReceiptsFromDb.remove(roomId)
+        roomsWithLoadedReactionsFromDb.remove(roomId)
+        lastKnownDbLatestEventId.remove(roomId)
         
         // Reset pagination state
         smallestRowId = -1L
@@ -5227,9 +5287,30 @@ class AppViewModel : ViewModel() {
         buildTimelineFromChain()
         
         android.util.Log.d("Andromuks", "AppViewModel: Built timeline with ${timelineEvents.size} events from ${cachedEvents.size} cached events")
+        val latestTimelineEvent = timelineEvents.lastOrNull()
+        android.util.Log.d("Andromuks", "AppViewModel: Timeline latest event=${latestTimelineEvent?.eventId} timelineRowId=${latestTimelineEvent?.timelineRowid} ts=${latestTimelineEvent?.timestamp}")
+        if (latestTimelineEvent != null) {
+            val applicationContext = appContext?.applicationContext
+            if (applicationContext != null) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(applicationContext)
+                        val dbLatest = database.eventDao().getMostRecentEventForRoom(roomId)
+                        android.util.Log.d(
+                            "Andromuks",
+                            "AppViewModel: DB latest eventId=${dbLatest?.eventId} timelineRowId=${dbLatest?.timelineRowId} ts=${dbLatest?.timestamp} (timeline latest=${latestTimelineEvent.eventId})"
+                        )
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Failed to compare DB latest for $roomId", e)
+                    }
+                }
+            }
+        }
         
         // Restore read receipts from database for cached events (only once per room)
         loadReceiptsForCachedEvents(roomId, cachedEvents)
+        loadReactionsForRoom(roomId, cachedEvents)
+        applyAggregatedReactionsFromEvents(cachedEvents, "cache")
         
         // Set smallest rowId from cached events for pagination
         val smallestCached = cachedEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
@@ -5268,18 +5349,8 @@ class AppViewModel : ViewModel() {
         
         // IMPORTANT: Request historical reactions even when using cache
         // The cache filters out reaction events, so we need a paginate request to load them
-        if (!skipNetworkRequests) {
-            val reactionRequestId = requestIdCounter++
-            backgroundPrefetchRequests[reactionRequestId] = roomId
-            val effectiveMaxTimelineId = if (smallestCached > 0) smallestCached else 0L
-            android.util.Log.d("Andromuks", "AppViewModel: About to send reaction request - currentRoomId: $currentRoomId")
-            sendWebSocketCommand("paginate", reactionRequestId, mapOf(
-                "room_id" to roomId,
-                "max_timeline_id" to effectiveMaxTimelineId,
-                "limit" to 100,
-                "reset" to false
-            ))
-            android.util.Log.d("Andromuks", "AppViewModel: ✅ Sent reaction request for cached room: $roomId (requestId: $reactionRequestId, smallestCached: $smallestCached, effectiveMaxTimelineId: $effectiveMaxTimelineId, currentRoomId: $currentRoomId)")
+        if (!skipNetworkRequests && REACTION_BACKFILL_ON_OPEN_ENABLED) {
+            requestHistoricalReactions(roomId, smallestCached)
         }
 
         if (!skipNetworkRequests) {
@@ -5288,8 +5359,8 @@ class AppViewModel : ViewModel() {
     }
 
     /**
-     * Ensure we are up to date by requesting any newer events beyond the latest cached row.
-     * Uses the custom paginateManual command to fetch forward data from the server.
+     * Ensure we are up to date by requesting a fresh chunk of the latest events.
+     * Uses the regular paginate command (forward/latest fetch) instead of paginate_manual.
      */
     private fun requestForwardPaginationIfNeeded(roomId: String, cachedEvents: List<TimelineEvent>) {
         if (webSocket == null) {
@@ -5323,16 +5394,16 @@ class AppViewModel : ViewModel() {
 
         val commandData = mapOf(
             "room_id" to roomId,
-            "since" to sinceRowId,
-            "direction" to "f",
-            "limit" to 100
+            "max_timeline_id" to 0,
+            "limit" to 200,
+            "reset" to false
         )
 
         android.util.Log.d(
             "Andromuks",
-            "AppViewModel: Sending forward paginate for $roomId (requestId=$requestId, since=$sinceRowId, cachedEvents=${cachedEvents.size})"
+            "AppViewModel: Sending forward paginate for $roomId (requestId=$requestId, cachedEvents=${cachedEvents.size})"
         )
-        val result = sendWebSocketCommand("paginateManual", requestId, commandData)
+        val result = sendWebSocketCommand("paginate", requestId, commandData)
         if (result != WebSocketResult.SUCCESS) {
             android.util.Log.w(
                 "Andromuks",
@@ -5416,6 +5487,256 @@ class AppViewModel : ViewModel() {
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Failed to restore read receipts from database for room $roomId", e)
             }
+        }
+    }
+
+    private fun loadReactionsForRoom(roomId: String, cachedEvents: List<TimelineEvent>) {
+        if (cachedEvents.isEmpty()) return
+
+        val context = appContext ?: run {
+            android.util.Log.w("Andromuks", "AppViewModel: Cannot restore reactions for $roomId - appContext is null")
+            return
+        }
+
+        if (!roomsWithLoadedReactionsFromDb.add(roomId)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Reactions for room $roomId already restored from database, skipping")
+            return
+        }
+
+        val eventIds = cachedEvents.map { it.eventId }.toSet()
+        if (eventIds.isEmpty()) return
+
+        val applicationContext = context.applicationContext
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(applicationContext)
+                val reactionEntities = database.reactionDao().getReactionsForRoom(roomId)
+                if (reactionEntities.isEmpty()) {
+                    android.util.Log.d("Andromuks", "AppViewModel: No stored reactions found in database for room $roomId")
+                    return@launch
+                }
+
+                val reactionsByEvent = reactionEntities
+                    .filter { eventIds.contains(it.targetEventId) }
+                    .groupBy { it.targetEventId }
+                    .mapValues { (_, entities) ->
+                        entities
+                            .groupBy { it.key }
+                            .map { (key, perKeyEntities) ->
+                                MessageReaction(
+                                    emoji = key,
+                                    count = perKeyEntities.size,
+                                    users = perKeyEntities.map { reaction -> reaction.sender }.sorted()
+                                )
+                            }
+                            .sortedBy { it.emoji }
+                    }
+
+                if (reactionsByEvent.isEmpty()) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Stored reactions did not match cached events for room $roomId")
+                    return@launch
+                }
+
+                withContext(Dispatchers.Main) {
+                    val updated = messageReactions.toMutableMap()
+                    var changed = false
+                    for ((eventId, reactions) in reactionsByEvent) {
+                        val existing = updated[eventId]
+                        if (existing != reactions) {
+                            updated[eventId] = reactions
+                            changed = true
+                        }
+                    }
+
+                    if (changed) {
+                        messageReactions = updated
+                        reactionUpdateCounter++
+                        android.util.Log.d("Andromuks", "AppViewModel: Restored reactions for ${reactionsByEvent.size} events in room $roomId")
+                    } else {
+                        android.util.Log.d("Andromuks", "AppViewModel: Database reactions already match in-memory state for room $roomId")
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to restore reactions from database for room $roomId", e)
+            }
+        }
+    }
+
+    private fun applyAggregatedReactionsFromEvents(events: List<TimelineEvent>, source: String) {
+        if (events.isEmpty()) return
+
+        val aggregatedByEvent = mutableMapOf<String, List<MessageReaction>>()
+        for (event in events) {
+            val reactionsObject = event.aggregatedReactions ?: continue
+            val reactionList = mutableListOf<MessageReaction>()
+            val keys = reactionsObject.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                var count = 0
+                when (val value = reactionsObject.opt(key)) {
+                    is Number -> count = value.toInt()
+                    is JSONObject -> count = value.optInt("count", 0)
+                    else -> {
+                        // Attempt fallback to optInt
+                        count = reactionsObject.optInt(key, 0)
+                    }
+                }
+                if (count > 0 && !key.isNullOrBlank()) {
+                    reactionList.add(
+                        MessageReaction(
+                            emoji = key,
+                            count = count,
+                            users = emptyList()
+                        )
+                    )
+                }
+            }
+            if (reactionList.isNotEmpty()) {
+                aggregatedByEvent[event.eventId] = reactionList.sortedBy { it.emoji }
+            }
+        }
+
+        if (aggregatedByEvent.isEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: applyAggregatedReactionsFromEvents($source) - no aggregated reactions found")
+            return
+        }
+
+        val updated = messageReactions.toMutableMap()
+        var changed = false
+
+        for ((eventId, reactions) in aggregatedByEvent) {
+            val existing = updated[eventId]
+            if (existing == null || existing.isEmpty()) {
+                updated[eventId] = reactions
+                changed = true
+            }
+        }
+
+        if (changed) {
+            messageReactions = updated
+            reactionUpdateCounter++
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Applied aggregated reactions from $source for ${aggregatedByEvent.size} events"
+            )
+        }
+    }
+
+    private fun eventEntityToTimelineEvent(entity: EventEntity): TimelineEvent? {
+        return try {
+            val json = JSONObject(entity.rawJson)
+            json.put("rowid", entity.timelineRowId.toLong())
+            json.put("timeline_rowid", entity.timelineRowId)
+            json.put("room_id", entity.roomId)
+            if (!json.has("origin_server_ts") || json.optLong("origin_server_ts") == 0L) {
+                json.put("origin_server_ts", entity.timestamp)
+            }
+            if (!json.has("timestamp") || json.optLong("timestamp") == 0L) {
+                json.put("timestamp", entity.timestamp)
+            }
+            if (entity.aggregatedReactionsJson != null) {
+                val content = json.optJSONObject("content")
+                if (content != null && !content.has("reactions")) {
+                    content.put("reactions", JSONObject(entity.aggregatedReactionsJson))
+                }
+            }
+            TimelineEvent.fromJson(json)
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to convert EventEntity ${entity.eventId} to TimelineEvent", e)
+            null
+        }
+    }
+
+    suspend fun ensureTimelineCacheIsFresh(roomId: String, limit: Int = 200) {
+        val context = appContext ?: return
+        val cachedMetadata = RoomTimelineCache.getLatestCachedEventMetadata(roomId)
+
+        withContext(Dispatchers.IO) {
+            try {
+                val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context.applicationContext)
+                val eventDao = database.eventDao()
+                val latestDbEntity = eventDao.getMostRecentEventForRoom(roomId)
+
+                if (latestDbEntity == null) {
+                    lastKnownDbLatestEventId.remove(roomId)
+                    return@withContext
+                }
+
+                val latestDbEventId = latestDbEntity.eventId
+                if (cachedMetadata?.eventId == latestDbEventId) {
+                    lastKnownDbLatestEventId[roomId] = latestDbEventId
+                    return@withContext
+                }
+
+                if (lastKnownDbLatestEventId[roomId] == latestDbEventId) {
+                    return@withContext
+                }
+
+                android.util.Log.w(
+                    "Andromuks",
+                    "AppViewModel: Cache for $roomId is stale (cache=${cachedMetadata?.eventId}, db=$latestDbEventId). Re-seeding from database."
+                )
+
+                val recentEntities = eventDao.getEventsForRoomDesc(roomId, limit)
+                if (recentEntities.isEmpty()) {
+                    lastKnownDbLatestEventId[roomId] = latestDbEventId
+                    return@withContext
+                }
+
+                val timelineEvents = recentEntities
+                    .asReversed()
+                    .mapNotNull { eventEntityToTimelineEvent(it) }
+                    .sortedWith { a, b ->
+                        when {
+                            a.timelineRowid > 0 && b.timelineRowid > 0 -> a.timelineRowid.compareTo(b.timelineRowid)
+                            a.timelineRowid > 0 -> -1
+                            b.timelineRowid > 0 -> 1
+                            else -> {
+                                val tsCompare = a.timestamp.compareTo(b.timestamp)
+                                if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                            }
+                        }
+                    }
+
+                val firstDbEvent = timelineEvents.firstOrNull()
+                val lastDbEvent = timelineEvents.lastOrNull()
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: ensureTimelineCacheIsFresh($roomId) DB snapshot -> size=${timelineEvents.size}, first=${firstDbEvent?.eventId}@${firstDbEvent?.timelineRowid}, last=${lastDbEvent?.eventId}@${lastDbEvent?.timelineRowid}"
+                )
+
+                withContext(Dispatchers.Main) {
+                    RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineEvents)
+                    roomsWithLoadedReceiptsFromDb.remove(roomId)
+                    roomsWithLoadedReactionsFromDb.remove(roomId)
+                    lastKnownDbLatestEventId[roomId] = latestDbEventId
+                    applyAggregatedReactionsFromEvents(timelineEvents, "db reseed")
+                    val latestCached = RoomTimelineCache.getLatestCachedEventMetadata(roomId)
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Cache for $roomId refreshed from DB with ${timelineEvents.size} events (dbLatest=$latestDbEventId cacheLatest=${latestCached?.eventId})"
+                    )
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to verify timeline cache for $roomId", e)
+            }
+        }
+    }
+
+    suspend fun getRoomEventsFromDb(roomId: String, limit: Int): List<EventEntity> {
+        val context = appContext ?: return emptyList()
+        val safeLimit = limit.coerceAtLeast(1)
+        return withContext(Dispatchers.IO) {
+            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context.applicationContext)
+            database.eventDao().getEventsForRoomAsc(roomId, safeLimit)
+        }
+    }
+
+    suspend fun getRoomEventCountFromDb(roomId: String): Int {
+        val context = appContext ?: return 0
+        return withContext(Dispatchers.IO) {
+            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context.applicationContext)
+            database.eventDao().getEventCountForRoom(roomId)
         }
     }
 
@@ -5570,6 +5891,8 @@ class AppViewModel : ViewModel() {
                 editToOriginal.clear()
                 redactionCache.clear()
                 messageReactions = emptyMap()
+                roomsWithLoadedReactionsFromDb.remove(roomId)
+                roomsWithLoadedReactionsFromDb.remove(roomId)
                 
                 // Reset pagination state
                 smallestRowId = -1L
@@ -5725,6 +6048,7 @@ class AppViewModel : ViewModel() {
             
             // Clear message reactions when switching rooms
             messageReactions = emptyMap()
+            roomsWithLoadedReactionsFromDb.remove(roomId)
         }
         
         // Ensure member cache exists for this room
@@ -5996,6 +6320,9 @@ class AppViewModel : ViewModel() {
         
         // 5. Clear message reactions
         messageReactions = emptyMap()
+        roomsWithLoadedReceiptsFromDb.remove(roomId)
+        roomsWithLoadedReactionsFromDb.remove(roomId)
+        lastKnownDbLatestEventId.remove(roomId)
         
         // 6. Clear animation state to prevent corruption
         newMessageAnimations.clear()
@@ -6104,6 +6431,11 @@ class AppViewModel : ViewModel() {
                 if (smallestCached > 0) {
                     smallestRowId = smallestCached
                 }
+
+                // Historical reactions are not cached, request them in the background
+                if (REACTION_BACKFILL_ON_OPEN_ENABLED) {
+                    requestHistoricalReactions(roomId, smallestCached)
+                }
                 
                 android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - ✅ Room opened INSTANTLY with ${timelineEvents.size} cached events")
                 
@@ -6134,6 +6466,28 @@ class AppViewModel : ViewModel() {
         // OPTIMIZATION #4: Fallback to regular requestRoomTimeline if no cache
         android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - No cache available, falling back to requestRoomTimeline")
         requestRoomTimeline(roomId)
+    }
+
+    private fun requestHistoricalReactions(roomId: String, smallestCached: Long) {
+        val reactionRequestId = requestIdCounter++
+        backgroundPrefetchRequests[reactionRequestId] = roomId
+        val effectiveMaxTimelineId = if (smallestCached > 0) smallestCached else 0L
+        android.util.Log.d("Andromuks", "AppViewModel: About to send reaction request - currentRoomId: $currentRoomId, roomId=$roomId, smallestCached=$smallestCached, effectiveMaxTimelineId=$effectiveMaxTimelineId")
+        val result = sendWebSocketCommand(
+            "paginate",
+            reactionRequestId,
+            mapOf(
+                "room_id" to roomId,
+                "max_timeline_id" to effectiveMaxTimelineId,
+                "limit" to 100,
+                "reset" to false
+            )
+        )
+        if (result == WebSocketResult.SUCCESS) {
+            android.util.Log.d("Andromuks", "AppViewModel: ✅ Sent reaction request for cached room: $roomId (requestId: $reactionRequestId)")
+        } else {
+            android.util.Log.w("Andromuks", "AppViewModel: Reaction request for $roomId (requestId: $reactionRequestId) could not be sent immediately (result=$result)")
+        }
     }
     
     fun requestRoomState(roomId: String) {
@@ -6220,7 +6574,7 @@ class AppViewModel : ViewModel() {
         // Check if we already have this profile in cache
         val existingProfile = getUserProfile(userId, roomId)
         if (existingProfile != null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Profile already cached for $userId, skipping request")
+            //android.util.Log.d("Andromuks", "AppViewModel: Profile already cached for $userId, skipping request")
             return
         }
         
@@ -7585,11 +7939,15 @@ class AppViewModel : ViewModel() {
                     } else {
                         // Process reactions from other users in send_complete
                         val reactionEvent = ReactionEvent(
+                            roomId = event.roomId,
                             eventId = event.eventId,
                             sender = event.sender,
                             emoji = emoji,
                             relatesToEventId = relatesToEventId,
-                            timestamp = event.timestamp
+                            timestamp = normalizeTimestamp(
+                                event.timestamp,
+                                event.unsigned?.optLong("age_ts") ?: 0L
+                            )
                         )
                         processReactionEvent(reactionEvent)
                         android.util.Log.d("Andromuks", "AppViewModel: Processed send_complete reaction from other user: $emoji from ${event.sender} to $relatesToEventId")
@@ -7673,7 +8031,7 @@ class AppViewModel : ViewModel() {
                             event.type == "m.room.encrypted" -> event.decrypted?.optString("body", "")?.take(50)
                             else -> ""
                         }
-                        android.util.Log.d("Andromuks", "AppViewModel: [PAGINATE] ★ Found OUR message in paginate response: ${event.eventId} body='$bodyPreview' timelineRowid=${event.timelineRowid}")
+                        //android.util.Log.d("Andromuks", "AppViewModel: [PAGINATE] ★ Found OUR message in paginate response: ${event.eventId} body='$bodyPreview' timelineRowid=${event.timelineRowid}")
                     }
                     
                     // Process member events using helper function
@@ -8871,11 +9229,15 @@ class AppViewModel : ViewModel() {
                                 android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Reaction event ${event.eventId} has been redacted by ${event.redactedBy}, removing reaction")
                                 // Remove this reaction by processing it as if the user toggled it off
                                 val reactionEvent = ReactionEvent(
+                                    roomId = roomId,
                                     eventId = event.eventId,
                                     sender = event.sender,
                                     emoji = emoji,
                                     relatesToEventId = relatesToEventId,
-                                    timestamp = event.timestamp
+                                    timestamp = normalizeTimestamp(
+                                        event.timestamp,
+                                        event.unsigned?.optLong("age_ts") ?: 0L
+                                    )
                                 )
                                 // Process the reaction - it will be removed since the user is already in the list
                                 processReactionEvent(reactionEvent)
@@ -8886,11 +9248,15 @@ class AppViewModel : ViewModel() {
                                 
                                 // Process all reactions normally - no special handling for our own reactions
                                 val reactionEvent = ReactionEvent(
+                                    roomId = roomId,
                                     eventId = event.eventId,
                                     sender = event.sender,
                                     emoji = emoji,
                                     relatesToEventId = relatesToEventId,
-                                    timestamp = event.timestamp
+                                    timestamp = normalizeTimestamp(
+                                        event.timestamp,
+                                        event.unsigned?.optLong("age_ts") ?: 0L
+                                    )
                                 )
                                 processReactionEvent(reactionEvent)
                                 android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processed reaction: $emoji from ${event.sender} to $relatesToEventId")
@@ -9308,7 +9674,7 @@ class AppViewModel : ViewModel() {
                         }
                         
                         timelineEvents.add(finalEvent)
-                        android.util.Log.d("Andromuks", "AppViewModel: Added event for ${eventId} with final content from ${entry.replacedBy ?: eventId}${if (redactedBy != null) " (redacted by $redactedBy)" else ""}")
+                        //android.util.Log.d("Andromuks", "AppViewModel: Added event for ${eventId} with final content from ${entry.replacedBy ?: eventId}${if (redactedBy != null) " (redacted by $redactedBy)" else ""}")
                     } catch (e: Exception) {
                         android.util.Log.e("Andromuks", "AppViewModel: Error processing event ${eventId} in buildTimelineFromChain", e)
                         // Skip this event if there's an error (prevents crash from corrupt edit chain)
@@ -9652,9 +10018,9 @@ class AppViewModel : ViewModel() {
         var currentEntry = entry
         val visitedEvents = mutableSetOf<String>() // Prevent infinite loops
         
-        android.util.Log.d("Andromuks", "AppViewModel: getFinalEventForBubble for ${entry.eventId}")
-        android.util.Log.d("Andromuks", "AppViewModel: Initial event body: ${currentEvent.decrypted?.optString("body", "null")}")
-        android.util.Log.d("Andromuks", "AppViewModel: replacedBy: ${entry.replacedBy}")
+        //android.util.Log.d("Andromuks", "AppViewModel: getFinalEventForBubble for ${entry.eventId}")
+        //android.util.Log.d("Andromuks", "AppViewModel: Initial event body: ${currentEvent.decrypted?.optString("body", "null")}")
+        //android.util.Log.d("Andromuks", "AppViewModel: replacedBy: ${entry.replacedBy}")
         
         // Follow the edit chain to find the latest edit
         var chainDepth = 0
@@ -11082,11 +11448,15 @@ class AppViewModel : ViewModel() {
         
         return if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
             ReactionEvent(
+                roomId = event.roomId,
                 eventId = event.eventId,
                 sender = event.sender,
                 emoji = emoji,
                 relatesToEventId = relatesToEventId,
-                timestamp = event.timestamp
+                timestamp = normalizeTimestamp(
+                    event.timestamp,
+                    event.unsigned?.optLong("age_ts") ?: 0L
+                )
             )
         } else {
             null

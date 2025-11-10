@@ -49,6 +49,9 @@ interface EventDao {
     
     @Query("SELECT * FROM events WHERE roomId = :roomId AND relatesToEventId = :relatesToEventId ORDER BY timestamp ASC")
     suspend fun getEventsByRelatesTo(roomId: String, relatesToEventId: String): List<EventEntity>
+
+    @Query("SELECT * FROM events WHERE roomId = :roomId ORDER BY timelineRowId DESC, timestamp DESC LIMIT 1")
+    suspend fun getMostRecentEventForRoom(roomId: String): EventEntity?
 }
 
 

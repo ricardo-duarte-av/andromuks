@@ -196,8 +196,16 @@ class BootstrapLoader(private val context: Context) {
      */
     private fun entityToTimelineEvent(entity: EventEntity): TimelineEvent? {
         return try {
-            // Parse from raw JSON (future-proof)
             val json = JSONObject(entity.rawJson)
+            json.put("room_id", entity.roomId)
+            json.put("timeline_rowid", entity.timelineRowId)
+            json.put("rowid", entity.timelineRowId.toLong())
+            if (!json.has("origin_server_ts") || json.optLong("origin_server_ts") == 0L) {
+                json.put("origin_server_ts", entity.timestamp)
+            }
+            if (!json.has("timestamp") || json.optLong("timestamp") == 0L) {
+                json.put("timestamp", entity.timestamp)
+            }
             TimelineEvent.fromJson(json)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to parse event from JSON: ${e.message}")
@@ -212,7 +220,19 @@ class BootstrapLoader(private val context: Context) {
     suspend fun loadRoomEvents(roomId: String, limit: Int = 100): List<TimelineEvent> = withContext(Dispatchers.IO) {
         try {
             val events = eventDao.getEventsForRoomDesc(roomId, limit)
-            events.mapNotNull { entity -> entityToTimelineEvent(entity) }
+            events
+                .mapNotNull { entity -> entityToTimelineEvent(entity) }
+                .sortedWith { a, b ->
+                    when {
+                        a.timelineRowid > 0 && b.timelineRowid > 0 -> a.timelineRowid.compareTo(b.timelineRowid)
+                        a.timelineRowid > 0 -> -1
+                        b.timelineRowid > 0 -> 1
+                        else -> {
+                            val tsCompare = a.timestamp.compareTo(b.timestamp)
+                            if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                        }
+                    }
+                }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading events for room $roomId: ${e.message}", e)
             emptyList()

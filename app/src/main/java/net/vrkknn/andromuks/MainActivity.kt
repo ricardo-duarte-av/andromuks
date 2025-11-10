@@ -764,6 +764,17 @@ fun AppNavigation(
             )
         }
         composable(
+            route = "room_db_explorer/{roomId}",
+            arguments = listOf(navArgument("roomId") { type = NavType.StringType })
+        ) { backStackEntry: NavBackStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+            net.vrkknn.andromuks.utils.RoomDBExplorerScreen(
+                roomId = roomId,
+                appViewModel = appViewModel,
+                navController = navController
+            )
+        }
+        composable(
             route = "user_info/{userId}",
             arguments = listOf(navArgument("userId") { type = NavType.StringType }),
             enterTransition = {

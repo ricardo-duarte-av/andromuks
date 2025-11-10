@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.database.dao.AccountDataDao
 import net.vrkknn.andromuks.database.dao.EventDao
+import net.vrkknn.andromuks.database.dao.ReactionDao
 import net.vrkknn.andromuks.database.dao.ReceiptDao
 import net.vrkknn.andromuks.database.dao.RoomStateDao
 import net.vrkknn.andromuks.database.dao.RoomSummaryDao
@@ -15,6 +16,7 @@ import net.vrkknn.andromuks.database.dao.SpaceRoomDao
 import net.vrkknn.andromuks.database.dao.SyncMetaDao
 import net.vrkknn.andromuks.database.entities.AccountDataEntity
 import net.vrkknn.andromuks.database.entities.EventEntity
+import net.vrkknn.andromuks.database.entities.ReactionEntity
 import net.vrkknn.andromuks.database.entities.ReceiptEntity
 import net.vrkknn.andromuks.database.entities.RoomStateEntity
 import net.vrkknn.andromuks.database.entities.RoomSummaryEntity
@@ -39,6 +41,7 @@ class SyncIngestor(private val context: Context) {
     private val eventDao = database.eventDao()
     private val roomStateDao = database.roomStateDao()
     private val receiptDao = database.receiptDao()
+    private val reactionDao = database.reactionDao()
     private val roomSummaryDao = database.roomSummaryDao()
     private val syncMetaDao = database.syncMetaDao()
     private val spaceDao = database.spaceDao()
@@ -47,6 +50,24 @@ class SyncIngestor(private val context: Context) {
     private val inviteDao = database.inviteDao()
     
     private val TAG = "SyncIngestor"
+    
+    private data class EventPersistCandidate(
+        val entity: EventEntity,
+        val source: String
+    )
+    
+    private fun logEventPersisted(
+        roomId: String,
+        eventId: String,
+        source: String,
+        type: String,
+        timelineRowId: Long
+    ) {
+        Log.d(
+            TAG,
+            "SyncIngestor: Persisted event (room=$roomId, eventId=$eventId, type=$type, timelineRowId=$timelineRowId, source=$source)"
+        )
+    }
     
     /**
      * Check if run_id has changed and clear all data if it has
@@ -79,6 +100,7 @@ class SyncIngestor(private val context: Context) {
             roomStateDao.deleteAll()
             roomSummaryDao.deleteAll()
             receiptDao.deleteAll()
+            reactionDao.clearAll()
             
             // Clear spaces and space-room relationships
             spaceRoomDao.deleteAllSpaceRooms()
@@ -191,10 +213,12 @@ class SyncIngestor(private val context: Context) {
                 // Delete all data for left rooms in a single transaction
                 database.withTransaction {
                     for (roomId in leftRoomIds) {
+                        Log.d(TAG, "Deleting data for left room: $roomId (events, state, summaries, receipts, reactions)")
                         eventDao.deleteAllForRoom(roomId)
                         roomStateDao.deleteForRoom(roomId)
                         roomSummaryDao.deleteForRoom(roomId)
                         receiptDao.deleteForRoom(roomId)
+                        reactionDao.clearRoom(roomId)
                         // Also delete invite if it exists
                         inviteDao.deleteInvite(roomId)
                     }
@@ -289,45 +313,89 @@ class SyncIngestor(private val context: Context) {
             roomStateDao.upsert(roomState)
         }
         
+        val reactionUpserts = mutableMapOf<String, ReactionEntity>()
+        val reactionDeletes = mutableSetOf<String>()
+        
         // 2. Process timeline events
         val timeline = roomObj.optJSONArray("timeline")
         if (timeline != null) {
-            val events = mutableListOf<EventEntity>()
+            val events = mutableListOf<EventPersistCandidate>()
             for (i in 0 until timeline.length()) {
                 val timelineEntry = timeline.optJSONObject(i) ?: continue
                 val rowid = timelineEntry.optLong("rowid", -1)
                 val eventJson = timelineEntry.optJSONObject("event") ?: continue
                 
-                val eventEntity = parseEventFromJson(roomId, eventJson, rowid)
+                collectReactionPersistenceFromEvent(roomId, eventJson, reactionUpserts, reactionDeletes)
+                
+                val sourceLabel = "timeline[$i]"
+                val eventEntity = parseEventFromJson(roomId, eventJson, rowid, sourceLabel)
                 if (eventEntity != null) {
-                    events.add(eventEntity)
+                    events.add(EventPersistCandidate(eventEntity, sourceLabel))
                 }
             }
             
             if (events.isNotEmpty()) {
-                eventDao.upsertAll(events)
+                eventDao.upsertAll(events.map { it.entity })
+                events.forEach { candidate ->
+                    logEventPersisted(
+                        roomId = roomId,
+                        eventId = candidate.entity.eventId,
+                        source = candidate.source,
+                        type = candidate.entity.type,
+                        timelineRowId = candidate.entity.timelineRowId
+                    )
+                }
             }
         }
         
         // 3. Process events array (preview/additional events)
         val eventsArray = roomObj.optJSONArray("events")
         if (eventsArray != null) {
-            val events = mutableListOf<EventEntity>()
+            val events = mutableListOf<EventPersistCandidate>()
             for (i in 0 until eventsArray.length()) {
                 val eventJson = eventsArray.optJSONObject(i) ?: continue
+                
+                collectReactionPersistenceFromEvent(roomId, eventJson, reactionUpserts, reactionDeletes)
                 
                 // Try to get timeline_rowid from event if available, otherwise use -1
                 val timelineRowid = eventJson.optLong("timeline_rowid", -1)
                 
-                val eventEntity = parseEventFromJson(roomId, eventJson, timelineRowid)
+                val sourceLabel = "events[$i]"
+                val eventEntity = parseEventFromJson(roomId, eventJson, timelineRowid, sourceLabel)
                 if (eventEntity != null) {
-                    events.add(eventEntity)
+                    events.add(EventPersistCandidate(eventEntity, sourceLabel))
                 }
             }
             
             if (events.isNotEmpty()) {
-                eventDao.upsertAll(events)
+                eventDao.upsertAll(events.map { it.entity })
+                events.forEach { candidate ->
+                    logEventPersisted(
+                        roomId = roomId,
+                        eventId = candidate.entity.eventId,
+                        source = candidate.source,
+                        type = candidate.entity.type,
+                        timelineRowId = candidate.entity.timelineRowId
+                    )
+                }
             }
+        }
+        
+        if (reactionDeletes.isNotEmpty()) {
+            Log.d(
+                TAG,
+                "SyncIngestor: Deleting ${reactionDeletes.size} reactions (sync) -> ${reactionDeletes.joinToString()}"
+            )
+            reactionDao.deleteByEventIds(reactionDeletes.toList())
+        }
+        if (reactionUpserts.isNotEmpty()) {
+            Log.d(
+                TAG,
+                "SyncIngestor: Upserting ${reactionUpserts.size} reactions (sync) -> ${
+                    reactionUpserts.values.joinToString { it.eventId }
+                }"
+            )
+            reactionDao.upsertAll(reactionUpserts.values.toList())
         }
         
         // 4. Process receipts
@@ -434,11 +502,31 @@ class SyncIngestor(private val context: Context) {
     /**
      * Parse an event JSON into EventEntity
      */
-    private fun parseEventFromJson(roomId: String, eventJson: JSONObject, timelineRowid: Long): EventEntity? {
-        val eventId = eventJson.optString("event_id") ?: return null
-        if (eventId.isBlank()) return null
+    private fun parseEventFromJson(
+        roomId: String,
+        eventJson: JSONObject,
+        timelineRowid: Long,
+        source: String
+    ): EventEntity? {
+        val eventIdRaw = eventJson.opt("event_id")
+        if (eventIdRaw !is String || eventIdRaw.isBlank()) {
+            Log.w(
+                TAG,
+                "SyncIngestor: Skipping event (room=$roomId, source=$source) - missing event_id. Payload keys=${eventJson.names()}"
+            )
+            return null
+        }
+        val eventId = eventIdRaw
         
-        val type = eventJson.optString("type") ?: return null
+        val typeRaw = eventJson.opt("type")
+        if (typeRaw !is String || typeRaw.isBlank()) {
+            Log.w(
+                TAG,
+                "SyncIngestor: Skipping event (room=$roomId, source=$source, eventId=$eventId) - missing type."
+            )
+            return null
+        }
+        val type = typeRaw
         val sender = eventJson.optString("sender") ?: ""
         val timestamp = eventJson.optLong("origin_server_ts", 0L)
         val decryptedType = eventJson.optString("decrypted_type")
@@ -468,8 +556,32 @@ class SyncIngestor(private val context: Context) {
             }
         }
         
-        // Store raw JSON for future-proofing (handles schema changes)
-        val rawJson = eventJson.toString()
+        // Include aggregated reactions (if any) in persisted JSON
+        val reactionsObj = eventJson.optJSONObject("reactions") ?: content?.optJSONObject("reactions")
+        val aggregatedReactionsJson = reactionsObj?.toString()
+        val rawJson = if (reactionsObj != null) {
+            try {
+                val jsonCopy = JSONObject(eventJson.toString())
+                if (!jsonCopy.has("reactions")) {
+                    jsonCopy.put("reactions", reactionsObj)
+                }
+                val ensuredContent = jsonCopy.optJSONObject("content") ?: JSONObject().also {
+                    jsonCopy.put("content", it)
+                }
+                if (!ensuredContent.has("reactions")) {
+                    ensuredContent.put("reactions", reactionsObj)
+                }
+                jsonCopy.toString()
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to inject aggregated reactions into rawJson for $eventId: ${e.message}")
+                eventJson.toString()
+            }
+        } else {
+            eventJson.toString()
+        }
+        if (aggregatedReactionsJson != null) {
+            Log.d(TAG, "SyncIngestor: Detected aggregated reactions for event $eventId -> $aggregatedReactionsJson")
+        }
         
         return EventEntity(
             eventId = eventId,
@@ -482,8 +594,173 @@ class SyncIngestor(private val context: Context) {
             relatesToEventId = if (relatesToEventId != null && relatesToEventId.isNotBlank()) relatesToEventId else null,
             threadRootEventId = threadRootEventId,
             isRedaction = isRedaction,
-            rawJson = rawJson
+            rawJson = rawJson,
+            aggregatedReactionsJson = aggregatedReactionsJson
         )
+    }
+    
+    private fun collectReactionPersistenceFromEvent(
+        roomId: String,
+        eventJson: JSONObject,
+        reactionUpserts: MutableMap<String, ReactionEntity>,
+        reactionDeletes: MutableSet<String>
+    ) {
+        val eventId = eventJson.optString("event_id")
+        if (eventId.isNullOrBlank()) return
+        
+        when (eventJson.optString("type")) {
+            "m.reaction" -> {
+                val content = eventJson.optJSONObject("content") ?: return
+                val relatesTo = content.optJSONObject("m.relates_to")
+                if (relatesTo == null) {
+                    Log.d(TAG, "SyncIngestor: Skipping reaction $eventId - missing m.relates_to")
+                    return
+                }
+                if (relatesTo.optString("rel_type") != "m.annotation") {
+                    Log.d(TAG, "SyncIngestor: Skipping reaction $eventId - rel_type='${relatesTo.optString("rel_type")}'")
+                    return
+                }
+                
+                val targetEventId = relatesTo.optString("event_id")
+                val key = relatesTo.optString("key")
+                if (targetEventId.isBlank() || key.isBlank()) {
+                    Log.d(TAG, "SyncIngestor: Skipping reaction $eventId - missing target/key (target='$targetEventId', key='$key')")
+                    return
+                }
+                
+                val redactedBy = eventJson.optString("redacted_by")
+                val unsigned = eventJson.optJSONObject("unsigned")
+                val redactedBecause = unsigned?.optJSONObject("redacted_because")
+                if (redactedBy.isNotBlank() || redactedBecause != null) {
+                    reactionDeletes.add(eventId)
+                    reactionUpserts.remove(eventId)
+                    return
+                }
+                
+                val sender = eventJson.optString("sender")
+                val originTs = if (eventJson.has("origin_server_ts")) {
+                    eventJson.optLong("origin_server_ts", 0L)
+                } else {
+                    0L
+                }
+                val fallbackTs = if (eventJson.has("timestamp")) {
+                    eventJson.optLong("timestamp", 0L)
+                } else {
+                    0L
+                }
+                val timestamp = when {
+                    originTs > 0 -> originTs
+                    fallbackTs > 0 -> fallbackTs
+                    else -> System.currentTimeMillis()
+                }
+                
+                reactionDeletes.remove(eventId)
+                reactionUpserts[eventId] = ReactionEntity(
+                    roomId = roomId,
+                    targetEventId = targetEventId,
+                    key = key,
+                    sender = sender,
+                    eventId = eventId,
+                    timestamp = timestamp
+                )
+                Log.d(
+                    TAG,
+                    "SyncIngestor: Queued reaction upsert from JSON eventId=$eventId target=$targetEventId key=$key sender=$sender ts=$timestamp"
+                )
+            }
+            "m.room.redaction" -> {
+                val redacts = eventJson.optJSONObject("content")?.optString("redacts")
+                if (!redacts.isNullOrBlank()) {
+                    reactionDeletes.add(redacts)
+                    reactionUpserts.remove(redacts)
+                    Log.d(TAG, "SyncIngestor: Queued reaction delete due to JSON redaction of $redacts")
+                }
+            }
+            "m.room.message" -> {
+                val reactionsObj = eventJson.optJSONObject("content")?.optJSONObject("reactions")
+                if (reactionsObj != null && reactionsObj.length() > 0) {
+                    val keys = reactionsObj.keys().asSequence().joinToString()
+                    Log.d(TAG, "SyncIngestor: Message $eventId contains aggregated reactions [$keys] (expecting individual m.reaction events)")
+                }
+            }
+        }
+    }
+    
+    private fun collectReactionPersistenceFromTimelineEvent(
+        roomId: String,
+        event: TimelineEvent,
+        reactionUpserts: MutableMap<String, ReactionEntity>,
+        reactionDeletes: MutableSet<String>
+    ) {
+        when (event.type) {
+            "m.reaction" -> {
+                val content = event.content
+                if (content == null) {
+                    Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - missing content")
+                    return
+                }
+                val relatesTo = content.optJSONObject("m.relates_to")
+                if (relatesTo == null) {
+                    Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - missing m.relates_to")
+                    return
+                }
+                if (relatesTo.optString("rel_type") != "m.annotation") {
+                    Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - rel_type='${relatesTo.optString("rel_type")}'")
+                    return
+                }
+                
+                val targetEventId = relatesTo.optString("event_id")
+                val key = relatesTo.optString("key")
+                if (targetEventId.isBlank() || key.isBlank()) {
+                    Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - missing target/key (target='$targetEventId', key='$key')")
+                    return
+                }
+                
+                val redactedBecause = event.unsigned?.optJSONObject("redacted_because")
+                if (!event.redactedBy.isNullOrBlank() || redactedBecause != null) {
+                    reactionDeletes.add(event.eventId)
+                    reactionUpserts.remove(event.eventId)
+                    Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - redacted (by='${event.redactedBy}', because=${redactedBecause != null})")
+                    return
+                }
+                
+                reactionDeletes.remove(event.eventId)
+                val reactionTimestamp = if (event.timestamp > 0) {
+                    event.timestamp
+                } else {
+                    val unsignedTs = event.unsigned?.optLong("age_ts") ?: 0L
+                    if (unsignedTs > 0) unsignedTs else System.currentTimeMillis()
+                }
+                
+                reactionUpserts[event.eventId] = ReactionEntity(
+                    roomId = roomId,
+                    targetEventId = targetEventId,
+                    key = key,
+                    sender = event.sender,
+                    eventId = event.eventId,
+                    timestamp = reactionTimestamp
+                )
+                Log.d(
+                    TAG,
+                    "SyncIngestor: Queued reaction upsert from timeline eventId=${event.eventId} target=$targetEventId key=$key sender=${event.sender} ts=$reactionTimestamp"
+                )
+            }
+            "m.room.redaction" -> {
+                val redacts = event.content?.optString("redacts")
+                if (!redacts.isNullOrBlank()) {
+                    reactionDeletes.add(redacts)
+                    reactionUpserts.remove(redacts)
+                    Log.d(TAG, "SyncIngestor: Queued reaction delete due to timeline redaction of $redacts")
+                }
+            }
+            "m.room.message" -> {
+                val reactionsObj = event.content?.optJSONObject("reactions")
+                if (reactionsObj != null && reactionsObj.length() > 0) {
+                    val keys = reactionsObj.keys().asSequence().joinToString()
+                    Log.d(TAG, "SyncIngestor: Timeline message ${event.eventId} contains aggregated reactions [$keys] (expecting individual m.reaction events)")
+                }
+            }
+        }
     }
     
     /**
@@ -509,15 +786,49 @@ class SyncIngestor(private val context: Context) {
         if (events.isEmpty()) return@withContext
         
         try {
-            val eventEntities = events.mapNotNull { event ->
-                parseEventFromTimelineEvent(roomId, event)
+            val reactionUpserts = mutableMapOf<String, ReactionEntity>()
+            val reactionDeletes = mutableSetOf<String>()
+            val candidates = mutableListOf<EventPersistCandidate>()
+            events.forEachIndexed { index, event ->
+                collectReactionPersistenceFromTimelineEvent(roomId, event, reactionUpserts, reactionDeletes)
+                val sourceLabel = "paginate[$index]"
+                val entity = parseEventFromTimelineEvent(roomId, event, sourceLabel)
+                if (entity != null) {
+                    candidates.add(EventPersistCandidate(entity, sourceLabel))
+                }
             }
             
-            if (eventEntities.isNotEmpty()) {
+            if (candidates.isNotEmpty() || reactionUpserts.isNotEmpty() || reactionDeletes.isNotEmpty()) {
                 database.withTransaction {
-                    eventDao.upsertAll(eventEntities)
+                    if (candidates.isNotEmpty()) {
+                        eventDao.upsertAll(candidates.map { it.entity })
+                    }
+                    if (reactionDeletes.isNotEmpty()) {
+                        Log.d(
+                            TAG,
+                            "SyncIngestor: Deleting ${reactionDeletes.size} reactions -> ${reactionDeletes.joinToString()}"
+                        )
+                        reactionDao.deleteByEventIds(reactionDeletes.toList())
+                    }
+                    if (reactionUpserts.isNotEmpty()) {
+                        Log.d(
+                            TAG,
+                            "SyncIngestor: Upserting ${reactionUpserts.size} reactions -> ${
+                                reactionUpserts.values.joinToString { it.eventId }
+                            }"
+                        )
+                        reactionDao.upsertAll(reactionUpserts.values.toList())
+                    }
                 }
-                Log.d(TAG, "Persisted ${eventEntities.size} paginated events for room $roomId")
+                candidates.forEach { candidate ->
+                    logEventPersisted(
+                        roomId = roomId,
+                        eventId = candidate.entity.eventId,
+                        source = candidate.source,
+                        type = candidate.entity.type,
+                        timelineRowId = candidate.entity.timelineRowId
+                    )
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error persisting paginated events for room $roomId: ${e.message}", e)
@@ -527,9 +838,19 @@ class SyncIngestor(private val context: Context) {
     /**
      * Parse TimelineEvent to EventEntity
      */
-    private fun parseEventFromTimelineEvent(roomId: String, event: TimelineEvent): EventEntity? {
+    private fun parseEventFromTimelineEvent(
+        roomId: String,
+        event: TimelineEvent,
+        source: String
+    ): EventEntity? {
         val eventId = event.eventId
-        if (eventId.isBlank()) return null
+        if (eventId.isBlank()) {
+            Log.w(
+                TAG,
+                "SyncIngestor: Skipping timeline event (room=$roomId, source=$source) - missing event_id."
+            )
+            return null
+        }
         
         // Store raw JSON - we need to reconstruct it from TimelineEvent
         // For now, create a minimal JSON representation
@@ -551,7 +872,10 @@ class SyncIngestor(private val context: Context) {
             }
             json.toString()
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to serialize event to JSON: ${e.message}")
+            Log.w(
+                TAG,
+                "SyncIngestor: Skipping timeline event (room=$roomId, source=$source, eventId=$eventId) - failed to serialize JSON: ${e.message}"
+            )
             return null
         }
         
@@ -578,6 +902,11 @@ class SyncIngestor(private val context: Context) {
         }
         
         val isRedaction = event.type == "m.room.redaction"
+        val reactionsObj = event.aggregatedReactions ?: event.content?.optJSONObject("reactions")
+        val aggregatedReactionsJson = reactionsObj?.toString()
+        if (aggregatedReactionsJson != null) {
+            android.util.Log.d(TAG, "SyncIngestor: Detected aggregated reactions in timeline for event ${event.eventId} -> $aggregatedReactionsJson")
+        }
         
         return EventEntity(
             eventId = eventId,
@@ -590,7 +919,8 @@ class SyncIngestor(private val context: Context) {
             relatesToEventId = relatesToEventId,
             threadRootEventId = threadRootEventId,
             isRedaction = isRedaction,
-            rawJson = rawJson
+            rawJson = rawJson,
+            aggregatedReactionsJson = aggregatedReactionsJson
         )
     }
     

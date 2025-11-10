@@ -23,7 +23,8 @@ data class EventEntity(
     val relatesToEventId: String?,
     val threadRootEventId: String?,
     val isRedaction: Boolean,
-    val rawJson: String
+    val rawJson: String,
+    val aggregatedReactionsJson: String?
 )
 
 

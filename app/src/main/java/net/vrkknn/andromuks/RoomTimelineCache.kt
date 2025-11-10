@@ -182,11 +182,30 @@ object RoomTimelineCache {
         }
     }
     
+    data class CachedEventMetadata(
+        val eventId: String,
+        val timelineRowId: Long,
+        val timestamp: Long
+    )
+
     /**
      * Get the number of cached events for a room
      */
     fun getCachedEventCount(roomId: String): Int {
         return roomEventsCache[roomId]?.events?.size ?: 0
+    }
+
+    /**
+     * Get metadata for the most recent cached event in a room
+     */
+    fun getLatestCachedEventMetadata(roomId: String): CachedEventMetadata? {
+        val cache = roomEventsCache[roomId] ?: return null
+        val latest = cache.events.lastOrNull() ?: return null
+        return CachedEventMetadata(
+            eventId = latest.eventId,
+            timelineRowId = latest.timelineRowid,
+            timestamp = latest.timestamp
+        )
     }
     
     /**

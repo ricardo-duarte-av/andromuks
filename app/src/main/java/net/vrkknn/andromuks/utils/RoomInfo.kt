@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ExitToApp
+import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -141,6 +142,15 @@ fun RoomInfoScreen(
             TopAppBar(
                 title = { Text("Room Info") },
                 actions = {
+                    IconButton(
+                        onClick = { navController.navigate("room_db_explorer/$roomId") }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Storage,
+                            contentDescription = "DB Explorer",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     IconButton(
                         onClick = { showLeaveRoomDialog = true }
                     ) {
