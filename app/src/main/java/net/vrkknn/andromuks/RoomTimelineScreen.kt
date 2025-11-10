@@ -919,57 +919,14 @@ fun RoomTimelineScreen(
                 isAttachedToBottom = false
             }
             
-            // AUTO-PAGINATION: Trigger when near the top (first 5 items visible)
             val firstVisibleIndex = listState.firstVisibleItemIndex
             val totalItems = timelineItems.size
             
-            val shouldTriggerPagination = firstVisibleIndex <= 5 && 
-                                          appViewModel.hasMoreMessages && 
-                                          !appViewModel.isPaginating &&
-                                          !pendingScrollRestoration
-            
-            // Only log when near the top to avoid spam
-            if (firstVisibleIndex <= 10) {
-                Log.d("Andromuks", "RoomTimelineScreen: [PAGINATION CHECK] firstVisible=$firstVisibleIndex/$totalItems, hasMore=${appViewModel.hasMoreMessages}, isPaginating=${appViewModel.isPaginating}, pendingRestore=$pendingScrollRestoration, shouldTrigger=$shouldTriggerPagination")
-            }
-            
-            if (firstVisibleIndex <= 5 && !shouldTriggerPagination) {
-                // Debug why pagination didn't trigger
-                Log.w("Andromuks", "RoomTimelineScreen: ⚠️ PAGINATION BLOCKED at index $firstVisibleIndex - hasMore=${appViewModel.hasMoreMessages}, isPaginating=${appViewModel.isPaginating}, pendingRestore=$pendingScrollRestoration")
-            }
-            
-            if (shouldTriggerPagination) {
-                Log.d("Andromuks", "RoomTimelineScreen: ✅✅✅ AUTO-PAGINATION TRIGGERED at index $firstVisibleIndex/$totalItems ✅✅✅")
-                
-                // Find the first visible event to use as anchor
-                var anchorEventId: String? = null
-                var anchorOffset = 0
-                
-                // Search visible items for the first actual event
-                for (visibleItem in listState.layoutInfo.visibleItemsInfo) {
-                    val item = timelineItems.getOrNull(visibleItem.index)
-                    if (item is TimelineItem.Event) {
-                        anchorEventId = item.event.eventId
-                        anchorOffset = visibleItem.offset
-                        Log.d(
-                            "Andromuks",
-                            "RoomTimelineScreen: Auto-pagination anchor - index ${visibleItem.index}, " +
-                            "eventId: $anchorEventId, offset: $anchorOffset"
-                        )
-                        break
-                    }
-                }
-                
-                if (anchorEventId != null) {
-                    // Save anchor and trigger pagination
-                    anchorEventIdForRestore = anchorEventId
-                    anchorScrollOffsetForRestore = anchorOffset
-                    isLoadingMore = true
-                    pendingScrollRestoration = true
-                    
-                    Log.d("Andromuks", "RoomTimelineScreen: Triggering auto-pagination with anchor $anchorEventId")
-                    appViewModel.loadOlderMessages(roomId)
-                }
+            if (firstVisibleIndex <= 5) {
+                Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Near top (index=$firstVisibleIndex/$totalItems). Auto-pagination disabled; waiting for manual refresh."
+                )
             }
         }
     }
@@ -1008,14 +965,31 @@ fun RoomTimelineScreen(
         }
     }
 
-    // Handle silent refresh completion - just reset the refreshing state
+    // When a manual refresh completes, snap back to bottom and re-enable auto-pagination
+    LaunchedEffect(isRefreshing, timelineItems.size) {
+        if (isRefreshing && timelineItems.isNotEmpty() && !appViewModel.hasPendingTimelineRequest(roomId)) {
+            val lastIndex = timelineItems.lastIndex
+            if (lastIndex >= 0) {
+                listState.scrollToItem(lastIndex, 0)
+                Log.d("Andromuks", "RoomTimelineScreen: Manual refresh loaded ${timelineItems.size} items - scrolled to bottom")
+            }
+            isAttachedToBottom = true
+            hasInitialSnapCompleted = true
+            hasCompletedInitialLayout = true
+            pendingScrollRestoration = false
+            isLoadingMore = false
+            isRefreshing = false
+        }
+    }
+    
+    // Safety fallback: if refresh takes too long, re-enable auto-pagination to avoid being stuck
     LaunchedEffect(isRefreshing) {
         if (isRefreshing) {
-            // For silent refresh, we don't need to wait for UI updates
-            // Just reset the refreshing state after a short delay
-            kotlinx.coroutines.delay(1000) // Give time for cache to populate
-            isRefreshing = false
-            Log.d("Andromuks", "RoomTimelineScreen: Silent refresh completed")
+            kotlinx.coroutines.delay(2000)
+            if (isRefreshing && !appViewModel.hasPendingTimelineRequest(roomId)) {
+                Log.w("Andromuks", "RoomTimelineScreen: Manual refresh timeout - marking refresh as complete (no pending requests)")
+                isRefreshing = false
+            }
         }
     }
 
@@ -1371,6 +1345,7 @@ fun RoomTimelineScreen(
                             // Full refresh: drop all on-disk and in-RAM data, then fetch 200 events
                             Log.d("Andromuks", "RoomTimelineScreen: Full refresh button clicked for room $roomId")
                             isRefreshing = true
+                            appViewModel.setAutoPaginationEnabled(false, "manual_refresh_ui_$roomId")
                             appViewModel.fullRefreshRoomTimeline(roomId)
                         }
                     )

@@ -1529,7 +1529,7 @@ class AppViewModel : ViewModel() {
         }
         return System.currentTimeMillis()
     }
-
+    
     fun processReactionEvent(reactionEvent: ReactionEvent, isHistorical: Boolean = false) {
         // Create a unique key for this logical reaction (sender + emoji + target message)
         // This prevents the same logical reaction from being processed twice even if it comes
@@ -2058,15 +2058,15 @@ class AppViewModel : ViewModel() {
         // These are global (not room-specific), so roomId is null
         for ((userId, entry) in globalProfileCache) {
             val profile = entry.profile
-            // Validate userId format: must be @name:domain
-            if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
-                val parts = userId.split(":", limit = 2)
-                if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
-                    profiles.add(RoomProfileEntry(
-                        roomId = null, // Global profile, not room-specific
-                        userId = userId,
-                        profile = profile
-                    ))
+                // Validate userId format: must be @name:domain
+                if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
+                    val parts = userId.split(":", limit = 2)
+                    if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
+                        profiles.add(RoomProfileEntry(
+                            roomId = null, // Global profile, not room-specific
+                            userId = userId,
+                            profile = profile
+                        ))
                 }
             }
         }
@@ -2113,17 +2113,17 @@ class AppViewModel : ViewModel() {
         // Collect from global profile cache
         for ((userId, entry) in globalProfileCache) {
             val profile = entry.profile
-            if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
-                val parts = userId.split(":", limit = 2)
-                if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
-                    val existing = profiles[userId]
-                    if (existing == null) {
-                        profiles[userId] = profile
-                    } else {
-                        profiles[userId] = MemberProfile(
-                            displayName = profile.displayName ?: existing.displayName,
-                            avatarUrl = profile.avatarUrl ?: existing.avatarUrl
-                        )
+                if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
+                    val parts = userId.split(":", limit = 2)
+                    if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
+                        val existing = profiles[userId]
+                        if (existing == null) {
+                            profiles[userId] = profile
+                        } else {
+                            profiles[userId] = MemberProfile(
+                                displayName = profile.displayName ?: existing.displayName,
+                                avatarUrl = profile.avatarUrl ?: existing.avatarUrl
+                            )
                     }
                 }
             }
@@ -2261,13 +2261,13 @@ class AppViewModel : ViewModel() {
                             // Try to find MXC URL by matching cache key
                             val mxcUrl: String? = IntelligentMediaCache.getMxcUrlForFile(file.name)
                             if (mxcUrl != null) {
-                                entries.add(CachedMediaEntry(
-                                    mxcUrl = mxcUrl,
-                                    filePath = file.absolutePath,
-                                    fileSize = file.length(),
-                                    cacheType = "disk",
-                                    file = file
-                                ))
+                            entries.add(CachedMediaEntry(
+                                mxcUrl = mxcUrl,
+                                filePath = file.absolutePath,
+                                fileSize = file.length(),
+                                cacheType = "disk",
+                                file = file
+                            ))
                             }
                         }
                     }
@@ -3118,15 +3118,6 @@ class AppViewModel : ViewModel() {
         val requestId = syncJson.optInt("request_id", 0)
         
         if (requestId != 0) {
-            var forwardRoomId = forwardPaginateRequests.remove(requestId)
-            if (forwardRoomId == null && requestId != Int.MIN_VALUE) {
-                forwardRoomId = forwardPaginateRequests.remove(-requestId)
-            }
-            if (forwardRoomId != null) {
-                forwardPaginateInFlight.remove(forwardRoomId)
-                android.util.Log.d("Andromuks", "AppViewModel: Forward paginate completed for $forwardRoomId (requestId=$requestId)")
-            }
-            
             if (requestId < 0) {
                 synchronized(pendingSyncLock) {
                     val currentPending = pendingLastReceivedSyncId
@@ -4072,9 +4063,9 @@ class AppViewModel : ViewModel() {
         
         if (instanceRole == InstanceRole.PRIMARY) {
             // Only the primary instance should perform global teardown
-            WebSocketService.cancelReconnection()
-            WebSocketService.stopNetworkMonitoring()
-            clearWebSocket("ViewModel cleared")
+        WebSocketService.cancelReconnection()
+        WebSocketService.stopNetworkMonitoring()
+        clearWebSocket("ViewModel cleared")
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: Skipping global WebSocket teardown for role=$instanceRole")
         }
@@ -4222,8 +4213,6 @@ class AppViewModel : ViewModel() {
     private val eventRequests = mutableMapOf<Int, Pair<String, (TimelineEvent?) -> Unit>>() // requestId -> (roomId, callback)
     private val paginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for pagination)
     private val backgroundPrefetchRequests = mutableMapOf<Int, String>() // requestId -> roomId (for background prefetch)
-    private val forwardPaginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for forward/manual paginate)
-    private val forwardPaginateInFlight = mutableSetOf<String>() // Rooms currently awaiting forward paginate response
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     private val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val mutualRoomsRequests = mutableMapOf<Int, (List<String>?, String?) -> Unit>() // requestId -> callback
@@ -4252,6 +4241,24 @@ class AppViewModel : ViewModel() {
     var isPaginating by mutableStateOf(false)
         private set
     var hasMoreMessages by mutableStateOf(true) // Whether there are more messages to load
+        private set
+    var autoPaginationEnabled by mutableStateOf(false)
+        private set
+    
+    fun setAutoPaginationEnabled(enabled: Boolean, reason: String? = null) {
+        if (autoPaginationEnabled != enabled) {
+            val reasonText = reason?.let { " ($it)" } ?: ""
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Auto-pagination ${if (enabled) "ENABLED" else "DISABLED"}$reasonText"
+            )
+            autoPaginationEnabled = enabled
+        }
+    }
+    
+    fun hasPendingTimelineRequest(roomId: String): Boolean {
+        return timelineRequests.values.any { it == roomId }
+    }
     
     
     private var webSocket: WebSocket? = null
@@ -5353,65 +5360,7 @@ class AppViewModel : ViewModel() {
             requestHistoricalReactions(roomId, smallestCached)
         }
 
-        if (!skipNetworkRequests) {
-            requestForwardPaginationIfNeeded(roomId, cachedEvents)
-        }
-    }
-
-    /**
-     * Ensure we are up to date by requesting a fresh chunk of the latest events.
-     * Uses the regular paginate command (forward/latest fetch) instead of paginate_manual.
-     */
-    private fun requestForwardPaginationIfNeeded(roomId: String, cachedEvents: List<TimelineEvent>) {
-        if (webSocket == null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Skipping forward paginate for $roomId - WebSocket not connected")
-            return
-        }
-
-        if (roomId != currentRoomId) {
-            android.util.Log.d("Andromuks", "AppViewModel: Skipping forward paginate for $roomId - not the active room (currentRoomId=$currentRoomId)")
-            return
-        }
-
-        if (forwardPaginateInFlight.contains(roomId)) {
-            android.util.Log.d("Andromuks", "AppViewModel: Forward paginate already in-flight for $roomId, skipping duplicate request")
-            return
-        }
-
-        val latestEvent = cachedEvents
-            .filter { it.timelineRowid > 0 }
-            .maxByOrNull { it.timelineRowid }
-
-        val sinceRowId = latestEvent?.timelineRowid ?: -1L
-        if (sinceRowId <= 0L) {
-            android.util.Log.d("Andromuks", "AppViewModel: No valid timeline_rowid found for $roomId, skipping forward paginate")
-            return
-        }
-
-        val requestId = requestIdCounter++
-        forwardPaginateRequests[requestId] = roomId
-        forwardPaginateInFlight.add(roomId)
-
-        val commandData = mapOf(
-            "room_id" to roomId,
-            "max_timeline_id" to 0,
-            "limit" to 200,
-            "reset" to false
-        )
-
-        android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Sending forward paginate for $roomId (requestId=$requestId, cachedEvents=${cachedEvents.size})"
-        )
-        val result = sendWebSocketCommand("paginate", requestId, commandData)
-        if (result != WebSocketResult.SUCCESS) {
-            android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: Failed to send forward paginate for $roomId (requestId=$requestId, result=$result)"
-            )
-            forwardPaginateRequests.remove(requestId)
-            forwardPaginateInFlight.remove(roomId)
-        }
+        // No forward paginate on open; all additional history must be user-triggered
     }
 
     private fun loadReceiptsForCachedEvents(roomId: String, cachedEvents: List<TimelineEvent>) {
@@ -5728,7 +5677,7 @@ class AppViewModel : ViewModel() {
         val safeLimit = limit.coerceAtLeast(1)
         return withContext(Dispatchers.IO) {
             val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context.applicationContext)
-            database.eventDao().getEventsForRoomAsc(roomId, safeLimit)
+            database.eventDao().getEventsForRoomDesc(roomId, safeLimit)
         }
     }
 
@@ -5739,7 +5688,7 @@ class AppViewModel : ViewModel() {
             database.eventDao().getEventCountForRoom(roomId)
         }
     }
-
+    
     fun requestRoomTimeline(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId")
         
@@ -5810,7 +5759,7 @@ class AppViewModel : ViewModel() {
             try {
                 // Use runBlocking to wait for database query (prevents race condition)
                 val dbEvents = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                    bootstrapLoader!!.loadRoomEvents(roomId, 100)
+                    bootstrapLoader!!.loadRoomEvents(roomId, 200)
                 }
                 
                 if (dbEvents.isNotEmpty()) {
@@ -5822,7 +5771,7 @@ class AppViewModel : ViewModel() {
                     val eventsInRamAfterDiskLoad = RoomTimelineCache.getCachedEventCount(roomId)
                     android.util.Log.d("Andromuks", "AppViewModel: After loading from disk, RAM cache has $eventsInRamAfterDiskLoad events")
                     
-                    if (eventsInRamAfterDiskLoad >= 100) {
+                    if (eventsInRamAfterDiskLoad >= 200) {
                         // We have enough events, show them
                         // B: Loading from Disk Storage
                         if (BuildConfig.DEBUG) {
@@ -5834,27 +5783,9 @@ class AppViewModel : ViewModel() {
                         processCachedEvents(roomId, cachedEvents!!, openingFromNotification)
                         return
                     } else {
-                        // We don't have enough events, request 200 more from backend
-                        android.util.Log.d("Andromuks", "AppViewModel: Only have $eventsInRamAfterDiskLoad events after disk load, requesting 200 more from backend")
-                        // B: Loading from Disk Storage
-                        if (BuildConfig.DEBUG) {
-                            appContext?.let { context ->
-                                android.widget.Toast.makeText(context, "B: Loading from Disk Storage", android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        }
+                        android.util.Log.d("Andromuks", "AppViewModel: Only have $eventsInRamAfterDiskLoad events after disk load - waiting for manual refresh to fetch more")
                         cachedEvents = dbEvents
                         processCachedEvents(roomId, cachedEvents!!, openingFromNotification)
-                        
-                        // Request 200 more events to reach TARGET_EVENTS_FOR_INSTANT_RENDER
-                        val paginateRequestId = requestIdCounter++
-                        timelineRequests[paginateRequestId] = roomId
-                        sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-                            "room_id" to roomId,
-                            "max_timeline_id" to 0,
-                            "limit" to 200,
-                            "reset" to false
-                        ))
-                        android.util.Log.d("Andromuks", "AppViewModel: Requested 200 more events from backend to fill cache (current: $eventsInRamAfterDiskLoad)")
                         return
                     }
                 } else {
@@ -5985,21 +5916,6 @@ class AppViewModel : ViewModel() {
                     markRoomAsRead(roomId, mostRecentEvent.eventId)
                 }
                 
-                // BACKGROUND PREFETCH: Request more events to reach 100 total
-                val eventsNeeded = 100 - partialCacheCount
-                if (eventsNeeded > 0 && smallestCached > 0) {
-                    android.util.Log.d("Andromuks", "AppViewModel: 🔄 Background prefetching $eventsNeeded more events to reach 100 total")
-                    val prefetchRequestId = requestIdCounter++
-                    backgroundPrefetchRequests[prefetchRequestId] = roomId
-                    sendWebSocketCommand("paginate", prefetchRequestId, mapOf(
-                        "room_id" to roomId,
-                        "max_timeline_id" to smallestCached,
-                        "limit" to eventsNeeded,
-                        "reset" to false
-                    ))
-                    android.util.Log.d("Andromuks", "AppViewModel: Sent background prefetch request_id=$prefetchRequestId for room=$roomId")
-                }
-                
                 return // Exit early - room is shown with partial cache
             }
         }
@@ -6073,25 +5989,9 @@ class AppViewModel : ViewModel() {
             navigationCache[roomId] = missNavigationState?.copy(memberDataLoaded = true) ?: RoomNavigationState(roomId, memberDataLoaded = true)
         }
         
-        // NAVIGATION PERFORMANCE: Only request timeline if not already cached
-        // If we have less than TARGET_EVENTS_FOR_INSTANT_RENDER (100), request 200 events
         val currentCachedCount = RoomTimelineCache.getCachedEventCount(roomId)
-        if (currentCachedCount < 100) {
-            val paginateRequestId = requestIdCounter++
-            timelineRequests[paginateRequestId] = roomId
-            // For newly joined rooms (no cache), use reset=true to get fresh data from server
-            // For rooms with partial cache, use reset=false to append to existing cache
-            val shouldReset = currentCachedCount == 0
-            sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-                "room_id" to roomId,
-                "max_timeline_id" to 0,
-                "limit" to 200,
-                "reset" to shouldReset
-            ))
-            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Requested 200 timeline events (cachedCount: $currentCachedCount, need 100, reset: $shouldReset)")
-        } else {
-            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Skipped timeline request, already cached: $currentCachedCount")
-        }
+        android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION NOTE - Cache miss with $currentCachedCount events available. Waiting for manual refresh to request additional history.")
+        isTimelineLoading = false
     }
     
     /**
@@ -6106,6 +6006,7 @@ class AppViewModel : ViewModel() {
      */
     fun fullRefreshRoomTimeline(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Full refresh for room: $roomId (resetting caches and requesting fresh snapshot)")
+        setAutoPaginationEnabled(false, "manual_refresh_$roomId")
         
         // 1. Mark room as current so sync handlers and pagination know which timeline is active
         updateCurrentRoomIdInPrefs(roomId)
@@ -6154,10 +6055,10 @@ class AppViewModel : ViewModel() {
             "paginate",
             paginateRequestId,
             mapOf(
-                "room_id" to roomId,
-                "max_timeline_id" to 0,
-                "limit" to 200,
-                "reset" to false
+            "room_id" to roomId,
+            "max_timeline_id" to 0,
+            "limit" to 200,
+            "reset" to false
             )
         )
         
@@ -6582,49 +6483,49 @@ class AppViewModel : ViewModel() {
         
         fun enqueueNetworkRequest() {
             // Avoid duplicate network requests
-            if (pendingProfileRequests.contains(requestKey)) {
-                android.util.Log.d("Andromuks", "AppViewModel: Profile request already pending for $userId, skipping duplicate")
-                return
-            }
-            
-            val currentTime = System.currentTimeMillis()
-            val lastRequestTime = recentProfileRequestTimes[requestKey]
-            if (lastRequestTime != null && (currentTime - lastRequestTime) < PROFILE_REQUEST_THROTTLE_MS) {
-                android.util.Log.d("Andromuks", "AppViewModel: Profile request throttled for $userId (requested ${currentTime - lastRequestTime}ms ago)")
-                return
-            }
-            
-            // Clean up old throttle entries (older than throttle window) to prevent memory leaks
-            val cutoffTime = currentTime - PROFILE_REQUEST_THROTTLE_MS
-            recentProfileRequestTimes.entries.removeAll { (_, timestamp) -> timestamp < cutoffTime }
-            
-            android.util.Log.d("Andromuks", "AppViewModel: Requesting profile on-demand (network) for $userId in room $roomId")
-            
-            // Check if WebSocket is connected
-            if (webSocket == null) {
-                android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, skipping on-demand profile request")
-                return
-            }
-            
-            val requestId = requestIdCounter++
-            
-            // Track this request to prevent duplicates
-            pendingProfileRequests.add(requestKey)
-            recentProfileRequestTimes[requestKey] = currentTime // Record request time for throttling
-            roomSpecificStateRequests[requestId] = roomId  // Use roomSpecificStateRequests for get_specific_room_state responses
-            
-            // Request specific room state for this user
-            sendWebSocketCommand("get_specific_room_state", requestId, mapOf(
-                "keys" to listOf(mapOf(
-                    "room_id" to roomId,
-                    "type" to "m.room.member",
-                    "state_key" to userId
-                ))
-            ))
-            
-            android.util.Log.d("Andromuks", "AppViewModel: Sent on-demand profile request with ID $requestId for $userId")
+        if (pendingProfileRequests.contains(requestKey)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Profile request already pending for $userId, skipping duplicate")
+            return
         }
         
+        val currentTime = System.currentTimeMillis()
+        val lastRequestTime = recentProfileRequestTimes[requestKey]
+        if (lastRequestTime != null && (currentTime - lastRequestTime) < PROFILE_REQUEST_THROTTLE_MS) {
+            android.util.Log.d("Andromuks", "AppViewModel: Profile request throttled for $userId (requested ${currentTime - lastRequestTime}ms ago)")
+            return
+        }
+        
+        // Clean up old throttle entries (older than throttle window) to prevent memory leaks
+        val cutoffTime = currentTime - PROFILE_REQUEST_THROTTLE_MS
+        recentProfileRequestTimes.entries.removeAll { (_, timestamp) -> timestamp < cutoffTime }
+        
+            android.util.Log.d("Andromuks", "AppViewModel: Requesting profile on-demand (network) for $userId in room $roomId")
+        
+        // Check if WebSocket is connected
+        if (webSocket == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, skipping on-demand profile request")
+            return
+        }
+        
+        val requestId = requestIdCounter++
+        
+        // Track this request to prevent duplicates
+        pendingProfileRequests.add(requestKey)
+        recentProfileRequestTimes[requestKey] = currentTime // Record request time for throttling
+        roomSpecificStateRequests[requestId] = roomId  // Use roomSpecificStateRequests for get_specific_room_state responses
+        
+        // Request specific room state for this user
+        sendWebSocketCommand("get_specific_room_state", requestId, mapOf(
+            "keys" to listOf(mapOf(
+                "room_id" to roomId,
+                "type" to "m.room.member",
+                "state_key" to userId
+            ))
+        ))
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sent on-demand profile request with ID $requestId for $userId")
+    }
+    
         val context = appContext
         if (context != null) {
             viewModelScope.launch(Dispatchers.IO) {
@@ -9015,7 +8916,7 @@ class AppViewModel : ViewModel() {
             val roomId = roomKeys.next()
             val roomData = rooms.optJSONObject(roomId) ?: continue
             val events = roomData.optJSONArray("events") ?: continue
-
+            
             val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
             RoomTimelineCache.addEventsFromSync(roomId, events, memberMap)
         }
@@ -9027,17 +8928,6 @@ class AppViewModel : ViewModel() {
             if (rooms != null) {
                 val roomData = rooms.optJSONObject(roomId)
                 if (roomData != null) {
-                    if (forwardPaginateInFlight.remove(roomId)) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Cleared forward paginate in-flight flag for $roomId after sync_complete")
-                    }
-                    if (forwardPaginateRequests.isNotEmpty()) {
-                        val completedRequestIds = forwardPaginateRequests.filterValues { it == roomId }.keys.toList()
-                        for (id in completedRequestIds) {
-                            forwardPaginateRequests.remove(id)
-                            android.util.Log.d("Andromuks", "AppViewModel: Cleared forward paginate requestId=$id for $roomId after sync_complete without explicit request_id match")
-                        }
-                    }
-                    
                     // Update room state if present
                     val meta = roomData.optJSONObject("meta")
                     if (meta != null) {
@@ -9932,6 +9822,13 @@ class AppViewModel : ViewModel() {
     }
     
     fun loadOlderMessages(roomId: String) {
+        if (!autoPaginationEnabled) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Auto-pagination suppressed; skipping loadOlderMessages for room $roomId"
+            )
+            return
+        }
         val cacheSize = RoomTimelineCache.getCachedEventCount(roomId)
         android.util.Log.d("Andromuks", "AppViewModel: ========================================")
         android.util.Log.d("Andromuks", "AppViewModel: loadOlderMessages CALLED for room: $roomId")
@@ -10051,9 +9948,9 @@ class AppViewModel : ViewModel() {
             // Use requireNotNull to ensure the compiler recognizes it as non-null
             val editEvent = requireNotNull(editEventNullable) { "Edit event $editEventId should be non-null after null check" }
             
-            android.util.Log.d("Andromuks", "AppViewModel: Following edit chain from ${currentEntry.eventId} to ${editEventId}")
-            android.util.Log.d("Andromuks", "AppViewModel: Edit event body: ${editEvent.decrypted?.optString("body", "null")}")
-            android.util.Log.d("Andromuks", "AppViewModel: Merging edit content from ${editEventId}")
+            //android.util.Log.d("Andromuks", "AppViewModel: Following edit chain from ${currentEntry.eventId} to ${editEventId}")
+            //android.util.Log.d("Andromuks", "AppViewModel: Edit event body: ${editEvent.decrypted?.optString("body", "null")}")
+            //android.util.Log.d("Andromuks", "AppViewModel: Merging edit content from ${editEventId}")
             
             // Merge the edit content into the current event
             currentEvent = mergeEditContent(currentEvent, editEvent)
@@ -10077,7 +9974,7 @@ class AppViewModel : ViewModel() {
             currentEntry = nextEntry
         }
         
-        android.util.Log.d("Andromuks", "AppViewModel: Final event body: ${currentEvent.decrypted?.optString("body", "null")}")
+        //android.util.Log.d("Andromuks", "AppViewModel: Final event body: ${currentEvent.decrypted?.optString("body", "null")}")
         return currentEvent
     }
     

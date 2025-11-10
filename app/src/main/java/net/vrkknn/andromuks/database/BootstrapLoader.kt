@@ -168,7 +168,7 @@ class BootstrapLoader(private val context: Context) {
         var totalEventsLoaded = 0
         
         for (summary in roomsToPreload) {
-            val events = eventDao.getEventsForRoomDesc(summary.roomId, 100)
+            val events = eventDao.getEventsForRoomDesc(summary.roomId, 200)
             if (events.isNotEmpty()) {
                 val timelineEvents = events.mapNotNull { entity -> entityToTimelineEvent(entity) }
                 
@@ -217,7 +217,7 @@ class BootstrapLoader(private val context: Context) {
      * Load events for a specific room from database
      * Returns list of TimelineEvents or empty list if none found
      */
-    suspend fun loadRoomEvents(roomId: String, limit: Int = 100): List<TimelineEvent> = withContext(Dispatchers.IO) {
+    suspend fun loadRoomEvents(roomId: String, limit: Int = 200): List<TimelineEvent> = withContext(Dispatchers.IO) {
         try {
             val events = eventDao.getEventsForRoomDesc(roomId, limit)
             events
