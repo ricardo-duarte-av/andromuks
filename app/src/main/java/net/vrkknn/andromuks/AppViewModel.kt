@@ -3284,10 +3284,41 @@ class AppViewModel : ViewModel() {
             if (syncIngestor == null) {
                 syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
             }
+
+            // Clone JSON before launching background jobs to avoid concurrent mutation issues
+            val persistenceJson = try {
+                org.json.JSONObject(syncJson.toString())
+            } catch (e: Exception) {
+                android.util.Log.e(
+                    "Andromuks",
+                    "AppViewModel: Failed to clone sync_complete JSON for persistence: ${e.message}",
+                    e
+                )
+                null
+            }
             
             viewModelScope.launch(Dispatchers.IO) {
+                val jsonForPersistence = persistenceJson ?: try {
+                    org.json.JSONObject(syncJson.toString())
+                } catch (cloneException: Exception) {
+                    android.util.Log.e(
+                        "Andromuks",
+                        "AppViewModel: Unable to clone sync_complete JSON on IO dispatcher: ${cloneException.message}",
+                        cloneException
+                    )
+                    null
+                }
+
+                if (jsonForPersistence == null) {
+                    android.util.Log.w(
+                        "Andromuks",
+                        "AppViewModel: Skipping sync persistence because JSON clone failed"
+                    )
+                    return@launch
+                }
+
                 try {
-                    syncIngestor?.ingestSyncComplete(syncJson, requestId, currentRunId)
+                    syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId)
                     
                     if (requestId < 0) {
                         withContext(Dispatchers.Main) {
@@ -3299,6 +3330,11 @@ class AppViewModel : ViewModel() {
                     // Don't block UI updates if persistence fails
                 }
             }
+        } ?: run {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Skipping sync persistence because appContext is null"
+            )
         }
         
         // PERFORMANCE: Move heavy JSON parsing to background thread

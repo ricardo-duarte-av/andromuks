@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.database.dao.AccountDataDao
 import net.vrkknn.andromuks.database.dao.EventDao
 import net.vrkknn.andromuks.database.dao.ReactionDao
@@ -255,6 +256,8 @@ class SyncIngestor(private val context: Context) {
      * Process a single room from sync_complete
      */
     private suspend fun processRoom(roomId: String, roomObj: JSONObject) {
+        val existingTimelineRowCache = mutableMapOf<String, Long?>()
+        
         // 1. Process room state (meta)
         val meta = roomObj.optJSONObject("meta")
         if (meta != null) {
@@ -328,7 +331,13 @@ class SyncIngestor(private val context: Context) {
                 collectReactionPersistenceFromEvent(roomId, eventJson, reactionUpserts, reactionDeletes)
                 
                 val sourceLabel = "timeline[$i]"
-                val eventEntity = parseEventFromJson(roomId, eventJson, rowid, sourceLabel)
+                val eventEntity = parseEventFromJson(
+                    roomId = roomId,
+                    eventJson = eventJson,
+                    timelineRowid = rowid,
+                    source = sourceLabel,
+                    existingTimelineRowCache = existingTimelineRowCache
+                )
                 if (eventEntity != null) {
                     events.add(EventPersistCandidate(eventEntity, sourceLabel))
                 }
@@ -361,7 +370,13 @@ class SyncIngestor(private val context: Context) {
                 val timelineRowid = eventJson.optLong("timeline_rowid", -1)
                 
                 val sourceLabel = "events[$i]"
-                val eventEntity = parseEventFromJson(roomId, eventJson, timelineRowid, sourceLabel)
+                val eventEntity = parseEventFromJson(
+                    roomId = roomId,
+                    eventJson = eventJson,
+                    timelineRowid = timelineRowid,
+                    source = sourceLabel,
+                    existingTimelineRowCache = existingTimelineRowCache
+                )
                 if (eventEntity != null) {
                     events.add(EventPersistCandidate(eventEntity, sourceLabel))
                 }
@@ -502,11 +517,12 @@ class SyncIngestor(private val context: Context) {
     /**
      * Parse an event JSON into EventEntity
      */
-    private fun parseEventFromJson(
+    private suspend fun parseEventFromJson(
         roomId: String,
         eventJson: JSONObject,
         timelineRowid: Long,
-        source: String
+        source: String,
+        existingTimelineRowCache: MutableMap<String, Long?>
     ): EventEntity? {
         val eventIdRaw = eventJson.opt("event_id")
         if (eventIdRaw !is String || eventIdRaw.isBlank()) {
@@ -530,6 +546,35 @@ class SyncIngestor(private val context: Context) {
         val sender = eventJson.optString("sender") ?: ""
         val timestamp = eventJson.optLong("origin_server_ts", 0L)
         val decryptedType = eventJson.optString("decrypted_type")
+        
+        var resolvedTimelineRowId = when {
+            timelineRowid > 0 -> timelineRowid
+            eventJson.has("timeline_row_id") -> eventJson.optLong("timeline_row_id").takeIf { it > 0 }
+            eventJson.has("rowid") -> eventJson.optLong("rowid").takeIf { it > 0 }
+            else -> null
+        } ?: -1L
+        
+        if (resolvedTimelineRowId <= 0) {
+            val cachedValue = existingTimelineRowCache[eventId]
+            val preservedRowId = if (cachedValue != null) {
+                cachedValue
+            } else {
+                val existing = eventDao.getEventById(roomId, eventId)
+                existingTimelineRowCache[eventId] = existing?.timelineRowId
+                existing?.timelineRowId
+            }
+            if (preservedRowId != null && preservedRowId > 0) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        TAG,
+                        "SyncIngestor: Preserving timelineRowId $preservedRowId for event $eventId (source=$source)"
+                    )
+                }
+                resolvedTimelineRowId = preservedRowId
+            }
+        } else {
+            existingTimelineRowCache[eventId] = resolvedTimelineRowId
+        }
         
         // Extract relates_to for edits/reactions
         val content = eventJson.optJSONObject("content")
@@ -586,7 +631,7 @@ class SyncIngestor(private val context: Context) {
         return EventEntity(
             eventId = eventId,
             roomId = roomId,
-            timelineRowId = timelineRowid,
+            timelineRowId = resolvedTimelineRowId,
             timestamp = timestamp,
             type = type,
             sender = sender,
@@ -789,10 +834,16 @@ class SyncIngestor(private val context: Context) {
             val reactionUpserts = mutableMapOf<String, ReactionEntity>()
             val reactionDeletes = mutableSetOf<String>()
             val candidates = mutableListOf<EventPersistCandidate>()
-            events.forEachIndexed { index, event ->
+            val existingTimelineRowCache = mutableMapOf<String, Long?>()
+            for ((index, event) in events.withIndex()) {
                 collectReactionPersistenceFromTimelineEvent(roomId, event, reactionUpserts, reactionDeletes)
                 val sourceLabel = "paginate[$index]"
-                val entity = parseEventFromTimelineEvent(roomId, event, sourceLabel)
+                val entity = parseEventFromTimelineEvent(
+                    roomId = roomId,
+                    event = event,
+                    source = sourceLabel,
+                    existingTimelineRowCache = existingTimelineRowCache
+                )
                 if (entity != null) {
                     candidates.add(EventPersistCandidate(entity, sourceLabel))
                 }
@@ -838,10 +889,11 @@ class SyncIngestor(private val context: Context) {
     /**
      * Parse TimelineEvent to EventEntity
      */
-    private fun parseEventFromTimelineEvent(
+    private suspend fun parseEventFromTimelineEvent(
         roomId: String,
         event: TimelineEvent,
-        source: String
+        source: String,
+        existingTimelineRowCache: MutableMap<String, Long?>
     ): EventEntity? {
         val eventId = event.eventId
         if (eventId.isBlank()) {
@@ -879,6 +931,33 @@ class SyncIngestor(private val context: Context) {
             return null
         }
         
+        var resolvedTimelineRowId = when {
+            event.timelineRowid > 0 -> event.timelineRowid
+            event.rowid > 0 -> event.rowid
+            else -> -1L
+        }
+        if (resolvedTimelineRowId <= 0) {
+            val cachedValue = existingTimelineRowCache[eventId]
+            val preservedRowId = if (cachedValue != null) {
+                cachedValue
+            } else {
+                val existing = eventDao.getEventById(roomId, eventId)
+                existingTimelineRowCache[eventId] = existing?.timelineRowId
+                existing?.timelineRowId
+            }
+            if (preservedRowId != null && preservedRowId > 0) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        TAG,
+                        "SyncIngestor: Preserving timelineRowId $preservedRowId for timeline event $eventId (source=$source)"
+                    )
+                }
+                resolvedTimelineRowId = preservedRowId
+            }
+        } else {
+            existingTimelineRowCache[eventId] = resolvedTimelineRowId
+        }
+        
         // Extract relates_to for edits/reactions
         val content = event.content
         val relatesTo = content?.optJSONObject("m.relates_to")
@@ -911,7 +990,7 @@ class SyncIngestor(private val context: Context) {
         return EventEntity(
             eventId = eventId,
             roomId = roomId,
-            timelineRowId = event.timelineRowid,
+            timelineRowId = resolvedTimelineRowId,
             timestamp = event.timestamp,
             type = event.type,
             sender = event.sender,
