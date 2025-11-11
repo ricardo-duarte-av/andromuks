@@ -5577,6 +5577,7 @@ class AppViewModel : ViewModel() {
             requestHistoricalReactions(roomId, smallestCached)
         }
 
+        setAutoPaginationEnabled(true, "cache_load_$roomId")
         // No forward paginate on open; all additional history must be user-triggered
     }
 
@@ -10092,7 +10093,7 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Merged pagination events, timeline now has ${this.timelineEvents.size} events")
     }
     
-    fun loadOlderMessages(roomId: String) {
+    fun loadOlderMessages(roomId: String, showToast: Boolean = true) {
         if (!autoPaginationEnabled) {
             android.util.Log.d(
                 "Andromuks",
@@ -10147,8 +10148,10 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: ========================================")
         
         // Show "Loading more..." toast
-        appContext?.let { context ->
-            android.widget.Toast.makeText(context, "Loading more messages...", android.widget.Toast.LENGTH_SHORT).show()
+        if (showToast) {
+            appContext?.let { context ->
+                android.widget.Toast.makeText(context, "Loading more messages...", android.widget.Toast.LENGTH_SHORT).show()
+            }
         }
         
         sendWebSocketCommand("paginate", paginateRequestId, mapOf(
@@ -11780,6 +11783,8 @@ class AppViewModel : ViewModel() {
         if (roomsPendingDbRehydrate.contains(roomId)) {
             scheduleRoomRehydrateFromDb(roomId)
         }
+        
+        setAutoPaginationEnabled(true, "pagination_merge_$roomId")
     }
     
     /**
@@ -11814,6 +11819,7 @@ class AppViewModel : ViewModel() {
         }
         
         smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
+        setAutoPaginationEnabled(true, "initial_timeline_$roomId")
     }
     
     /**

@@ -856,6 +856,18 @@ fun RoomTimelineScreen(
             items
         }
 
+    val eventOrdinalByTimelineIndex = remember(timelineItems) {
+        var ordinal = 0
+        timelineItems.map { item ->
+            if (item is TimelineItem.Event) {
+                ordinal += 1
+                ordinal
+            } else {
+                null
+            }
+        }
+    }
+
     // Get member map that observes memberUpdateCounter and includes global cache fallback for TimelineEventItem profile updates
     val memberMap = remember(roomId, appViewModel.memberUpdateCounter, sortedEvents) {
         appViewModel.getMemberMapWithFallback(roomId, sortedEvents)
@@ -923,10 +935,57 @@ fun RoomTimelineScreen(
             val totalItems = timelineItems.size
             
             if (firstVisibleIndex <= 5) {
+                if (!appViewModel.autoPaginationEnabled) {
+                    Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen: Near top (index=$firstVisibleIndex/$totalItems). Auto-pagination disabled; waiting for manual refresh."
+                    )
+                } else {
+                    Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen: Near top (index=$firstVisibleIndex/$totalItems). Monitoring for auto-pagination trigger."
+                    )
+                }
+            }
+
+            val visibleEventInfo = listState.layoutInfo.visibleItemsInfo
+                .sortedBy { it.index }
+                .firstOrNull { info ->
+                    val idx = info.index
+                    idx in timelineItems.indices && timelineItems[idx] is TimelineItem.Event
+                }
+
+            val firstVisibleEventIndex = visibleEventInfo?.index ?: run {
+                val searchStart = listState.firstVisibleItemIndex.coerceAtLeast(0)
+                (searchStart until timelineItems.size).firstOrNull { idx ->
+                    timelineItems[idx] is TimelineItem.Event
+                }
+            }
+            val firstVisibleEventOrdinal = firstVisibleEventIndex?.let { idx ->
+                eventOrdinalByTimelineIndex.getOrNull(idx)
+            }
+
+            val shouldTriggerAutoPaginate = appViewModel.autoPaginationEnabled &&
+                firstVisibleEventOrdinal != null &&
+                firstVisibleEventOrdinal <= 20 &&
+                !isLoadingMore &&
+                !appViewModel.isPaginating
+
+            if (shouldTriggerAutoPaginate) {
                 Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Near top (index=$firstVisibleIndex/$totalItems). Auto-pagination disabled; waiting for manual refresh."
+                    "RoomTimelineScreen: Auto-pagination trigger reached (event ordinal=$firstVisibleEventOrdinal)"
                 )
+                val anchorItem = firstVisibleEventIndex
+                    ?.let { idx -> timelineItems.getOrNull(idx) as? TimelineItem.Event }
+                    ?: timelineItems.firstOrNull { it is TimelineItem.Event } as? TimelineItem.Event
+
+                anchorEventIdForRestore = anchorItem?.event?.eventId
+                anchorScrollOffsetForRestore = visibleEventInfo?.offset ?: listState.firstVisibleItemScrollOffset
+                pendingScrollRestoration = anchorEventIdForRestore != null
+
+                isLoadingMore = true
+                appViewModel.loadOlderMessages(roomId, showToast = false)
             }
         }
     }
