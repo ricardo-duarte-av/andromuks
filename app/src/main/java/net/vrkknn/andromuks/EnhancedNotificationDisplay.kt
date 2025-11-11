@@ -34,6 +34,7 @@ import net.vrkknn.andromuks.utils.htmlToNotificationText
 import androidx.core.content.FileProvider
 import java.io.IOException
 import java.net.URL
+import java.util.Collections
 
 class EnhancedNotificationDisplay(private val context: Context, private val homeserverUrl: String, private val authToken: String) {
     
@@ -53,6 +54,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         
         // Remote input key
         private const val KEY_REPLY_TEXT = "key_reply_text"
+        private val autoExpandedBubbleRooms =
+            Collections.synchronizedSet(mutableSetOf<String>())
     }
     
     private val conversationsApi = ConversationsApi(context, homeserverUrl, authToken, "")
@@ -600,6 +603,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 
                 val bubbleIcon = (if (isGroupRoom) roomAvatarIcon else senderAvatarIcon)
                     ?: createDefaultAdaptiveIcon()
+                val shouldAutoExpand = autoExpandedBubbleRooms.add(notificationData.roomId)
                 
                 val desiredHeight = TypedValue.applyDimension(
                     TypedValue.COMPLEX_UNIT_DIP,
@@ -609,7 +613,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 
                 NotificationCompat.BubbleMetadata.Builder(bubblePendingIntent, bubbleIcon)
                     .setDesiredHeight(desiredHeight)
-                    .setAutoExpandBubble(true)
+                    .setAutoExpandBubble(shouldAutoExpand)
                     .setSuppressNotification(false)
                     .build()
             } catch (e: Exception) {

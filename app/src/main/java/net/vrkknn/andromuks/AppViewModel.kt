@@ -4121,10 +4121,10 @@ class AppViewModel : ViewModel() {
                 timelineRefreshTrigger++
             }
         } else {
-            if (currentRoomId.isNotEmpty()) {
-                android.util.Log.d("Andromuks", "AppViewModel: Bubble hidden - clearing current room ($currentRoomId) to allow notifications")
-                clearCurrentRoomId(shouldRestoreOnVisible = true)
-            }
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Bubble hidden - notifications remain enabled for $currentRoomId"
+            )
         }
         // Don't call refreshUIState() - bubbles don't need room list updates or shortcut updates
     }
@@ -4275,6 +4275,16 @@ class AppViewModel : ViewModel() {
         currentRoomId = roomId
         // PHASE 1: Update Repository in parallel with AppViewModel
         RoomRepository.setCurrentRoom(roomId)
+
+        val shouldPersistForNotifications = instanceRole != InstanceRole.BUBBLE
+        if (!shouldPersistForNotifications) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Skipping SharedPreferences current room update for bubble instance (roomId=$roomId)"
+            )
+            return
+        }
+
         // Save to SharedPreferences so notification service can check if room is open
         // Use commit() instead of apply() to ensure immediate write (critical for notification suppression)
         appContext?.applicationContext?.let { context ->
@@ -5013,14 +5023,13 @@ class AppViewModel : ViewModel() {
                             // Load spaces from database
                             kotlinx.coroutines.runBlocking(Dispatchers.IO) {
                                 val loadedSpaces = bootstrapLoader!!.loadSpacesFromDb(roomMap)
-                                if (loadedSpaces.isNotEmpty()) {
-                                    allSpaces = loadedSpaces
-                                    spaceList = loadedSpaces
-                                    spacesLoaded = true
-                                    android.util.Log.d("Andromuks", "AppViewModel: Loaded ${loadedSpaces.size} spaces from database")
-                                } else {
-                                    android.util.Log.d("Andromuks", "AppViewModel: No spaces found in database")
-                                }
+                                allSpaces = loadedSpaces
+                                spaceList = loadedSpaces
+                                spacesLoaded = true
+                                android.util.Log.d(
+                                    "Andromuks",
+                                    "AppViewModel: Loaded ${loadedSpaces.size} spaces from database (spacesLoaded=${spacesLoaded})"
+                                )
                             }
                             
                             // Load account_data from database
