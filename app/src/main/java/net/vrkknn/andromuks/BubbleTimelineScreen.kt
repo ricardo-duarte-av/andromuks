@@ -769,6 +769,11 @@ fun BubbleTimelineScreen(
             var previousEvent: TimelineEvent? = null
 
             for (event in sortedEvents) {
+                if (event.type == "m.reaction") {
+                    // Reactions mutate their target event and should not render as standalone timeline items
+                    continue
+                }
+
                 // Format date inline to avoid @Composable context issue
                 val date = Date(event.timestamp)
                 val formatter = SimpleDateFormat("dd / MM / yyyy", Locale.getDefault())
