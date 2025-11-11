@@ -85,10 +85,11 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontStyle
@@ -873,6 +874,10 @@ fun RoomTimelineScreen(
         appViewModel.getMemberMapWithFallback(roomId, sortedEvents)
     }
 
+    val hasMoreMessages = appViewModel.hasMoreMessages
+    var showLoadMoreButton by remember(roomId) { mutableStateOf(false) }
+    var loadMoreButtonHeightPx by remember { mutableStateOf(0) }
+
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
 
@@ -946,6 +951,11 @@ fun RoomTimelineScreen(
                         "RoomTimelineScreen: Near top (index=$firstVisibleIndex/$totalItems). Monitoring for auto-pagination trigger."
                     )
                 }
+                if (!showLoadMoreButton && !appViewModel.isPaginating) {
+                    showLoadMoreButton = true
+                }
+            } else if (showLoadMoreButton && firstVisibleIndex > 8) {
+                showLoadMoreButton = false
             }
 
             val visibleEventInfo = listState.layoutInfo.visibleItemsInfo
@@ -1458,6 +1468,41 @@ fun RoomTimelineScreen(
                                     }
                                 }
                             }
+
+            if (showLoadMoreButton) {
+                item(key = "load_more_button") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onGloballyPositioned { coordinates ->
+                                loadMoreButtonHeightPx = coordinates.size.height
+                            }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Button(
+                            onClick = {
+                                showLoadMoreButton = false
+                                isLoadingMore = true
+                                if (loadMoreButtonHeightPx > 0) {
+                                    val offset = listState.firstVisibleItemScrollOffset + loadMoreButtonHeightPx
+                                    coroutineScope.launch {
+                                        listState.scrollToItem(
+                                            index = listState.firstVisibleItemIndex,
+                                            scrollOffset = offset
+                                        )
+                                    }
+                                }
+                                appViewModel.loadOlderMessages(roomId, showToast = false)
+                            },
+                            shape = CircleShape,
+                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
+                        ) {
+                            Text("Load More")
+                        }
+                    }
+                }
+            }
 
                             // PERFORMANCE: Use stable keys and pre-computed consecutive flags
                             items(
