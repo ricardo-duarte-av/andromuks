@@ -104,6 +104,7 @@ class MainActivity : ComponentActivity() {
                             WebSocketHealthCheckWorker.schedule(this)
                             
                             // OPTIMIZATION #2: Optimized intent processing
+                            val shortcutUserId = intent.getStringExtra(PersonsApi.EXTRA_USER_ID)
                             val roomId = intent.getStringExtra("room_id")
                             val directNavigation = intent.getBooleanExtra("direct_navigation", false)
                             val fromNotification = intent.getBooleanExtra("from_notification", false)
@@ -127,6 +128,9 @@ class MainActivity : ComponentActivity() {
                                 Log.d("Andromuks", "MainActivity: onCreate - Direct navigation to room: $extractedRoomId")
                                 // Store for immediate navigation once UI is ready
                                 appViewModel.setDirectRoomNavigation(extractedRoomId)
+                                if (!shortcutUserId.isNullOrBlank()) {
+                                    appViewModel.reportPersonShortcutUsed(shortcutUserId)
+                                }
                             }
                             
                             // Register broadcast receiver for notification actions
@@ -138,6 +142,9 @@ class MainActivity : ComponentActivity() {
                                 pendingShareIntent = null
                             }
                         }
+
+                        // Re-attach to existing WebSocket connection if the service already has one
+                        viewModel.attachToExistingWebSocketIfAvailable()
 
                         if (!viewModelVisibilitySynced) {
                             viewModelVisibilitySynced = true
@@ -164,15 +171,29 @@ class MainActivity : ComponentActivity() {
             pendingShareIntent = intent
             return
         }
+        val targetRoomId = intent.getStringExtra(PersonsApi.EXTRA_ROOM_ID)
+        val targetUserId = intent.getStringExtra(PersonsApi.EXTRA_USER_ID)
         val shareItems = extractShareItems(intent)
         val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
-        if (shareItems.isEmpty() && sharedText.isNullOrBlank()) {
-            Log.w("Andromuks", "MainActivity: Share intent ignored - no media or text payload")
+        if (shareItems.isEmpty() && sharedText.isNullOrBlank() && targetRoomId.isNullOrBlank()) {
+            Log.w("Andromuks", "MainActivity: Share intent ignored - no media/text and no target room")
             return
         }
 
-        appViewModel.setPendingShare(shareItems, sharedText)
-        Log.d("Andromuks", "MainActivity: Share intent processed with ${shareItems.size} media items")
+        appViewModel.setPendingShare(shareItems, sharedText, targetRoomId)
+        Log.d(
+            "Andromuks",
+            "MainActivity: Share intent processed with ${shareItems.size} media items, targetRoom=$targetRoomId"
+        )
+
+        if (!targetRoomId.isNullOrBlank()) {
+            if (!targetUserId.isNullOrBlank()) {
+                appViewModel.reportPersonShortcutUsed(targetUserId)
+            }
+            appViewModel.setDirectRoomNavigation(targetRoomId)
+            appViewModel.navigateToRoomWithCache(targetRoomId)
+            appViewModel.markPendingShareNavigationHandled()
+        }
 
         // Prevent re-processing of the same intent
         pendingShareIntent = null
@@ -427,6 +448,7 @@ class MainActivity : ComponentActivity() {
         }
         
         // OPTIMIZATION #2: Optimized intent processing for onNewIntent
+        val shortcutUserId = intent.getStringExtra(PersonsApi.EXTRA_USER_ID)
         val roomId = intent.getStringExtra("room_id")
         val directNavigation = intent.getBooleanExtra("direct_navigation", false)
         val fromNotification = intent.getBooleanExtra("from_notification", false)
@@ -450,6 +472,9 @@ class MainActivity : ComponentActivity() {
                 Log.d("Andromuks", "MainActivity: onNewIntent - Direct navigation to room: $roomId")
                 // OPTIMIZATION #1: Direct navigation instead of pending state
                 appViewModel.setDirectRoomNavigation(roomId)
+                if (!shortcutUserId.isNullOrBlank()) {
+                    appViewModel.reportPersonShortcutUsed(shortcutUserId)
+                }
                 // Force navigation if app is already running
                 if (appViewModel.spacesLoaded) {
                     // App is already initialized, trigger navigation directly

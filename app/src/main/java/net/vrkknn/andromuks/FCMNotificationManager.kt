@@ -20,6 +20,7 @@ import java.io.IOException
 data class FCMComponents(
     val fcmNotificationManager: FCMNotificationManager,
     val conversationsApi: ConversationsApi,
+    val personsApi: PersonsApi,
     val webClientPushIntegration: WebClientPushIntegration
 )
 
@@ -60,6 +61,7 @@ class FCMNotificationManager(private val context: Context) {
             
             val fcmNotificationManager = FCMNotificationManager(context)
             val conversationsApi = ConversationsApi(context, homeserverUrl, authToken, realMatrixHomeserverUrl)
+            val personsApi = PersonsApi(context, homeserverUrl, authToken, realMatrixHomeserverUrl)
             val webClientPushIntegration = WebClientPushIntegration(context)
             
             android.util.Log.d(TAG, "FCM components initialized successfully")
@@ -67,6 +69,7 @@ class FCMNotificationManager(private val context: Context) {
             return FCMComponents(
                 fcmNotificationManager = fcmNotificationManager,
                 conversationsApi = conversationsApi,
+                personsApi = personsApi,
                 webClientPushIntegration = webClientPushIntegration
             )
         }

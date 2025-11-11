@@ -159,19 +159,35 @@ class AppViewModel : ViewModel() {
         private set
     private var pendingShareTargetRoomId: String? = null
 
-    fun setPendingShare(items: List<SharedMediaItem>, text: String?) {
+    fun setPendingShare(
+        items: List<SharedMediaItem>,
+        text: String?,
+        autoSelectRoomId: String? = null
+    ) {
         if (items.isEmpty() && text.isNullOrBlank()) {
             android.util.Log.w("Andromuks", "AppViewModel: Ignoring pending share with no content")
             return
         }
         android.util.Log.d(
             "Andromuks",
-            "AppViewModel: Pending share set with ${items.size} items, hasText=${!text.isNullOrBlank()}"
+            "AppViewModel: Pending share set with ${items.size} items, hasText=${!text.isNullOrBlank()}, autoSelectRoom=$autoSelectRoomId"
         )
         pendingShare = PendingSharePayload(items, text)
         pendingShareTargetRoomId = null
-        pendingShareNavigationRequested = true
+        pendingShareNavigationRequested = autoSelectRoomId == null
         pendingShareUpdateCounter++
+        if (!autoSelectRoomId.isNullOrBlank()) {
+            pendingShareTargetRoomId = autoSelectRoomId
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Pending share auto-selected room: $autoSelectRoomId"
+            )
+        }
+    }
+
+    fun reportPersonShortcutUsed(userId: String) {
+        if (userId.isBlank()) return
+        personsApi?.reportShortcutUsed(userId)
     }
 
     fun clearPendingShare() {
@@ -604,6 +620,9 @@ class AppViewModel : ViewModel() {
     // Conversations API for shortcuts and enhanced notifications
     private var conversationsApi: ConversationsApi? = null
     
+    // Persons API for People/Share surfaces
+    private var personsApi: PersonsApi? = null
+    
     // Web client push integration
     private var webClientPushIntegration: WebClientPushIntegration? = null
     
@@ -785,6 +804,7 @@ class AppViewModel : ViewModel() {
         allSpaces = emptyList()
         spaceList = emptyList()
         spacesLoaded = false
+        personsApi?.clear()
         synchronized(readReceiptsLock) {
             readReceipts.clear()
         }
@@ -1099,6 +1119,67 @@ class AppViewModel : ViewModel() {
         
         android.util.Log.d("Andromuks", "AppViewModel: Badge counts - DMs: $directChatsUnread, Unread: $unreadCount, Favs: $favouritesUnread")
     }
+
+    private fun buildDirectPersonTargets(rooms: List<RoomItem>): List<PersonTarget> {
+        if (currentUserId.isBlank()) {
+            return emptyList()
+        }
+
+        val result = mutableMapOf<String, PersonTarget>()
+
+        for (room in rooms) {
+            if (!room.isDirectMessage) continue
+
+            val timestamp = room.sortingTimestamp ?: 0L
+            val roomDisplayName = room.name
+            var foundOtherMember = false
+
+            val memberMap = try {
+                getMemberMap(room.id)
+            } catch (e: Exception) {
+                android.util.Log.w("Andromuks", "AppViewModel: Failed to get member map for ${room.id}", e)
+                emptyMap()
+            }
+
+            for ((userId, profile) in memberMap) {
+                if (userId == currentUserId) continue
+                foundOtherMember = true
+                val displayName = profile.displayName?.takeIf { it.isNotBlank() }
+                    ?: roomDisplayName.ifBlank { userId }
+                val existing = result[userId]
+                if (existing == null || timestamp > existing.lastActiveTimestamp) {
+                    result[userId] = PersonTarget(
+                        userId = userId,
+                        displayName = displayName,
+                        avatarUrl = profile.avatarUrl,
+                        roomId = room.id,
+                        roomDisplayName = roomDisplayName,
+                        lastActiveTimestamp = timestamp
+                    )
+                }
+            }
+
+            if (!foundOtherMember) {
+                val inferredUserId = room.messageSender
+                if (!inferredUserId.isNullOrBlank() && inferredUserId != currentUserId) {
+                    val displayName = roomDisplayName.ifBlank { inferredUserId }
+                    val existing = result[inferredUserId]
+                    if (existing == null || timestamp > existing.lastActiveTimestamp) {
+                        result[inferredUserId] = PersonTarget(
+                            userId = inferredUserId,
+                            displayName = displayName,
+                            avatarUrl = null,
+                            roomId = room.id,
+                            roomDisplayName = roomDisplayName,
+                            lastActiveTimestamp = timestamp
+                        )
+                    }
+                }
+            }
+        }
+
+        return result.values.sortedByDescending { it.lastActiveTimestamp }
+    }
     
     fun getCurrentRoomSection(): RoomSection {
         // PERFORMANCE: Mark current section as loaded (enables lazy filtering)
@@ -1283,6 +1364,7 @@ class AppViewModel : ViewModel() {
         )
         fcmNotificationManager = components.fcmNotificationManager
         conversationsApi = components.conversationsApi
+        personsApi = components.personsApi
         webClientPushIntegration = components.webClientPushIntegration
         
         // Network monitoring will be started when WebSocket service starts
@@ -3471,6 +3553,7 @@ class AppViewModel : ViewModel() {
                     // Use sorted rooms for shortcuts (they need to be sorted)
                     val sortedRoomsForShortcuts = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
                     conversationsApi?.updateConversationShortcuts(sortedRoomsForShortcuts)
+                    personsApi?.updatePersons(buildDirectPersonTargets(sortedRoomsForShortcuts))
                 }
             } else {
                 // Room state hash unchanged - check if individual rooms need timestamp updates
@@ -3548,6 +3631,7 @@ class AppViewModel : ViewModel() {
             if (syncMessageCount % 10 == 0) {
                 android.util.Log.d("Andromuks", "AppViewModel: Background: Updating conversation shortcuts (throttled)")
                 conversationsApi?.updateConversationShortcuts(sortedRooms)
+                personsApi?.updatePersons(buildDirectPersonTargets(sortedRooms))
             }
         }
         
@@ -3576,9 +3660,11 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: Updating ConversationsApi with real homeserver URL after init_complete")
             // Create new ConversationsApi instance with real homeserver URL
             conversationsApi = ConversationsApi(appContext!!, homeserverUrl, authToken, realMatrixHomeserverUrl)
+            personsApi = PersonsApi(appContext!!, homeserverUrl, authToken, realMatrixHomeserverUrl)
             // Refresh shortcuts with the new homeserver URL and populated rooms
             if (roomMap.isNotEmpty()) {
                 conversationsApi?.updateConversationShortcuts(roomMap.values.toList())
+                personsApi?.updatePersons(buildDirectPersonTargets(roomMap.values.toList()))
             }
         }
         
@@ -3976,6 +4062,7 @@ class AppViewModel : ViewModel() {
         
         // Update conversation shortcuts
         conversationsApi?.updateConversationShortcuts(sortedRooms)
+        personsApi?.updatePersons(buildDirectPersonTargets(sortedRooms))
         
         android.util.Log.d("Andromuks", "AppViewModel: UI refreshed, roomListUpdateCounter: $roomListUpdateCounter")
     }
