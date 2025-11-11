@@ -46,6 +46,7 @@ import net.vrkknn.andromuks.utils.CrashHandler
 import net.vrkknn.andromuks.utils.CrashReportDialog
 import androidx.lifecycle.Lifecycle
 import net.vrkknn.andromuks.SharedMediaItem
+import java.net.URLDecoder
 
 class MainActivity : ComponentActivity() {
     private lateinit var appViewModel: AppViewModel
@@ -546,9 +547,42 @@ class MainActivity : ComponentActivity() {
             Log.d("Andromuks", "MainActivity: URI is null")
             return null
         }
-        
-        // Use the extractRoomLink utility function
-        val roomLink = net.vrkknn.andromuks.utils.extractRoomLink(uri.toString())
+
+        val uriString = uri.toString()
+
+        if (uriString.startsWith("matrix:u/", ignoreCase = true)) {
+            val encodedUser = uriString.substringAfter("matrix:u/", missingDelimiterValue = "")
+                .substringBefore("?")
+            val decodedUser = runCatching {
+                URLDecoder.decode(encodedUser, Charsets.UTF_8.name())
+            }.getOrDefault(encodedUser)
+            val userId = if (decodedUser.startsWith("@")) decodedUser else "@$decodedUser"
+
+            if (::appViewModel.isInitialized) {
+                val roomId = appViewModel.getDirectRoomIdForUser(userId)
+                if (roomId != null) {
+                    Log.d(
+                        "Andromuks",
+                        "MainActivity: Resolved matrix:u URI for $userId to direct room $roomId"
+                    )
+                    return roomId
+                }
+            } else {
+                Log.w(
+                    "Andromuks",
+                    "MainActivity: ViewModel not initialised yet, cannot resolve matrix:u URI"
+                )
+            }
+
+            Log.w(
+                "Andromuks",
+                "MainActivity: No direct room found for matrix:u URI ($userId)"
+            )
+            return null
+        }
+
+        // Use the extractRoomLink utility function for all other matrix URIs
+        val roomLink = net.vrkknn.andromuks.utils.extractRoomLink(uriString)
         if (roomLink != null) {
             Log.d("Andromuks", "MainActivity: Extracted room link: ${roomLink.roomIdOrAlias}")
             return roomLink.roomIdOrAlias

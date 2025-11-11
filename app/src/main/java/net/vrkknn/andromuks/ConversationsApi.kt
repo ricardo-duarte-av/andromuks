@@ -536,13 +536,16 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             "matrix:roomid/${shortcut.roomId.substring(1)}"
         }
         Log.d(TAG, "Creating conversation shortcut with matrix URI: $matrixUri")
-        val intent = android.content.Intent(context, ChatBubbleActivity::class.java).apply {
-            action = android.content.Intent.ACTION_VIEW
-            data = android.net.Uri.parse(matrixUri)
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse(matrixUri),
+            context,
+            MainActivity::class.java
+        ).apply {
             putExtra("room_id", shortcut.roomId)
             putExtra("direct_navigation", true) // Flag for optimized processing
-            putExtra("bubble_mode", true)
-            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("from_shortcut", true)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         
         val icon = if (shortcut.roomAvatarUrl != null) {
@@ -614,13 +617,16 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             "matrix:roomid/${shortcut.roomId.substring(1)}"
         }
         Log.d(TAG, "Creating conversation shortcut with matrix URI: $matrixUri")
-        val intent = android.content.Intent(context, ChatBubbleActivity::class.java).apply {
-            action = android.content.Intent.ACTION_VIEW
-            data = android.net.Uri.parse(matrixUri)
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse(matrixUri),
+            context,
+            MainActivity::class.java
+        ).apply {
             putExtra("room_id", shortcut.roomId)
             putExtra("direct_navigation", true) // Flag for optimized processing
-            putExtra("bubble_mode", true)
-            flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP
+            putExtra("from_shortcut", true)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         
         val icon = if (shortcut.roomAvatarUrl != null) {

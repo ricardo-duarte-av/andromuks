@@ -321,6 +321,10 @@ class AppViewModel : ViewModel() {
     // Cache for DM room IDs from m.direct account data
     private var directMessageRoomIds by mutableStateOf(setOf<String>())
         private set
+
+    // Cache mapping of userId -> set of direct room IDs (from m.direct)
+    private var directMessageUserMap: Map<String, Set<String>> = emptyMap()
+        private set
     
     // Bridge-related properties
     var allBridges by mutableStateOf(listOf<BridgeItem>())
@@ -858,6 +862,55 @@ class AppViewModel : ViewModel() {
         return cachedDirectChatsHasHighlights
     }
     
+    /**
+     * Get the most relevant direct-message room for a given user, if any.
+     * Prefers rooms listed in account data; falls back to scanning direct rooms.
+     */
+    fun getDirectRoomIdForUser(userId: String): String? {
+        if (userId.isBlank()) return null
+
+        val normalizedUserId = if (userId.startsWith("@")) userId else "@$userId"
+        val candidateRooms = mutableListOf<RoomItem>()
+
+        // 1. Use mapping from m.direct account data if available
+        directMessageUserMap[normalizedUserId]?.forEach { roomId ->
+            roomMap[roomId]?.let { candidateRooms.add(it) }
+        }
+
+        // 2. Fallback: scan known direct rooms for the user
+        if (candidateRooms.isEmpty()) {
+            val roomsToCheck = if (cachedDirectChatRooms.isNotEmpty()) {
+                cachedDirectChatRooms
+            } else {
+                allRooms.filter { it.isDirectMessage }
+            }
+
+            for (room in roomsToCheck) {
+                try {
+                    val members = getMemberMap(room.id)
+                    if (members.containsKey(normalizedUserId)) {
+                        candidateRooms.add(room)
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w(
+                        "Andromuks",
+                        "AppViewModel: Failed to inspect members for room ${room.id} when resolving DM for $normalizedUserId",
+                        e
+                    )
+                }
+            }
+        }
+
+        if (candidateRooms.isEmpty()) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: No direct room found for user $normalizedUserId"
+            )
+        }
+
+        return candidateRooms.maxByOrNull { it.sortingTimestamp ?: 0L }?.id
+    }
+
     /**
      * Get the count of unread rooms for Favourites tab
      * PERFORMANCE: Uses pre-computed cached count for O(1) access
@@ -2887,6 +2940,7 @@ class AppViewModel : ViewModel() {
             val content = mDirectData.optJSONObject("content")
             if (content != null) {
                 val dmRoomIds = mutableSetOf<String>()
+                val dmUserMap = mutableMapOf<String, MutableSet<String>>()
                 
                 // Extract all room IDs from m.direct content
                 val keys = content.names()
@@ -2895,10 +2949,12 @@ class AppViewModel : ViewModel() {
                         val userId = keys.optString(i)
                         val roomIdsArray = content.optJSONArray(userId)
                         if (roomIdsArray != null) {
+                            val roomsForUser = dmUserMap.getOrPut(userId) { mutableSetOf() }
                             for (j in 0 until roomIdsArray.length()) {
                                 val roomId = roomIdsArray.optString(j)
                                 if (roomId.isNotBlank()) {
                                     dmRoomIds.add(roomId)
+                                    roomsForUser.add(roomId)
                                 }
                             }
                         }
@@ -2907,7 +2963,11 @@ class AppViewModel : ViewModel() {
                 
                 // Update the DM room IDs cache
                 directMessageRoomIds = dmRoomIds
-                android.util.Log.d("Andromuks", "AppViewModel: Loaded ${dmRoomIds.size} DM room IDs from m.direct account data: ${dmRoomIds.take(5)}")
+                directMessageUserMap = dmUserMap.mapValues { it.value.toSet() }
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Loaded ${dmRoomIds.size} DM room IDs for ${dmUserMap.size} users from m.direct account data"
+                )
                 
                 // PERFORMANCE: Update existing rooms in roomMap with correct DM status from account_data
                 // This ensures rooms loaded from database have correct isDirectMessage flag
