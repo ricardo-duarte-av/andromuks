@@ -15,6 +15,7 @@ import net.vrkknn.andromuks.database.entities.EventEntity
 import org.json.JSONObject
 import okhttp3.WebSocket
 import org.json.JSONArray
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,6 +24,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
 import android.content.Context
 import android.media.MediaPlayer
 import android.media.AudioManager
@@ -4337,6 +4340,7 @@ class AppViewModel : ViewModel() {
     private val editEventsMap = mutableMapOf<String, TimelineEvent>() // Store edit events separately
     private val roomsPendingDbRehydrate = Collections.synchronizedSet(mutableSetOf<String>())
     private val roomRehydrateJobs = Collections.synchronizedMap(mutableMapOf<String, Job>())
+    private val roomSnapshotAwaiters = ConcurrentHashMap<String, MutableList<CompletableDeferred<Unit>>>()
     
     // Made public to allow access for RoomJoiner WebSocket operations
     var requestIdCounter = 1
@@ -4346,6 +4350,37 @@ class AppViewModel : ViewModel() {
         val id = requestIdCounter++
         android.util.Log.d("Andromuks", "AppViewModel: Generated request ID: $id (counter now: $requestIdCounter)")
         return id
+    }
+    
+    private fun registerRoomSnapshotAwaiter(roomId: String, deferred: CompletableDeferred<Unit>) {
+        synchronized(roomSnapshotAwaiters) {
+            val list = roomSnapshotAwaiters[roomId] ?: mutableListOf<CompletableDeferred<Unit>>().also {
+                roomSnapshotAwaiters[roomId] = it
+            }
+            list.add(deferred)
+        }
+    }
+    
+    private fun unregisterRoomSnapshotAwaiter(roomId: String, deferred: CompletableDeferred<Unit>) {
+        synchronized(roomSnapshotAwaiters) {
+            val list = roomSnapshotAwaiters[roomId] ?: return
+            list.remove(deferred)
+            if (list.isEmpty()) {
+                roomSnapshotAwaiters.remove(roomId)
+            }
+        }
+    }
+    
+    private fun signalRoomSnapshotReady(roomId: String) {
+        val awaiters = synchronized(roomSnapshotAwaiters) {
+            roomSnapshotAwaiters.remove(roomId)?.toList()
+        } ?: return
+        
+        for (awaiter in awaiters) {
+            if (!awaiter.isCompleted && !awaiter.isCancelled) {
+                awaiter.complete(Unit)
+            }
+        }
     }
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
@@ -6433,6 +6468,60 @@ class AppViewModel : ViewModel() {
         ))
         
         android.util.Log.d("Andromuks", "AppViewModel: Sent fresh paginate request for room: $roomId (200 events)")
+    }
+    
+    suspend fun prefetchRoomSnapshot(roomId: String, limit: Int = 200, timeoutMs: Long = 6000L): Boolean {
+        val ws = webSocket ?: run {
+            android.util.Log.w("Andromuks", "AppViewModel: Cannot prefetch snapshot for $roomId - WebSocket not connected")
+            return false
+        }
+        
+        val deferred = CompletableDeferred<Unit>()
+        registerRoomSnapshotAwaiter(roomId, deferred)
+        
+        val requestId = requestIdCounter++
+        backgroundPrefetchRequests[requestId] = roomId
+        android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Prefetching snapshot for room $roomId (requestId=$requestId, limit=$limit, timeout=${timeoutMs}ms)"
+        )
+        
+        val commandResult = sendWebSocketCommand(
+            "paginate",
+            requestId,
+            mapOf(
+                "room_id" to roomId,
+                "max_timeline_id" to 0,
+                "limit" to limit,
+                "reset" to false
+            )
+        )
+        
+        if (commandResult != WebSocketResult.SUCCESS) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Prefetch paginate for $roomId failed to send (result=$commandResult)"
+            )
+            backgroundPrefetchRequests.remove(requestId)
+            unregisterRoomSnapshotAwaiter(roomId, deferred)
+            return false
+        }
+        
+        return try {
+            withTimeout(timeoutMs) {
+                deferred.await()
+            }
+            android.util.Log.d("Andromuks", "AppViewModel: Prefetch snapshot complete for room $roomId")
+            true
+        } catch (e: TimeoutCancellationException) {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Prefetch snapshot timed out for room $roomId after ${timeoutMs}ms"
+            )
+            false
+        } finally {
+            unregisterRoomSnapshotAwaiter(roomId, deferred)
+        }
     }
     
     // OPTIMIZATION #4: Cache-first navigation method
@@ -11620,7 +11709,7 @@ class AppViewModel : ViewModel() {
         RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)
         
         // Persist prefetched events to database
-        appContext?.let { context ->
+        val persistenceJob = appContext?.let { context ->
             if (syncIngestor == null) {
                 syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
             }
@@ -11631,6 +11720,14 @@ class AppViewModel : ViewModel() {
                     android.util.Log.e("Andromuks", "AppViewModel: Error persisting prefetched events: ${e.message}", e)
                 }
             }
+        }
+        
+        if (persistenceJob != null) {
+            persistenceJob.invokeOnCompletion {
+                signalRoomSnapshotReady(roomId)
+            }
+        } else {
+            signalRoomSnapshotReady(roomId)
         }
         
         val newCacheCount = RoomTimelineCache.getCachedEventCount(roomId)

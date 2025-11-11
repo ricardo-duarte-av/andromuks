@@ -874,7 +874,8 @@ fun RoomListItem(
     onRoomLongClick: ((RoomItem) -> Unit)? = null,
     timestampUpdateTrigger: Int = 0,
     appViewModel: AppViewModel,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isEnabled: Boolean = true
 ) {
     val context = LocalContext.current
     var showContextMenu by remember { mutableStateOf(false) }
@@ -903,6 +904,7 @@ fun RoomListItem(
             modifier = Modifier
                 .fillMaxWidth()
                 .combinedClickable(
+                    enabled = isEnabled,
                     onClick = { onRoomClick(room) },
                     onLongClick = { 
                         showContextMenu = true
@@ -1412,6 +1414,8 @@ fun RoomListContent(
     // CRITICAL: Observe roomListUpdateCounter to recompose when invites are added
     val roomListUpdateCounter = appViewModel.roomListUpdateCounter
     val pendingInvites = remember(roomListUpdateCounter) { appViewModel.getPendingInvites() }
+    val coroutineScope = rememberCoroutineScope()
+    var roomOpenInProgress by remember { mutableStateOf<String?>(null) }
     
     LazyColumn(
         state = listState,
@@ -1471,12 +1475,27 @@ fun RoomListContent(
                     homeserverUrl = appViewModel.homeserverUrl,
                     authToken = authToken,
                     onRoomClick = { 
-                        // Add haptic feedback for room click
+                        if (roomOpenInProgress != null) {
+                            android.util.Log.d("Andromuks", "RoomListScreen: Room open already in progress, ignoring tap on ${room.id}")
+                            return@RoomListItem
+                        }
+                        roomOpenInProgress = roomIdForNavigation
                         hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                        // OPTIMIZATION #4: Use cache-first navigation for instant loading
-                        appViewModel.navigateToRoomWithCache(roomIdForNavigation)
-                        // Use captured roomIdForNavigation to prevent race conditions
-                        navController.navigate("room_timeline/$roomIdForNavigation")
+                        coroutineScope.launch {
+                            try {
+                                val prefetchSuccess = appViewModel.prefetchRoomSnapshot(roomIdForNavigation)
+                                if (!prefetchSuccess) {
+                                    android.util.Log.w(
+                                        "Andromuks",
+                                        "RoomListScreen: Prefetch snapshot failed or timed out for $roomIdForNavigation, falling back to existing cache"
+                                    )
+                                }
+                                appViewModel.navigateToRoomWithCache(roomIdForNavigation)
+                                navController.navigate("room_timeline/$roomIdForNavigation")
+                            } finally {
+                                roomOpenInProgress = null
+                            }
+                        }
                     },
                     onRoomLongClick = { selectedRoom ->
                         // Navigate to room info on long press
@@ -1485,7 +1504,8 @@ fun RoomListContent(
                     },
                     timestampUpdateTrigger = timestampUpdateTrigger,
                     appViewModel = appViewModel,
-                    modifier = Modifier.animateContentSize()
+                    modifier = Modifier.animateContentSize(),
+                    isEnabled = roomOpenInProgress == null || roomOpenInProgress == roomIdForNavigation
                 )
                 
                 // Material 3 divider between rooms (except after the last item)
