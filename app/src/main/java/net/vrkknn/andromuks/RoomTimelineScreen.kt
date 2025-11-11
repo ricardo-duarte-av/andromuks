@@ -1451,8 +1451,8 @@ fun RoomTimelineScreen(
                                 state = listState,
                             // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                start = 16.dp,
-                                end = 16.dp,
+                                start = 8.dp,
+                                end = 8.dp,
                                 top = 8.dp,
                                 bottom = 120.dp // Extra padding at bottom for better scroll performance
                             ),

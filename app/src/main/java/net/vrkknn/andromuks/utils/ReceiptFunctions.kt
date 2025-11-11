@@ -327,7 +327,7 @@ fun InlineReadReceiptAvatars(
     if (filteredReceipts.isNotEmpty()) {
         Log.d("Andromuks", "InlineReadReceiptAvatars: Rendering ${filteredReceipts.size} read receipt avatars")
         Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(1.dp),
             verticalAlignment = Alignment.Top,
             modifier = Modifier.padding(top = 4.dp) // Align with the top of message bubble (which also has top = 4.dp)
         ) {
@@ -473,7 +473,7 @@ fun AnimatedInlineReadReceiptAvatars(
     
     if (filteredReceipts.isNotEmpty()) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            horizontalArrangement = Arrangement.spacedBy(1.dp),
             verticalAlignment = Alignment.Top,
             modifier = Modifier.padding(top = 4.dp) // Align with the top of message bubble
         ) {

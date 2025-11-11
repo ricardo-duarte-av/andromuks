@@ -52,10 +52,13 @@ import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
 import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.RoomLink
-
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private val AvatarGap = 4.dp
+private val AvatarPlaceholderWidth = 24.dp + AvatarGap
+private val ReadReceiptGap = 4.dp
 
 /** Check if a message mentions a specific user */
 private fun isMentioningUser(event: TimelineEvent, userId: String?): Boolean {
@@ -996,7 +999,7 @@ private fun RoomTextMessageContent(
                 roomId = event.roomId,
                 onUserClick = onUserClick
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(ReadReceiptGap))
         }
 
         // Display reply with nested structure if this is a reply (but NOT a thread message)
@@ -1131,7 +1134,7 @@ private fun RoomTextMessageContent(
 
         // For others' messages, show read receipts on the right of the bubble
         if (!actualIsMine && readReceipts.isNotEmpty()) {
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(ReadReceiptGap))
             AnimatedInlineReadReceiptAvatars(
                 receipts = readReceipts,
                 userProfileCache = userProfileCache,
@@ -1668,7 +1671,7 @@ private fun EncryptedMessageContent(
                         roomId = event.roomId,
                         onUserClick = onUserClick
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(ReadReceiptGap))
                 }
 
                 // Display encrypted text message with nested reply structure (but NOT for thread messages)
@@ -1805,7 +1808,7 @@ private fun EncryptedMessageContent(
 
                     // For others' messages, show read receipts on the right of the bubble
                     if (!actualIsMine && readReceipts.isNotEmpty()) {
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(ReadReceiptGap))
                         AnimatedInlineReadReceiptAvatars(
                             receipts = readReceipts,
                             userProfileCache = userProfileCache,
@@ -1923,7 +1926,7 @@ private fun StickerMessageContent(
                     roomId = event.roomId,
                     onUserClick = onUserClick
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(ReadReceiptGap))
             }
 
             StickerMessage(
@@ -1951,7 +1954,7 @@ private fun StickerMessageContent(
 
             // For other users' messages, show read receipts on the right
             if (!actualIsMine && readReceipts.isNotEmpty()) {
-                Spacer(modifier = Modifier.width(8.dp))
+                Spacer(modifier = Modifier.width(ReadReceiptGap))
                 AnimatedInlineReadReceiptAvatars(
                     receipts = readReceipts,
                     userProfileCache = userProfileCache,
@@ -2274,10 +2277,10 @@ fun TimelineEventItem(
                     isVisible = true // Timeline items are visible when rendered
                 )
             }
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(AvatarGap))
         } else if (!actualIsMine && isConsecutive && !isEmoteMessage) {
             // Add spacer to maintain alignment for consecutive messages (but not for emotes)
-            Spacer(modifier = Modifier.width(32.dp)) // 24dp avatar + 8dp spacer
+            Spacer(modifier = Modifier.width(AvatarPlaceholderWidth)) // 24dp avatar + 4dp spacer
         }
 
         // Event content
@@ -2401,7 +2404,7 @@ fun TimelineEventItem(
             )
 
         if (actualIsMine) {
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.width(ReadReceiptGap))
         }
     }
 }
