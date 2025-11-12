@@ -4350,6 +4350,25 @@ class AppViewModel : ViewModel() {
     private val editEventsMap = mutableMapOf<String, TimelineEvent>() // Store edit events separately
     private val roomsPendingDbRehydrate = Collections.synchronizedSet(mutableSetOf<String>())
     private val roomRehydrateJobs = Collections.synchronizedMap(mutableMapOf<String, Job>())
+    private val roomsPaginatedOnce = Collections.synchronizedSet(mutableSetOf<String>())
+
+    private fun hasInitialPaginate(roomId: String): Boolean = roomsPaginatedOnce.contains(roomId)
+
+    private fun markInitialPaginate(roomId: String, reason: String) {
+        val added = roomsPaginatedOnce.add(roomId)
+        android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Recorded initial paginate for $roomId (reason=$reason, added=$added)"
+        )
+        setAutoPaginationEnabled(false, "paginate_lock_$roomId")
+    }
+
+    private fun logSkippedPaginate(roomId: String, reason: String) {
+        android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Skipping paginate for $roomId ($reason) - already paginated once this session"
+        )
+    }
     private val roomSnapshotAwaiters = ConcurrentHashMap<String, MutableList<CompletableDeferred<Unit>>>()
     
     // Made public to allow access for RoomJoiner WebSocket operations
@@ -5586,7 +5605,6 @@ class AppViewModel : ViewModel() {
             requestHistoricalReactions(roomId, smallestCached)
         }
 
-        setAutoPaginationEnabled(true, "cache_load_$roomId")
         // No forward paginate on open; all additional history must be user-triggered
     }
 
@@ -6235,6 +6253,14 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Full refresh for room: $roomId (resetting caches and requesting fresh snapshot)")
         setAutoPaginationEnabled(false, "manual_refresh_$roomId")
         
+        if (hasInitialPaginate(roomId)) {
+            logSkippedPaginate(roomId, "full_refresh")
+            viewModelScope.launch {
+                ensureTimelineCacheIsFresh(roomId)
+            }
+            return
+        }
+        
         // 1. Mark room as current so sync handlers and pagination know which timeline is active
         updateCurrentRoomIdInPrefs(roomId)
         roomsPendingDbRehydrate.add(roomId)
@@ -6278,7 +6304,7 @@ class AppViewModel : ViewModel() {
         // 5. Request up to 200 events from the backend; ingest path will upsert into the database
         val paginateRequestId = requestIdCounter++
         timelineRequests[paginateRequestId] = roomId
-        sendWebSocketCommand(
+        val result = sendWebSocketCommand(
             "paginate",
             paginateRequestId,
             mapOf(
@@ -6290,6 +6316,14 @@ class AppViewModel : ViewModel() {
         )
         
         android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request for room: $roomId (200 events) - awaiting response to rebuild timeline")
+        if (result == WebSocketResult.SUCCESS) {
+            markInitialPaginate(roomId, "full_refresh")
+        } else {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Failed to send full refresh paginate for $roomId (result=$result)"
+            )
+        }
     }
     
     private fun scheduleRoomRehydrateFromDb(roomId: String) {
@@ -6418,6 +6452,15 @@ class AppViewModel : ViewModel() {
     fun refreshRoomTimeline(roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: Refreshing timeline for room: $roomId (clearing cache and requesting fresh data)")
         
+        if (hasInitialPaginate(roomId)) {
+            logSkippedPaginate(roomId, "refresh_timeline")
+            viewModelScope.launch {
+                ensureTimelineCacheIsFresh(roomId)
+            }
+            isTimelineLoading = false
+            return
+        }
+        
         // Set current room ID to ensure reaction processing works correctly
         updateCurrentRoomIdInPrefs(roomId)
         
@@ -6470,7 +6513,7 @@ class AppViewModel : ViewModel() {
         // Request 200 events to ensure we have enough
         val paginateRequestId = requestIdCounter++
         timelineRequests[paginateRequestId] = roomId
-        sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+        val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
             "room_id" to roomId,
             "max_timeline_id" to 0,
             "limit" to 200,
@@ -6478,9 +6521,22 @@ class AppViewModel : ViewModel() {
         ))
         
         android.util.Log.d("Andromuks", "AppViewModel: Sent fresh paginate request for room: $roomId (200 events)")
+        if (result == WebSocketResult.SUCCESS) {
+            markInitialPaginate(roomId, "refresh_timeline")
+        } else {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Failed to send refresh paginate for $roomId (result=$result)"
+            )
+        }
     }
     
     suspend fun prefetchRoomSnapshot(roomId: String, limit: Int = 200, timeoutMs: Long = 6000L): Boolean {
+        if (hasInitialPaginate(roomId)) {
+            logSkippedPaginate(roomId, "prefetch_snapshot")
+            return true
+        }
+
         val ws = webSocket ?: run {
             android.util.Log.w("Andromuks", "AppViewModel: Cannot prefetch snapshot for $roomId - WebSocket not connected")
             return false
@@ -6522,6 +6578,7 @@ class AppViewModel : ViewModel() {
                 deferred.await()
             }
             android.util.Log.d("Andromuks", "AppViewModel: Prefetch snapshot complete for room $roomId")
+            markInitialPaginate(roomId, "prefetch_snapshot")
             true
         } catch (e: TimeoutCancellationException) {
             android.util.Log.w(
@@ -6531,6 +6588,7 @@ class AppViewModel : ViewModel() {
             false
         } finally {
             unregisterRoomSnapshotAwaiter(roomId, deferred)
+            backgroundPrefetchRequests.remove(requestId)
         }
     }
     
@@ -6651,6 +6709,10 @@ class AppViewModel : ViewModel() {
     }
 
     private fun requestHistoricalReactions(roomId: String, smallestCached: Long) {
+        if (hasInitialPaginate(roomId)) {
+            logSkippedPaginate(roomId, "historical_reactions")
+            return
+        }
         val reactionRequestId = requestIdCounter++
         backgroundPrefetchRequests[reactionRequestId] = roomId
         val effectiveMaxTimelineId = if (smallestCached > 0) smallestCached else 0L
@@ -10103,11 +10165,8 @@ class AppViewModel : ViewModel() {
     }
     
     fun loadOlderMessages(roomId: String, showToast: Boolean = true) {
-        if (!autoPaginationEnabled) {
-            android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Auto-pagination suppressed; skipping loadOlderMessages for room $roomId"
-            )
+        if (hasInitialPaginate(roomId)) {
+            logSkippedPaginate(roomId, "load_older")
             return
         }
         val cacheSize = RoomTimelineCache.getCachedEventCount(roomId)
@@ -10163,12 +10222,15 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+        val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
             "room_id" to roomId,
             "max_timeline_id" to oldestRowId,
             "limit" to 100,
             "reset" to false
         ))
+        if (result == WebSocketResult.SUCCESS) {
+            markInitialPaginate(roomId, "load_older")
+        }
         
         // Set a timeout to reset pagination state if no response comes back
         CoroutineScope(Dispatchers.Main).launch {
@@ -11793,7 +11855,6 @@ class AppViewModel : ViewModel() {
             scheduleRoomRehydrateFromDb(roomId)
         }
         
-        setAutoPaginationEnabled(true, "pagination_merge_$roomId")
     }
     
     /**
@@ -11828,7 +11889,6 @@ class AppViewModel : ViewModel() {
         }
         
         smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
-        setAutoPaginationEnabled(true, "initial_timeline_$roomId")
     }
     
     /**

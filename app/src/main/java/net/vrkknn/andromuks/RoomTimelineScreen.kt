@@ -862,26 +862,10 @@ fun RoomTimelineScreen(
             items
         }
 
-    val eventOrdinalByTimelineIndex = remember(timelineItems) {
-        var ordinal = 0
-        timelineItems.map { item ->
-            if (item is TimelineItem.Event) {
-                ordinal += 1
-                ordinal
-            } else {
-                null
-            }
-        }
-    }
-
     // Get member map that observes memberUpdateCounter and includes global cache fallback for TimelineEventItem profile updates
     val memberMap = remember(roomId, appViewModel.memberUpdateCounter, sortedEvents) {
         appViewModel.getMemberMapWithFallback(roomId, sortedEvents)
     }
-
-    val hasMoreMessages = appViewModel.hasMoreMessages
-    var showLoadMoreButton by remember(roomId) { mutableStateOf(false) }
-    var loadMoreButtonHeightPx by remember { mutableStateOf(0) }
 
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
@@ -895,8 +879,6 @@ fun RoomTimelineScreen(
     // Track if we're refreshing (to scroll to bottom after refresh)
     var isRefreshing by remember { mutableStateOf(false) }
 
-    // Track loading more state
-    var isLoadingMore by remember { mutableStateOf(false) }
     var previousItemCount by remember { mutableStateOf(timelineItems.size) }
     var hasLoadedInitialBatch by remember { mutableStateOf(false) }
     var hasInitialSnapCompleted by remember { mutableStateOf(false) }
@@ -956,52 +938,8 @@ fun RoomTimelineScreen(
                         "RoomTimelineScreen: Near top (index=$firstVisibleIndex/$totalItems). Monitoring for auto-pagination trigger."
                     )
                 }
-                if (!showLoadMoreButton && !appViewModel.isPaginating) {
-                    showLoadMoreButton = true
-                }
-            } else if (showLoadMoreButton && firstVisibleIndex > 8) {
-                showLoadMoreButton = false
             }
 
-            val visibleEventInfo = listState.layoutInfo.visibleItemsInfo
-                .sortedBy { it.index }
-                .firstOrNull { info ->
-                    val idx = info.index
-                    idx in timelineItems.indices && timelineItems[idx] is TimelineItem.Event
-                }
-
-            val firstVisibleEventIndex = visibleEventInfo?.index ?: run {
-                val searchStart = listState.firstVisibleItemIndex.coerceAtLeast(0)
-                (searchStart until timelineItems.size).firstOrNull { idx ->
-                    timelineItems[idx] is TimelineItem.Event
-                }
-            }
-            val firstVisibleEventOrdinal = firstVisibleEventIndex?.let { idx ->
-                eventOrdinalByTimelineIndex.getOrNull(idx)
-            }
-
-            val shouldTriggerAutoPaginate = appViewModel.autoPaginationEnabled &&
-                firstVisibleEventOrdinal != null &&
-                firstVisibleEventOrdinal <= 20 &&
-                !isLoadingMore &&
-                !appViewModel.isPaginating
-
-            if (shouldTriggerAutoPaginate) {
-                Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Auto-pagination trigger reached (event ordinal=$firstVisibleEventOrdinal)"
-                )
-                val anchorItem = firstVisibleEventIndex
-                    ?.let { idx -> timelineItems.getOrNull(idx) as? TimelineItem.Event }
-                    ?: timelineItems.firstOrNull { it is TimelineItem.Event } as? TimelineItem.Event
-
-                anchorEventIdForRestore = anchorItem?.event?.eventId
-                anchorScrollOffsetForRestore = visibleEventInfo?.offset ?: listState.firstVisibleItemScrollOffset
-                pendingScrollRestoration = anchorEventIdForRestore != null
-
-                isLoadingMore = true
-                appViewModel.loadOlderMessages(roomId, showToast = false)
-            }
         }
     }
 
@@ -1035,7 +973,6 @@ fun RoomTimelineScreen(
             // Clear restoration state
             pendingScrollRestoration = false
             anchorEventIdForRestore = null
-            isLoadingMore = false
         }
     }
 
@@ -1051,7 +988,6 @@ fun RoomTimelineScreen(
             hasInitialSnapCompleted = true
             hasCompletedInitialLayout = true
             pendingScrollRestoration = false
-            isLoadingMore = false
             isRefreshing = false
         }
     }
@@ -1209,7 +1145,6 @@ fun RoomTimelineScreen(
     LaunchedEffect(roomId) {
         Log.d("Andromuks", "RoomTimelineScreen: Loading timeline for room: $roomId")
         // Reset state for new room
-        isLoadingMore = false
         pendingScrollRestoration = false
         anchorEventIdForRestore = null
         hasLoadedInitialBatch = false
@@ -1473,41 +1408,6 @@ fun RoomTimelineScreen(
                                     }
                                 }
                             }
-
-            if (showLoadMoreButton) {
-                item(key = "load_more_button") {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .onGloballyPositioned { coordinates ->
-                                loadMoreButtonHeightPx = coordinates.size.height
-                            }
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Button(
-                            onClick = {
-                                showLoadMoreButton = false
-                                isLoadingMore = true
-                                if (loadMoreButtonHeightPx > 0) {
-                                    val offset = listState.firstVisibleItemScrollOffset + loadMoreButtonHeightPx
-                                    coroutineScope.launch {
-                                        listState.scrollToItem(
-                                            index = listState.firstVisibleItemIndex,
-                                            scrollOffset = offset
-                                        )
-                                    }
-                                }
-                                appViewModel.loadOlderMessages(roomId, showToast = false)
-                            },
-                            shape = CircleShape,
-                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 12.dp)
-                        ) {
-                            Text("Load More")
-                        }
-                    }
-                }
-            }
 
                             // PERFORMANCE: Use stable keys and pre-computed consecutive flags
                             items(
