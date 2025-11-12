@@ -86,7 +86,6 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
      * Download avatar using Coil with MediaCache integration
      */
     private suspend fun downloadAvatar(avatarUrl: String?): Bitmap? = withContext(Dispatchers.IO) {
-        Log.d(TAG, "downloadAvatar called with: $avatarUrl")
         
         if (avatarUrl.isNullOrEmpty()) {
             Log.w(TAG, "Avatar URL is null or empty, returning null")
@@ -98,7 +97,6 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
             
             val imageUrl = if (cachedFile != null) {
-                Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
                 cachedFile.absolutePath
             } else {
                 // Convert MXC URL to HTTP URL
@@ -119,13 +117,12 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     return@withContext null
                 }
                 
-                Log.d(TAG, "Downloading and caching avatar from: $httpUrl")
+
                 
                 // Download and cache using existing MediaCache infrastructure
                 val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
                 
                 if (downloadedFile != null) {
-                    Log.d(TAG, "Successfully downloaded and cached avatar: ${downloadedFile.absolutePath}")
                     downloadedFile.absolutePath
                 } else {
                     Log.e(TAG, "Failed to download avatar")
@@ -167,7 +164,6 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         
         // Convert hardware bitmap to software bitmap if needed
         val softwareBitmap = if (bitmap.config == Bitmap.Config.HARDWARE) {
-            Log.d(TAG, "Converting hardware bitmap to software bitmap")
             bitmap.copy(Bitmap.Config.ARGB_8888, false)
         } else {
             bitmap
@@ -205,7 +201,6 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
             
             val imageUrl = if (cachedFile != null) {
-                Log.d(TAG, "Using cached file for circular bitmap: ${cachedFile.absolutePath}")
                 cachedFile.absolutePath
             } else {
                 // Convert MXC URL to HTTP URL
@@ -230,7 +225,6 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
                 
                 if (downloadedFile != null) {
-                    Log.d(TAG, "Successfully downloaded and cached avatar: ${downloadedFile.absolutePath}")
                     downloadedFile.absolutePath
                 } else {
                     Log.e(TAG, "Failed to download avatar")
@@ -252,19 +246,19 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 .build()
             
             val drawable = imageLoader.execute(request).drawable
-            Log.d(TAG, "Loaded drawable type: ${drawable?.javaClass?.simpleName ?: "null"}")
+            //Log.d(TAG, "Loaded drawable type: ${drawable?.javaClass?.simpleName ?: "null"}")
             val bitmap = when (drawable) {
                 is android.graphics.drawable.BitmapDrawable -> {
-                    Log.d(TAG, "Got BitmapDrawable, bitmap size: ${drawable.bitmap.width}x${drawable.bitmap.height}")
+                    //Log.d(TAG, "Got BitmapDrawable, bitmap size: ${drawable.bitmap.width}x${drawable.bitmap.height}")
                     drawable.bitmap
                 }
                 is android.graphics.drawable.AnimationDrawable -> {
-                    Log.d(TAG, "Got AnimationDrawable with ${drawable.numberOfFrames} frames")
+                    //Log.d(TAG, "Got AnimationDrawable with ${drawable.numberOfFrames} frames")
                     // For animated GIFs, get the first frame
                     if (drawable.numberOfFrames > 0) {
                         val firstFrame = drawable.getFrame(0)
                         if (firstFrame is android.graphics.drawable.BitmapDrawable) {
-                            Log.d(TAG, "Got first frame as BitmapDrawable, bitmap size: ${firstFrame.bitmap.width}x${firstFrame.bitmap.height}")
+                            //Log.d(TAG, "Got first frame as BitmapDrawable, bitmap size: ${firstFrame.bitmap.width}x${firstFrame.bitmap.height}")
                             firstFrame.bitmap
                         } else {
                             Log.w(TAG, "First frame is not a BitmapDrawable")
@@ -283,7 +277,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             
             // Convert to circular bitmap
             val circularBitmap = getCircularBitmap(bitmap)
-            Log.d(TAG, "Circular bitmap result: ${circularBitmap != null}")
+            //Log.d(TAG, "Circular bitmap result: ${circularBitmap != null}")
             circularBitmap
         } catch (e: Exception) {
             Log.e(TAG, "Exception during circular bitmap creation: $avatarUrl", e)
@@ -298,7 +292,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     fun removeRoomShortcut(roomId: String) {
         try {
             ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(roomId))
-            Log.d(TAG, "Removed shortcut for room: $roomId")
+            //Log.d(TAG, "Removed shortcut for room: $roomId")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to remove shortcut for room: $roomId", e)
         }
@@ -310,7 +304,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
      */
     fun updateConversationShortcuts(rooms: List<RoomItem>) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
-            Log.d(TAG, "updateConversationShortcuts called with ${rooms.size} rooms, realMatrixHomeserverUrl: $realMatrixHomeserverUrl")
+            //Log.d(TAG, "updateConversationShortcuts called with ${rooms.size} rooms, realMatrixHomeserverUrl: $realMatrixHomeserverUrl")
             
             // Cancel any pending update
             pendingShortcutUpdate?.cancel()
@@ -320,7 +314,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             val timeSinceLastUpdate = currentTime - lastShortcutUpdateTime
             
             if (timeSinceLastUpdate < SHORTCUT_UPDATE_DEBOUNCE_MS) {
-                Log.d(TAG, "Debouncing shortcut update (${timeSinceLastUpdate}ms since last update)")
+                //Log.d(TAG, "Debouncing shortcut update (${timeSinceLastUpdate}ms since last update)")
                 pendingShortcutUpdate = CoroutineScope(Dispatchers.IO).launch {
                     kotlinx.coroutines.delay(SHORTCUT_UPDATE_DEBOUNCE_MS - timeSinceLastUpdate)
                     try {
@@ -353,7 +347,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
      */
     suspend fun updateConversationShortcutsSync(rooms: List<RoomItem>) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
-            Log.d(TAG, "updateConversationShortcutsSync called with ${rooms.size} rooms (bypassing debounce)")
+            //Log.d(TAG, "updateConversationShortcutsSync called with ${rooms.size} rooms (bypassing debounce)")
             
             // Cancel any pending debounced update
             pendingShortcutUpdate?.cancel()
@@ -363,7 +357,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     val shortcuts = createShortcutsFromRooms(rooms)
                     updateShortcuts(shortcuts)
                     lastShortcutUpdateTime = System.currentTimeMillis()
-                    Log.d(TAG, "Synchronous shortcut update completed")
+                    //Log.d(TAG, "Synchronous shortcut update completed")
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating conversation shortcuts synchronously", e)
                 }
@@ -377,7 +371,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
      */
     fun updateConversationShortcutsImmediate(rooms: List<RoomItem>) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
-            Log.d(TAG, "updateConversationShortcutsImmediate called with ${rooms.size} rooms (bypassing debounce)")
+            //Log.d(TAG, "updateConversationShortcutsImmediate called with ${rooms.size} rooms (bypassing debounce)")
             
             // Cancel any pending debounced update
             pendingShortcutUpdate?.cancel()
@@ -440,11 +434,11 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
 
         // If set/name/avatar unchanged, skip update (Android handles ordering automatically)
         if (!idsChanged && !nameAvatarChanged) {
-            Log.d(TAG, "Shortcuts stable (set unchanged, skipping update)")
+            //Log.d(TAG, "Shortcuts stable (set unchanged, skipping update)")
             return false to false
         }
 
-        Log.d(TAG, "Shortcuts will update (idsChanged=$idsChanged, nameAvatarChanged=$nameAvatarChanged)")
+        //Log.d(TAG, "Shortcuts will update (idsChanged=$idsChanged, nameAvatarChanged=$nameAvatarChanged)")
         return true to false
     }
     
@@ -460,7 +454,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             // Check if shortcuts actually need updating
             val (needsUpdate, _) = shortcutsNeedUpdate(shortcuts)
             if (!needsUpdate) {
-                Log.d(TAG, "No shortcut changes detected, skipping update")
+                //Log.d(TAG, "No shortcut changes detected, skipping update")
                 return
             }
             
@@ -468,11 +462,11 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             val now = System.currentTimeMillis()
             val timeSinceLastCompleted = now - lastShortcutUpdateCompletedTime
             if (timeSinceLastCompleted < MIN_SHORTCUT_UPDATE_INTERVAL_MS) {
-                Log.d(TAG, "Rate-limiting shortcut update (${timeSinceLastCompleted}ms since last completed, min=${MIN_SHORTCUT_UPDATE_INTERVAL_MS}ms)")
+                //Log.d(TAG, "Rate-limiting shortcut update (${timeSinceLastCompleted}ms since last completed, min=${MIN_SHORTCUT_UPDATE_INTERVAL_MS}ms)")
                 return
             }
 
-            Log.d(TAG, "Updating ${shortcuts.size} shortcuts using pushDynamicShortcut() (background thread)")
+            //Log.d(TAG, "Updating ${shortcuts.size} shortcuts using pushDynamicShortcut() (background thread)")
             
             // Update cache (use Set for order-independent comparison)
             val newIdsSet = shortcuts.map { it.roomId }.toSet()
@@ -483,14 +477,14 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             
             for (shortcut in shortcuts) {
                 try {
-                    Log.d(TAG, "Updating shortcut - roomId: '${shortcut.roomId}', roomName: '${shortcut.roomName}'")
+                    //Log.d(TAG, "Updating shortcut - roomId: '${shortcut.roomId}', roomName: '${shortcut.roomName}'")
                     
                     // Check if avatar is in cache
                     val avatarInCache = shortcut.roomAvatarUrl?.let { url ->
                         MediaCache.getCachedFile(context, url) != null
                     } ?: false
                     
-                    Log.d(TAG, "  Avatar in cache: $avatarInCache")
+                    //Log.d(TAG, "  Avatar in cache: $avatarInCache")
                     
                     // Create ShortcutInfoCompat (AndroidX version)
                     val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
@@ -498,14 +492,14 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     // Only refresh icon when avatar transitions from not-cached -> cached
                     val previouslyCached = lastAvatarCachePresence[shortcut.roomId] ?: false
                     if (avatarInCache && !previouslyCached) {
-                        Log.d(TAG, "  Removing old shortcut to refresh icon (avatar cache became available)")
+                        //Log.d(TAG, "  Removing old shortcut to refresh icon (avatar cache became available)")
                         ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(shortcut.roomId))
                     }
                     
                     // Push/update the shortcut (conversation-optimized API)
                     // This preserves other shortcuts automatically!
                     ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
-                    Log.d(TAG, "  ✓ Shortcut pushed successfully")
+                    //Log.d(TAG, "  ✓ Shortcut pushed successfully")
 
                     // Record avatar cache presence for next comparison
                     lastAvatarCachePresence[shortcut.roomId] = avatarInCache
@@ -517,7 +511,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             
             // Mark update as completed for cooldown tracking
             lastShortcutUpdateCompletedTime = System.currentTimeMillis()
-            Log.d(TAG, "Finished updating shortcuts")
+            //Log.d(TAG, "Finished updating shortcuts")
             
         } catch (e: Exception) {
             Log.e(TAG, "Error in updateShortcuts", e)
@@ -535,7 +529,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         } else {
             "matrix:roomid/${shortcut.roomId.substring(1)}"
         }
-        Log.d(TAG, "Creating conversation shortcut with matrix URI: $matrixUri")
+        //Log.d(TAG, "Creating conversation shortcut with matrix URI: $matrixUri")
         val intent = Intent(
             Intent.ACTION_VIEW,
             Uri.parse(matrixUri),
@@ -550,26 +544,17 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         
         val icon = if (shortcut.roomAvatarUrl != null) {
             try {
-                Log.d(TAG, "━━━ Creating shortcut icon ━━━")
-                Log.d(TAG, "  Room: ${shortcut.roomName}")
-                Log.d(TAG, "  Avatar URL: ${shortcut.roomAvatarUrl}")
                 
                 // Only use cached avatar - don't download to avoid blocking
                 val cachedFile = MediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
-                Log.d(TAG, "  Cached file: ${cachedFile?.absolutePath}")
-                Log.d(TAG, "  File exists: ${cachedFile?.exists()}")
                 
                 if (cachedFile != null && cachedFile.exists()) {
-                    Log.d(TAG, "  ✓ Avatar is in cache, loading bitmap...")
                     val bitmap = BitmapFactory.decodeFile(cachedFile.absolutePath)
-                    Log.d(TAG, "  Bitmap loaded: ${bitmap != null} (${bitmap?.width}x${bitmap?.height})")
                     
                     if (bitmap != null) {
                         val circularBitmap = getCircularBitmap(bitmap)
-                        Log.d(TAG, "  Circular bitmap created: ${circularBitmap != null}")
                         
                         if (circularBitmap != null) {
-                            Log.d(TAG, "  ✓✓✓ SUCCESS: Using circular bitmap for shortcut icon")
                             IconCompat.createWithAdaptiveBitmap(circularBitmap)
                         } else {
                             Log.e(TAG, "  ✗✗✗ FAILED: getCircularBitmap returned null, creating fallback with initials")
@@ -616,7 +601,6 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         } else {
             "matrix:roomid/${shortcut.roomId.substring(1)}"
         }
-        Log.d(TAG, "Creating conversation shortcut with matrix URI: $matrixUri")
         val intent = Intent(
             Intent.ACTION_VIEW,
             Uri.parse(matrixUri),
@@ -631,27 +615,24 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         
         val icon = if (shortcut.roomAvatarUrl != null) {
             try {
-                Log.d(TAG, "━━━ Creating shortcut icon ━━━")
-                Log.d(TAG, "  Room: ${shortcut.roomName}")
-                Log.d(TAG, "  Avatar URL: ${shortcut.roomAvatarUrl}")
+
                 
                 // Only use cached avatar - don't download to avoid blocking
                 val cachedFile = MediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
-                Log.d(TAG, "  Cached file: ${cachedFile?.absolutePath}")
-                Log.d(TAG, "  File exists: ${cachedFile?.exists()}")
+
                 
                 if (cachedFile != null && cachedFile.exists()) {
-                    Log.d(TAG, "  ✓ Avatar is in cache, loading bitmap...")
+
                     // Create circular bitmap from cached file
                     val bitmap = BitmapFactory.decodeFile(cachedFile.absolutePath)
-                    Log.d(TAG, "  Bitmap loaded: ${bitmap != null} (${bitmap?.width}x${bitmap?.height})")
+
                     
                     if (bitmap != null) {
                         val circularBitmap = getCircularBitmap(bitmap)
-                        Log.d(TAG, "  Circular bitmap created: ${circularBitmap != null}")
+
                         
                         if (circularBitmap != null) {
-                            Log.d(TAG, "  ✓✓✓ SUCCESS: Using circular bitmap for shortcut icon")
+
                             Icon.createWithAdaptiveBitmap(circularBitmap)
                         } else {
                             Log.e(TAG, "  ✗✗✗ FAILED: getCircularBitmap returned null, creating fallback with initials")
@@ -733,7 +714,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             } else null
             
             val imageUrl = if (cachedFile != null && cachedFile.exists()) {
-                Log.d(TAG, "Using cached bitmap file: ${cachedFile.absolutePath}")
+
                 cachedFile.absolutePath
             } else {
                 // Convert URL to proper format and get HTTP URL
@@ -749,7 +730,6 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     }
                 }
                 
-                Log.d(TAG, "Loading bitmap from: $httpUrl")
                 
                 // Download and cache if not cached
                 if (url.startsWith("mxc://")) {
@@ -807,7 +787,6 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 lastNameAvatar = emptyMap()
                 lastAvatarCachePresence.clear()
                 
-                Log.d(TAG, "Cleared all conversation shortcuts and cache")
             } catch (e: Exception) {
                 Log.e(TAG, "Error clearing shortcuts", e)
             }
@@ -823,7 +802,6 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         lastShortcutStableIds = emptySet()
         lastNameAvatar = emptyMap()
         lastAvatarCachePresence.clear()
-        Log.d(TAG, "Cleared shortcut cache")
     }
     
     /**

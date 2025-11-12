@@ -676,11 +676,8 @@ class AppViewModel : ViewModel() {
         // SYNC OPTIMIZATION: Allow skipping immediate counter updates for batched updates
         if (!skipCounterUpdate) {
             roomListUpdateCounter++
-            updateCounter++ // Keep for backward compatibility temporarily
-            android.util.Log.d("Andromuks", "AppViewModel: spaceList set to ${spaceList.size} spaces, roomListUpdateCounter: $roomListUpdateCounter")
-        } else {
-            android.util.Log.d("Andromuks", "AppViewModel: spaceList updated (counter update skipped for batching)")
-        }
+            updateCounter++ // Keep for backward compatibility temporarily     
+        } 
     }
     
     fun updateAllSpaces(spaces: List<SpaceItem>) {
@@ -3143,31 +3140,31 @@ class AppViewModel : ViewModel() {
         if (needsRoomListUpdate) {
             roomListUpdateCounter++
             needsRoomListUpdate = false
-            android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room list update triggered")
+            
         }
         
         if (needsTimelineUpdate) {
             timelineUpdateCounter++
             needsTimelineUpdate = false
-            android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Timeline update triggered")
+
         }
         
         if (needsMemberUpdate) {
             memberUpdateCounter++
             needsMemberUpdate = false
-            android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Member update triggered")
+
         }
         
         if (needsReactionUpdate) {
             reactionUpdateCounter++
             needsReactionUpdate = false
-            android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Reaction update triggered")
+ 
         }
         
         // Keep for backward compatibility temporarily
         updateCounter++
         
-        android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Batched UI update completed")
+
     }
 
     // NAVIGATION PERFORMANCE: Helper functions for prefetching and navigation caching
@@ -3193,7 +3190,6 @@ class AppViewModel : ViewModel() {
             }
             
             if (shouldPrefetch && !prefetchedRooms.contains(roomId)) {
-                android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Prefetching room data for: $roomId")
                 prefetchEssentialRoomData(roomId)
             }
         }
@@ -3213,7 +3209,6 @@ class AppViewModel : ViewModel() {
         // NAVIGATION PERFORMANCE: Load essential data first (room state without members)
         if (!pendingRoomStateRequests.contains(roomId)) {
             requestRoomState(roomId)
-            android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION OPTIMIZATION - Prefetched room state for: $roomId")
         }
         
         // Update navigation state
@@ -3453,7 +3448,6 @@ class AppViewModel : ViewModel() {
                 if (isAppVisible) {
                     updateRoomAnimationState(room.id, isAnimating = true)
                 }
-                android.util.Log.d("Andromuks", "AppViewModel: Updated room: ${updatedRoom.name} (unread: ${updatedRoom.unreadCount}, message: ${updatedRoom.messagePreview?.take(20)}...)")
             } else {
                 roomMap[room.id] = room
                 // PHASE 1: Update Repository in parallel with AppViewModel
@@ -6594,30 +6588,25 @@ class AppViewModel : ViewModel() {
     
     // OPTIMIZATION #4: Cache-first navigation method
     fun navigateToRoomWithCache(roomId: String) {
-        android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - Cache-first navigation to room: $roomId")
         updateCurrentRoomIdInPrefs(roomId)
         
         // Check cache first - this is the key optimization
         val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
-        android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - Cache check: $cachedEventCount events for room $roomId")
         
         // DEBUG: Let's see what's in the cache at this moment
-        android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - DEBUG: Current roomId: $currentRoomId")
-        android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - DEBUG: Timeline events count: ${timelineEvents.size}")
-        android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - DEBUG: Is timeline loading: $isTimelineLoading")
         
         
         // OPTIMIZATION #4: Use the exact same logic as requestRoomTimeline for consistency
         if (cachedEventCount >= 10) {
             // OPTIMIZATION #4: Use cached data immediately (same threshold as requestRoomTimeline)
-            android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - ✓ CACHE HIT - Using ${cachedEventCount} cached events for instant navigation")
+
             
                 // Get cached events using the same method as requestRoomTimeline
                 val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
-            android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - Notification cache result: ${cachedEvents?.size ?: "null"}")
+
             
             if (cachedEvents != null) {
-                android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - ✅ SUCCESS - Using ${cachedEvents.size} cached events for instant navigation")
+
                 
                 // Set loading to false immediately to prevent loading flash
                 isTimelineLoading = false
@@ -6677,14 +6666,12 @@ class AppViewModel : ViewModel() {
                     requestHistoricalReactions(roomId, smallestCached)
                 }
                 
-                android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - ✅ Room opened INSTANTLY with ${timelineEvents.size} cached events")
                 
                 // Request room state in background if needed
                 if (webSocket != null && !pendingRoomStateRequests.contains(roomId)) {
                     val stateRequestId = requestIdCounter++
                     roomStateRequests[stateRequestId] = roomId
                     pendingRoomStateRequests.add(roomId)
-                    android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - Requesting room state in background (reqId: $stateRequestId)")
                     sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
                         "room_id" to roomId,
                         "include_members" to false,
@@ -6704,7 +6691,6 @@ class AppViewModel : ViewModel() {
         }
         
         // OPTIMIZATION #4: Fallback to regular requestRoomTimeline if no cache
-        android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #4 - No cache available, falling back to requestRoomTimeline")
         requestRoomTimeline(roomId)
     }
 
@@ -6741,7 +6727,6 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        android.util.Log.d("Andromuks", "AppViewModel: Requesting room state for room: $roomId")
         val stateRequestId = requestIdCounter++
         
         // Track this request to prevent duplicates
@@ -6875,10 +6860,9 @@ class AppViewModel : ViewModel() {
                 val diskProfile = loadProfileFromDatabase(userId)
                 if (diskProfile != null) {
                     withContext(Dispatchers.Main) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Restored profile for $userId from disk cache (room $roomId)")
                         storeMemberProfile(roomId, userId, diskProfile)
                         updateGlobalProfile(userId, diskProfile)
-                        logProfileCacheStats("disk-restore:$userId")
+                        //logProfileCacheStats("disk-restore:$userId")
                         needsMemberUpdate = true
                         scheduleUIUpdate("member")
                     }
@@ -6887,12 +6871,12 @@ class AppViewModel : ViewModel() {
                 
                 withContext(Dispatchers.Main) {
                     enqueueNetworkRequest()
-                    logProfileCacheStats("enqueue-network:$userId")
+                    //logProfileCacheStats("enqueue-network:$userId")
                 }
             }
         } else {
             enqueueNetworkRequest()
-            logProfileCacheStats("enqueue-network:$userId")
+            //logProfileCacheStats("enqueue-network:$userId")
         }
     }
     /**
@@ -6971,15 +6955,12 @@ class AppViewModel : ViewModel() {
     fun requestFullMemberList(roomId: String) {
         // PERFORMANCE: Prevent duplicate full member list requests for the same room
         if (pendingFullMemberListRequests.contains(roomId)) {
-            android.util.Log.d("Andromuks", "AppViewModel: Full member list request already pending for $roomId, skipping duplicate")
             return
         }
         
-        android.util.Log.d("Andromuks", "AppViewModel: Requesting full member list for room: $roomId")
         
         // Check if WebSocket is connected
         if (webSocket == null) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, skipping full member list request")
             return
         }
         
@@ -6996,7 +6977,6 @@ class AppViewModel : ViewModel() {
             "refetch" to false
         ))
         
-        android.util.Log.d("Andromuks", "AppViewModel: Sent get_room_state request with ID $requestId for full member list of room $roomId")
     }
     
     fun sendTyping(roomId: String) {
@@ -7685,18 +7665,10 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: File message command sent with request_id: $messageRequestId")
     }
     fun handleResponse(requestId: Int, data: Any) {
-        android.util.Log.d("Andromuks", "AppViewModel: handleResponse called with requestId=$requestId, dataType=${data::class.java.simpleName}")
-        android.util.Log.d("Andromuks", "AppViewModel: outgoingRequests contains $requestId: ${outgoingRequests.containsKey(requestId)}")
-        android.util.Log.d("Andromuks", "AppViewModel: roomSpecificStateRequests contains $requestId: ${roomSpecificStateRequests.containsKey(requestId)}")
-        android.util.Log.d("AppViewModel", "AppViewModel: profileRequests contains $requestId: ${profileRequests.containsKey(requestId)}")
-        android.util.Log.d("AppViewModel", "AppViewModel: timelineRequests contains $requestId: ${timelineRequests.containsKey(requestId)}")
-        android.util.Log.d("Andromuks", "AppViewModel: roomStateRequests contains $requestId: ${roomStateRequests.containsKey(requestId)}")
-        android.util.Log.d("Andromuks", "AppViewModel: bridgeStateRequests contains $requestId: ${bridgeStateRequests.containsKey(requestId)}")
         // THREAD SAFETY: Create safe copies to avoid ConcurrentModificationException during logging
         val bridgeStateKeysSnapshot = synchronized(bridgeStateRequests) { bridgeStateRequests.keys.toList() }
         val roomStateKeysSnapshot = synchronized(roomStateRequests) { roomStateRequests.keys.toList() }
-        android.util.Log.d("Andromuks", "AppViewModel: Current bridge state requests: $bridgeStateKeysSnapshot")
-        android.util.Log.d("Andromuks", "AppViewModel: Current room state requests: $roomStateKeysSnapshot")
+
         
         if (profileRequests.containsKey(requestId)) {
             handleProfileResponse(requestId, data)
@@ -7726,10 +7698,8 @@ class AppViewModel : ViewModel() {
         } else if (eventRequests.containsKey(requestId)) {
             handleEventResponse(requestId, data)
         } else if (backgroundPrefetchRequests.containsKey(requestId)) {
-            android.util.Log.d("Andromuks", "AppViewModel: Routing background prefetch response to handleTimelineResponse (requestId: $requestId)")
             handleTimelineResponse(requestId, data)
         } else if (paginateRequests.containsKey(requestId)) {
-            android.util.Log.d("Andromuks", "AppViewModel: Routing pagination response to handleTimelineResponse")
             handleTimelineResponse(requestId, data)
         } else if (roomStateWithMembersRequests.containsKey(requestId)) {
             handleRoomStateWithMembersResponse(requestId, data)
@@ -7748,14 +7718,10 @@ class AppViewModel : ViewModel() {
         } else if (profileRequests.containsKey(requestId)) {
             handleOnDemandProfileResponse(requestId, data)
         } else if (roomSpecificStateRequests.containsKey(requestId)) {
-            android.util.Log.d("Andromuks", "AppViewModel: Routing to handleRoomSpecificStateResponse for requestId: $requestId")
-            android.util.Log.d("Andromuks", "AppViewModel: About to call handleRoomSpecificStateResponse with data: ${data::class.java.simpleName}")
             handleRoomSpecificStateResponse(requestId, data)
-            android.util.Log.d("Andromuks", "AppViewModel: handleRoomSpecificStateResponse completed for requestId: $requestId")
         } else if (fullMemberListRequests.containsKey(requestId)) {
             handleFullMemberListResponse(requestId, data)
         } else if (outgoingRequests.containsKey(requestId)) {
-            android.util.Log.d("Andromuks", "AppViewModel: Routing to handleOutgoingRequestResponse")
             handleOutgoingRequestResponse(requestId, data)
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: Unknown response requestId=$requestId")
@@ -7908,7 +7874,6 @@ class AppViewModel : ViewModel() {
             currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
         }
         
-        android.util.Log.d("Andromuks", "AppViewModel: Profile updated for $userId display=$display avatar=${avatar != null} (updated global cache)")
         
         // Check if this is part of a full user info request
         val fullUserInfoCallback = fullUserInfoCallbacks.remove(requestId)
@@ -9292,10 +9257,7 @@ class AppViewModel : ViewModel() {
                             // ✓ Safety check: Only update if this is the currently open room
                             if (roomId == currentRoomId) {
                                 currentRoomState = roomState
-                                android.util.Log.d("Andromuks", "AppViewModel: Updated room state from sync: $roomState")
-                            } else {
-                                android.util.Log.d("Andromuks", "AppViewModel: Skipped updating currentRoomState from sync - roomId mismatch ($roomId != $currentRoomId)")
-                            }
+                            } 
                         }
                     }
                     
@@ -9344,8 +9306,6 @@ class AppViewModel : ViewModel() {
             if (eventJson != null) {
                 val event = TimelineEvent.fromJson(eventJson)
                 events.add(event)
-                // Log each event with its critical fields
-                android.util.Log.d("Andromuks", "AppViewModel: [SYNC EVENT $i/${eventsArray.length()}] eventId=${event.eventId} type=${event.type} sender=${event.sender} timelineRowid=${event.timelineRowid}")
             }
         }
         
@@ -9378,9 +9338,7 @@ class AppViewModel : ViewModel() {
             processVersionedMessages(events)
         }
         
-        for (event in events) {
-            android.util.Log.d("Andromuks", "AppViewModel: Processing event ${event.eventId} of type ${event.type} at timestamp ${event.timestamp}")
-            
+        for (event in events) {          
             if (event.type == "m.room.member" && event.timelineRowid == -1L) {
                 // State member event; update cache only
                 val userId = event.stateKey ?: event.sender
@@ -9393,16 +9351,12 @@ class AppViewModel : ViewModel() {
                         memberMap[userId] = profile
                         // PERFORMANCE: Also add to global cache for O(1) lookups
                         globalProfileCache[userId] = CachedProfileEntry(profile, System.currentTimeMillis())
-                        android.util.Log.d("Andromuks", "AppViewModel: [SYNC] ✓ Updated member cache for $userId: displayName='$displayName' (NOT added to timeline - correct)")
                     }
                 }
             } else if (event.type == "m.room.member" && event.timelineRowid >= 0L) {
                 // Timeline member event (join/leave that should show in timeline)
-                android.util.Log.d("Andromuks", "AppViewModel: [SYNC] Member event with timelineRowid=${event.timelineRowid} - should this be added to timeline?")
                 addNewEventToChain(event)
             } else if (event.type == "m.room.redaction") {
-                // Handle redaction events (live sync path)
-                android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processing redaction event ${event.eventId} from ${event.sender}")
                 
                 // Add redaction event to timeline so findLatestRedactionEvent can find it
                 addNewEventToChain(event)
@@ -9411,7 +9365,6 @@ class AppViewModel : ViewModel() {
                 val redactsEventId = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
                 
                 if (redactsEventId != null) {
-                    android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Redaction targets event: $redactsEventId")
                     
                     // Find and update the original message in the timeline
                     val currentEvents = timelineEvents.toMutableList()
@@ -9439,11 +9392,8 @@ class AppViewModel : ViewModel() {
                 
                 // Request sender profile if missing from cache
                 if (!memberMap.containsKey(event.sender)) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Requesting profile for redaction sender: ${event.sender} in room $roomId")
                     requestUserProfile(event.sender, roomId)
-                } else {
-                    android.util.Log.d("Andromuks", "AppViewModel: Redaction sender ${event.sender} already in cache: ${memberMap[event.sender]?.displayName}")
-                }
+                } 
                 
                 // OPTIMIZED: UI update will be triggered by buildTimelineFromChain() at the end of processSyncEventsArray
             } else if (event.type == "m.reaction") {
@@ -9459,7 +9409,6 @@ class AppViewModel : ViewModel() {
                         if (relatesToEventId.isNotBlank() && emoji.isNotBlank() && relType == "m.annotation") {
                             // Check if this reaction has been redacted
                             if (event.redactedBy != null) {
-                                android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Reaction event ${event.eventId} has been redacted by ${event.redactedBy}, removing reaction")
                                 // Remove this reaction by processing it as if the user toggled it off
                                 val reactionEvent = ReactionEvent(
                                     roomId = roomId,
@@ -9474,11 +9423,8 @@ class AppViewModel : ViewModel() {
                                 )
                                 // Process the reaction - it will be removed since the user is already in the list
                                 processReactionEvent(reactionEvent)
-                                android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Removed redacted reaction: $emoji from ${event.sender} to $relatesToEventId")
                             } else {
-                                // Normal reaction, add it
-                                android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processing reaction: $emoji from ${event.sender} to $relatesToEventId")
-                                
+                                // Normal reaction, add it                             
                                 // Process all reactions normally - no special handling for our own reactions
                                 val reactionEvent = ReactionEvent(
                                     roomId = roomId,
@@ -9492,7 +9438,6 @@ class AppViewModel : ViewModel() {
                                     )
                                 )
                                 processReactionEvent(reactionEvent)
-                                android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processed reaction: $emoji from ${event.sender} to $relatesToEventId")
                             }
                         }
                     }
@@ -9506,7 +9451,6 @@ class AppViewModel : ViewModel() {
                         event.type == "m.room.encrypted" -> event.decrypted?.optString("body", "")?.take(50)
                         else -> ""
                     }
-                    android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] ★ Processing OUR OWN message from another device: ${event.eventId} body='$bodyPreview' timelineRowid=${event.timelineRowid}")
                 }
                 
                 // Check if this is an edit event (m.replace relationship)
@@ -9518,24 +9462,15 @@ class AppViewModel : ViewModel() {
                 
                 if (isEditEvent) {
                     // Handle edit event using edit chain system
-                    android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Event ${event.eventId} is an EDIT, handling via chain")
                     handleEditEventInChain(event)
                 } else {
                     // Add new timeline event to chain (works for messages from ANY client)
-                    android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] ✓ Adding event ${event.eventId} to timeline chain (sender=${event.sender})")
                     addNewEventToChain(event)
                 }
             } else if (event.type == "m.room.pinned_events" || event.type == "m.room.name" || event.type == "m.room.topic" || event.type == "m.room.avatar") {
                 // System events that should appear in timeline
-                android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Processing system event: ${event.type} eventId=${event.eventId} sender=${event.sender}")
                 addNewEventToChain(event)
-            } else {
-                // Unknown event type - log it so we can see what's being skipped
-                android.util.Log.w("Andromuks", "AppViewModel: [LIVE SYNC] ✗ UNHANDLED event type: ${event.type} eventId=${event.eventId} sender=${event.sender} timelineRowid=${event.timelineRowid}")
-                if (event.sender == currentUserId) {
-                    android.util.Log.e("Andromuks", "AppViewModel: [LIVE SYNC] ★★★ WARNING: YOUR OWN message was SKIPPED due to unhandled type: ${event.type} ★★★")
-                }
-            }
+            } 
         }
         
         // Summary of what was processed
@@ -9551,8 +9486,6 @@ class AppViewModel : ViewModel() {
         val reactions = events.count { it.type == "m.reaction" }
         val unhandled = events.size - addedToTimeline - memberStateUpdates - reactions
         
-        android.util.Log.d("Andromuks", "AppViewModel: [SYNC SUMMARY] Total=${events.size}: addedToTimeline=$addedToTimeline, memberUpdates=$memberStateUpdates, reactions=$reactions, unhandled=$unhandled")
-        
         // Only process edit relationships for new edit events
         val newEditEvents = events.filter { event ->
             val isEditEvent = when {
@@ -9564,7 +9497,6 @@ class AppViewModel : ViewModel() {
         }
         
         if (newEditEvents.isNotEmpty()) {
-            android.util.Log.d("Andromuks", "AppViewModel: Processing relationships for ${newEditEvents.size} new edit events")
             processNewEditRelationships(newEditEvents)
         }
         
@@ -9572,7 +9504,6 @@ class AppViewModel : ViewModel() {
         val timelineCountBefore = timelineEvents.size
         buildTimelineFromChain()
         val timelineCountAfter = timelineEvents.size
-        android.util.Log.d("Andromuks", "AppViewModel: [SYNC] Timeline rebuilt: before=$timelineCountBefore, after=$timelineCountAfter (added ${timelineCountAfter - timelineCountBefore} events)")
 
         // FAILSAFE: If the rebuilt timeline is significantly smaller than the cached snapshot,
         // fall back to rebuilding entirely from the cache to prevent data loss.
@@ -9591,24 +9522,12 @@ class AppViewModel : ViewModel() {
                     openingFromNotification = false,
                     skipNetworkRequests = true
                 )
-                // After rebuilding from cache, ensure counters reflect the updated timeline.
-                android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Timeline rebuilt from cache for $roomId -> timelineEvents=${timelineEvents.size}"
-                )
-            } else {
-                android.util.Log.w(
-                    "Andromuks",
-                    "AppViewModel: Cache snapshot unavailable or not larger (snapshot=${cachedSnapshot?.size
-                        ?: "null"}) - skipping cache rebuild fallback"
-                )
-            }
+            } 
         }
         
         // Mark room as read for the newest event since user is actively viewing the room
         val newestEvent = events.maxByOrNull { it.timestamp }
         if (newestEvent != null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Auto-marking room as read for newest event: ${newestEvent.eventId}")
             markRoomAsRead(roomId, newestEvent.eventId)
         }
     }
@@ -9617,12 +9536,9 @@ class AppViewModel : ViewModel() {
      * Handles edit events using the edit chain tracking system.
      * This ensures clean edit handling by tracking the edit chain properly.
      */
-    private fun handleEditEventInChain(editEvent: TimelineEvent) {
-        android.util.Log.d("Andromuks", "AppViewModel: handleEditEventInChain called for ${editEvent.eventId}")
-        
+    private fun handleEditEventInChain(editEvent: TimelineEvent) {        
         // Check if the edit event needs decryption
         val processedEditEvent = if (editEvent.type == "m.room.encrypted" && editEvent.decrypted == null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Edit event ${editEvent.eventId} needs decryption")
             // For now, store as-is - decryption should happen elsewhere
             editEvent
         } else {
@@ -9641,23 +9557,15 @@ class AppViewModel : ViewModel() {
         
         val targetEventId = relatesTo?.optString("event_id")
         if (targetEventId != null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Edit event ${editEvent.eventId} targets ${targetEventId}")
             
             // Find the target event in our chain mapping
             val targetEntry = eventChainMap[targetEventId]
             if (targetEntry != null) {
-                android.util.Log.d("Andromuks", "AppViewModel: Found target event ${targetEventId} in chain mapping")
-                android.util.Log.d("Andromuks", "AppViewModel: Target event body before edit: ${targetEntry.ourBubble?.decrypted?.optString("body", "null")}")
-                
+               
                 // Update the target event's replacedBy field with the new edit
                 targetEntry.replacedBy = editEvent.eventId
                 
-                android.util.Log.d("Andromuks", "AppViewModel: Updated target event ${targetEventId} to be replaced by ${editEvent.eventId}")
-            } else {
-                android.util.Log.w("Andromuks", "AppViewModel: Target event ${targetEventId} not found in chain mapping")
-                // THREAD SAFETY: Create safe copy to avoid ConcurrentModificationException during logging
-                android.util.Log.d("Andromuks", "AppViewModel: Available events in chain: ${eventChainMap.keys.toList()}")
-            }
+            } 
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Could not find target event ID in edit event ${editEvent.eventId}")
         }
@@ -9668,11 +9576,9 @@ class AppViewModel : ViewModel() {
      * Includes deduplication to prevent the same event from being added multiple times.
      */
     private fun addNewEventToChain(event: TimelineEvent) {
-        android.util.Log.d("Andromuks", "AppViewModel: addNewEventToChain called for ${event.eventId}")
         
         // DEDUPLICATION: Check if event already exists in chain
         if (eventChainMap.containsKey(event.eventId)) {
-            android.util.Log.d("Andromuks", "AppViewModel: Event ${event.eventId} already in chain, skipping duplicate")
             return
         }
         
@@ -9683,20 +9589,17 @@ class AppViewModel : ViewModel() {
             replacedBy = null,
             originalTimestamp = event.timestamp
         )
-        
-        android.util.Log.d("Andromuks", "AppViewModel: Added event ${event.eventId} to chain mapping")
+
     }
     
     /**
      * Processes edit relationships for new edit events only.
      */
     private fun processNewEditRelationships(newEditEvents: List<TimelineEvent>) {
-        android.util.Log.d("Andromuks", "AppViewModel: processNewEditRelationships called with ${newEditEvents.size} new edit events")
         
         // Process only the new edit events
         for (editEvent in newEditEvents) {
             val editEventId = editEvent.eventId
-            android.util.Log.d("Andromuks", "AppViewModel: Processing new edit event ${editEventId}")
             
             // Get the target event ID from the edit event
             val relatesTo = when {
@@ -9715,19 +9618,13 @@ class AppViewModel : ViewModel() {
                         val chainEnd = findChainEnd(targetEntry.replacedBy!!)
                         if (chainEnd != null) {
                             chainEnd.replacedBy = editEventId
-                            android.util.Log.d("Andromuks", "AppViewModel: Added ${editEventId} to end of chain for ${targetEventId}")
                         }
                     } else {
                         // First edit for this target
                         targetEntry.replacedBy = editEventId
-                        android.util.Log.d("Andromuks", "AppViewModel: Set ${targetEventId} to be replaced by ${editEventId}")
                     }
-                } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: Target event ${targetEventId} not found in chain mapping for edit ${editEventId}")
-                }
-            } else {
-                android.util.Log.w("Andromuks", "AppViewModel: Could not find target event ID in edit event ${editEventId}")
-            }
+                } 
+            } 
         }
     }
     
@@ -9735,11 +9632,9 @@ class AppViewModel : ViewModel() {
      * Processes edit relationships to build the complete edit chain.
      */
     private fun processEditRelationships() {
-        android.util.Log.d("Andromuks", "AppViewModel: processEditRelationships called with ${eventChainMap.size} events and ${editEventsMap.size} edit events")
         
         // Safety check: limit the number of edit events to prevent blocking
         if (editEventsMap.size > 100) {
-            android.util.Log.w("Andromuks", "AppViewModel: Too many edit events (${editEventsMap.size}), limiting to 100 to prevent blocking")
             val limitedEditEvents = editEventsMap.toList().take(100).toMap()
             editEventsMap.clear()
             editEventsMap.putAll(limitedEditEvents)
@@ -9753,12 +9648,10 @@ class AppViewModel : ViewModel() {
                 replacedBy = null,
                 originalTimestamp = editEvent.timestamp
             )
-            android.util.Log.d("Andromuks", "AppViewModel: Created chain entry for edit event ${editEventId}")
         }
         
         // Sort edit events by timestamp to process in chronological order
         val sortedEditEvents = editEventsMap.values.sortedBy { it.timestamp }
-        android.util.Log.d("Andromuks", "AppViewModel: Processing ${sortedEditEvents.size} edit events in chronological order")
         
         // OPTIMIZED: Use memoization cache for chain ends to avoid repeated traversals
         val chainEndCache = mutableMapOf<String, EventChainEntry?>()
@@ -9773,7 +9666,6 @@ class AppViewModel : ViewModel() {
             }
             processedCount++
             val editEventId = editEvent.eventId
-            android.util.Log.d("Andromuks", "AppViewModel: Processing edit event ${editEventId} at timestamp ${editEvent.timestamp}")
             
             // Get the target event ID from the edit event
             val relatesTo = when {
@@ -9794,16 +9686,13 @@ class AppViewModel : ViewModel() {
                             chainEnd.replacedBy = editEventId
                             // Update cache: the new end is now this edit event
                             chainEndCache[targetEntry.replacedBy!!] = null // Invalidate old chain
-                            android.util.Log.d("Andromuks", "AppViewModel: Added ${editEventId} to end of chain for ${targetEventId}")
                         }
                     } else {
                         // First edit for this target
                         targetEntry.replacedBy = editEventId
-                        android.util.Log.d("Andromuks", "AppViewModel: Set ${targetEventId} to be replaced by ${editEventId}")
+
                     }
-                } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: Target event ${targetEventId} not found in chain mapping for edit ${editEventId}")
-                }
+                } 
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: Could not find target event ID in edit event ${editEventId}")
             }
@@ -9862,9 +9751,6 @@ class AppViewModel : ViewModel() {
      */
     private fun buildTimelineFromChain() {
         try {
-            android.util.Log.d("Andromuks", "AppViewModel: buildTimelineFromChain called with ${eventChainMap.size} events")
-            android.util.Log.d("Andromuks", "AppViewModel: Edit events map has ${editEventsMap.size} events")
-            
             val timelineEvents = mutableListOf<TimelineEvent>()
             val redactionMap = mutableMapOf<String, String>() // Map of target eventId -> redaction eventId
             
@@ -9889,7 +9775,6 @@ class AppViewModel : ViewModel() {
                     val redactsEventId = redactionEvent.content?.optString("redacts")?.takeIf { it.isNotBlank() }
                     if (redactsEventId != null) {
                         redactionMap[redactsEventId] = redactionEvent.eventId
-                        android.util.Log.d("Andromuks", "AppViewModel: Found redaction ${redactionEvent.eventId} targeting $redactsEventId")
                     }
                 }
                 
@@ -9934,12 +9819,10 @@ class AppViewModel : ViewModel() {
             // Animations should only occur for new messages when room is already open
             if (isInitialRoomLoad) {
                 animationsEnabledForRoom[currentRoomId] = false
-                android.util.Log.d("Andromuks", "AppViewModel: Initial room load detected for $currentRoomId - animations disabled")
             } else {
                 // Enable animations after initial load (when we have existing events and new ones arrive)
                 if (!animationsEnabledForRoom.containsKey(currentRoomId)) {
                     animationsEnabledForRoom[currentRoomId] = true
-                    android.util.Log.d("Andromuks", "AppViewModel: Room $currentRoomId fully loaded - animations enabled")
                 }
             }
             
@@ -9968,9 +9851,6 @@ class AppViewModel : ViewModel() {
                     if (shouldAnimateThisMessage) {
                         newMessageAnimations[eventId] = animationEndTime
                         runningBubbleAnimations.add(eventId)
-                        android.util.Log.d("Andromuks", "AppViewModel: Added new message animation for $eventId (timestamp: ${newEvent?.timestamp}, roomOpen: $roomOpenTimestamp, ends at ${animationEndTime})")
-                    } else {
-                        android.util.Log.d("Andromuks", "AppViewModel: Skipped animation for $eventId (timestamp: ${newEvent?.timestamp}, roomOpen: $roomOpenTimestamp - message is older than room open)")
                     }
                     
                     // Check if this message is from another user (not our own message) for sound notification
@@ -9989,10 +9869,7 @@ class AppViewModel : ViewModel() {
                 // Play sound for new messages from other users in the current room
                 // BUT NOT during initial room loading (when opening a room for the first time)
                 if (shouldPlaySound && isAppVisible && currentRoomId.isNotEmpty() && !isInitialRoomLoad) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Playing notification sound for new messages from other users in current room: $currentRoomId")
                     playNewMessageSound()
-                } else if (isInitialRoomLoad && shouldPlaySound) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Skipping sound during initial room load - would have played for ${actuallyNewMessages.size} messages")
                 }
                 
                 // Trigger animation system update
@@ -10015,8 +9892,6 @@ class AppViewModel : ViewModel() {
             if (currentRoomId.isNotEmpty()) {
                 RoomRepository.updateTimeline(currentRoomId, limitedTimelineEvents)
             }
-            
-            android.util.Log.d("Andromuks", "AppViewModel: Built timeline with ${limitedTimelineEvents.size} events from chain, ${actuallyNewMessages.size} new messages detected")
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Error in buildTimelineFromChain", e)
             // If building timeline fails, try to preserve existing timeline if possible
@@ -10031,12 +9906,8 @@ class AppViewModel : ViewModel() {
         }
     }
     private fun mergePaginationEvents(newEvents: List<TimelineEvent>) {
-        android.util.Log.d("Andromuks", "AppViewModel: mergePaginationEvents called with ${newEvents.size} new events")
-        android.util.Log.d("Andromuks", "AppViewModel: Current timeline has ${timelineEvents.size} events")
-        
         // OPTIMIZED: Early exit if no new events
         if (newEvents.isEmpty()) {
-            android.util.Log.d("Andromuks", "AppViewModel: No new events to merge")
             return
         }
         
@@ -10066,19 +9937,14 @@ class AppViewModel : ViewModel() {
                 combinedMap[event.eventId] = event
             }
         }
-        android.util.Log.d("Andromuks", "AppViewModel: Combined timeline has ${combinedMap.size} unique events before redaction processing (${redactionMap.size} redactions)")
         
         // OPTIMIZED: Process redactions using HashMap lookup (O(1) instead of O(n))
         for ((targetEventId, redactionEvent) in redactionMap) {
-            android.util.Log.d("Andromuks", "AppViewModel: Pagination redaction ${redactionEvent.eventId} targets $targetEventId")
             
             val targetEvent = combinedMap[targetEventId]
             if (targetEvent != null) {
                 combinedMap[targetEventId] = targetEvent.copy(redactedBy = redactionEvent.eventId)
-                android.util.Log.d("Andromuks", "AppViewModel: Marked paginated event $targetEventId as redacted by ${redactionEvent.eventId}")
-            } else {
-                android.util.Log.w("Andromuks", "AppViewModel: Could not find target event $targetEventId for pagination redaction")
-            }
+            } 
         }
         
         // OPTIMIZED: Use background thread for large merges
@@ -10116,7 +9982,6 @@ class AppViewModel : ViewModel() {
                         RoomRepository.updateTimeline(currentRoomId, limitedTimelineEvents)
                     }
                     
-                    android.util.Log.d("Andromuks", "AppViewModel: Timeline sorted and updated, timelineUpdateCounter incremented to $timelineUpdateCounter")
                 }
             }
         } else {
@@ -10155,23 +10020,18 @@ class AppViewModel : ViewModel() {
         
         // Update smallest rowId for next pagination
         val newSmallest = newEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
-        android.util.Log.d("Andromuks", "AppViewModel: New smallest rowId from pagination: $newSmallest, current smallestRowId: $smallestRowId")
         if (newSmallest > 0 && newSmallest < smallestRowId) {
-            smallestRowId = newSmallest
-            android.util.Log.d("Andromuks", "AppViewModel: Updated smallest rowId for pagination: $smallestRowId")
+            smallestRowId = newSmallest 
         }
         
-        android.util.Log.d("Andromuks", "AppViewModel: Merged pagination events, timeline now has ${this.timelineEvents.size} events")
     }
     
     fun loadOlderMessages(roomId: String, showToast: Boolean = true) {
         val context = appContext ?: run {
-            android.util.Log.w("Andromuks", "AppViewModel: Cannot load older messages - appContext is null")
             return
         }
 
         if (isPaginating) {
-            android.util.Log.d("Andromuks", "AppViewModel: Skipping loadOlderMessages - already loading")
             return
         }
 
@@ -10184,10 +10044,6 @@ class AppViewModel : ViewModel() {
         }
 
         val cacheSize = RoomTimelineCache.getCachedEventCount(roomId)
-        android.util.Log.d("Andromuks", "AppViewModel: ========================================")
-        android.util.Log.d("Andromuks", "AppViewModel: loadOlderMessages CALLED for room: $roomId")
-        android.util.Log.d("Andromuks", "AppViewModel: Current cache size: $cacheSize events")
-        android.util.Log.d("Andromuks", "AppViewModel: Current state - isPaginating: $isPaginating, smallestRowId: $smallestRowId, hasMoreMessages: $hasMoreMessages")
 
         isPaginating = true
 
@@ -10280,16 +10136,12 @@ class AppViewModel : ViewModel() {
         var currentEntry = entry
         val visitedEvents = mutableSetOf<String>() // Prevent infinite loops
         
-        //android.util.Log.d("Andromuks", "AppViewModel: getFinalEventForBubble for ${entry.eventId}")
-        //android.util.Log.d("Andromuks", "AppViewModel: Initial event body: ${currentEvent.decrypted?.optString("body", "null")}")
-        //android.util.Log.d("Andromuks", "AppViewModel: replacedBy: ${entry.replacedBy}")
         
         // Follow the edit chain to find the latest edit
         var chainDepth = 0
         while (currentEntry.replacedBy != null) {
             // Safety check: limit chain depth to prevent infinite loops
             if (chainDepth >= 20) {
-                android.util.Log.w("Andromuks", "AppViewModel: Chain depth limit reached (20), stopping to prevent infinite loop")
                 break
             }
             chainDepth++
@@ -10313,20 +10165,13 @@ class AppViewModel : ViewModel() {
             // Use requireNotNull to ensure the compiler recognizes it as non-null
             val editEvent = requireNotNull(editEventNullable) { "Edit event $editEventId should be non-null after null check" }
             
-            //android.util.Log.d("Andromuks", "AppViewModel: Following edit chain from ${currentEntry.eventId} to ${editEventId}")
-            //android.util.Log.d("Andromuks", "AppViewModel: Edit event body: ${editEvent.decrypted?.optString("body", "null")}")
-            //android.util.Log.d("Andromuks", "AppViewModel: Merging edit content from ${editEventId}")
-            
             // Merge the edit content into the current event
             currentEvent = mergeEditContent(currentEvent, editEvent)
-            
-            android.util.Log.d("Andromuks", "AppViewModel: After merge body: ${currentEvent.decrypted?.optString("body", "null")}")
             
             // Update current entry to continue following the chain
             // Edit events have their own chain entries, so we can follow them
             val nextEntry = eventChainMap[editEventId]
             if (nextEntry == null) {
-                android.util.Log.d("Andromuks", "AppViewModel: Reached end of edit chain at ${editEventId}")
                 break
             }
             
@@ -10339,7 +10184,6 @@ class AppViewModel : ViewModel() {
             currentEntry = nextEntry
         }
         
-        //android.util.Log.d("Andromuks", "AppViewModel: Final event body: ${currentEvent.decrypted?.optString("body", "null")}")
         return currentEvent
     }
     
@@ -10367,14 +10211,14 @@ class AppViewModel : ViewModel() {
                     val originalEventIndex = result.indexOfFirst { it.eventId == supersededEventId }
                     if (originalEventIndex != -1) {
                         val originalEvent = result[originalEventIndex]
-                        android.util.Log.d("Andromuks", "AppViewModel: Found original event at index $originalEventIndex: ${originalEvent.eventId}")
-                        android.util.Log.d("Andromuks", "AppViewModel: Original event body before merge: ${originalEvent.decrypted?.optString("body", "null")}")
+                        //android.util.Log.d("Andromuks", "AppViewModel: Found original event at index $originalEventIndex: ${originalEvent.eventId}")
+                        //android.util.Log.d("Andromuks", "AppViewModel: Original event body before merge: ${originalEvent.decrypted?.optString("body", "null")}")
                         
                         // Create a new event that merges the original event with the edit content
                         val mergedEvent = mergeEditContent(originalEvent, newEvent)
                         result[originalEventIndex] = mergedEvent
-                        android.util.Log.d("Andromuks", "AppViewModel: Merged edit content into original event $supersededEventId")
-                        android.util.Log.d("Andromuks", "AppViewModel: Final merged event body: ${mergedEvent.decrypted?.optString("body", "null")}")
+                        //android.util.Log.d("Andromuks", "AppViewModel: Merged edit content into original event $supersededEventId")
+                        //android.util.Log.d("Andromuks", "AppViewModel: Final merged event body: ${mergedEvent.decrypted?.optString("body", "null")}")
                     } else {
                         android.util.Log.d("Andromuks", "AppViewModel: WARNING - Could not find original event $supersededEventId in timeline")
                     }
@@ -10472,14 +10316,6 @@ class AppViewModel : ViewModel() {
      * @return A new TimelineEvent with merged content
      */
     private fun mergeEditContent(originalEvent: TimelineEvent, editEvent: TimelineEvent): TimelineEvent {
-        android.util.Log.d("Andromuks", "AppViewModel: mergeEditContent called")
-        android.util.Log.d("Andromuks", "AppViewModel: Original event ID: ${originalEvent.eventId}")
-        android.util.Log.d("Andromuks", "AppViewModel: Original event body: ${originalEvent.decrypted?.optString("body", "null")}")
-        android.util.Log.d("Andromuks", "AppViewModel: Original event decrypted: ${originalEvent.decrypted}")
-        android.util.Log.d("Andromuks", "AppViewModel: Edit event ID: ${editEvent.eventId}")
-        android.util.Log.d("Andromuks", "AppViewModel: Edit event body: ${editEvent.decrypted?.optString("body", "null")}")
-        android.util.Log.d("Andromuks", "AppViewModel: Edit event decrypted: ${editEvent.decrypted}")
-        
         // Create a new content JSON object based on the original event
         val mergedContent = JSONObject(originalEvent.content.toString())
         
@@ -10490,19 +10326,11 @@ class AppViewModel : ViewModel() {
             editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.new_content")
             else -> null
         }
-        android.util.Log.d("Andromuks", "AppViewModel: newContent from edit event: $newContent")
-        
         if (newContent != null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Original decrypted content before merge: ${originalEvent.decrypted}")
-            
             // Create a completely new decrypted content object with the new content
             // Use the new content directly as the merged decrypted content
             val mergedDecrypted = JSONObject(newContent.toString())
-            android.util.Log.d("Andromuks", "AppViewModel: Created mergedDecrypted from newContent: ${mergedDecrypted.toString()}")
-            
-            android.util.Log.d("Andromuks", "AppViewModel: Merged decrypted content after merge: ${mergedDecrypted.toString()}")
-            android.util.Log.d("Andromuks", "AppViewModel: Final body after merge: ${mergedDecrypted.optString("body", "null")}")
-            
+
             // For non-encrypted rooms, also update the content field
             val finalContent = if (originalEvent.type == "m.room.message") {
                 // For non-encrypted rooms, update the content field with new content
@@ -10520,13 +10348,8 @@ class AppViewModel : ViewModel() {
                 content = finalContent,
                 decrypted = mergedDecrypted
             )
-            
-            android.util.Log.d("Andromuks", "AppViewModel: Merged event body: ${mergedEvent.decrypted?.optString("body", "null")}")
-            android.util.Log.d("Andromuks", "AppViewModel: Merged event content body: ${mergedEvent.content?.optString("body", "null")}")
             return mergedEvent
         }
-        
-        android.util.Log.d("Andromuks", "AppViewModel: No new content found, returning original event")
         // If no new content, return the original event
         return originalEvent
     }

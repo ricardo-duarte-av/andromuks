@@ -245,9 +245,6 @@ fun connectToWebsocket(
     // Get reconnection parameters from AppViewModel (service may not be started yet)
     val (runId, lastReceivedId, vapidKey) = Triple(appViewModel.getCurrentRunId(), appViewModel.getLastReceivedId(), "")
     
-    // Debug logging to identify JSON encoding issue
-    Log.d("NetworkUtils", "DEBUG: runId='$runId', lastReceivedId=$lastReceivedId, vapidKey='${vapidKey.take(20)}...'")
-    Log.d("NetworkUtils", "DEBUG: runId type: ${runId.javaClass.simpleName}, length: ${runId.length}")
     
     // TEMPORARY FIX: If runId is JSON-encoded, extract the actual run_id
     val actualRunId = if (runId.startsWith("{")) {
@@ -349,14 +346,10 @@ fun connectToWebsocket(
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
-            //Log.d("Andromuks", "NetworkUtils: WebSocket TextMessage: $text")
             val jsonObject = try { JSONObject(text) } catch (e: Exception) { null }
             if (jsonObject != null) {
                 // Debug: Check if this message contains backend request ID
                 val backendRequestId = jsonObject.optString("backend_request_id", null)
-                if (backendRequestId != null) {
-                    Log.d("Andromuks", "NetworkUtils: Backend request ID found in message: $backendRequestId")
-                }
                 // Track last received request_id for ping purposes
                 val receivedReqId = jsonObject.optInt("request_id", 0)
                 if (receivedReqId != 0) {
@@ -377,9 +370,6 @@ fun connectToWebsocket(
                         val data = jsonObject.optJSONObject("data")
                         val runId = data?.optString("run_id", "")
                         val vapidKey = data?.optString("vapid_key", "")
-                        Log.d("Andromuks", "NetworkUtils: Received run_id: $runId, vapid_key: ${vapidKey?.take(20)}...")
-                        Log.d("Andromuks", "NetworkUtils: DEBUG - Full data object: ${data?.toString()}")
-                        Log.d("Andromuks", "NetworkUtils: DEBUG - runId type: ${runId?.javaClass?.simpleName}, length: ${runId?.length}")
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -388,7 +378,6 @@ fun connectToWebsocket(
                         }
                     }
                     "sync_complete" -> {
-                        Log.d("Andromuks", "NetworkUtils: Processing sync_complete message with async parsing")
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             val registeredViewModels = WebSocketService.getRegisteredViewModels()
@@ -406,10 +395,8 @@ fun connectToWebsocket(
                         }
                     }
                     "init_complete" -> {
-                        Log.d("Andromuks", "NetworkUtils: Received init_complete - initialization finished")
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.Main) {
-                            Log.d("Andromuks", "NetworkUtils: Calling onInitComplete on main thread")
                             for (viewModel in WebSocketService.getRegisteredViewModels()) {
                                 viewModel.onInitComplete()
                             }
@@ -420,7 +407,6 @@ fun connectToWebsocket(
                         val userId = data?.optString("user_id")
                         val deviceId = data?.optString("device_id")
                         val hs = data?.optString("homeserver_url")
-                        Log.d("Andromuks", "NetworkUtils: client_state user=$userId device=$deviceId homeserver=$hs")
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -430,7 +416,6 @@ fun connectToWebsocket(
                     }
                     "image_auth_token" -> {
                         val token = jsonObject.optString("data", "")
-                        Log.d("Andromuks", "NetworkUtils: image_auth_token received: ${token.isNotBlank()}")
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -441,7 +426,6 @@ fun connectToWebsocket(
                     "response" -> {
                         val requestId = jsonObject.optInt("request_id")
                         val data = jsonObject.opt("data")
-                        Log.d("Andromuks", "NetworkUtils: Routing response, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
                         
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
@@ -453,11 +437,9 @@ fun connectToWebsocket(
                     "send_complete" -> {
                         val data = jsonObject.optJSONObject("data")
                         val event = data?.optJSONObject("event")
-                        Log.d("Andromuks", "NetworkUtils: Processing send_complete, hasEvent=${event != null}")
                         if (event != null) {
                             val eventType = event.optString("type", "unknown")
                             val eventId = event.optString("event_id", "unknown")
-                            Log.d("Andromuks", "NetworkUtils: send_complete event - type: $eventType, eventId: $eventId")
                         }
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
@@ -472,7 +454,6 @@ fun connectToWebsocket(
                     "error" -> {
                         val requestId = jsonObject.optInt("request_id")
                         val errorMessage = jsonObject.optString("data", "Unknown error")
-                        Log.d("Andromuks", "NetworkUtils: Received error for requestId=$requestId: $errorMessage")
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -490,7 +471,6 @@ fun connectToWebsocket(
                                 userIdsArray.optString(i)?.let { userIds.add(it) }
                             }
                         }
-                        Log.d("Andromuks", "NetworkUtils: Received typing event for room=$roomId, users=$userIds")
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -503,7 +483,6 @@ fun connectToWebsocket(
         }
 
         override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-            Log.d("Andromuks", "NetworkUtils: WebSocket ByteMessage received (${bytes.size} bytes)")
             
             try {
                 if (streamingDecompressor != null) {
@@ -512,7 +491,6 @@ fun connectToWebsocket(
                     val decompressedText = streamingDecompressor!!.readAvailable()
                     
                     if (decompressedText != null) {
-                        Log.d("Andromuks", "NetworkUtils: Decompressed message: $decompressedText")
                         
                         // Handle multiple JSON objects that may be concatenated in one frame
                         val jsonObjects = parseMultipleJsonObjects(decompressedText)
@@ -520,9 +498,6 @@ fun connectToWebsocket(
                         for (jsonObject in jsonObjects) {
                             // Debug: Check if this message contains backend request ID
                             val backendRequestId = jsonObject.optString("backend_request_id", null)
-                            if (backendRequestId != null) {
-                                Log.d("Andromuks", "NetworkUtils: Backend request ID found in compressed message: $backendRequestId")
-                            }
                             
                             // Track last received request_id for ping purposes
                             val receivedReqId = jsonObject.optInt("request_id", 0)
@@ -544,9 +519,6 @@ fun connectToWebsocket(
                                     val data = jsonObject.optJSONObject("data")
                                     val runId = data?.optString("run_id", "")
                                     val vapidKey = data?.optString("vapid_key", "")
-                                    Log.d("Andromuks", "NetworkUtils: Received compressed run_id: $runId, vapid_key: ${vapidKey?.take(20)}...")
-                                    Log.d("Andromuks", "NetworkUtils: DEBUG - Full compressed data object: ${data?.toString()}")
-                                    Log.d("Andromuks", "NetworkUtils: DEBUG - compressed runId type: ${runId?.javaClass?.simpleName}, length: ${runId?.length}")
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                                         for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -555,7 +527,7 @@ fun connectToWebsocket(
                                     }
                                 }
                                 "sync_complete" -> {
-                                    Log.d("Andromuks", "NetworkUtils: Processing compressed sync_complete message with async parsing")
+
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                                         for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -564,7 +536,6 @@ fun connectToWebsocket(
                                     }
                                 }
                                 "init_complete" -> {
-                                    Log.d("Andromuks", "NetworkUtils: Received compressed init_complete - initialization finished")
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                                         Log.d("Andromuks", "NetworkUtils: Calling onInitComplete on main thread")
@@ -578,7 +549,6 @@ fun connectToWebsocket(
                                     val userId = data?.optString("user_id")
                                     val deviceId = data?.optString("device_id")
                                     val hs = data?.optString("homeserver_url")
-                                    Log.d("Andromuks", "NetworkUtils: client_state user=$userId device=$deviceId homeserver=$hs")
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                                         for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -588,7 +558,6 @@ fun connectToWebsocket(
                                 }
                                 "image_auth_token" -> {
                                     val token = jsonObject.optString("data", "")
-                                    Log.d("Andromuks", "NetworkUtils: Received image auth token")
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                                         for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -602,7 +571,6 @@ fun connectToWebsocket(
                                      val userIds = data?.optJSONArray("user_ids")?.let { array ->
                                          (0 until array.length()).mapNotNull { array.optString(it).takeIf { it.isNotEmpty() } }
                                      } ?: emptyList()
-                                     Log.d("Andromuks", "NetworkUtils: Received compressed typing event for room=$roomId, users=$userIds")
                                      // PHASE 4: Distribute to all registered ViewModels
                                      WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                                          for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -613,7 +581,6 @@ fun connectToWebsocket(
                                 "response" -> {
                                     val requestId = jsonObject.optInt("request_id")
                                     val data = jsonObject.opt("data")
-                                    Log.d("Andromuks", "NetworkUtils: Routing compressed response, requestId=$requestId, dataType=${data?.javaClass?.simpleName}")
                                     
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
@@ -738,7 +705,6 @@ fun parseMultipleJsonObjects(jsonText: String): List<JSONObject> {
                         try {
                             val jsonObject = JSONObject(jsonStr)
                             jsonObjects.add(jsonObject)
-                            Log.d("Andromuks", "NetworkUtils: Parsed JSON object: ${jsonObject.optString("command", "unknown")}")
                         } catch (e: Exception) {
                             Log.w("Andromuks", "NetworkUtils: Failed to parse JSON object: $jsonStr", e)
                         }

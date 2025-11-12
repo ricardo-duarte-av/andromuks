@@ -343,13 +343,13 @@ object SpaceRoomParser {
                             // Check for m.favourite tag
                             if (tags.has("m.favourite")) {
                                 isFavourite = true
-                                Log.d("Andromuks", "SpaceRoomParser: Room $roomId marked as favourite")
+                                //Log.d("Andromuks", "SpaceRoomParser: Room $roomId marked as favourite")
                             }
                             
                             // Check for m.lowpriority tag
                             if (tags.has("m.lowpriority")) {
                                 isLowPriority = true
-                                Log.d("Andromuks", "SpaceRoomParser: Room $roomId marked as low priority")
+                                //Log.d("Andromuks", "SpaceRoomParser: Room $roomId marked as low priority")
                             }
                         }
                     }
@@ -387,13 +387,13 @@ object SpaceRoomParser {
             val dmUserId = meta.optString("dm_user_id")?.takeIf { it.isNotBlank() }
             
             if (dmUserId != null) {
-                Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (dm_user_id: $dmUserId)")
+                //Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (dm_user_id: $dmUserId)")
                 return true
             }
             
             // Method 2: Check m.direct account data (secondary method)
             if (appViewModel != null && appViewModel.isDirectMessageFromAccountData(roomId)) {
-                Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (m.direct account data)")
+                //Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (m.direct account data)")
                 return true
             }
             
@@ -402,11 +402,11 @@ object SpaceRoomParser {
             val isExactMatrixUserId = roomName.matches(Regex("^@[^:]+:[^:]+$")) // Exact Matrix user ID format
             
             if (isExactMatrixUserId) {
-                Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (fallback: name is exact Matrix user ID: '$roomName')")
+                //Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as DM (fallback: name is exact Matrix user ID: '$roomName')")
                 return true
             }
             
-            Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as group room (no dm_user_id, not in m.direct, name: '$roomName')")
+            //Log.d("Andromuks", "SpaceRoomParser: Room $roomId detected as group room (no dm_user_id, not in m.direct, name: '$roomName')")
             return false
             
         } catch (e: Exception) {
@@ -515,7 +515,7 @@ object SpaceRoomParser {
                                             // Check if this child is a space (has space_edges) - if so, skip it
                                             val isChildSpace = spaceEdges.has(childId)
                                             if (isChildSpace) {
-                                                Log.d("Andromuks", "SpaceRoomParser: Skipping child space: $childName")
+                                                //Log.d("Andromuks", "SpaceRoomParser: Skipping child space: $childName")
                                             } else {
                                                 val childRoom = net.vrkknn.andromuks.RoomItem(
                                                     id = childId,
@@ -528,7 +528,7 @@ object SpaceRoomParser {
                                                     isDirectMessage = false
                                                 )
                                                 childRooms.add(childRoom)
-                                                Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
+                                                //Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
                                             }
                                         }
                                     }
@@ -543,7 +543,7 @@ object SpaceRoomParser {
                             rooms = childRooms
                         )
                         spaces.add(spaceItem)
-                        Log.d("Andromuks", "SpaceRoomParser: Found space: $name (ID: $spaceId) with ${childRooms.size} rooms")
+                        //Log.d("Andromuks", "SpaceRoomParser: Found space: $name (ID: $spaceId) with ${childRooms.size} rooms")
                     }
                 }
             }// else {
@@ -604,7 +604,7 @@ object SpaceRoomParser {
                                         isDirectMessage = false
                                     )
                                     childRooms.add(childRoom)
-                                    android.util.Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
+                                    //android.util.Log.d("Andromuks", "SpaceRoomParser: Added child room: $childName (unread: $unreadCount)")
                                 }
                             }
                         }
