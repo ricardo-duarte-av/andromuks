@@ -20,6 +20,38 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE roomId = :roomId ORDER BY timelineRowId DESC, timestamp DESC LIMIT :limit")
     suspend fun getEventsForRoomDesc(roomId: String, limit: Int): List<EventEntity>
 
+    @Query(
+        """
+        SELECT * FROM events
+        WHERE roomId = :roomId
+          AND timelineRowId > 0
+          AND timelineRowId < :maxTimelineRowId
+        ORDER BY timelineRowId DESC, timestamp DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun getEventsBeforeRowId(
+        roomId: String,
+        maxTimelineRowId: Long,
+        limit: Int
+    ): List<EventEntity>
+
+    @Query(
+        """
+        SELECT * FROM events
+        WHERE roomId = :roomId
+          AND timestamp > 0
+          AND timestamp < :maxTimestamp
+        ORDER BY timestamp DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun getEventsBeforeTimestamp(
+        roomId: String,
+        maxTimestamp: Long,
+        limit: Int
+    ): List<EventEntity>
+
     @Query("DELETE FROM events WHERE roomId = :roomId AND eventId IN (:eventIds)")
     suspend fun deleteEvents(roomId: String, eventIds: List<String>)
 

@@ -10165,79 +10165,99 @@ class AppViewModel : ViewModel() {
     }
     
     fun loadOlderMessages(roomId: String, showToast: Boolean = true) {
-        if (hasInitialPaginate(roomId)) {
-            logSkippedPaginate(roomId, "load_older")
+        val context = appContext ?: run {
+            android.util.Log.w("Andromuks", "AppViewModel: Cannot load older messages - appContext is null")
             return
         }
-        val cacheSize = RoomTimelineCache.getCachedEventCount(roomId)
-        android.util.Log.d("Andromuks", "AppViewModel: ========================================")
-        android.util.Log.d("Andromuks", "AppViewModel: loadOlderMessages CALLED for room: $roomId")
-        android.util.Log.d("Andromuks", "AppViewModel: Current cache size: $cacheSize events")
-        android.util.Log.d("Andromuks", "AppViewModel: Current state - isPaginating: $isPaginating, smallestRowId: $smallestRowId, hasMoreMessages: $hasMoreMessages, webSocket: ${webSocket != null}")
-        
-        // Don't load if already loading
+
         if (isPaginating) {
-            android.util.Log.w("Andromuks", "AppViewModel: ❌ BLOCKED - Pagination already in progress")
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping loadOlderMessages - already loading")
             return
         }
-        
-        // Don't load if backend says there's nothing more
+
         if (!hasMoreMessages) {
-            android.util.Log.w("Andromuks", "AppViewModel: ❌ BLOCKED - No more messages (has_more=false)")
-            appContext?.let { context ->
+            android.util.Log.d("Andromuks", "AppViewModel: No more historical messages available in DB for $roomId")
+            if (showToast) {
                 android.widget.Toast.makeText(context, "No more messages to load", android.widget.Toast.LENGTH_SHORT).show()
             }
             return
         }
-        
-        // Get the actual oldest event from cache
-        val oldestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
-        android.util.Log.d("Andromuks", "AppViewModel: Oldest cached event timeline_rowid: $oldestRowId")
-        
-        if (oldestRowId <= 0) {
-            android.util.Log.e("Andromuks", "AppViewModel: ❌ BLOCKED - Cannot paginate, no valid timeline_rowid in cache (got $oldestRowId)")
-            return
-        }
-        
-        if (webSocket == null) {
-            android.util.Log.e("Andromuks", "AppViewModel: ❌ BLOCKED - WebSocket not connected")
-            return
-        }
-        
-        isPaginating = true
-        val paginateRequestId = requestIdCounter++
-        paginateRequests[paginateRequestId] = roomId
-        
-        android.util.Log.d("Andromuks", "AppViewModel: ✅ SENDING PAGINATION REQUEST")
-        android.util.Log.d("Andromuks", "AppViewModel:    requestId: $paginateRequestId")
-        android.util.Log.d("Andromuks", "AppViewModel:    room_id: $roomId")
-        android.util.Log.d("Andromuks", "AppViewModel:    max_timeline_id: $oldestRowId")
-        android.util.Log.d("Andromuks", "AppViewModel:    limit: 100")
+
+        val cacheSize = RoomTimelineCache.getCachedEventCount(roomId)
         android.util.Log.d("Andromuks", "AppViewModel: ========================================")
-        
-        // Show "Loading more..." toast
+        android.util.Log.d("Andromuks", "AppViewModel: loadOlderMessages CALLED for room: $roomId")
+        android.util.Log.d("Andromuks", "AppViewModel: Current cache size: $cacheSize events")
+        android.util.Log.d("Andromuks", "AppViewModel: Current state - isPaginating: $isPaginating, smallestRowId: $smallestRowId, hasMoreMessages: $hasMoreMessages")
+
+        isPaginating = true
+
         if (showToast) {
-            appContext?.let { context ->
-                android.widget.Toast.makeText(context, "Loading more messages...", android.widget.Toast.LENGTH_SHORT).show()
+            android.widget.Toast.makeText(context, "Loading more messages...", android.widget.Toast.LENGTH_SHORT).show()
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val limit = 100
+            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context.applicationContext)
+            val eventDao = database.eventDao()
+
+            val oldestMetadata = RoomTimelineCache.getOldestCachedEventMetadata(roomId)
+            val oldestRowId = oldestMetadata?.timelineRowId ?: -1L
+            val oldestTimestamp = oldestMetadata?.timestamp ?: Long.MAX_VALUE
+
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: DB fetch parameters for $roomId -> oldestRowId=$oldestRowId, oldestTimestamp=$oldestTimestamp"
+            )
+
+            val entities = when {
+                oldestRowId > 0 -> eventDao.getEventsBeforeRowId(roomId, oldestRowId, limit)
+                oldestTimestamp < Long.MAX_VALUE -> eventDao.getEventsBeforeTimestamp(roomId, oldestTimestamp, limit)
+                else -> eventDao.getEventsForRoomAsc(roomId, limit)
             }
-        }
-        
-        val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-            "room_id" to roomId,
-            "max_timeline_id" to oldestRowId,
-            "limit" to 100,
-            "reset" to false
-        ))
-        if (result == WebSocketResult.SUCCESS) {
-            markInitialPaginate(roomId, "load_older")
-        }
-        
-        // Set a timeout to reset pagination state if no response comes back
-        CoroutineScope(Dispatchers.Main).launch {
-            delay(10000) // 10 second timeout
-            if (paginateRequests.containsKey(paginateRequestId)) {
-                android.util.Log.w("Andromuks", "AppViewModel: Pagination request $paginateRequestId timed out, resetting state")
-                paginateRequests.remove(paginateRequestId)
+
+            if (entities.isEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: No older events found in DB for room $roomId")
+                withContext(Dispatchers.Main) {
+                    hasMoreMessages = false
+                    isPaginating = false
+                    if (showToast) {
+                        android.widget.Toast.makeText(context, "No more messages to load", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+                return@launch
+            }
+
+            val timelineList = entities
+                .asReversed() // convert to ascending order
+                .mapNotNull { eventEntityToTimelineEvent(it) }
+
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Loaded ${timelineList.size} historical events from DB for $roomId (entities=${entities.size})"
+            )
+
+            withContext(Dispatchers.Main) {
+                if (timelineList.isNotEmpty()) {
+                    applyAggregatedReactionsFromEvents(timelineList, "db_load")
+                    RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)
+                    mergePaginationEvents(timelineList)
+                    smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: After DB merge, cache has ${RoomTimelineCache.getCachedEventCount(roomId)} events, smallestRowId=$smallestRowId"
+                    )
+                } else {
+                    android.util.Log.w(
+                        "Andromuks",
+                        "AppViewModel: Converted 0 timeline events from DB entities for room $roomId"
+                    )
+                }
+
+                if (entities.size < limit) {
+                    hasMoreMessages = false
+                    android.util.Log.d("Andromuks", "AppViewModel: Marking hasMoreMessages=false for $roomId (fetched less than limit)")
+                }
+
                 isPaginating = false
             }
         }

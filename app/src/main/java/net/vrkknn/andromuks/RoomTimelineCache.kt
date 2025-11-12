@@ -20,7 +20,7 @@ import net.vrkknn.andromuks.BuildConfig
  */
 object RoomTimelineCache {
     private const val TAG = "RoomTimelineCache"
-    private const val MAX_EVENTS_PER_ROOM = 200 // Keep only the most recent events per room in RAM
+    private const val MAX_EVENTS_PER_ROOM = 5000 // Keep a generous amount of events per room in RAM
     private const val TARGET_EVENTS_FOR_INSTANT_RENDER = 50 // Minimum events to skip paginate
     private const val MAX_ROOMS_IN_CACHE = 30 // Limit number of rooms kept in RAM at once
     
@@ -207,6 +207,16 @@ object RoomTimelineCache {
             timestamp = latest.timestamp
         )
     }
+
+    fun getOldestCachedEventMetadata(roomId: String): CachedEventMetadata? {
+        val cache = roomEventsCache[roomId] ?: return null
+        val oldest = cache.events.firstOrNull() ?: return null
+        return CachedEventMetadata(
+            eventId = oldest.eventId,
+            timelineRowId = oldest.timelineRowid,
+            timestamp = oldest.timestamp
+        )
+    }
     
     /**
      * Get the oldest cached event's timeline_rowid for pagination
@@ -279,7 +289,15 @@ object RoomTimelineCache {
             return
         }
         
-        Log.d(TAG, "Merging ${newEvents.size} paginated events into cache for room $roomId")
+        val minRowId = newEvents.mapNotNull { it.timelineRowid.takeIf { row -> row > 0 } }.minOrNull()
+        val maxRowId = newEvents.mapNotNull { it.timelineRowid.takeIf { row -> row > 0 } }.maxOrNull()
+        val minRowDisplay = minRowId?.toString() ?: "n/a"
+        val maxRowDisplay = maxRowId?.toString() ?: "n/a"
+
+        Log.d(
+            TAG,
+            "Merging ${newEvents.size} events for room $roomId - $minRowDisplay - $maxRowDisplay"
+        )
         
         val added = addEventsToCache(roomId, newEvents)
         Log.d(TAG, "Room $roomId cache after merge: ${getCachedEventCount(roomId)} events (added $added)")

@@ -889,6 +889,7 @@ fun RoomTimelineScreen(
     var anchorEventIdForRestore by remember { mutableStateOf<String?>(null) }
     var anchorScrollOffsetForRestore by remember { mutableStateOf(0) }
     var pendingScrollRestoration by remember { mutableStateOf(false) }
+    var expectedTimelineSizeAfterLoad by remember { mutableStateOf<Int?>(null) }
 
     // Monitor scroll position to detect if user is at bottom or has detached
     // Also trigger automatic pagination when near the top
@@ -926,18 +927,40 @@ fun RoomTimelineScreen(
             val firstVisibleIndex = listState.firstVisibleItemIndex
             val totalItems = timelineItems.size
             
-            if (firstVisibleIndex <= 5) {
-                if (!appViewModel.autoPaginationEnabled) {
-                    Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Near top (index=$firstVisibleIndex/$totalItems). Auto-pagination disabled; waiting for manual refresh."
-                    )
-                } else {
-                    Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Near top (index=$firstVisibleIndex/$totalItems). Monitoring for auto-pagination trigger."
-                    )
+            if (
+                totalItems > 0 &&
+                firstVisibleIndex <= 5 &&
+                !pendingScrollRestoration &&
+                !appViewModel.isPaginating &&
+                appViewModel.hasMoreMessages
+            ) {
+                val firstVisibleInfo = listState.layoutInfo.visibleItemsInfo
+                    .sortedBy { it.index }
+                    .firstOrNull { info ->
+                        val item = timelineItems.getOrNull(info.index)
+                        item is TimelineItem.Event
+                    }
+                val eventItem = firstVisibleInfo?.let { info ->
+                    timelineItems.getOrNull(info.index) as? TimelineItem.Event
                 }
+                if (eventItem != null) {
+                    Log.d(
+                        "Andromuks",
+                        "RoomTimelineScreen: Near top (index=$firstVisibleIndex/$totalItems). Loading older events from DB."
+                    )
+                    anchorEventIdForRestore = eventItem.event.eventId
+                    anchorScrollOffsetForRestore = firstVisibleInfo?.offset ?: listState.firstVisibleItemScrollOffset
+                    pendingScrollRestoration = true
+                    expectedTimelineSizeAfterLoad = timelineItems.size
+                    appViewModel.loadOlderMessages(roomId, showToast = false)
+                }
+            }
+            
+            if (firstVisibleIndex <= 5) {
+                Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Near top (index=$firstVisibleIndex/$totalItems). hasMore=${appViewModel.hasMoreMessages}, pendingScroll=$pendingScrollRestoration"
+                )
             }
 
         }
@@ -973,6 +996,24 @@ fun RoomTimelineScreen(
             // Clear restoration state
             pendingScrollRestoration = false
             anchorEventIdForRestore = null
+            expectedTimelineSizeAfterLoad = null
+        }
+    }
+    
+    LaunchedEffect(appViewModel.isPaginating, pendingScrollRestoration, timelineItems.size) {
+        if (
+            !appViewModel.isPaginating &&
+            pendingScrollRestoration &&
+            expectedTimelineSizeAfterLoad != null &&
+            expectedTimelineSizeAfterLoad == timelineItems.size
+        ) {
+            Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Load older finished with no new events; resetting scroll restoration state."
+            )
+            pendingScrollRestoration = false
+            anchorEventIdForRestore = null
+            expectedTimelineSizeAfterLoad = null
         }
     }
 
