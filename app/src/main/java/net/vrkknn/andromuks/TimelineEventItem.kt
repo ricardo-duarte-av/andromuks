@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -55,6 +56,14 @@ import net.vrkknn.andromuks.utils.RoomLink
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.MemberProfile
+import net.vrkknn.andromuks.ReadReceipt
+import net.vrkknn.andromuks.VersionedMessage
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.CircularProgressIndicator
+import net.vrkknn.andromuks.utils.EditHistoryDialog
 
 private val AvatarGap = 4.dp
 private val AvatarPlaceholderWidth = 24.dp + AvatarGap
@@ -106,20 +115,28 @@ fun InlineBubbleTimestamp(
     timestamp: Long,
     editedBy: TimelineEvent? = null,
     isMine: Boolean,
-    isConsecutive: Boolean
+    isConsecutive: Boolean,
+    onEditedClick: (() -> Unit)? = null
 ) {
     // Only show timestamp inside bubble for consecutive messages
     if (isConsecutive) {
-        Text(
-            text =
+        val text =
                 if (editedBy != null) {
                     " ${formatTimestamp(timestamp)} (edited)"
                 } else {
                     " ${formatTimestamp(timestamp)}"
-                },
+            }
+        val modifier = if (editedBy != null && onEditedClick != null) {
+            Modifier.clickable { onEditedClick() }
+        } else {
+            Modifier
+        }
+        Text(
+            text = text,
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
             fontStyle = FontStyle.Italic,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = modifier
         )
     }
 }
@@ -206,7 +223,8 @@ private fun MediaMessageItem(
     appViewModel: AppViewModel? = null,
     myUserId: String? = null,
     powerLevels: PowerLevelsInfo? = null,
-    onBubbleClick: (() -> Unit)? = null
+    onBubbleClick: (() -> Unit)? = null,
+    onShowEditHistory: (() -> Unit)? = null
 ) {
     // Check if this is a thread message
     val isThreadMessage = event.isThreadMessage()
@@ -253,7 +271,8 @@ private fun MediaMessageItem(
                     myUserId = myUserId,
                     powerLevels = powerLevels,
                     appViewModel = appViewModel,
-                    onBubbleClick = onBubbleClick
+                    onBubbleClick = onBubbleClick,
+                    onShowEditHistory = onShowEditHistory
                 )
             }
         } else {
@@ -304,7 +323,8 @@ private fun MessageTypeContent(
     onDelete: (TimelineEvent) -> Unit,
     onUserClick: (String) -> Unit,
     onRoomLinkClick: (RoomLink) -> Unit,
-    onThreadClick: (TimelineEvent) -> Unit
+    onThreadClick: (TimelineEvent) -> Unit,
+    onShowEditHistory: (() -> Unit)? = null
 ) {
     when (event.type) {
         "m.room.redaction" -> {
@@ -338,7 +358,8 @@ private fun MessageTypeContent(
                 onDelete = onDelete,
                 onUserClick = onUserClick,
                 onRoomLinkClick = onRoomLinkClick,
-                onThreadClick = onThreadClick
+                onThreadClick = onThreadClick,
+                onShowEditHistory = onShowEditHistory
             )
         }
         "m.room.encrypted" -> {
@@ -364,7 +385,8 @@ private fun MessageTypeContent(
                 onDelete = onDelete,
                 onUserClick = onUserClick,
                 onRoomLinkClick = onRoomLinkClick,
-                onThreadClick = onThreadClick
+                onThreadClick = onThreadClick,
+                onShowEditHistory = onShowEditHistory
             )
         }
         "m.sticker" -> {
@@ -424,7 +446,8 @@ private fun RoomMessageContent(
     onDelete: (TimelineEvent) -> Unit,
     onUserClick: (String) -> Unit,
     onRoomLinkClick: (RoomLink) -> Unit,
-    onThreadClick: (TimelineEvent) -> Unit
+    onThreadClick: (TimelineEvent) -> Unit,
+    onShowEditHistory: (() -> Unit)? = null
 ) {
     // Check if this is an edit event (m.replace relationship)
     val isEditEvent =
@@ -556,7 +579,8 @@ private fun RoomMessageContent(
             onEdit = onEdit,
             onDelete = onDelete,
             onUserClick = onUserClick,
-            onThreadClick = onThreadClick
+            onThreadClick = onThreadClick,
+            onShowEditHistory = onShowEditHistory
         )
     } else {
         RoomTextMessageContent(
@@ -583,7 +607,8 @@ private fun RoomMessageContent(
             onDelete = onDelete,
             onUserClick = onUserClick,
             onRoomLinkClick = onRoomLinkClick,
-            onThreadClick = onThreadClick
+            onThreadClick = onThreadClick,
+            onShowEditHistory = onShowEditHistory
         )
     }
 }
@@ -614,7 +639,8 @@ private fun RoomMediaMessageContent(
     onEdit: (TimelineEvent) -> Unit,
     onDelete: (TimelineEvent) -> Unit,
     onUserClick: (String) -> Unit,
-    onThreadClick: (TimelineEvent) -> Unit
+    onThreadClick: (TimelineEvent) -> Unit,
+    onShowEditHistory: (() -> Unit)? = null
 ) {
     Log.d(
         "Andromuks",
@@ -807,7 +833,8 @@ private fun RoomMediaMessageContent(
                 { onThreadClick(event) }
             } else {
                 null
-            }
+            },
+            onShowEditHistory = onShowEditHistory
         )
 
         // Add reaction badges for media messages
@@ -927,7 +954,8 @@ private fun RoomTextMessageContent(
     onDelete: (TimelineEvent) -> Unit,
     onUserClick: (String) -> Unit,
     onRoomLinkClick: (RoomLink) -> Unit,
-    onThreadClick: (TimelineEvent) -> Unit
+    onThreadClick: (TimelineEvent) -> Unit,
+    onShowEditHistory: (() -> Unit)? = null
 ) {
     val bubbleShape =
         if (actualIsMine) {
@@ -1021,7 +1049,8 @@ private fun RoomTextMessageContent(
                     { onThreadClick(event) }
                 } else {
                     null
-                }
+                },
+                onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null
             ) {
                 Column(
                     modifier = Modifier.padding(8.dp),
@@ -1071,7 +1100,8 @@ private fun RoomTextMessageContent(
                                 timestamp = event.timestamp,
                                 editedBy = editedBy,
                                 isMine = actualIsMine,
-                                isConsecutive = isConsecutive
+                                isConsecutive = isConsecutive,
+                                onEditedClick = if (editedBy != null && onShowEditHistory != null) onShowEditHistory else null
                             )
                         }
                     }
@@ -1096,7 +1126,8 @@ private fun RoomTextMessageContent(
                     { onThreadClick(event) }
                 } else {
                     null
-                }
+                },
+                onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null
             ) {
                 Box(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -1125,7 +1156,8 @@ private fun RoomTextMessageContent(
                             timestamp = event.timestamp,
                             editedBy = editedBy,
                             isMine = actualIsMine,
-                            isConsecutive = isConsecutive
+                        isConsecutive = isConsecutive,
+                        onEditedClick = if (editedBy != null && onShowEditHistory != null) onShowEditHistory else null
                         )
                     }
                 }
@@ -1197,7 +1229,8 @@ private fun EncryptedMessageContent(
     onDelete: (TimelineEvent) -> Unit,
     onUserClick: (String) -> Unit,
     onRoomLinkClick: (RoomLink) -> Unit,
-    onThreadClick: (TimelineEvent) -> Unit
+    onThreadClick: (TimelineEvent) -> Unit,
+    onShowEditHistory: (() -> Unit)? = null
 ) {
     // Check if this is an edit event (m.replace relationship) - don't display edit events
     val isEditEvent =
@@ -1482,7 +1515,8 @@ private fun EncryptedMessageContent(
                         { onThreadClick(event) }
                     } else {
                         null
-                    }
+                    },
+                    onShowEditHistory = onShowEditHistory
                 )
 
                 // Add reaction badges for encrypted media messages
@@ -1694,7 +1728,8 @@ private fun EncryptedMessageContent(
                             { onThreadClick(event) }
                         } else {
                             null
-                        }
+                        },
+                        onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null
                     ) {
                         Column(
                             modifier = Modifier.padding(8.dp),
@@ -1745,7 +1780,8 @@ private fun EncryptedMessageContent(
                                         timestamp = event.timestamp,
                                         editedBy = editedBy,
                                         isMine = actualIsMine,
-                                        isConsecutive = isConsecutive
+                                        isConsecutive = isConsecutive,
+                                        onEditedClick = if (editedBy != null && onShowEditHistory != null) onShowEditHistory else null
                                     )
                                 }
                             }
@@ -1770,7 +1806,8 @@ private fun EncryptedMessageContent(
                             { onThreadClick(event) }
                         } else {
                             null
-                        }
+                        },
+                        onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null
                     ) {
                         Box(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -1799,7 +1836,8 @@ private fun EncryptedMessageContent(
                                     timestamp = event.timestamp,
                                     editedBy = editedBy,
                                     isMine = actualIsMine,
-                                    isConsecutive = isConsecutive
+                                    isConsecutive = isConsecutive,
+                                    onEditedClick = if (editedBy != null && onShowEditHistory != null) onShowEditHistory else null
                                 )
                             }
                         }
@@ -2119,6 +2157,48 @@ fun TimelineEventItem(
                         "m.replace")
         }
 
+    var showEditHistoryDialog by remember(event.eventId) { mutableStateOf(false) }
+    var editHistoryLoading by remember(event.eventId) { mutableStateOf(false) }
+    var editHistoryVersion by remember(event.eventId) { mutableStateOf<VersionedMessage?>(null) }
+    var editHistoryError by remember(event.eventId) { mutableStateOf<String?>(null) }
+
+    val openEditHistory = remember(appViewModel, event.eventId) {
+        {
+            if (appViewModel != null) {
+                editHistoryError = null
+                if (!showEditHistoryDialog) {
+                    showEditHistoryDialog = true
+                }
+                if (editHistoryVersion == null) {
+                    editHistoryLoading = true
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(showEditHistoryDialog, appViewModel?.timelineUpdateCounter) {
+        if (showEditHistoryDialog && appViewModel != null) {
+            editHistoryLoading = true
+            try {
+                var versioned = appViewModel.getMessageVersions(event.eventId)
+                if (versioned == null && event.roomId.isNotBlank()) {
+                    versioned = appViewModel.loadMessageVersionsFromDb(event.eventId, event.roomId)
+                }
+                editHistoryVersion = versioned
+                if (versioned == null) {
+                    editHistoryError = "Edit history is not available"
+                } else {
+                    editHistoryError = null
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e("Andromuks", "TimelineEventItem: Failed to load edit history", t)
+                editHistoryError = t.message ?: "Failed to load edit history"
+            } finally {
+                editHistoryLoading = false
+            }
+        }
+        }
+
     if (isNarratorEvent) {
         // For narrator events, show only the small narrator content
         SystemEventNarrator(
@@ -2365,15 +2445,22 @@ fun TimelineEventItem(
                         )
                     }
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text =
+                    val timestampText =
                             if (editedBy != null) {
                                 "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
                             } else {
                                 formatTimestamp(event.timestamp)
-                            },
+                        }
+                    val timestampModifier = if (editedBy != null && appViewModel != null) {
+                        Modifier.clickable { openEditHistory() }
+                    } else {
+                        Modifier
+                    }
+                    Text(
+                        text = timestampText,
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = timestampModifier
                     )
                 }
             }
@@ -2400,11 +2487,52 @@ fun TimelineEventItem(
                 onDelete = onDelete,
                 onUserClick = onUserClick,
                 onRoomLinkClick = onRoomLinkClick,
-                onThreadClick = onThreadClick
+                onThreadClick = onThreadClick,
+                onShowEditHistory = if (appViewModel != null) openEditHistory else null
             )
 
         if (actualIsMine) {
             Spacer(modifier = Modifier.width(ReadReceiptGap))
+        }
+    }
+
+    if (showEditHistoryDialog) {
+        when {
+            editHistoryLoading -> {
+                AlertDialog(
+                    onDismissRequest = { if (!editHistoryLoading) showEditHistoryDialog = false },
+                    confirmButton = {},
+                    title = { Text("Loading edit history") },
+                    text = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            Text("Fetching the latest edits…")
+                        }
+                    }
+                )
+            }
+            editHistoryVersion != null -> {
+                EditHistoryDialog(
+                    versioned = editHistoryVersion!!,
+                    onDismiss = { showEditHistoryDialog = false }
+                )
+            }
+            else -> {
+                val errorMessage = editHistoryError ?: "Edit history is not available"
+                AlertDialog(
+                    onDismissRequest = { showEditHistoryDialog = false },
+                    confirmButton = {
+                        TextButton(onClick = { showEditHistoryDialog = false }) {
+                            Text("OK")
+                        }
+                    },
+                    title = { Text("Edit history unavailable") },
+                    text = { Text(errorMessage) }
+                )
+            }
         }
     }
 }

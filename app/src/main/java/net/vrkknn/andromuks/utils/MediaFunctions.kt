@@ -283,22 +283,30 @@ private fun MediaBubbleTimestamp(
     timestamp: Long,
     editedBy: TimelineEvent?,
     isMine: Boolean,
-    isConsecutive: Boolean
+    isConsecutive: Boolean,
+    onEditedClick: (() -> Unit)? = null
 ) {
     if (isConsecutive) {
+        val text = if (editedBy != null) {
+            "${formatMediaTimestamp(timestamp)} (edited)"
+        } else {
+            formatMediaTimestamp(timestamp)
+        }
+        val baseModifier = Modifier
+            .fillMaxWidth()
+            .wrapContentWidth(if (isMine) Alignment.Start else Alignment.End)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+        val clickableModifier = if (editedBy != null && onEditedClick != null) {
+            baseModifier.clickable { onEditedClick() }
+        } else {
+            baseModifier
+        }
         Text(
-            text = if (editedBy != null) {
-                "${formatMediaTimestamp(timestamp)} (edited)"
-            } else {
-                formatMediaTimestamp(timestamp)
-            },
+            text = text,
             style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
             fontStyle = FontStyle.Italic,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-            modifier = Modifier
-                .fillMaxWidth()
-                .wrapContentWidth(if (isMine) Alignment.Start else Alignment.End)
-                .padding(horizontal = 12.dp, vertical = 4.dp)
+            modifier = clickableModifier
         )
     }
 }
@@ -337,7 +345,8 @@ fun MediaMessage(
     myUserId: String? = null,
     powerLevels: net.vrkknn.andromuks.PowerLevelsInfo? = null,
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
-    onBubbleClick: (() -> Unit)? = null
+    onBubbleClick: (() -> Unit)? = null,
+    onShowEditHistory: (() -> Unit)? = null
 ) {
     var showImageViewer by remember { mutableStateOf(false) }
     var showVideoPlayer by remember { mutableStateOf(false) }
@@ -369,13 +378,21 @@ fun MediaMessage(
     
     // Check if this is a thread message to apply thread colors
     val isThreadMessage = event?.isThreadMessage() ?: false
+    val hasBeenEdited = remember(event?.eventId, appViewModel?.timelineUpdateCounter) {
+        event?.let { appViewModel?.isMessageEdited(it.eventId) ?: false } ?: false
+    }
     val mediaBubbleColor = if (isThreadMessage) {
         // Own thread messages: full opacity for emphasis
         // Others' thread messages: lighter for distinction
         if (isMine) MaterialTheme.colorScheme.tertiaryContainer
         else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
     } else {
-        MaterialTheme.colorScheme.surfaceVariant
+        if (hasBeenEdited) {
+            if (isMine) MaterialTheme.colorScheme.secondaryContainer
+            else MaterialTheme.colorScheme.surfaceContainerHighest
+        } else {
+            MaterialTheme.colorScheme.surfaceVariant
+        }
     }
     
     if (hasCaption) {
@@ -399,7 +416,8 @@ fun MediaMessage(
                 onEdit = onEdit,
                 onDelete = onDelete,
                 appViewModel = appViewModel,
-                onBubbleClick = onBubbleClick
+                onBubbleClick = onBubbleClick,
+                onShowEditHistory = onShowEditHistory
             ) {
                 Column {
                     // Image content inside the caption bubble
@@ -434,7 +452,8 @@ fun MediaMessage(
                             timestamp = timestamp,
                             editedBy = editedBy,
                             isMine = isMine,
-                            isConsecutive = isConsecutive
+                            isConsecutive = isConsecutive,
+                            onEditedClick = onShowEditHistory
                         )
                     }
                 }
@@ -503,7 +522,8 @@ fun MediaMessage(
                             timestamp = timestamp,
                             editedBy = editedBy,
                             isMine = isMine,
-                            isConsecutive = isConsecutive
+                            isConsecutive = isConsecutive,
+                            onEditedClick = onShowEditHistory
                         )
                     }
                 }
@@ -532,7 +552,8 @@ fun MediaMessage(
                 onEdit = onEdit,
                 onDelete = onDelete,
                 appViewModel = appViewModel,
-                onBubbleClick = onBubbleClick
+                onBubbleClick = onBubbleClick,
+                onShowEditHistory = onShowEditHistory
             ) {
                 Column {
                     MediaContent(
@@ -555,7 +576,8 @@ fun MediaMessage(
                             timestamp = timestamp,
                             editedBy = editedBy,
                             isMine = isMine,
-                            isConsecutive = isConsecutive
+                            isConsecutive = isConsecutive,
+                            onEditedClick = onShowEditHistory
                         )
                     }
                 }
@@ -613,7 +635,8 @@ fun MediaMessage(
                             timestamp = timestamp,
                             editedBy = editedBy,
                             isMine = isMine,
-                            isConsecutive = isConsecutive
+                            isConsecutive = isConsecutive,
+                            onEditedClick = onShowEditHistory
                         )
                     }
                 }

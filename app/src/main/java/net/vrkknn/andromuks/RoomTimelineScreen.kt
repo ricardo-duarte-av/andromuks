@@ -204,30 +204,34 @@ suspend fun processTimelineEvents(
         filtered
     }
 
-    // PERFORMANCE: Optimize edit filtering by creating a lookup set
-    val editedEventIds = filteredEvents.filter { event ->
-        event.type == "m.room.message" &&
-        event.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
-    }.mapNotNull { event ->
-        event.content?.optJSONObject("m.relates_to")?.optString("event_id")?.takeIf { it.isNotBlank() }
-    }.toSet()
-
-    // Filter out superseded events using the lookup set for O(1) performance
-    val eventsWithoutSuperseded = filteredEvents.filter { event ->
-        if (event.type == "m.room.message") {
-            val isSuperseded = editedEventIds.contains(event.eventId)
-            if (isSuperseded) {
-                Log.d("Andromuks", "RoomTimelineScreen: Filtering out edited event: ${event.eventId}")
+    // PERFORMANCE: Remove edit events (m.replace) but keep the original messages in the list.
+    val eventsWithoutEdits = filteredEvents.filter { event ->
+        when {
+            event.type == "m.room.message" -> {
+                val relatesTo = event.content?.optJSONObject("m.relates_to")
+                val relType = relatesTo?.optString("rel_type")
+                val isEditEvent = relType == "m.replace"
+                if (isEditEvent) {
+                    Log.d("Andromuks", "RoomTimelineScreen: Filtering out edit event (m.replace) ${event.eventId}")
+                }
+                !isEditEvent
             }
-            !isSuperseded
-        } else {
-            true // Keep non-message events
+            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> {
+                val relatesTo = event.decrypted?.optJSONObject("m.relates_to")
+                val relType = relatesTo?.optString("rel_type")
+                val isEditEvent = relType == "m.replace"
+                if (isEditEvent) {
+                    Log.d("Andromuks", "RoomTimelineScreen: Filtering out encrypted edit event ${event.eventId}")
+                }
+                !isEditEvent
+            }
+            else -> true
         }
     }
 
-    Log.d("Andromuks", "RoomTimelineScreen: After edit filtering: ${eventsWithoutSuperseded.size} events")
+    Log.d("Andromuks", "RoomTimelineScreen: After edit filtering: ${eventsWithoutEdits.size} events")
 
-    val sorted = eventsWithoutSuperseded.sortedBy { it.timestamp }
+    val sorted = eventsWithoutEdits.sortedBy { it.timestamp }
     Log.d("Andromuks", "RoomTimelineScreen: Final sorted events: ${sorted.size} events")
 
     sorted

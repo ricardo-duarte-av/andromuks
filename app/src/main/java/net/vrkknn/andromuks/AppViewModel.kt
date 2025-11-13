@@ -781,7 +781,6 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket connection - Reason: $reason")
         restartWebSocket(reason)
     }
-    
     /**
      * Performs a full refresh by resetting all state and reconnecting for a complete payload.
      * This is triggered by:
@@ -1573,7 +1572,6 @@ class AppViewModel : ViewModel() {
             android.util.Log.w("Andromuks", "AppViewModel: webClientPushIntegration=${webClientPushIntegration != null}")
         }
     }
-    
     /**
      * Handle FCM registration response from Gomuks Backend
      */
@@ -2336,7 +2334,6 @@ class AppViewModel : ViewModel() {
             emptyList()
         }
     }
-    
     /**
      * Find MXC URL for a Coil cached file by checking event database.
      */
@@ -3131,7 +3128,6 @@ class AppViewModel : ViewModel() {
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PERFORMANCE - Debounced room reorder completed (${sortedRooms.size} rooms)")
     }
-    
     /**
      * Perform batched UI updates only for changed sections
      */
@@ -3674,7 +3670,7 @@ class AppViewModel : ViewModel() {
                         scheduleUIUpdate("roomList")
                         android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Some room timestamps changed, updating UI")
                     } else {
-                        // No changes at all - skip all updates to avoid unnecessary recomposition
+                        // No changes - skip cache invalidation and UI updates to avoid recomposition
                         android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - No room changes detected, skipping all updates")
                     }
                 } else {
@@ -3877,7 +3873,6 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: All rooms already checked for bridges - using cached data only")
         }
     }
-    
     /**
      * PERFORMANCE OPTIMIZATION: Populates space edges in background after init_complete
      * This prevents 50-100ms blocking during app initialization with nested spaces
@@ -4674,7 +4669,6 @@ class AppViewModel : ViewModel() {
         // Delegate WebSocket clearing to service
         WebSocketService.clearWebSocket(reason)
     }
-    
     /**
      * Retry all pending WebSocket operations now that connection is available
      */
@@ -5525,6 +5519,9 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Added ${regularEventCount} regular events and ${editEventCount} edit events to maps")
         android.util.Log.d("Andromuks", "AppViewModel: eventChainMap now has ${eventChainMap.size} entries")
         
+        // Build version history cache so UI can render the latest edits immediately
+        processVersionedMessages(cachedEvents)
+
         // Process edit relationships
         processEditRelationships()
         
@@ -6061,7 +6058,7 @@ class AppViewModel : ViewModel() {
                 editToOriginal.clear()
                 redactionCache.clear()
                 messageReactions = emptyMap()
-                roomsWithLoadedReactionsFromDb.remove(roomId)
+                roomsWithLoadedReceiptsFromDb.remove(roomId)
                 roomsWithLoadedReactionsFromDb.remove(roomId)
                 
                 // Reset pagination state
@@ -6232,7 +6229,6 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION NOTE - Cache miss with $currentCachedCount events available. Waiting for manual refresh to request additional history.")
         isTimelineLoading = false
     }
-    
     /**
      * Fully refreshes the room timeline by resetting in-memory state and fetching a clean snapshot.
      * Steps:
@@ -7022,7 +7018,6 @@ class AppViewModel : ViewModel() {
             )
         }
     }
-    
     private fun sendMessageInternal(roomId: String, text: String): WebSocketResult {
         android.util.Log.d("Andromuks", "AppViewModel: sendMessageInternal called")
         val messageRequestId = requestIdCounter++
@@ -7807,7 +7802,6 @@ class AppViewModel : ViewModel() {
             android.util.Log.w("Andromuks", "AppViewModel: Unknown error requestId=$requestId: $errorMessage")
         }
     }
-    
     private fun handleProfileError(requestId: Int, errorMessage: String) {
         val userId = profileRequests.remove(requestId) ?: return
         val requestingRoomId = profileRequestRooms.remove(requestId)
@@ -8592,7 +8586,6 @@ class AppViewModel : ViewModel() {
             android.util.Log.e("Andromuks", "AppViewModel: Error parsing bridge state for room $roomId", e)
         }
     }
-    
     private fun parseBridgeInfo(content: JSONObject): BridgeInfo? {
         return try {
             android.util.Log.d("Andromuks", "AppViewModel: Parsing bridge info from content: ${content.toString()}")
@@ -9294,7 +9287,6 @@ class AppViewModel : ViewModel() {
             }
         }
     }
-    
     private fun processSyncEventsArray(eventsArray: JSONArray, roomId: String) {
         android.util.Log.d("Andromuks", "AppViewModel: processSyncEventsArray called with ${eventsArray.length()} events")
         val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
@@ -9635,6 +9627,7 @@ class AppViewModel : ViewModel() {
         
         // Safety check: limit the number of edit events to prevent blocking
         if (editEventsMap.size > 100) {
+            android.util.Log.w("Andromuks", "AppViewModel: processEditRelationships - capping to 100 events")
             val limitedEditEvents = editEventsMap.toList().take(100).toMap()
             editEventsMap.clear()
             editEventsMap.putAll(limitedEditEvents)
@@ -9905,127 +9898,6 @@ class AppViewModel : ViewModel() {
             throw e
         }
     }
-    private fun mergePaginationEvents(newEvents: List<TimelineEvent>) {
-        // OPTIMIZED: Early exit if no new events
-        if (newEvents.isEmpty()) {
-            return
-        }
-        
-        // OPTIMIZED: Use HashMap for fast lookup instead of filtering
-        val redactionMap = mutableMapOf<String, TimelineEvent>()
-        val regularEvents = mutableListOf<TimelineEvent>()
-        
-        // Single pass to separate redactions from regular events
-        for (event in newEvents) {
-            if (event.type == "m.room.redaction") {
-                val redactsEventId = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
-                if (redactsEventId != null) {
-                    redactionMap[redactsEventId] = event
-                }
-            } else {
-                regularEvents.add(event)
-            }
-        }
-        
-        // Merge regular events, preserving existing entries when duplicates are encountered
-        val combinedMap = LinkedHashMap<String, TimelineEvent>(timelineEvents.size + regularEvents.size)
-        timelineEvents.forEach { existing ->
-            combinedMap[existing.eventId] = existing
-        }
-        for (event in regularEvents) {
-            if (!combinedMap.containsKey(event.eventId)) {
-                combinedMap[event.eventId] = event
-            }
-        }
-        
-        // OPTIMIZED: Process redactions using HashMap lookup (O(1) instead of O(n))
-        for ((targetEventId, redactionEvent) in redactionMap) {
-            
-            val targetEvent = combinedMap[targetEventId]
-            if (targetEvent != null) {
-                combinedMap[targetEventId] = targetEvent.copy(redactedBy = redactionEvent.eventId)
-            } 
-        }
-        
-        // OPTIMIZED: Use background thread for large merges
-        if (combinedMap.size > 200) {
-            // Process large merges on background thread
-            viewModelScope.launch(Dispatchers.Default) {
-                val sortedEvents = combinedMap.values.sortedWith { a, b ->
-                    when {
-                        a.timelineRowid > 0 && b.timelineRowid > 0 -> a.timelineRowid.compareTo(b.timelineRowid)
-                        a.timelineRowid > 0 -> -1
-                        b.timelineRowid > 0 -> 1
-                        else -> {
-                            val tsCompare = a.timestamp.compareTo(b.timestamp)
-                            if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
-                        }
-                    }
-                }
-                
-                // MEMORY MANAGEMENT: Limit timeline events to prevent memory pressure
-                val limitedTimelineEvents = if (sortedEvents.size > MAX_TIMELINE_EVENTS_PER_ROOM) {
-                    // Keep the most recent events
-                    sortedEvents.sortedByDescending { it.timestamp }.take(MAX_TIMELINE_EVENTS_PER_ROOM).sortedBy { it.timestamp }
-                } else {
-                    sortedEvents
-                }
-                
-                // Switch back to main thread for UI update
-                withContext(Dispatchers.Main) {
-                    this@AppViewModel.timelineEvents = limitedTimelineEvents
-                    timelineUpdateCounter++
-                    updateCounter++ // Keep for backward compatibility temporarily
-                    
-                    // PHASE 1: Update Repository in parallel with AppViewModel
-                    if (currentRoomId.isNotEmpty()) {
-                        RoomRepository.updateTimeline(currentRoomId, limitedTimelineEvents)
-                    }
-                    
-                }
-            }
-        } else {
-            // Synchronous processing for small merges
-            val sortedEvents = combinedMap.values.sortedWith { a, b ->
-                when {
-                    a.timelineRowid > 0 && b.timelineRowid > 0 -> a.timelineRowid.compareTo(b.timelineRowid)
-                    a.timelineRowid > 0 -> -1
-                    b.timelineRowid > 0 -> 1
-                    else -> {
-                        val tsCompare = a.timestamp.compareTo(b.timestamp)
-                        if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
-                    }
-                }
-            }
-            
-            // MEMORY MANAGEMENT: Limit timeline events to prevent memory pressure
-            val limitedTimelineEvents = if (sortedEvents.size > MAX_TIMELINE_EVENTS_PER_ROOM) {
-                // Keep the most recent events
-                sortedEvents.sortedByDescending { it.timestamp }.take(MAX_TIMELINE_EVENTS_PER_ROOM).sortedBy { it.timestamp }
-            } else {
-                sortedEvents
-            }
-            
-            this.timelineEvents = limitedTimelineEvents
-            timelineUpdateCounter++
-            updateCounter++ // Keep for backward compatibility temporarily
-            
-            // PHASE 1: Update Repository in parallel with AppViewModel
-            if (currentRoomId.isNotEmpty()) {
-                RoomRepository.updateTimeline(currentRoomId, limitedTimelineEvents)
-            }
-            
-            android.util.Log.d("Andromuks", "AppViewModel: Timeline sorted and updated, timelineUpdateCounter incremented to $timelineUpdateCounter")
-        }
-        
-        // Update smallest rowId for next pagination
-        val newSmallest = newEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
-        if (newSmallest > 0 && newSmallest < smallestRowId) {
-            smallestRowId = newSmallest 
-        }
-        
-    }
-    
     fun loadOlderMessages(roomId: String, showToast: Boolean = true) {
         val context = appContext ?: run {
             return
@@ -10119,6 +9991,47 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    private fun mergePaginationEvents(newEvents: List<TimelineEvent>) {
+        if (newEvents.isEmpty()) {
+            return
+        }
+
+        // Update version caches with newly loaded events (edits, redactions, originals)
+        processVersionedMessages(newEvents)
+
+        // Integrate the new events into the edit-chain structures so buildTimelineFromChain()
+        // can regenerate the final timeline with the latest edits applied.
+        for (event in newEvents) {
+            when {
+                isEditEvent(event) -> {
+                    editEventsMap[event.eventId] = event
+                }
+                else -> {
+                    val existingEntry = eventChainMap[event.eventId]
+                    if (existingEntry == null) {
+                        eventChainMap[event.eventId] = EventChainEntry(
+                            eventId = event.eventId,
+                            ourBubble = event,
+                            replacedBy = null,
+                            originalTimestamp = event.timestamp
+                        )
+                    } else if (existingEntry.ourBubble == null) {
+                        eventChainMap[event.eventId] = existingEntry.copy(ourBubble = event)
+                    }
+
+                    if (event.type == "m.room.redaction") {
+                        val redactsEventId = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                        if (redactsEventId != null) {
+                            redactionCache[redactsEventId] = event
+                        }
+                    }
+                }
+            }
+        }
+
+        processEditRelationships()
+        buildTimelineFromChain()
+    }
     
     /**
      * Gets the final event for a bubble, following the edit chain to the latest edit.
@@ -10186,7 +10099,6 @@ class AppViewModel : ViewModel() {
         
         return currentEvent
     }
-    
     /**
      * Handles event superseding when new events are added to the timeline.
      * 
@@ -10822,7 +10734,6 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
         }
     }
-
     /**
      * Starts the WebSocket service to maintain connection in background
      * 
@@ -11733,7 +11644,6 @@ class AppViewModel : ViewModel() {
         
         smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
     }
-    
     /**
      * Get cache statistics for display in settings
      * Returns a map with cache size information for various caches

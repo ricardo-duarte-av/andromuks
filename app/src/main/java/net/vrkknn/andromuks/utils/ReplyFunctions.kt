@@ -39,7 +39,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.unit.IntOffset
@@ -76,7 +75,6 @@ import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
-import net.vrkknn.andromuks.utils.EditHistoryDialog
 
 /**
  * Displays a reply preview showing the original message being replied to.
@@ -576,10 +574,10 @@ fun MessageBubbleWithMenu(
     onDelete: () -> Unit,
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
     onBubbleClick: (() -> Unit)? = null,
+    onShowEditHistory: (() -> Unit)? = null,
     content: @Composable RowScope.() -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
-    var showEditHistory by remember { mutableStateOf(false) }
     var bubbleBounds by remember { mutableStateOf(Rect.Zero) }
     val hapticFeedback = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -699,10 +697,11 @@ fun MessageBubbleWithMenu(
                                 with(density) {
                                     // Calculate menu position relative to bubble
                                     // Dynamically calculate width based on number of buttons
+                                    val historyButtonEnabled = hasBeenEdited && onShowEditHistory != null
                                     val buttonCount = 2 + // React + Reply (always shown)
-                                        (if (canEdit) 1 else 0) + 
-                                        (if (canDelete) 1 else 0) + 
-                                        (if (hasBeenEdited) 1 else 0)
+                                        (if (canEdit) 1 else 0) +
+                                        (if (canDelete) 1 else 0) +
+                                        (if (historyButtonEnabled) 1 else 0)
                                     val menuWidth = ((44 * buttonCount).dp + 16.dp).toPx() // 44dp per button + padding
                                     val menuHeight = 50.dp.toPx()
                                     val bubbleCenterX = bubbleBounds.left + (bubbleBounds.width / 2)
@@ -803,12 +802,12 @@ fun MessageBubbleWithMenu(
                             }
                             
                             // Edit History button (only show if message has been edited)
-                            if (hasBeenEdited) {
+                            if (hasBeenEdited && onShowEditHistory != null) {
                                 IconButton(
                                     onClick = {
                                         android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit History clicked")
                                         showMenu = false
-                                        showEditHistory = true
+                                        onShowEditHistory()
                                     },
                                     modifier = Modifier.size(40.dp)
                                 ) {
@@ -822,35 +821,6 @@ fun MessageBubbleWithMenu(
                         }
                     }
                 }
-            }
-        }
-        
-        // Show edit history dialog
-        if (showEditHistory && appViewModel != null) {
-            var versioned by remember { mutableStateOf<net.vrkknn.andromuks.VersionedMessage?>(null) }
-            var isLoading by remember { mutableStateOf(true) }
-            
-            // Try to get from memory first, then load from database if needed
-            LaunchedEffect(event.eventId, showEditHistory) {
-                if (showEditHistory) {
-                    versioned = appViewModel.getMessageVersions(event.eventId)
-                    
-                    // If not in memory, try loading from database
-                    if (versioned == null && event.roomId.isNotBlank()) {
-                        versioned = appViewModel.loadMessageVersionsFromDb(event.eventId, event.roomId)
-                    }
-                    
-                    isLoading = false
-                }
-            }
-            
-            // Extract to local variable for smart cast
-            val currentVersioned = versioned
-            if (!isLoading && currentVersioned != null) {
-                EditHistoryDialog(
-                    versioned = currentVersioned,
-                    onDismiss = { showEditHistory = false }
-                )
             }
         }
     }
