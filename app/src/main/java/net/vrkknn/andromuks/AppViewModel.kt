@@ -9627,67 +9627,84 @@ class AppViewModel : ViewModel() {
         
         // Safety check: limit the number of edit events to prevent blocking
         if (editEventsMap.size > 100) {
-            android.util.Log.w("Andromuks", "AppViewModel: processEditRelationships - capping to 100 events")
-            val limitedEditEvents = editEventsMap.toList().take(100).toMap()
+            val limitedEditEvents = editEventsMap
+                .values
+                .sortedByDescending { it.timestamp }
+                .take(100)
+                .associateBy { it.eventId }
             editEventsMap.clear()
             editEventsMap.putAll(limitedEditEvents)
         }
         
+        android.util.Log.d("Andromuks", "processEditRelationships: editEventsMap size=${editEventsMap.size}")
         // First, create chain entries for all edit events
         for ((editEventId, editEvent) in editEventsMap) {
-            eventChainMap[editEventId] = EventChainEntry(
-                eventId = editEventId,
-                ourBubble = null, // Edit events don't have their own bubble
-                replacedBy = null,
-                originalTimestamp = editEvent.timestamp
-            )
+            val existing = eventChainMap[editEventId]
+            if (existing?.ourBubble == null) {
+                eventChainMap[editEventId] = EventChainEntry(
+                    eventId = editEventId,
+                    ourBubble = existing?.ourBubble,
+                    replacedBy = existing?.replacedBy,
+                    originalTimestamp = editEvent.timestamp
+                )
+            }
         }
-        
+        android.util.Log.d("Andromuks", "processEditRelationships: eventChainMap now has ${eventChainMap.size} entries")
+
         // Sort edit events by timestamp to process in chronological order
         val sortedEditEvents = editEventsMap.values.sortedBy { it.timestamp }
-        
-        // OPTIMIZED: Use memoization cache for chain ends to avoid repeated traversals
-        val chainEndCache = mutableMapOf<String, EventChainEntry?>()
-        
-        // Process all edit events to build the chain
-        var processedCount = 0
+        android.util.Log.d("Andromuks", "processEditRelationships: processing ${sortedEditEvents.size} edit events in timestamp order")
+
         for (editEvent in sortedEditEvents) {
-            // Safety check: limit processing to prevent blocking
-            if (processedCount >= 50) {
-                android.util.Log.w("Andromuks", "AppViewModel: Reached processing limit (50), stopping to prevent blocking")
-                break
-            }
-            processedCount++
             val editEventId = editEvent.eventId
-            
-            // Get the target event ID from the edit event
+
             val relatesTo = when {
                 editEvent.type == "m.room.message" -> editEvent.content?.optJSONObject("m.relates_to")
                 editEvent.type == "m.room.encrypted" && editEvent.decryptedType == "m.room.message" -> editEvent.decrypted?.optJSONObject("m.relates_to")
                 else -> null
             }
-            
+
             val targetEventId = relatesTo?.optString("event_id")
             if (targetEventId != null) {
                 val targetEntry = eventChainMap[targetEventId]
                 if (targetEntry != null) {
-                    // Check if the target already has a replacement
+                    android.util.Log.d(
+                        "Andromuks",
+                        "processEditRelationships: edit ${editEventId} targets ${targetEventId} (current replacedBy=${targetEntry.replacedBy})"
+                    )
                     if (targetEntry.replacedBy != null) {
-                        // OPTIMIZED: Use memoized chain end lookup
-                        val chainEnd = findChainEndOptimized(targetEntry.replacedBy!!, chainEndCache)
+                        val chainEnd = findChainEndOptimized(targetEntry.replacedBy!!, mutableMapOf())
                         if (chainEnd != null) {
+                            android.util.Log.d(
+                                "Andromuks",
+                                "processEditRelationships: extending chain end ${chainEnd.eventId} with ${editEventId}"
+                            )
                             chainEnd.replacedBy = editEventId
-                            // Update cache: the new end is now this edit event
-                            chainEndCache[targetEntry.replacedBy!!] = null // Invalidate old chain
+                        } else {
+                            android.util.Log.w(
+                                "Andromuks",
+                                "processEditRelationships: could not find chain end for ${targetEntry.replacedBy}; replacing with ${editEventId}"
+                            )
+                            targetEntry.replacedBy = editEventId
                         }
                     } else {
-                        // First edit for this target
+                        android.util.Log.d(
+                            "Andromuks",
+                            "processEditRelationships: first edit for ${targetEventId} is ${editEventId}"
+                        )
                         targetEntry.replacedBy = editEventId
-
                     }
-                } 
+                } else {
+                    android.util.Log.w(
+                        "Andromuks",
+                        "processEditRelationships: target entry missing for edit ${editEventId} (target=${targetEventId})"
+                    )
+                }
             } else {
-                android.util.Log.w("Andromuks", "AppViewModel: Could not find target event ID in edit event ${editEventId}")
+                android.util.Log.w(
+                    "Andromuks",
+                    "processEditRelationships: edit ${editEventId} missing relates_to event_id"
+                )
             }
         }
     }
@@ -10032,7 +10049,6 @@ class AppViewModel : ViewModel() {
         processEditRelationships()
         buildTimelineFromChain()
     }
-    
     /**
      * Gets the final event for a bubble, following the edit chain to the latest edit.
      */
@@ -10055,6 +10071,7 @@ class AppViewModel : ViewModel() {
         while (currentEntry.replacedBy != null) {
             // Safety check: limit chain depth to prevent infinite loops
             if (chainDepth >= 20) {
+                android.util.Log.d("Andromuks", "AppViewModel: ChainDepth >= 20, we have to break")
                 break
             }
             chainDepth++
@@ -10827,7 +10844,6 @@ class AppViewModel : ViewModel() {
             "user_id" to userId
         ))
     }
-    
     /**
      * Gets all messages in a thread (thread root + all replies)
      * @param roomId The room containing the thread
