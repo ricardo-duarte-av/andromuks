@@ -9777,18 +9777,23 @@ class AppViewModel : ViewModel() {
                 eventChainMap.toMap()
             }
         
-            // OPTIMIZED: Process events and collect redactions in single pass
-            for ((eventId, entry) in eventChainSnapshot) {
-                // Collect redaction targets first
+            // First collect all redactions so order doesn't matter
+            for ((_, entry) in eventChainSnapshot) {
                 val redactionEvent = entry.ourBubble
                 if (redactionEvent != null && redactionEvent.type == "m.room.redaction") {
                     val redactsEventId = redactionEvent.content?.optString("redacts")?.takeIf { it.isNotBlank() }
                     if (redactsEventId != null) {
                         redactionMap[redactsEventId] = redactionEvent.eventId
+                        android.util.Log.d(
+                            "Andromuks",
+                            "buildTimelineFromChain: redaction ${redactionEvent.eventId} targets $redactsEventId"
+                        )
                     }
                 }
-                
-                // Process regular events with bubbles
+            }
+
+            // Now process all non-redaction events with the populated map
+            for ((eventId, entry) in eventChainSnapshot) {
                 val ourBubble = entry.ourBubble
                 if (ourBubble != null && ourBubble.type != "m.room.redaction") {
                     try {
@@ -9796,12 +9801,22 @@ class AppViewModel : ViewModel() {
                         val redactedBy = redactionMap[eventId]
                         val finalEvent = if (redactedBy != null) {
                             val baseEvent = getFinalEventForBubble(entry)
+                            android.util.Log.d(
+                                "Andromuks",
+                                "buildTimelineFromChain: applying redaction $redactedBy to event $eventId"
+                            )
                             baseEvent.copy(redactedBy = redactedBy)
                         } else {
                             getFinalEventForBubble(entry)
                         }
                         
                         timelineEvents.add(finalEvent)
+                        if (finalEvent.redactedBy != null) {
+                            android.util.Log.d(
+                                "Andromuks",
+                                "buildTimelineFromChain: timeline event ${finalEvent.eventId} marked redacted by ${finalEvent.redactedBy}"
+                            )
+                        }
                         //android.util.Log.d("Andromuks", "AppViewModel: Added event for ${eventId} with final content from ${entry.replacedBy ?: eventId}${if (redactedBy != null) " (redacted by $redactedBy)" else ""}")
                     } catch (e: Exception) {
                         android.util.Log.e("Andromuks", "AppViewModel: Error processing event ${eventId} in buildTimelineFromChain", e)
