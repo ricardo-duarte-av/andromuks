@@ -1901,7 +1901,7 @@ class AppViewModel : ViewModel() {
      * - If global profile exists and matches, don't store room-specific entry (use global)
      * - If global profile exists and differs, store room-specific entry (but don't update global)
      * 
-     * Note: Global profile should ideally come from explicit profile requests, not room member events.
+     * Note: Global profile should ideally come from explicit profile requests, not from room member events.
      * This prevents the global from drifting and ensures room-specific entries only exist when truly different.
      */
     private fun storeMemberProfile(roomId: String, userId: String, profile: MemberProfile) {
@@ -5825,7 +5825,27 @@ class AppViewModel : ViewModel() {
                     content.put("reactions", JSONObject(entity.aggregatedReactionsJson))
                 }
             }
-            TimelineEvent.fromJson(json)
+            var timelineEvent = TimelineEvent.fromJson(json)
+
+            if (timelineEvent.relationType.isNullOrBlank()) {
+                val inferredRelationType = when {
+                    entity.threadRootEventId != null -> "m.thread"
+                    entity.relatesToEventId != null -> timelineEvent.relationType
+                    else -> null
+                }
+                if (!inferredRelationType.isNullOrBlank()) {
+                    timelineEvent = timelineEvent.copy(relationType = inferredRelationType)
+                }
+            }
+
+            if (timelineEvent.relatesTo.isNullOrBlank()) {
+                val inferredRelatesTo = entity.threadRootEventId ?: entity.relatesToEventId
+                if (!inferredRelatesTo.isNullOrBlank()) {
+                    timelineEvent = timelineEvent.copy(relatesTo = inferredRelatesTo)
+                }
+            }
+
+            timelineEvent
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to convert EventEntity ${entity.eventId} to TimelineEvent", e)
             null
@@ -9636,7 +9656,7 @@ class AppViewModel : ViewModel() {
             editEventsMap.putAll(limitedEditEvents)
         }
         
-        android.util.Log.d("Andromuks", "processEditRelationships: editEventsMap size=${editEventsMap.size}")
+        //android.util.Log.d("Andromuks", "processEditRelationships: editEventsMap size=${editEventsMap.size}")
         // First, create chain entries for all edit events
         for ((editEventId, editEvent) in editEventsMap) {
             val existing = eventChainMap[editEventId]
@@ -9649,11 +9669,11 @@ class AppViewModel : ViewModel() {
                 )
             }
         }
-        android.util.Log.d("Andromuks", "processEditRelationships: eventChainMap now has ${eventChainMap.size} entries")
+        //android.util.Log.d("Andromuks", "processEditRelationships: eventChainMap now has ${eventChainMap.size} entries")
 
         // Sort edit events by timestamp to process in chronological order
         val sortedEditEvents = editEventsMap.values.sortedBy { it.timestamp }
-        android.util.Log.d("Andromuks", "processEditRelationships: processing ${sortedEditEvents.size} edit events in timestamp order")
+        //android.util.Log.d("Andromuks", "processEditRelationships: processing ${sortedEditEvents.size} edit events in timestamp order")
 
         for (editEvent in sortedEditEvents) {
             val editEventId = editEvent.eventId

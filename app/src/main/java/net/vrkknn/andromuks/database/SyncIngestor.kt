@@ -577,28 +577,42 @@ class SyncIngestor(private val context: Context) {
         }
         
         // Extract relates_to for edits/reactions
+        // For encrypted messages, check decrypted content if available
         val content = eventJson.optJSONObject("content")
-        val relatesTo = content?.optJSONObject("m.relates_to")
-        var relatesToEventId = relatesTo?.optString("event_id")
+        val messageContent = when {
+            type == "m.room.message" -> content
+            type == "m.room.encrypted" && decryptedType == "m.room.message" -> {
+                eventJson.optJSONObject("decrypted") ?: content
+            }
+            else -> content
+        }
+        val relatesTo = messageContent?.optJSONObject("m.relates_to")
+        val relType = relatesTo?.optString("rel_type")
+        val isThreadMessage = relType == "m.thread"
         
         // Check if this is a redaction
         val isRedaction = type == "m.room.redaction"
         
-        // For redactions, the redacted event ID is in content.redacts, not m.relates_to
-        if (isRedaction && relatesToEventId == null) {
-            relatesToEventId = content?.optString("redacts")?.takeIf { it.isNotBlank() }
+        // Extract thread root and relates_to based on message type
+        var threadRootEventId: String? = null
+        var relatesToEventId: String? = null
+        
+        if (isThreadMessage && relatesTo != null) {
+            // For thread messages:
+            // - threadRootEventId = m.relates_to.event_id (the original thread root)
+            // - relatesToEventId = m.relates_to.m.in_reply_to.event_id (the previous message in thread)
+            threadRootEventId = relatesTo.optString("event_id")?.takeIf { it.isNotBlank() }
+            val inReplyTo = relatesTo.optJSONObject("m.in_reply_to")
+            relatesToEventId = inReplyTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+        } else if (relatesTo != null) {
+            // For non-thread replies/edits/reactions:
+            // - relatesToEventId = m.relates_to.event_id (the message being replied to/edited/reacted to)
+            relatesToEventId = relatesTo.optString("event_id")?.takeIf { it.isNotBlank() }
         }
         
-        // Extract thread root event ID (from m.in_reply_to or m.thread_relation)
-        var threadRootEventId: String? = null
-        if (relatesTo != null) {
-            val inReplyTo = relatesTo.optJSONObject("m.in_reply_to")
-            if (inReplyTo != null) {
-                threadRootEventId = inReplyTo.optString("event_id")?.takeIf { it.isNotBlank() }
-            } else {
-                val threadRelation = relatesTo.optJSONObject("m.thread_relation")
-                threadRootEventId = threadRelation?.optString("event_id")?.takeIf { it.isNotBlank() }
-            }
+        // For redactions, the redacted event ID is in content.redacts, not m.relates_to
+        if (isRedaction && relatesToEventId == null) {
+            relatesToEventId = messageContent?.optString("redacts")?.takeIf { it.isNotBlank() }
         }
         
         // Include aggregated reactions (if any) in persisted JSON
@@ -959,28 +973,39 @@ class SyncIngestor(private val context: Context) {
         }
         
         // Extract relates_to for edits/reactions
-        val content = event.content
-        val relatesTo = content?.optJSONObject("m.relates_to")
-        val relatesToEventIdString = relatesTo?.optString("event_id")
-        val relatesToEventId = if (relatesToEventIdString != null && relatesToEventIdString.isNotBlank()) relatesToEventIdString else null
+        // For encrypted messages, check decrypted content if available
+        val messageContent = when {
+            event.type == "m.room.message" -> event.content
+            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted
+            else -> event.content
+        }
+        val relatesTo = messageContent?.optJSONObject("m.relates_to")
+        val relType = relatesTo?.optString("rel_type")
+        val isThreadMessage = relType == "m.thread"
         
-        // Extract thread root event ID
+        // Extract thread root and relates_to based on message type
         var threadRootEventId: String? = null
-        if (relatesTo != null) {
+        var relatesToEventId: String? = null
+        
+        if (isThreadMessage && relatesTo != null) {
+            // For thread messages:
+            // - threadRootEventId = m.relates_to.event_id (the original thread root)
+            // - relatesToEventId = m.relates_to.m.in_reply_to.event_id (the previous message in thread)
+            threadRootEventId = relatesTo.optString("event_id")?.takeIf { it.isNotBlank() }
             val inReplyTo = relatesTo.optJSONObject("m.in_reply_to")
-            if (inReplyTo != null) {
-                val inReplyToEventId = inReplyTo.optString("event_id")
-                threadRootEventId = if (inReplyToEventId != null && inReplyToEventId.isNotBlank()) inReplyToEventId else null
-            } else {
-                val threadRelation = relatesTo.optJSONObject("m.thread_relation")
-                if (threadRelation != null) {
-                    val threadEventId = threadRelation.optString("event_id")
-                    threadRootEventId = if (threadEventId != null && threadEventId.isNotBlank()) threadEventId else null
-                }
-            }
+            relatesToEventId = inReplyTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+        } else if (relatesTo != null) {
+            // For non-thread replies/edits/reactions:
+            // - relatesToEventId = m.relates_to.event_id (the message being replied to/edited/reacted to)
+            relatesToEventId = relatesTo.optString("event_id")?.takeIf { it.isNotBlank() }
         }
         
         val isRedaction = event.type == "m.room.redaction"
+        
+        // For redactions, the redacted event ID is in content.redacts, not m.relates_to
+        if (isRedaction && relatesToEventId == null) {
+            relatesToEventId = messageContent?.optString("redacts")?.takeIf { it.isNotBlank() }
+        }
         val reactionsObj = event.aggregatedReactions ?: event.content?.optJSONObject("reactions")
         val aggregatedReactionsJson = reactionsObj?.toString()
         if (aggregatedReactionsJson != null) {
