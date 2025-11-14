@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -46,6 +47,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import net.vrkknn.andromuks.TimelineEvent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -350,6 +352,8 @@ fun MediaMessage(
 ) {
     var showImageViewer by remember { mutableStateOf(false) }
     var showVideoPlayer by remember { mutableStateOf(false) }
+    // Shared state to trigger menu from image long press
+    var triggerMenuFromImage by remember { mutableStateOf(0) }
     
     // Show image viewer dialog when image is tapped
     if (showImageViewer && mediaMessage.msgType == "m.image") {
@@ -375,6 +379,14 @@ fun MediaMessage(
     // Check if there's a caption to determine layout strategy
     // This determines whether to use separate image frame + caption or single bubble
     val hasCaption = !mediaMessage.caption.isNullOrBlank()
+    
+    // Calculate if image is small enough to wrap content (like stickers do)
+    val density = LocalDensity.current
+    val imageWidthDp = if (mediaMessage.info.width > 0 && (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video")) {
+        with(density) { mediaMessage.info.width.toDp() }
+    } else null
+    // If image is small (< 400dp), wrap content instead of using fillMaxWidth(0.8f)
+    val shouldWrapBubble = imageWidthDp != null && imageWidthDp < 400.dp
     
     // Check if this is a thread message to apply thread colors
     val isThreadMessage = event?.isThreadMessage() ?: false
@@ -407,7 +419,14 @@ fun MediaMessage(
                     bottomStart = 12.dp,
                     bottomEnd = 12.dp
                 ),
-                modifier = modifier.fillMaxWidth(0.8f),
+                modifier = modifier
+                    .then(
+                        if (shouldWrapBubble) {
+                            Modifier.wrapContentWidth()
+                        } else {
+                            Modifier.fillMaxWidth(0.8f)
+                        }
+                    ),
                 isMine = isMine,
                 myUserId = myUserId,
                 powerLevels = powerLevels,
@@ -417,7 +436,8 @@ fun MediaMessage(
                 onDelete = onDelete,
                 appViewModel = appViewModel,
                 onBubbleClick = onBubbleClick,
-                onShowEditHistory = onShowEditHistory
+                onShowEditHistory = onShowEditHistory,
+                externalMenuTrigger = triggerMenuFromImage
             ) {
                 Column {
                     // Image content inside the caption bubble
@@ -432,6 +452,10 @@ fun MediaMessage(
                             } else {
                                 showImageViewer = true
                             }
+                        },
+                        onImageLongPress = {
+                            // Trigger menu from image long press
+                            triggerMenuFromImage++
                         }
                     )
                     
@@ -470,7 +494,13 @@ fun MediaMessage(
             
             Surface(
                 modifier = modifier
-                    .fillMaxWidth(0.8f)
+                    .then(
+                        if (shouldWrapBubble) {
+                            Modifier.wrapContentWidth()
+                        } else {
+                            Modifier.fillMaxWidth(0.8f)
+                        }
+                    )
                     // In dark mode, add a light glow effect
                     .then(
                         if (isDarkMode) {
@@ -502,6 +532,10 @@ fun MediaMessage(
                             } else {
                                 showImageViewer = true
                             }
+                        },
+                        onImageLongPress = {
+                            // Trigger menu from image long press
+                            triggerMenuFromImage++
                         }
                     )
                     
@@ -542,7 +576,13 @@ fun MediaMessage(
                     bottomEnd = 12.dp
                 ),
                 modifier = modifier
-                    .fillMaxWidth(0.8f)
+                    .then(
+                        if (shouldWrapBubble) {
+                            Modifier.wrapContentWidth()
+                        } else {
+                            Modifier.fillMaxWidth(0.8f)
+                        }
+                    )
                     .wrapContentHeight(),
                 isMine = isMine,
                 myUserId = myUserId,
@@ -553,7 +593,8 @@ fun MediaMessage(
                 onDelete = onDelete,
                 appViewModel = appViewModel,
                 onBubbleClick = onBubbleClick,
-                onShowEditHistory = onShowEditHistory
+                onShowEditHistory = onShowEditHistory,
+                externalMenuTrigger = triggerMenuFromImage
             ) {
                 Column {
                     MediaContent(
@@ -567,6 +608,10 @@ fun MediaMessage(
                             } else {
                                 showImageViewer = true
                             }
+                        },
+                        onImageLongPress = {
+                            // Trigger menu from image long press
+                            triggerMenuFromImage++
                         }
                     )
                     
@@ -594,7 +639,13 @@ fun MediaMessage(
             
             Surface(
                 modifier = modifier
-                    .fillMaxWidth(0.8f) // Max 80% width
+                    .then(
+                        if (shouldWrapBubble) {
+                            Modifier.wrapContentWidth()
+                        } else {
+                            Modifier.fillMaxWidth(0.8f) // Max 80% width
+                        }
+                    )
                     .wrapContentHeight()
                     // In dark mode, add a light glow effect
                     .then(
@@ -626,6 +677,10 @@ fun MediaMessage(
                             } else {
                                 showImageViewer = true
                             }
+                        },
+                        onImageLongPress = {
+                            // Trigger menu from image long press
+                            triggerMenuFromImage++
                         }
                     )
                     
@@ -662,9 +717,30 @@ private fun MediaContent(
     homeserverUrl: String,
     authToken: String,
     isEncrypted: Boolean,
-    onImageClick: () -> Unit = {}
+    onImageClick: () -> Unit = {},
+    onImageLongPress: (() -> Unit)? = null
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    val density = LocalDensity.current
+    
+    // Pre-calculate image dimensions to determine if we should wrap content
+    val imageWidthDp = if (mediaMessage.info.width > 0) {
+        with(density) { mediaMessage.info.width.toDp() }
+    } else null
+    
+    // Determine if image is small enough to wrap content (estimate < 400dp)
+    val shouldWrapContent = imageWidthDp != null && imageWidthDp < 400.dp
+    
+    Column(
+        modifier = Modifier
+            .then(
+                if (shouldWrapContent && (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video")) {
+                    Modifier.wrapContentWidth()
+                } else {
+                    Modifier.fillMaxWidth()
+                }
+            ),
+        horizontalAlignment = Alignment.Start
+    ) {
         if (mediaMessage.msgType == "m.audio") {
             // Audio player - use its own sizing without aspect ratio container
             AudioPlayer(
@@ -692,15 +768,95 @@ private fun MediaContent(
                     16f / 9f // Default aspect ratio
                 }
 
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            // Check if there's a caption
+            val hasCaption = !mediaMessage.caption.isNullOrBlank()
+            
+            // Very tiny padding for image frame
+            val imagePadding = 4.dp
+            val bottomPadding = if (hasCaption) 8.dp else imagePadding
+
+            // Calculate actual image size in dp if dimensions are available
+            val imageHeightDp = if (mediaMessage.info.height > 0) {
+                with(density) { mediaMessage.info.height.toDp() }
+            } else null
+
+            BoxWithConstraints(
+                modifier = Modifier
+                    .then(
+                        if (shouldWrapContent) {
+                            // Wrap content when image is small, but limit max width
+                            Modifier
+                                .wrapContentWidth()
+                                .widthIn(max = (imageWidthDp ?: 400.dp) + (imagePadding * 2) + 10.dp)
+                        } else {
+                            Modifier.fillMaxWidth()
+                        }
+                    )
+            ) {
+                // Calculate available width (accounting for padding)
+                // When wrapping, maxWidth might be unbounded, so use image width as fallback
+                val effectiveMaxWidth = if (shouldWrapContent) {
+                    // When wrapping, use image width + padding as the effective max
+                    (imageWidthDp ?: 400.dp) + (imagePadding * 2)
+                } else {
+                    maxWidth
+                }
+                val availableWidth = effectiveMaxWidth - (imagePadding * 2)
+                val maxHeight = 300.dp - (imagePadding + bottomPadding)
+                
+                // Determine if image should be rendered at actual size or scaled
+                // If Column is wrapping, we know image is small, so render at actual size
+                val shouldRenderAtActualSize = if (shouldWrapContent) {
+                    imageWidthDp != null && imageHeightDp != null
+                } else {
+                    imageWidthDp != null && imageHeightDp != null &&
+                    imageWidthDp <= availableWidth && imageHeightDp <= maxHeight
+                }
+                
                 val calculatedHeight =
                     if (aspectRatio > 0) {
-                        (maxWidth / aspectRatio).coerceAtMost(300.dp) // Max height of 300dp
+                        if (shouldRenderAtActualSize) {
+                            // Use actual image height, but don't exceed maxHeight
+                            imageHeightDp!!.coerceAtMost(maxHeight)
+                        } else {
+                            // Scale down to fit available space
+                            (availableWidth / aspectRatio).coerceAtMost(maxHeight)
+                        }
                     } else {
                         200.dp // Default height
                     }
+                
+                val calculatedWidth = if (shouldRenderAtActualSize && imageWidthDp != null) {
+                    // Use actual image width, but don't exceed available width
+                    imageWidthDp.coerceAtMost(availableWidth)
+                } else {
+                    availableWidth
+                }
 
-                Box(modifier = Modifier.fillMaxWidth().height(calculatedHeight)) {
+                // Image container with padding (frame around image)
+                Box(
+                    modifier = Modifier
+                        .then(
+                            if (shouldRenderAtActualSize) {
+                                // Wrap content when image is small (don't enlarge)
+                                Modifier
+                                    .wrapContentWidth()
+                                    .wrapContentHeight()
+                            } else {
+                                // Fill available space when image is large (scale down)
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(calculatedHeight)
+                            }
+                        )
+                        .padding(
+                            start = imagePadding,
+                            end = imagePadding,
+                            top = imagePadding,
+                            bottom = bottomPadding
+                        ),
+                    contentAlignment = if (shouldRenderAtActualSize) Alignment.TopStart else Alignment.Center
+                ) {
                     val context = LocalContext.current
                     val coroutineScope = rememberCoroutineScope()
 
@@ -815,13 +971,27 @@ private fun MediaContent(
                                 .build(),
                             imageLoader = imageLoader,
                             contentDescription = mediaMessage.filename,
-                            modifier = Modifier.fillMaxSize().pointerInput(Unit) {
-                                detectTapGestures(
-                                    onTap = { onImageClick() }
-                                    // Don't handle onLongPress - let it bubble up to
-                                    // MessageBubbleWithMenu
+                            modifier = Modifier
+                                .then(
+                                    if (shouldRenderAtActualSize) {
+                                        // Render at actual size (don't enlarge)
+                                        Modifier
+                                            .width(calculatedWidth)
+                                            .height(calculatedHeight)
+                                    } else {
+                                        // Scale to fit container
+                                        Modifier.fillMaxSize()
+                                    }
                                 )
-                            },
+                                .pointerInput(Unit) {
+                                    detectTapGestures(
+                                        onTap = { onImageClick() },
+                                        onLongPress = {
+                                            // Trigger menu on long press
+                                            onImageLongPress?.invoke()
+                                        }
+                                    )
+                                },
                             placeholder = blurHashPainter,
                             error = blurHashPainter,
                             onSuccess = {
@@ -904,7 +1074,13 @@ private fun MediaContent(
                                         "Video thumbnail: ${mediaMessage.filename}",
                                     modifier =
                                         Modifier.fillMaxSize().pointerInput(Unit) {
-                                            detectTapGestures(onTap = { onImageClick() })
+                                            detectTapGestures(
+                                                onTap = { onImageClick() },
+                                                onLongPress = {
+                                                    // Trigger menu on long press
+                                                    onImageLongPress?.invoke()
+                                                }
+                                            )
                                         },
                                     placeholder = thumbnailBlurHashPainter,
                                     error = thumbnailBlurHashPainter,
@@ -957,7 +1133,13 @@ private fun MediaContent(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .pointerInput(Unit) {
-                                            detectTapGestures(onTap = { onImageClick() })
+                                            detectTapGestures(
+                                                onTap = { onImageClick() },
+                                                onLongPress = {
+                                                    // Trigger menu on long press
+                                                    onImageLongPress?.invoke()
+                                                }
+                                            )
                                         }
                                 ) {
                                     Text(

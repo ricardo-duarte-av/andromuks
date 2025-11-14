@@ -575,11 +575,21 @@ fun MessageBubbleWithMenu(
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
     onBubbleClick: (() -> Unit)? = null,
     onShowEditHistory: (() -> Unit)? = null,
+    externalMenuTrigger: Int = 0, // External trigger to show menu (increment to trigger)
     content: @Composable RowScope.() -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    
     var bubbleBounds by remember { mutableStateOf(Rect.Zero) }
     val hapticFeedback = LocalHapticFeedback.current
+    
+    // Watch external trigger and show menu when it changes
+    LaunchedEffect(externalMenuTrigger) {
+        if (externalMenuTrigger > 0) {
+            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+            showMenu = true
+        }
+    }
     val density = LocalDensity.current
     val configuration = LocalConfiguration.current
     val screenWidth = with(density) { configuration.screenWidthDp.dp.toPx() }
