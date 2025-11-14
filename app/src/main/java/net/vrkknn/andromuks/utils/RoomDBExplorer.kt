@@ -18,6 +18,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -30,6 +31,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -88,6 +91,8 @@ fun RoomDBExplorerScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var totalCount by remember { mutableStateOf<Int?>(null) }
     var events by remember { mutableStateOf<List<RoomDbEventRow>>(emptyList()) }
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
+    var isDeleting by remember { mutableStateOf(false) }
 
     val formatter = remember {
         SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
@@ -176,11 +181,6 @@ fun RoomDBExplorerScreen(
         topBar = {
             TopAppBar(
                 title = { Text("Room DB Explorer") },
-                navigationIcon = {
-                    IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
                 actions = {
                     val total = totalCount
                     if (total != null) {
@@ -216,6 +216,16 @@ fun RoomDBExplorerScreen(
                         Icon(
                             imageVector = Icons.Filled.ContentCopy,
                             contentDescription = "Export Visible Rows"
+                        )
+                    }
+                    IconButton(
+                        enabled = !isDeleting,
+                        onClick = { showDeleteConfirmation = true }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = "Delete Room Data",
+                            tint = MaterialTheme.colorScheme.error
                         )
                     }
                 }
@@ -308,6 +318,51 @@ fun RoomDBExplorerScreen(
                     }
                 }
             }
+        }
+        
+        // Delete confirmation dialog
+        if (showDeleteConfirmation) {
+            AlertDialog(
+                onDismissRequest = { if (!isDeleting) showDeleteConfirmation = false },
+                title = { Text("Delete Room Data") },
+                text = { 
+                    Text("Are you sure you want to delete ALL data for this room? This includes events, state, receipts, reactions, and all cached data. This action cannot be undone.")
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            isDeleting = true
+                            scope.launch {
+                                try {
+                                    appViewModel.deleteAllRoomData(roomId)
+                                    showDeleteConfirmation = false
+                                    // Navigate back to room list
+                                    navController.popBackStack()
+                                } catch (e: Exception) {
+                                    errorMessage = "Failed to delete room data: ${e.message}"
+                                    android.util.Log.e("RoomDBExplorer", "Error deleting room data", e)
+                                } finally {
+                                    isDeleting = false
+                                }
+                            }
+                        },
+                        enabled = !isDeleting,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text(if (isDeleting) "Deleting..." else "Delete")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showDeleteConfirmation = false },
+                        enabled = !isDeleting
+                    ) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
     }
 }

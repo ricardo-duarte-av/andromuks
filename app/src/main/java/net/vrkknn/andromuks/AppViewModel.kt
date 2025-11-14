@@ -11795,6 +11795,58 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Delete all data for a room from the database and clear in-memory caches
+     * This is a destructive operation that removes all events, state, receipts, reactions, etc.
+     */
+    suspend fun deleteAllRoomData(roomId: String) = withContext(Dispatchers.IO) {
+        val context = appContext ?: run {
+            android.util.Log.e("Andromuks", "AppViewModel: Cannot delete room data - appContext is null")
+            return@withContext
+        }
+        
+        try {
+            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+            val eventDao = database.eventDao()
+            val roomStateDao = database.roomStateDao()
+            val roomSummaryDao = database.roomSummaryDao()
+            val receiptDao = database.receiptDao()
+            val reactionDao = database.reactionDao()
+            val inviteDao = database.inviteDao()
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Deleting all data for room: $roomId")
+            
+            // Delete all data sequentially (all are suspend functions, so they execute in order)
+            eventDao.deleteAllForRoom(roomId)
+            roomStateDao.deleteForRoom(roomId)
+            roomSummaryDao.deleteForRoom(roomId)
+            receiptDao.deleteForRoom(roomId)
+            reactionDao.clearRoom(roomId)
+            inviteDao.deleteInvite(roomId)
+            
+            // Clear in-memory caches
+            RoomTimelineCache.clearRoomCache(roomId)
+            
+            // Remove from room map if present
+            roomMap.remove(roomId)
+            
+            // Clear current room if it's the deleted room
+            if (currentRoomId == roomId) {
+                clearCurrentRoomId()
+            }
+            
+            // Trigger room list update
+            withContext(Dispatchers.Main) {
+                roomListUpdateCounter++
+            }
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Successfully deleted all data for room: $roomId")
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Error deleting room data for $roomId", e)
+            throw e
+        }
+    }
+    
+    /**
      * Format bytes to human-readable string (e.g., "1.5 MB")
      */
     fun formatBytes(bytes: Long): String {
