@@ -5630,11 +5630,22 @@ class AppViewModel : ViewModel() {
                     return@launch
                 }
 
-                val receiptsByEvent = receiptEntities
+                // First, find the latest receipt per user (only one receipt per user should be shown)
+                val latestReceiptPerUser = receiptEntities
                     .filter { eventIds.contains(it.eventId) }
+                    .groupBy { it.userId }
+                    .mapValues { (_, userReceipts) ->
+                        // Find the receipt with the latest timestamp for this user
+                        userReceipts.maxByOrNull { it.timestamp }
+                    }
+                    .values
+                    .filterNotNull()
+                
+                // Then group by eventId, keeping only the latest receipt per user
+                val receiptsByEvent = latestReceiptPerUser
                     .groupBy { it.eventId }
                     .mapValues { (_, entities) ->
-                        entities.sortedBy { it.timestamp }.map { entity ->
+                        entities.map { entity ->
                             ReadReceipt(
                                 userId = entity.userId,
                                 eventId = entity.eventId,
