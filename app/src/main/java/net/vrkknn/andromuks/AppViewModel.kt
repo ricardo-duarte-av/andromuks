@@ -4074,6 +4074,33 @@ class AppViewModel : ViewModel() {
         // Refresh UI with current state (in case updates happened while app was invisible)
         refreshUIState()
         
+        // CRITICAL FIX: Ensure current user profile is loaded when app becomes visible
+        // This fixes issues when app starts from notification/shortcut and profile wasn't loaded yet
+        if (currentUserProfile == null && currentUserId.isNotBlank() && appContext != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Current user profile missing on visibility, attempting to load - userId: $currentUserId")
+            // Try loading from cache first
+            val cachedProfile = try {
+                runBlocking(Dispatchers.IO) {
+                    loadProfileFromDatabase(currentUserId)
+                }
+            } catch (e: Exception) {
+                null
+            }
+            
+            if (cachedProfile != null) {
+                currentUserProfile = UserProfile(
+                    userId = currentUserId,
+                    displayName = cachedProfile.displayName,
+                    avatarUrl = cachedProfile.avatarUrl
+                )
+                android.util.Log.d("Andromuks", "AppViewModel: Loaded current user profile from cache on visibility")
+            } else {
+                // Not in cache, request from server
+                requestUserProfile(currentUserId)
+                android.util.Log.d("Andromuks", "AppViewModel: Requested current user profile from server on visibility")
+            }
+        }
+        
         // If a room is currently open, trigger timeline refresh to show new events from cache
         if (currentRoomId.isNotEmpty()) {
             android.util.Log.d("Andromuks", "AppViewModel: Room is open ($currentRoomId), triggering timeline refresh")
@@ -8112,11 +8139,19 @@ class AppViewModel : ViewModel() {
     
     /**
      * Loads all cached profiles from disk and populates the member cache
+     * Also ensures current user profile is loaded if available
      */
     fun loadCachedProfiles(context: android.content.Context) {
         try {
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
             val allKeys = sharedPrefs.all.keys.filter { it.startsWith("profile_") }
+            
+            // Get current user ID from SharedPreferences if not already set
+            val storedUserId = sharedPrefs.getString("current_user_id", "") ?: ""
+            if (currentUserId.isBlank() && storedUserId.isNotBlank()) {
+                currentUserId = storedUserId
+                android.util.Log.d("Andromuks", "AppViewModel: Restored currentUserId from SharedPreferences: $currentUserId")
+            }
             
             for (key in allKeys) {
                 val userId = key.removePrefix("profile_")
@@ -8128,10 +8163,27 @@ class AppViewModel : ViewModel() {
                             memberMap[userId] = profile
                         }
                     }
+                    
+                    // CRITICAL FIX: If this is the current user's profile, set currentUserProfile
+                    // This ensures the header in RoomListScreen displays correctly regardless of startup path
+                    if (userId == currentUserId && currentUserProfile == null) {
+                        currentUserProfile = UserProfile(
+                            userId = userId,
+                            displayName = profile.displayName,
+                            avatarUrl = profile.avatarUrl
+                        )
+                        android.util.Log.d("Andromuks", "AppViewModel: Loaded current user profile from cache - userId: $userId, displayName: ${profile.displayName}")
+                    }
                 }
             }
             
             android.util.Log.d("Andromuks", "AppViewModel: Loaded ${allKeys.size} cached profiles from disk")
+            
+            // If current user profile is still null but we have a currentUserId, request it
+            if (currentUserProfile == null && currentUserId.isNotBlank()) {
+                android.util.Log.d("Andromuks", "AppViewModel: Current user profile not in cache, requesting from server - userId: $currentUserId")
+                requestUserProfile(currentUserId)
+            }
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to load cached profiles from disk", e)
         }
