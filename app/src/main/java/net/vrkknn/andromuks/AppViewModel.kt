@@ -6274,6 +6274,10 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Full refresh for room: $roomId (resetting caches and requesting fresh snapshot)")
         setAutoPaginationEnabled(false, "manual_refresh_$roomId")
         
+        // For manual refresh, clear the pagination flag to allow pagination to proceed
+        roomsPaginatedOnce.remove(roomId)
+        android.util.Log.d("Andromuks", "AppViewModel: Cleared pagination flag for manual refresh of room: $roomId")
+        
         if (hasInitialPaginate(roomId)) {
             logSkippedPaginate(roomId, "full_refresh")
             viewModelScope.launch {
