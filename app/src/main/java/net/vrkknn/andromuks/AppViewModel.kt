@@ -10719,7 +10719,10 @@ class AppViewModel : ViewModel() {
             json.put("request_id", requestId)
             json.put("data", org.json.JSONObject(data))
             val jsonString = json.toString()
-            android.util.Log.d("Andromuks", "Websocket: $command (reqId: $requestId) -> $jsonString")
+            
+            // Log all WebSocket commands being sent
+            android.util.Log.d("Andromuks", "sendWebSocketCommand: command='$command', requestId=$requestId, data=${org.json.JSONObject(data).toString().take(200)}")
+            
             webSocket?.send(jsonString)
             WebSocketResult.SUCCESS
         } catch (e: Exception) {
