@@ -7930,6 +7930,9 @@ class AppViewModel : ViewModel() {
             currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
         }
         
+        // Save profile to disk cache for persistence
+        // Use batch save queue to avoid blocking and improve performance
+        queueProfileForBatchSave(userId, memberProfile)
         
         // Check if this is part of a full user info request
         val fullUserInfoCallback = fullUserInfoCallbacks.remove(requestId)
