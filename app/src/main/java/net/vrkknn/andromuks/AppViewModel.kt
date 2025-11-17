@@ -1036,34 +1036,33 @@ class AppViewModel : ViewModel() {
      * Play a notification sound for new messages
      */
     private fun playNewMessageSound() {
-        appContext?.let { context ->
-            try {
-                val mediaPlayer = MediaPlayer.create(context, net.vrkknn.andromuks.R.raw.pop_alert)
-                mediaPlayer?.let { player ->
-                    // Set audio stream to notification channel
-                    player.setAudioStreamType(AudioManager.STREAM_NOTIFICATION)
-                    
-                    // Set completion listener to release resources
-                    player.setOnCompletionListener { mp ->
-                        mp.release()
-                    }
-                    
-                    // Set error listener to handle any issues
-                    player.setOnErrorListener { mp, what, extra ->
-                        android.util.Log.w("Andromuks", "AppViewModel: Error playing notification sound: what=$what, extra=$extra")
-                        mp.release()
-                        true
-                    }
-                    
-                    // Start playing
-                    player.start()
-                    android.util.Log.d("Andromuks", "AppViewModel: Playing new message sound")
-                } ?: run {
-                    android.util.Log.w("Andromuks", "AppViewModel: Failed to create MediaPlayer for new message sound")
+        val context = appContext ?: return
+        try {
+            val mediaPlayer = MediaPlayer.create(context, R.raw.popalert)
+            if (mediaPlayer != null) {
+                // Set audio stream to notification channel
+                mediaPlayer.setAudioStreamType(AudioManager.STREAM_NOTIFICATION)
+                
+                // Set completion listener to release resources
+                mediaPlayer.setOnCompletionListener { mp: MediaPlayer ->
+                    mp.release()
                 }
-            } catch (e: Exception) {
-                android.util.Log.w("Andromuks", "AppViewModel: Error playing new message sound", e)
+                
+                // Set error listener to handle any issues
+                mediaPlayer.setOnErrorListener { mp: MediaPlayer, what: Int, extra: Int ->
+                    android.util.Log.w("Andromuks", "AppViewModel: Error playing notification sound: what=$what, extra=$extra")
+                    mp.release()
+                    true
+                }
+                
+                // Start playing
+                mediaPlayer.start()
+                android.util.Log.d("Andromuks", "AppViewModel: Playing new message sound")
+            } else {
+                android.util.Log.w("Andromuks", "AppViewModel: Failed to create MediaPlayer for new message sound")
             }
+        } catch (e: Exception) {
+            android.util.Log.w("Andromuks", "AppViewModel: Error playing new message sound", e)
         }
     }
     

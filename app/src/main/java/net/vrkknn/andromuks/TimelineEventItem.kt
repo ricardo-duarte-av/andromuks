@@ -2056,7 +2056,8 @@ fun TimelineEventItem(
     onDelete: (TimelineEvent) -> Unit = {},
     onUserClick: (String) -> Unit = {},
     onRoomLinkClick: (RoomLink) -> Unit = {},
-    onThreadClick: (TimelineEvent) -> Unit = {}
+    onThreadClick: (TimelineEvent) -> Unit = {},
+    onNewBubbleAnimationStart: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     
@@ -2291,6 +2292,9 @@ fun TimelineEventItem(
             
             // Mark as started immediately to prevent restart on recomposition
             hasAnimationStarted.value = true
+            if (shouldAnimate) {
+                onNewBubbleAnimationStart?.invoke()
+            }
             
             // Start animation immediately without delay for smooth experience
             animationProgress.snapTo(0f)

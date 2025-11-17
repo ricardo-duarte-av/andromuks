@@ -133,6 +133,7 @@ import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.MediaPreviewDialog
 import net.vrkknn.andromuks.utils.MediaUploadUtils
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
+import net.vrkknn.andromuks.utils.MessageSoundPlayer
 import net.vrkknn.andromuks.utils.ReactionBadges
 import net.vrkknn.andromuks.utils.ReplyPreview
 import net.vrkknn.andromuks.utils.ReplyPreviewInput
@@ -345,6 +346,14 @@ fun BubbleTimelineScreen(
     onOpenInApp: () -> Unit = {}
 ) {
     val context = LocalContext.current
+    val appContext = context.applicationContext
+    val messageSoundPlayer =
+        remember(appContext) {
+            MessageSoundPlayer(appContext)
+        }
+    DisposableEffect(messageSoundPlayer) {
+        onDispose { messageSoundPlayer.release() }
+    }
     val coroutineScope = rememberCoroutineScope()
     val sharedPreferences = remember(context) {
         context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
@@ -1413,7 +1422,8 @@ fun BubbleTimelineScreen(
                                                     val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
                                                     navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
                                                 }
-                                            }
+                                            },
+                                            onNewBubbleAnimationStart = { messageSoundPlayer.play() }
                                         )
                                     }
                                 }
