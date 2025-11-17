@@ -360,7 +360,9 @@ class SyncIngestor(private val context: Context) {
         // 3. Process events array (preview/additional events)
         val eventsArray = roomObj.optJSONArray("events")
         if (eventsArray != null) {
+            Log.d(TAG, "SyncIngestor: Processing ${eventsArray.length()} events from 'events' array for room $roomId")
             val events = mutableListOf<EventPersistCandidate>()
+            var skippedCount = 0
             for (i in 0 until eventsArray.length()) {
                 val eventJson = eventsArray.optJSONObject(i) ?: continue
                 
@@ -379,10 +381,19 @@ class SyncIngestor(private val context: Context) {
                 )
                 if (eventEntity != null) {
                     events.add(EventPersistCandidate(eventEntity, sourceLabel))
+                    if (BuildConfig.DEBUG && eventEntity.type == "m.room.encrypted") {
+                        Log.d(TAG, "SyncIngestor: Parsed encrypted event ${eventEntity.eventId} with timestamp=${eventEntity.timestamp}, timelineRowId=${eventEntity.timelineRowId}")
+                    }
+                } else {
+                    skippedCount++
+                    val eventId = eventJson.optString("event_id", "unknown")
+                    val eventType = eventJson.optString("type", "unknown")
+                    Log.w(TAG, "SyncIngestor: Failed to parse event from 'events' array: eventId=$eventId, type=$eventType")
                 }
             }
             
             if (events.isNotEmpty()) {
+                Log.d(TAG, "SyncIngestor: Persisting ${events.size} events from 'events' array for room $roomId (skipped $skippedCount)")
                 eventDao.upsertAll(events.map { it.entity })
                 events.forEach { candidate ->
                     logEventPersisted(
@@ -393,7 +404,11 @@ class SyncIngestor(private val context: Context) {
                         timelineRowId = candidate.entity.timelineRowId
                     )
                 }
+            } else if (eventsArray.length() > 0) {
+                Log.w(TAG, "SyncIngestor: No events were parsed from 'events' array for room $roomId (all ${eventsArray.length()} events were skipped)")
             }
+        } else {
+            Log.d(TAG, "SyncIngestor: No 'events' array found for room $roomId")
         }
         
         if (reactionDeletes.isNotEmpty()) {

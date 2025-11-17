@@ -129,6 +129,7 @@ import net.vrkknn.andromuks.utils.EmoteEventNarrator
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.InlineReadReceiptAvatars
 import net.vrkknn.andromuks.utils.AnimatedInlineReadReceiptAvatars
+import net.vrkknn.andromuks.utils.navigateToUserInfo
 import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.MediaPreviewDialog
 import net.vrkknn.andromuks.utils.MediaUploadUtils
@@ -1384,9 +1385,7 @@ fun BubbleTimelineScreen(
                                                 showDeleteDialog = true
                                             },
                                             onUserClick = { userId ->
-                                                navController.navigate(
-                                                    "user_info/${java.net.URLEncoder.encode(userId, "UTF-8")}"
-                                                )
+                                                navController.navigateToUserInfo(userId, roomId)
                                             },
                                             onRoomLinkClick = { roomLink ->
                                                 Log.d("Andromuks", "BubbleTimelineScreen: Room link clicked: ${roomLink.roomIdOrAlias}")

@@ -8,6 +8,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,6 +24,7 @@ import net.vrkknn.andromuks.TimelineEventItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import org.json.JSONObject
 import androidx.compose.foundation.shape.RoundedCornerShape
+import net.vrkknn.andromuks.utils.navigateToUserInfo
 
 /**
  * Data class to hold complete room state information
@@ -142,6 +144,15 @@ fun RoomInfoScreen(
             TopAppBar(
                 title = { Text("Room Info") },
                 actions = {
+                    IconButton(
+                        onClick = { navController.navigate("room_timeline_viewer/$roomId") }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.List,
+                            contentDescription = "Timeline Viewer",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     IconButton(
                         onClick = { navController.navigate("room_db_explorer/$roomId") }
                     ) {
@@ -419,7 +430,7 @@ fun RoomInfoScreen(
                                     authToken = appViewModel.authToken,
                                     powerLevel = roomStateInfo!!.powerLevels?.users?.get(member.userId),
                                     onUserClick = { userId ->
-                                        navController.navigate("user_info/${java.net.URLEncoder.encode(userId, "UTF-8")}")
+                                        navController.navigateToUserInfo(userId, roomId)
                                     }
                                 )
                             }

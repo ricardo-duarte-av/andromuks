@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
+import androidx.navigation.NavOptionsBuilder
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.RoomItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -44,6 +45,18 @@ import net.vrkknn.andromuks.utils.MediaCache
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.URL
+
+/**
+ * Helper function to navigate to user info screen with optional roomId
+ */
+fun NavController.navigateToUserInfo(userId: String, roomId: String? = null) {
+    val encodedUserId = java.net.URLEncoder.encode(userId, "UTF-8")
+    navigate("user_info/$encodedUserId") {
+        launchSingleTop = true
+    }
+    // Set roomId in savedStateHandle after navigation
+    currentBackStackEntry?.savedStateHandle?.set("roomId", roomId ?: "")
+}
 
 /**
  * Data class for user encryption info
@@ -90,6 +103,7 @@ fun UserInfoScreen(
     userId: String,
     navController: NavController,
     appViewModel: AppViewModel,
+    roomId: String? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -105,14 +119,21 @@ fun UserInfoScreen(
     // Current time state for user's timezone
     var currentTimeInUserTz by remember { mutableStateOf("") }
 
+    // Also check savedStateHandle for roomId (in case it was set during navigation)
+    val roomIdFromState = remember {
+        navController.currentBackStackEntry?.savedStateHandle?.get<String>("roomId")?.takeIf { it.isNotBlank() }
+            ?: navController.currentBackStackEntry?.savedStateHandle?.get<String>("user_info_roomId")?.takeIf { it.isNotBlank() }
+    }
+    val effectiveRoomId = roomId ?: roomIdFromState
+    
     // Request all user info when screen is created
-    LaunchedEffect(userId) {
-        android.util.Log.d("Andromuks", "UserInfoScreen: Requesting user info for $userId")
+    LaunchedEffect(userId, effectiveRoomId) {
+        android.util.Log.d("Andromuks", "UserInfoScreen: Requesting user info for $userId${if (effectiveRoomId != null) " in room $effectiveRoomId" else ""}")
         
-        // OPTIMIZATION: Check cache first for instant display
-        val cachedProfile = appViewModel.getUserProfile(userId, roomId = null)
+        // OPTIMIZATION: Check room-specific cache first if effectiveRoomId is provided, otherwise check global cache
+        val cachedProfile = appViewModel.getUserProfile(userId, roomId = effectiveRoomId)
         if (cachedProfile != null) {
-            android.util.Log.d("Andromuks", "UserInfoScreen: Found cached profile for $userId")
+            android.util.Log.d("Andromuks", "UserInfoScreen: Found ${if (effectiveRoomId != null) "room-specific" else "cached"} profile for $userId")
             // Prefill with cached data while loading full info in background
             userProfileInfo = net.vrkknn.andromuks.utils.UserProfileInfo(
                 userId = userId,
@@ -125,15 +146,60 @@ fun UserInfoScreen(
             isLoading = false // Show cached data immediately
         }
         
-        // Request full user info to get complete data
+        // If roomId is provided, request room-specific profile from backend
+        if (effectiveRoomId != null) {
+            android.util.Log.d("Andromuks", "UserInfoScreen: Requesting room-specific profile for $userId in room $effectiveRoomId")
+            appViewModel.requestRoomSpecificUserProfile(effectiveRoomId, userId)
+        }
+        
+        // Request full user info to get complete data (timezone, encryption, mutual rooms)
+        // Note: requestFullUserInfo uses get_profile which returns global profile, but we'll
+        // override displayName and avatarUrl with room-specific values if available
         appViewModel.requestFullUserInfo(userId) { profileInfo, error ->
             isLoading = false
             if (error != null) {
                 errorMessage = error
                 android.util.Log.e("Andromuks", "UserInfoScreen: Error loading user info: $error")
             } else {
-                userProfileInfo = profileInfo
-                android.util.Log.d("Andromuks", "UserInfoScreen: Loaded user info successfully")
+                // Re-check room-specific profile in case it was updated from the backend request
+                val roomSpecificProfile = if (effectiveRoomId != null) {
+                    appViewModel.getUserProfile(userId, roomId = effectiveRoomId)
+                } else {
+                    null
+                }
+                
+                // If we have room-specific profile data, use it for display name and avatar
+                // but keep the global data for timezone, encryption, and mutual rooms
+                val finalProfileInfo = if (effectiveRoomId != null && roomSpecificProfile != null && profileInfo != null) {
+                    profileInfo.copy(
+                        displayName = roomSpecificProfile.displayName ?: profileInfo.displayName,
+                        avatarUrl = roomSpecificProfile.avatarUrl ?: profileInfo.avatarUrl
+                    )
+                } else {
+                    profileInfo
+                }
+                userProfileInfo = finalProfileInfo
+                android.util.Log.d("Andromuks", "UserInfoScreen: Loaded user info successfully${if (effectiveRoomId != null && roomSpecificProfile != null) " (using room-specific display name/avatar)" else ""}")
+            }
+        }
+    }
+    
+    // Also observe member updates to refresh UI when room-specific profile arrives
+    LaunchedEffect(effectiveRoomId, appViewModel.memberUpdateCounter) {
+        if (effectiveRoomId != null && userProfileInfo != null) {
+            // Re-check room-specific profile when member cache updates
+            val updatedRoomSpecificProfile = appViewModel.getUserProfile(userId, roomId = effectiveRoomId)
+            if (updatedRoomSpecificProfile != null && userProfileInfo != null) {
+                val currentProfile = userProfileInfo!!
+                // Only update if profile data actually changed
+                if (currentProfile.displayName != updatedRoomSpecificProfile.displayName ||
+                    currentProfile.avatarUrl != updatedRoomSpecificProfile.avatarUrl) {
+                    userProfileInfo = currentProfile.copy(
+                        displayName = updatedRoomSpecificProfile.displayName ?: currentProfile.displayName,
+                        avatarUrl = updatedRoomSpecificProfile.avatarUrl ?: currentProfile.avatarUrl
+                    )
+                    android.util.Log.d("Andromuks", "UserInfoScreen: Updated room-specific profile from backend response")
+                }
             }
         }
     }

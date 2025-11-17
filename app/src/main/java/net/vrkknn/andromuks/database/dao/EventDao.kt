@@ -17,7 +17,15 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE roomId = :roomId ORDER BY timelineRowId ASC, timestamp ASC LIMIT :limit")
     suspend fun getEventsForRoomAsc(roomId: String, limit: Int): List<EventEntity>
 
-    @Query("SELECT * FROM events WHERE roomId = :roomId ORDER BY timelineRowId DESC, timestamp DESC LIMIT :limit")
+    @Query("""
+        SELECT * FROM events 
+        WHERE roomId = :roomId 
+        ORDER BY 
+            timestamp DESC,
+            timelineRowId DESC,
+            eventId DESC
+        LIMIT :limit
+    """)
     suspend fun getEventsForRoomDesc(roomId: String, limit: Int): List<EventEntity>
 
     @Query(
@@ -82,7 +90,12 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE roomId = :roomId AND relatesToEventId = :relatesToEventId ORDER BY timestamp ASC")
     suspend fun getEventsByRelatesTo(roomId: String, relatesToEventId: String): List<EventEntity>
 
-    @Query("SELECT * FROM events WHERE roomId = :roomId ORDER BY timelineRowId DESC, timestamp DESC LIMIT 1")
+    @Query("""
+        SELECT * FROM events 
+        WHERE roomId = :roomId 
+        ORDER BY timestamp DESC, timelineRowId DESC, eventId DESC 
+        LIMIT 1
+    """)
     suspend fun getMostRecentEventForRoom(roomId: String): EventEntity?
 }
 

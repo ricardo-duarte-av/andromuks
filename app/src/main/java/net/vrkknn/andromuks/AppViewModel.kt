@@ -5660,6 +5660,12 @@ class AppViewModel : ViewModel() {
         loadReactionsForRoom(roomId, cachedEvents)
         applyAggregatedReactionsFromEvents(cachedEvents, "cache")
         
+        // Update room state from timeline events (name/avatar) if present
+        updateRoomStateFromTimelineEvents(roomId, cachedEvents)
+        
+        // Update member profiles from timeline m.room.member events if present
+        updateMemberProfilesFromTimelineEvents(roomId, cachedEvents)
+        
         // Set smallest rowId from cached events for pagination
         val smallestCached = cachedEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
         if (smallestCached > 0) {
@@ -5791,6 +5797,197 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Update room state (name/avatar) from timeline events if they're more recent than current state.
+     * This ensures room state stays in sync when m.room.name or m.room.avatar events appear in the timeline.
+     */
+    private fun updateRoomStateFromTimelineEvents(roomId: String, events: List<TimelineEvent>) {
+        if (roomId.isEmpty() || events.isEmpty()) {
+            return
+        }
+        
+        val context = appContext ?: run {
+            android.util.Log.w("Andromuks", "AppViewModel: Cannot update room state for $roomId - appContext is null")
+            return
+        }
+        
+        // Find the most recent m.room.name and m.room.avatar events
+        val nameEvent = events
+            .filter { it.type == "m.room.name" && it.timestamp > 0 }
+            .maxByOrNull { it.timestamp }
+        
+        val avatarEvent = events
+            .filter { it.type == "m.room.avatar" && it.timestamp > 0 }
+            .maxByOrNull { it.timestamp }
+        
+        if (nameEvent == null && avatarEvent == null) {
+            // No room state events in this batch
+            return
+        }
+        
+        val applicationContext = context.applicationContext
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(applicationContext)
+                val roomStateDao = database.roomStateDao()
+                val existingState = roomStateDao.get(roomId)
+                
+                var needsUpdate = false
+                var newName: String? = existingState?.name
+                var newAvatarUrl: String? = existingState?.avatarUrl
+                
+                // Update name if we found a more recent name event
+                if (nameEvent != null) {
+                    val eventName = nameEvent.content?.optString("name")?.takeIf { it.isNotBlank() }
+                    if (eventName != null) {
+                        // Only update if this event is more recent than the last state update
+                        // or if the name is different
+                        val shouldUpdate = if (existingState != null) {
+                            val eventIsNewer = nameEvent.timestamp > (existingState.updatedAt ?: 0L)
+                            val nameIsDifferent = eventName != existingState.name
+                            eventIsNewer || nameIsDifferent
+                        } else {
+                            true // No existing state, always update
+                        }
+                        
+                        if (shouldUpdate) {
+                            newName = eventName
+                            needsUpdate = true
+                            android.util.Log.d("Andromuks", "AppViewModel: Found newer m.room.name event for $roomId: '$eventName' (timestamp=${nameEvent.timestamp})")
+                        }
+                    }
+                }
+                
+                // Update avatar if we found a more recent avatar event
+                if (avatarEvent != null) {
+                    val eventAvatarUrl = avatarEvent.content?.optString("url")?.takeIf { it.isNotBlank() }
+                    if (eventAvatarUrl != null) {
+                        // Only update if this event is more recent than the last state update
+                        // or if the avatar is different
+                        val shouldUpdate = if (existingState != null) {
+                            val eventIsNewer = avatarEvent.timestamp > (existingState.updatedAt ?: 0L)
+                            val avatarIsDifferent = eventAvatarUrl != existingState.avatarUrl
+                            eventIsNewer || avatarIsDifferent
+                        } else {
+                            true // No existing state, always update
+                        }
+                        
+                        if (shouldUpdate) {
+                            newAvatarUrl = eventAvatarUrl
+                            needsUpdate = true
+                            android.util.Log.d("Andromuks", "AppViewModel: Found newer m.room.avatar event for $roomId: '$eventAvatarUrl' (timestamp=${avatarEvent.timestamp})")
+                        }
+                    }
+                }
+                
+                // Update database if needed
+                if (needsUpdate && existingState != null) {
+                    val updatedState = net.vrkknn.andromuks.database.entities.RoomStateEntity(
+                        roomId = existingState.roomId,
+                        name = newName,
+                        topic = existingState.topic,
+                        avatarUrl = newAvatarUrl,
+                        canonicalAlias = existingState.canonicalAlias,
+                        isDirect = existingState.isDirect,
+                        isFavourite = existingState.isFavourite,
+                        isLowPriority = existingState.isLowPriority,
+                        bridgeInfoJson = existingState.bridgeInfoJson,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    roomStateDao.upsert(updatedState)
+                    android.util.Log.d("Andromuks", "AppViewModel: Updated RoomStateEntity for $roomId from timeline events (name=${newName != null}, avatar=${newAvatarUrl != null})")
+                } else if (needsUpdate) {
+                    // No existing state, create new one
+                    val newState = net.vrkknn.andromuks.database.entities.RoomStateEntity(
+                        roomId = roomId,
+                        name = newName,
+                        topic = null,
+                        avatarUrl = newAvatarUrl,
+                        canonicalAlias = null,
+                        isDirect = false,
+                        isFavourite = false,
+                        isLowPriority = false,
+                        bridgeInfoJson = null,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    roomStateDao.upsert(newState)
+                    android.util.Log.d("Andromuks", "AppViewModel: Created RoomStateEntity for $roomId from timeline events (name=${newName != null}, avatar=${newAvatarUrl != null})")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to update room state from timeline events for $roomId", e)
+            }
+        }
+    }
+    
+    /**
+     * Update member profiles from timeline m.room.member events in a batch.
+     * This ensures member profiles stay in sync when profile changes appear in the timeline.
+     */
+    private fun updateMemberProfilesFromTimelineEvents(roomId: String, events: List<TimelineEvent>) {
+        if (roomId.isEmpty() || events.isEmpty()) {
+            return
+        }
+        
+        // Find all m.room.member events with timelineRowid >= 0 (timeline events, not state events)
+        val memberEvents = events.filter { 
+            it.type == "m.room.member" && it.timelineRowid >= 0L 
+        }
+        
+        if (memberEvents.isEmpty()) {
+            return
+        }
+        
+        // Process each member event
+        for (event in memberEvents) {
+            updateMemberProfileFromTimelineEvent(roomId, event)
+        }
+    }
+    
+    /**
+     * Update member profile from a timeline m.room.member event if display name or avatar changed.
+     * This ensures member profiles stay in sync when profile changes appear in the timeline.
+     */
+    private fun updateMemberProfileFromTimelineEvent(roomId: String, event: TimelineEvent) {
+        if (roomId.isEmpty() || event.type != "m.room.member") {
+            return
+        }
+        
+        val userId = event.stateKey ?: event.sender
+        if (userId.isEmpty()) {
+            return
+        }
+        
+        val content = event.content ?: return
+        val membership = content.optString("membership")?.takeIf { it.isNotBlank() }
+        
+        // Only update profile for joined members (membership == "join")
+        // Leave/ban events don't have profile info to extract
+        if (membership != "join") {
+            return
+        }
+        
+        val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() }
+        val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() }
+        
+        // Only update if we have profile data
+        if (displayName == null && avatarUrl == null) {
+            return
+        }
+        
+        val newProfile = MemberProfile(displayName, avatarUrl)
+        
+        // Check if this is actually a profile change (not just initial join)
+        val existingProfile = getMemberProfile(roomId, userId)
+        val isProfileChange = existingProfile != null && 
+            (existingProfile.displayName != displayName || existingProfile.avatarUrl != avatarUrl)
+        
+        if (isProfileChange || existingProfile == null) {
+            // Use storeMemberProfile to ensure optimization (only store room-specific if differs from global)
+            storeMemberProfile(roomId, userId, newProfile)
+            android.util.Log.d("Andromuks", "AppViewModel: Updated member profile for $userId in $roomId from timeline event (displayName=${displayName != null}, avatarUrl=${avatarUrl != null})")
+        }
+    }
+    
     private fun loadReactionsForRoom(roomId: String, cachedEvents: List<TimelineEvent>) {
         if (cachedEvents.isEmpty()) return
 
@@ -7035,6 +7232,52 @@ class AppViewModel : ViewModel() {
             //logProfileCacheStats("enqueue-network:$userId")
         }
     }
+    /**
+     * Request room-specific user profile from backend using get_specific_room_state.
+     * This fetches the most up-to-date room-specific display name and avatar for a user.
+     * The response will automatically update the room member cache via handleRoomSpecificStateResponse.
+     */
+    fun requestRoomSpecificUserProfile(roomId: String, userId: String) {
+        // Check if WebSocket is connected
+        if (webSocket == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot request room-specific profile")
+            return
+        }
+        
+        // Check if we already have a recent request for this user in this room
+        val requestKey = "$roomId:$userId"
+        val currentTime = System.currentTimeMillis()
+        val lastRequestTime = recentProfileRequestTimes[requestKey] ?: 0L
+        if (currentTime - lastRequestTime < PROFILE_REQUEST_THROTTLE_MS) {
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping room-specific profile request for $userId in $roomId (throttled)")
+            return
+        }
+        
+        // Check if request is already pending
+        if (pendingProfileRequests.contains(requestKey)) {
+            android.util.Log.d("Andromuks", "AppViewModel: Room-specific profile request already pending for $userId in $roomId")
+            return
+        }
+        
+        val requestId = requestIdCounter++
+        
+        // Track this request to prevent duplicates
+        pendingProfileRequests.add(requestKey)
+        recentProfileRequestTimes[requestKey] = currentTime
+        roomSpecificStateRequests[requestId] = roomId
+        
+        // Request specific room state for this user
+        sendWebSocketCommand("get_specific_room_state", requestId, mapOf(
+            "keys" to listOf(mapOf(
+                "room_id" to roomId,
+                "type" to "m.room.member",
+                "state_key" to userId
+            ))
+        ))
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Sent room-specific profile request with ID $requestId for $userId in room $roomId")
+    }
+    
     /**
      * Requests updated profile information for users in a room using get_specific_room_state.
      * This is used to refresh stale profile cache data when opening a room.
@@ -9228,6 +9471,7 @@ class AppViewModel : ViewModel() {
         
         val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
         var updatedProfiles = 0
+        val processedUserIds = mutableSetOf<String>()
         
         for (i in 0 until events.length()) {
             val event = events.optJSONObject(i) ?: continue
@@ -9239,6 +9483,9 @@ class AppViewModel : ViewModel() {
                 val membership = content?.optString("membership")
                 
                 if (stateKey.isNotEmpty()) {
+                    // Track processed user IDs to clean up pending requests
+                    processedUserIds.add(stateKey)
+                    
                     if (membership == "join") {
                         // Process joined members - update their profile data
                         val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
@@ -9536,6 +9783,8 @@ class AppViewModel : ViewModel() {
                 }
             } else if (event.type == "m.room.member" && event.timelineRowid >= 0L) {
                 // Timeline member event (join/leave that should show in timeline)
+                // Also extract and update member profile if display name/avatar changed
+                updateMemberProfileFromTimelineEvent(roomId, event)
                 addNewEventToChain(event)
             } else if (event.type == "m.room.redaction") {
                 
@@ -9666,6 +9915,9 @@ class AppViewModel : ViewModel() {
         }
         val reactions = events.count { it.type == "m.reaction" }
         val unhandled = events.size - addedToTimeline - memberStateUpdates - reactions
+        
+        // Update room state from new timeline events (name/avatar) if present
+        updateRoomStateFromTimelineEvents(currentRoomId, events)
         
         // Only process edit relationships for new edit events
         val newEditEvents = events.filter { event ->

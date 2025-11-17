@@ -834,8 +834,21 @@ fun AppNavigation(
             )
         }
         composable(
+            route = "room_timeline_viewer/{roomId}",
+            arguments = listOf(navArgument("roomId") { type = NavType.StringType })
+        ) { backStackEntry: NavBackStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+            net.vrkknn.andromuks.utils.RoomTimelineViewerScreen(
+                roomId = roomId,
+                appViewModel = appViewModel,
+                navController = navController
+            )
+        }
+        composable(
             route = "user_info/{userId}",
-            arguments = listOf(navArgument("userId") { type = NavType.StringType }),
+            arguments = listOf(
+                navArgument("userId") { type = NavType.StringType }
+            ),
             enterTransition = {
                 fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
                     scaleIn(
@@ -870,10 +883,14 @@ fun AppNavigation(
             }
         ) { backStackEntry: NavBackStackEntry ->
             val userId = backStackEntry.arguments?.getString("userId") ?: ""
+            // Extract roomId from savedStateHandle (set during navigation)
+            val roomId = backStackEntry.savedStateHandle.get<String>("roomId")?.takeIf { it.isNotBlank() }
+                ?: backStackEntry.savedStateHandle.get<String>("user_info_roomId")?.takeIf { it.isNotBlank() }
             net.vrkknn.andromuks.utils.UserInfoScreen(
                 userId = userId,
                 navController = navController,
                 appViewModel = appViewModel,
+                roomId = roomId,
                 modifier = modifier
             )
         }

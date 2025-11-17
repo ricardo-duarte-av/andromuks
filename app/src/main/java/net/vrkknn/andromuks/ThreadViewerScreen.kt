@@ -90,6 +90,7 @@ import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EditPreviewInput
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
+import net.vrkknn.andromuks.utils.navigateToUserInfo
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.utils.TypingNotificationArea
 
@@ -485,9 +486,7 @@ fun ThreadViewerScreen(
                                             showDeleteDialog = true
                                         },
                                         onUserClick = { userId ->
-                                            navController.navigate(
-                                                "user_info/${java.net.URLEncoder.encode(userId, "UTF-8")}"
-                                            )
+                                            navController.navigateToUserInfo(userId, roomId)
                                         },
                                         onRoomLinkClick = { roomLink ->
                                             // Handle room links same as main timeline
