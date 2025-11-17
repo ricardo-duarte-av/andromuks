@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import android.app.ActivityManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -165,7 +166,11 @@ class FCMService : FirebaseMessagingService() {
                                 val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                                 val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
                                 
-                                if (!lowPriorityRooms.contains(notificationData.roomId)) {
+                                if (lowPriorityRooms.contains(notificationData.roomId)) {
+                                    Log.d(TAG, "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})")
+                                } else if (shouldSuppressNotification(notificationData.roomId)) {
+                                    Log.d(TAG, "Suppressing notification for room (legacy path): ${notificationData.roomId} (${notificationData.roomName}) - room is open and app is in foreground")
+                                } else {
                                     CoroutineScope(Dispatchers.Main).launch {
                                         try {
                                             enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
@@ -174,8 +179,6 @@ class FCMService : FirebaseMessagingService() {
                                             e.printStackTrace()
                                         }
                                     }
-                                } else {
-                                    Log.d(TAG, "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})")
                                 }
                             }
                         }
@@ -195,6 +198,94 @@ class FCMService : FirebaseMessagingService() {
                 data = remoteMessage.data
             )
         }
+    }
+    
+    /**
+     * Check if the app is actually running in the foreground by checking ActivityManager.
+     * This is a more reliable check than SharedPreferences which can have timing issues.
+     */
+    private fun isAppInForeground(): Boolean {
+        return try {
+            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            val runningAppProcesses = activityManager?.runningAppProcesses ?: return false
+            
+            val packageName = packageName
+            for (processInfo in runningAppProcesses) {
+                if (processInfo.processName == packageName) {
+                    val importance = processInfo.importance
+                    // IMPORTANCE_FOREGROUND = 100, IMPORTANCE_VISIBLE = 200
+                    val isForeground = importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND ||
+                            importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_VISIBLE
+                    return isForeground
+                }
+            }
+            false
+        } catch (e: Exception) {
+            Log.w(TAG, "Error checking app foreground state", e)
+            false
+        }
+    }
+    
+    /**
+     * Check if notifications should be suppressed for a given room.
+     * Notifications are suppressed when:
+     * 1. The room is currently open AND
+     * 2. The app is in the foreground
+     * 
+     * This ensures notifications are only suppressed when the user can actually see the room.
+     * If the app is backgrounded, notifications should play even if the room is "open" in memory.
+     * 
+     * Uses both SharedPreferences (fast) and ActivityManager (reliable fallback) to check app visibility.
+     * 
+     * @param roomId The room ID to check
+     * @return true if notifications should be suppressed, false otherwise
+     */
+    private fun shouldSuppressNotification(roomId: String): Boolean {
+        if (roomId.isEmpty()) {
+            Log.d(TAG, "shouldSuppressNotification: roomId is empty, not suppressing")
+            return false
+        }
+        
+        val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+        val currentOpenRoomId = sharedPrefs.getString("current_open_room_id", "") ?: ""
+        val isAppVisiblePrefs = sharedPrefs.getBoolean("app_is_visible", false)
+        
+        // Normalize room IDs for comparison (remove "!" prefix if present)
+        val normalizedRoomId = roomId.removePrefix("!")
+        val normalizedCurrentRoomId = currentOpenRoomId.removePrefix("!")
+        
+        val roomMatches = normalizedCurrentRoomId == normalizedRoomId && normalizedCurrentRoomId.isNotEmpty()
+        
+        // Use ActivityManager as fallback if SharedPreferences says false (handles timing issues)
+        val isAppVisible = if (isAppVisiblePrefs) {
+            true
+        } else {
+            // Double-check using ActivityManager if SharedPreferences says false
+            val isForeground = isAppInForeground()
+            if (isForeground) {
+                Log.d(TAG, "shouldSuppressNotification: SharedPreferences says app not visible, but ActivityManager says app is in foreground - using ActivityManager result")
+            }
+            isForeground
+        }
+        
+        val shouldSuppress = roomMatches && isAppVisible
+        
+        Log.d(TAG, "shouldSuppressNotification: roomId='$roomId' (normalized='$normalizedRoomId'), " +
+                "currentOpenRoomId='$currentOpenRoomId' (normalized='$normalizedCurrentRoomId'), " +
+                "isAppVisiblePrefs=$isAppVisiblePrefs, isAppVisible=$isAppVisible, roomMatches=$roomMatches, shouldSuppress=$shouldSuppress")
+        
+        if (shouldSuppress) {
+            Log.d(TAG, "✅ Suppressing notification for room $roomId - room is open AND app is in foreground")
+        } else {
+            val reason = when {
+                !roomMatches -> "room doesn't match or no room open"
+                !isAppVisible -> "app is not visible (backgrounded)"
+                else -> "unknown"
+            }
+            Log.d(TAG, "❌ NOT suppressing notification for room $roomId - $reason")
+        }
+        
+        return shouldSuppress
     }
     
     /**
@@ -264,6 +355,12 @@ class FCMService : FirebaseMessagingService() {
                 
                 if (lowPriorityRooms.contains(roomId)) {
                     Log.d(TAG, "Skipping notification for low priority room: $roomId ($roomName)")
+                    continue
+                }
+                
+                // Check if notification should be suppressed (room is open and app is foreground)
+                if (shouldSuppressNotification(roomId)) {
+                    Log.d(TAG, "Suppressing notification for room: $roomId ($roomName) - room is open and app is in foreground")
                     continue
                 }
                 
@@ -392,6 +489,12 @@ class FCMService : FirebaseMessagingService() {
             
             if (lowPriorityRooms.contains(roomId)) {
                 Log.d(TAG, "Skipping background notification for low priority room: $roomId")
+                return
+            }
+            
+            // Check if notification should be suppressed (room is open and app is foreground)
+            if (shouldSuppressNotification(roomId)) {
+                Log.d(TAG, "Suppressing background notification for room: $roomId - room is open and app is in foreground")
                 return
             }
         }

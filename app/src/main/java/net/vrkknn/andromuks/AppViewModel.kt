@@ -4359,11 +4359,23 @@ class AppViewModel : ViewModel() {
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val editor = sharedPrefs.edit()
             editor.putBoolean("app_is_visible", visible)
+            // Use commit() for synchronous write - critical for FCM notification suppression
             val success = editor.commit()
             android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: SharedPreferences commit ${if (success) "succeeded" else "failed"} for app visibility: $visible"
+                "AppViewModel: SharedPreferences commit ${if (success) "succeeded" else "failed"} for app visibility: $visible (currentRoomId=$currentRoomId)"
             )
+            
+            // Verify the write was successful
+            val verifyValue = sharedPrefs.getBoolean("app_is_visible", !visible)
+            if (verifyValue != visible) {
+                android.util.Log.w(
+                    "Andromuks",
+                    "AppViewModel: WARNING - App visibility write verification failed! Expected: $visible, Got: $verifyValue"
+                )
+            }
+        } ?: run {
+            android.util.Log.w("Andromuks", "AppViewModel: Cannot update app visibility - appContext is null")
         }
     }
     
@@ -10062,6 +10074,9 @@ class AppViewModel : ViewModel() {
                 
                 // Check if any of the new messages are from other users (not our own messages)
                 var shouldPlaySound = false
+                var hasMessageForCurrentRoom = false
+                var newMessageRoomId: String? = null
+                
                 actuallyNewMessages.forEach { eventId ->
                     val newEvent = sortedTimelineEvents.find { it.eventId == eventId }
                     
@@ -10081,10 +10096,17 @@ class AppViewModel : ViewModel() {
                     
                     // Check if this message is from another user (not our own message) for sound notification
                     val isFromOtherUser = newEvent?.let { event ->
-                        // Only play sound for message events from other users in the current room
+                        // Track which room this message is for
+                        newMessageRoomId = event.roomId
+                        
+                        // Check if message is for current room
+                        if (event.roomId == currentRoomId) {
+                            hasMessageForCurrentRoom = true
+                        }
+                        
+                        // Only play sound for message events from other users
                         (event.type == "m.room.message" || event.type == "m.room.encrypted") && 
-                        event.sender != currentUserId &&
-                        event.roomId == currentRoomId
+                        event.sender != currentUserId
                     } ?: false
                     
                     if (isFromOtherUser) {
@@ -10092,10 +10114,16 @@ class AppViewModel : ViewModel() {
                     }
                 }
                 
-                // Play sound for new messages from other users in the current room
-                // BUT NOT during initial room loading (when opening a room for the first time)
-                if (shouldPlaySound && isAppVisible && currentRoomId.isNotEmpty() && !isInitialRoomLoad) {
+                // Play sound for new messages from other users
+                // BUT NOT when:
+                // 1. The message is for the currently open room (user is already viewing it)
+                // 2. During initial room loading (when opening a room for the first time)
+                // 3. App is not visible (handled by FCM notifications instead)
+                if (shouldPlaySound && isAppVisible && !hasMessageForCurrentRoom && !isInitialRoomLoad) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Playing sound for new message in room $newMessageRoomId (current room: $currentRoomId)")
                     playNewMessageSound()
+                } else if (shouldPlaySound && hasMessageForCurrentRoom) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Suppressing sound for new message in current room $currentRoomId (user is viewing this room)")
                 }
                 
                 // Trigger animation system update
