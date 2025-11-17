@@ -341,11 +341,22 @@ fun RoomInfoScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Room Members (${roomStateInfo!!.members.size})",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Column {
+                            Text(
+                                text = "Room Members (${roomStateInfo!!.members.size})",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            val joinedCount = roomStateInfo!!.members.count { it.membership == "join" }
+                            val invitedCount = roomStateInfo!!.members.count { it.membership == "invite" }
+                            if (invitedCount > 0) {
+                                Text(
+                                    text = "$joinedCount joined, $invitedCount invited",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                         
                         IconButton(onClick = { 
                             showMemberSearch = !showMemberSearch
@@ -753,6 +764,29 @@ fun RoomMemberItem(
             )
         }
         
+        // Show membership status badge if not joined
+        if (member.membership != "join") {
+            Surface(
+                color = when (member.membership) {
+                    "invite" -> MaterialTheme.colorScheme.tertiaryContainer
+                    "ban" -> MaterialTheme.colorScheme.errorContainer
+                    else -> MaterialTheme.colorScheme.surfaceVariant
+                },
+                shape = MaterialTheme.shapes.small
+            ) {
+                Text(
+                    text = member.membership.uppercase(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = when (member.membership) {
+                        "invite" -> MaterialTheme.colorScheme.onTertiaryContainer
+                        "ban" -> MaterialTheme.colorScheme.onErrorContainer
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        }
+        
         // Show power level badge if user has special powers
         if (powerLevel != null && powerLevel > 0) {
             Surface(
@@ -899,8 +933,12 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
     
     try {
         val eventsArray = when (data) {
-            is org.json.JSONArray -> data
+            is org.json.JSONArray -> {
+                android.util.Log.d("Andromuks", "parseRoomStateResponse: Received JSONArray with ${data.length()} events")
+                data
+            }
             is List<*> -> {
+                android.util.Log.d("Andromuks", "parseRoomStateResponse: Received List with ${data.size} events, converting to JSONArray")
                 // Convert list to JSONArray
                 val jsonArray = org.json.JSONArray()
                 data.forEach { jsonArray.put(it) }
@@ -928,6 +966,11 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
         var serverAcl: ServerAclInfo? = null
         var parentSpace: String? = null
         var urlPreviewsDisabled: Boolean? = null
+        
+        // Use a map to deduplicate members by userId (keep latest state for each user)
+        val membersMap = mutableMapOf<String, RoomMember>()
+        var totalMemberEvents = 0
+        var joinedMemberEvents = 0
         
         for (i in 0 until eventsArray.length()) {
             val event = eventsArray.optJSONObject(i) ?: continue
@@ -982,23 +1025,27 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
                     joinRule = content?.optString("join_rule")
                 }
                 "m.room.member" -> {
+                    totalMemberEvents++
                     val userId = event.optString("state_key", "")
                     if (userId.isNotEmpty()) {
                         val displayName = content?.optString("displayname")
                         val memberAvatarUrl = content?.optString("avatar_url")
-                        val membership = content?.optString("membership", "leave")
+                        val membership = content?.optString("membership", "leave") ?: "leave"
                         
-                        // Only include joined members
+                        // Include ALL members (joined, invited, left, banned) to show complete room state
+                        // Use map to deduplicate by userId (keep latest state for each user)
                         if (membership == "join") {
-                            members.add(
-                                RoomMember(
-                                    userId = userId,
-                                    displayName = displayName?.takeIf { it.isNotBlank() },
-                                    avatarUrl = memberAvatarUrl?.takeIf { it.isNotBlank() },
-                                    membership = membership
-                                )
-                            )
+                            joinedMemberEvents++
                         }
+                        
+                        // Store all members regardless of membership status
+                        // This allows RoomInfo screen to show invited users, etc.
+                        membersMap[userId] = RoomMember(
+                            userId = userId,
+                            displayName = displayName?.takeIf { it.isNotBlank() },
+                            avatarUrl = memberAvatarUrl?.takeIf { it.isNotBlank() },
+                            membership = membership
+                        )
                     }
                 }
                 "m.room.power_levels" -> {
@@ -1066,8 +1113,19 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
             }
         }
         
-        // Sort members alphabetically by display name
-        members.sortBy { it.displayName?.lowercase() ?: it.userId.lowercase() }
+        // Convert map to list and sort members alphabetically by display name
+        // Sort by membership status first (joined first, then invited, then others), then by name
+        members.addAll(membersMap.values)
+        members.sortWith(compareBy<RoomMember>(
+            { it.membership != "join" }, // Joined members first
+            { it.membership != "invite" }, // Then invited
+            { it.displayName?.lowercase() ?: it.userId.lowercase() } // Then alphabetically
+        ))
+        
+        val invitedCount = members.count { it.membership == "invite" }
+        val leftCount = members.count { it.membership == "leave" }
+        val bannedCount = members.count { it.membership == "ban" }
+        android.util.Log.d("Andromuks", "parseRoomStateResponse: Parsed ${members.size} total members from $totalMemberEvents member events: $joinedMemberEvents joined, $invitedCount invited, $leftCount left, $bannedCount banned")
         
         return RoomStateInfo(
             roomId = roomId,

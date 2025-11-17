@@ -2301,6 +2301,10 @@ class AppViewModel : ViewModel() {
             // 2. Get loaded into RAM (MemoryCache) when accessed via AsyncImage
             // 
             // So "Memory" cache shows what COULD be in RAM, but we can't verify actual RAM presence.
+            
+            // Load URL mappings first for faster lookups
+            net.vrkknn.andromuks.utils.CoilUrlMapper.loadMappings(context)
+            
             val entries = mutableListOf<CachedMediaEntry>()
             
             // Show Coil's disk cache (these get loaded into RAM when accessed)
@@ -2308,20 +2312,30 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: Checking Coil disk cache at: ${coilCacheDir.absolutePath}, exists: ${coilCacheDir.exists()}")
             
             if (coilCacheDir.exists() && coilCacheDir.isDirectory) {
+                // Process files in batches to reduce memory pressure
                 val files = coilCacheDir.walkTopDown().filter { it.isFile }.toList()
                 android.util.Log.d("Andromuks", "AppViewModel: Found ${files.size} files in Coil disk cache")
                 
-                for (file in files) {
-                    // Try to find MXC URL from event database
-                    val mxcUrl = findMxcUrlForCoilFile(context, file)
+                // Process in smaller batches to avoid OOM
+                val batchSize = 50
+                for (i in files.indices step batchSize) {
+                    val batch = files.subList(i, minOf(i + batchSize, files.size))
                     
-                    entries.add(CachedMediaEntry(
-                        mxcUrl = mxcUrl,
-                        filePath = file.absolutePath,
-                        fileSize = file.length(),
-                        cacheType = "memory",
-                        file = file
-                    ))
+                    for (file in batch) {
+                        // Try to find MXC URL (uses mapper first, then database)
+                        val mxcUrl = findMxcUrlForCoilFile(context, file)
+                        
+                        entries.add(CachedMediaEntry(
+                            mxcUrl = mxcUrl,
+                            filePath = file.absolutePath,
+                            fileSize = file.length(),
+                            cacheType = "memory",
+                            file = file
+                        ))
+                    }
+                    
+                    // Yield to other coroutines between batches to prevent blocking
+                    kotlinx.coroutines.yield()
                 }
             } else {
                 android.util.Log.d("Andromuks", "AppViewModel: Coil disk cache directory does not exist or is not a directory")
@@ -2335,19 +2349,26 @@ class AppViewModel : ViewModel() {
         }
     }
     /**
-     * Find MXC URL for a Coil cached file by checking event database.
+     * Find MXC URL for a Coil cached file by checking URL mapper first, then event database.
      */
     private suspend fun findMxcUrlForCoilFile(context: Context, file: File): String? = withContext(Dispatchers.IO) {
         try {
-            // Coil's disk cache uses URL-based keys, so we need to check event database
+            // First, try CoilUrlMapper (fastest, most reliable)
+            val mappedUrl = net.vrkknn.andromuks.utils.CoilUrlMapper.findMxcUrlForCacheFile(context, file)
+            if (mappedUrl != null) {
+                return@withContext mappedUrl
+            }
+            
+            // Fallback: Check event database (slower, but more comprehensive)
             val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
             val eventDao = database.eventDao()
             
-            val rooms = roomMap.keys.toList().take(20) // Limit to first 20 rooms
+            // Limit search to prevent performance issues
+            val rooms = roomMap.keys.toList().take(10) // Reduced from 20 to 10 for performance
             
             for (roomId in rooms) {
                 try {
-                    val events = eventDao.getEventsForRoomDesc(roomId, 50) // Get last 50 events per room
+                    val events = eventDao.getEventsForRoomDesc(roomId, 30) // Reduced from 50 to 30
                     for (event in events) {
                         val content = event.rawJson ?: continue
                         val mxcUrls = extractMxcUrlsFromJson(content)
@@ -2359,6 +2380,8 @@ class AppViewModel : ViewModel() {
                                 // Coil uses URL hash as cache key - try to match
                                 val urlHash = httpUrl.hashCode().toString()
                                 if (file.name.contains(urlHash) || file.absolutePath.contains(httpUrl.replace("https://", "").replace("http://", ""))) {
+                                    // Register this mapping for future lookups
+                                    net.vrkknn.andromuks.utils.CoilUrlMapper.registerMapping(httpUrl, mxcUrl)
                                     return@withContext mxcUrl
                                 }
                             }
@@ -2381,6 +2404,9 @@ class AppViewModel : ViewModel() {
      */
     suspend fun getAllDiskCachedMedia(context: Context): List<CachedMediaEntry> = withContext(Dispatchers.IO) {
         try {
+            // Load URL mappings first for faster lookups
+            net.vrkknn.andromuks.utils.CoilUrlMapper.loadMappings(context)
+            
             val entries = mutableListOf<CachedMediaEntry>()
             
             // 1. Get entries from IntelligentMediaCache (has MXC URLs stored)
@@ -2406,21 +2432,31 @@ class AppViewModel : ViewModel() {
                 }
             }
             
-            // 2. Get entries from Coil's disk cache
+            // 2. Get entries from Coil's disk cache (process in batches to reduce memory pressure)
             val coilCacheDir = java.io.File(context.cacheDir, "image_cache")
             if (coilCacheDir.exists() && coilCacheDir.isDirectory) {
-                val files = coilCacheDir.walkTopDown().filter { it.isFile }
-                for (file in files) {
-                    // Try to find MXC URL from event database
-                    val mxcUrl = findMxcUrlForCoilFile(context, file)
+                val files = coilCacheDir.walkTopDown().filter { it.isFile }.toList()
+                
+                // Process in smaller batches to avoid OOM
+                val batchSize = 50
+                for (i in files.indices step batchSize) {
+                    val batch = files.subList(i, minOf(i + batchSize, files.size))
                     
-                    entries.add(CachedMediaEntry(
-                        mxcUrl = mxcUrl, // May be null if not found
-                        filePath = file.absolutePath,
-                        fileSize = file.length(),
-                        cacheType = "disk",
-                        file = file
-                    ))
+                    for (file in batch) {
+                        // Try to find MXC URL (uses mapper first, then database)
+                        val mxcUrl = findMxcUrlForCoilFile(context, file)
+                        
+                        entries.add(CachedMediaEntry(
+                            mxcUrl = mxcUrl, // May be null if not found
+                            filePath = file.absolutePath,
+                            fileSize = file.length(),
+                            cacheType = "disk",
+                            file = file
+                        ))
+                    }
+                    
+                    // Yield to other coroutines between batches to prevent blocking
+                    kotlinx.coroutines.yield()
                 }
             }
             
@@ -5500,6 +5536,7 @@ class AppViewModel : ViewModel() {
         isTimelineLoading = false
         
         // Clear and rebuild internal structures (but don't clear timelineEvents yet)
+        android.util.Log.d("Andromuks", "AppViewModel: Clearing eventChainMap (had ${eventChainMap.size} entries) before processing ${cachedEvents.size} cached events")
         eventChainMap.clear()
         editEventsMap.clear()
         messageVersions.clear()
@@ -5544,7 +5581,21 @@ class AppViewModel : ViewModel() {
         }
         
         android.util.Log.d("Andromuks", "AppViewModel: Added ${regularEventCount} regular events and ${editEventCount} edit events to maps")
-        android.util.Log.d("Andromuks", "AppViewModel: eventChainMap now has ${eventChainMap.size} entries")
+        android.util.Log.d("Andromuks", "AppViewModel: eventChainMap now has ${eventChainMap.size} entries (expected ${cachedEvents.size - editEventCount} regular events)")
+        
+        // SAFETY: Remove any edit events that might have been incorrectly added to eventChainMap
+        // (This shouldn't happen with the fix, but clean up any existing bad state)
+        val editEventIds = editEventsMap.keys.toSet()
+        val editEventsInChain = eventChainMap.keys.filter { editEventIds.contains(it) }
+        if (editEventsInChain.isNotEmpty()) {
+            android.util.Log.w("Andromuks", "AppViewModel: Removing ${editEventsInChain.size} edit events incorrectly added to eventChainMap")
+            editEventsInChain.forEach { eventChainMap.remove(it) }
+        }
+        
+        // DIAGNOSTIC: Verify all events were added
+        if (eventChainMap.size != regularEventCount) {
+            android.util.Log.w("Andromuks", "AppViewModel: ⚠️ MISMATCH - eventChainMap has ${eventChainMap.size} entries but we added $regularEventCount regular events!")
+        }
         
         // Build version history cache so UI can render the latest edits immediately
         processVersionedMessages(cachedEvents)
@@ -5554,9 +5605,25 @@ class AppViewModel : ViewModel() {
         
         // Build timeline from chain (this updates timelineEvents)
         // CRITICAL: This must be called AFTER all events are added to eventChainMap
+        val eventChainSizeBeforeBuild = eventChainMap.size
         buildTimelineFromChain()
         
-        android.util.Log.d("Andromuks", "AppViewModel: Built timeline with ${timelineEvents.size} events from ${cachedEvents.size} cached events")
+        android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Built timeline with ${timelineEvents.size} events from ${cachedEvents.size} cached events " +
+            "(eventChainMap had $eventChainSizeBeforeBuild entries before build)"
+        )
+        
+        // DIAGNOSTIC: Check for significant event loss
+        val expectedMinEvents = cachedEvents.size - editEventCount // All regular events should be in timeline
+        if (timelineEvents.size < expectedMinEvents * 0.9) { // Allow 10% margin for filtering
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: ⚠️ SIGNIFICANT EVENT LOSS - Timeline has ${timelineEvents.size} events " +
+                "but expected at least ${expectedMinEvents} (from ${cachedEvents.size} cached events, " +
+                "$editEventCount edits filtered)"
+            )
+        }
         val latestTimelineEvent = timelineEvents.lastOrNull()
         android.util.Log.d("Andromuks", "AppViewModel: Timeline latest event=${latestTimelineEvent?.eventId} timelineRowId=${latestTimelineEvent?.timelineRowid} ts=${latestTimelineEvent?.timestamp}")
         if (latestTimelineEvent != null) {
@@ -6415,12 +6482,30 @@ class AppViewModel : ViewModel() {
                             android.util.Log.d("Andromuks", "AppViewModel: Rehydrating $roomId from database with ${dbEvents.size} events")
                             roomsPendingDbRehydrate.remove(roomId)
                             RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, dbEvents)
-                            processCachedEvents(
-                                roomId = roomId,
-                                cachedEvents = dbEvents,
-                                openingFromNotification = false,
-                                skipNetworkRequests = true
-                            )
+                            
+                            // Check if we already have events in eventChainMap (from pagination)
+                            // If so, merge instead of clearing to avoid losing paginated events
+                            val hasExistingEvents = currentRoomId == roomId && eventChainMap.isNotEmpty()
+                            if (hasExistingEvents) {
+                                android.util.Log.d("Andromuks", "AppViewModel: eventChainMap already has ${eventChainMap.size} events - merging rehydrated events instead of clearing")
+                                // loadRoomEvents already returns List<TimelineEvent>, so we can merge directly
+                                if (dbEvents.isNotEmpty()) {
+                                    mergePaginationEvents(dbEvents)
+                                    // Process edit relationships to link edits to originals
+                                    processEditRelationships()
+                                    // Rebuild timeline with merged events
+                                    buildTimelineFromChain()
+                                    android.util.Log.d("Andromuks", "AppViewModel: After rehydrate merge, timeline has ${timelineEvents.size} events")
+                                }
+                            } else {
+                                // No existing events, safe to clear and rebuild
+                                processCachedEvents(
+                                    roomId = roomId,
+                                    cachedEvents = dbEvents,
+                                    openingFromNotification = false,
+                                    skipNetworkRequests = true
+                                )
+                            }
                         }
                         break
                     } else {
@@ -6819,13 +6904,15 @@ class AppViewModel : ViewModel() {
         // Store the callback to handle the response
         roomStateWithMembersRequests[stateRequestId] = callback
         
+        // IMPORTANT: Request room state with include_members: true to get the full member list
+        // This ensures RoomInfo screen displays the actual member list from the server
         sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
             "room_id" to roomId,
-            "include_members" to true,
+            "include_members" to true,  // CRITICAL: Include members in response for RoomInfo screen
             "fetch_members" to false,
             "refetch" to false
         ))
-        android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $stateRequestId")
+        android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $stateRequestId (include_members=true)")
     }
     
     /**
@@ -8910,10 +8997,11 @@ class AppViewModel : ViewModel() {
         
         try {
             // Parse the room state data using the utility function
+            // This response includes members because include_members: true was sent
             val roomStateInfo = net.vrkknn.andromuks.utils.parseRoomStateResponse(data)
             
             if (roomStateInfo != null) {
-                android.util.Log.d("Andromuks", "AppViewModel: Successfully parsed room state with ${roomStateInfo.members.size} members")
+                android.util.Log.d("Andromuks", "AppViewModel: Successfully parsed room state with ${roomStateInfo.members.size} members (include_members=true response)")
                 callback(roomStateInfo, null)
             } else {
                 android.util.Log.e("Andromuks", "AppViewModel: Failed to parse room state response")
@@ -9727,18 +9815,8 @@ class AppViewModel : ViewModel() {
         }
         
         //android.util.Log.d("Andromuks", "processEditRelationships: editEventsMap size=${editEventsMap.size}")
-        // First, create chain entries for all edit events
-        for ((editEventId, editEvent) in editEventsMap) {
-            val existing = eventChainMap[editEventId]
-            if (existing?.ourBubble == null) {
-                eventChainMap[editEventId] = EventChainEntry(
-                    eventId = editEventId,
-                    ourBubble = existing?.ourBubble,
-                    replacedBy = existing?.replacedBy,
-                    originalTimestamp = editEvent.timestamp
-                )
-            }
-        }
+        // NOTE: Edit events should NOT be added to eventChainMap - they are only stored in editEventsMap
+        // Edit events are linked to their original events via the replacedBy field on the original event's entry
         //android.util.Log.d("Andromuks", "processEditRelationships: eventChainMap now has ${eventChainMap.size} entries")
 
         // Sort edit events by timestamp to process in chronological order
@@ -9850,6 +9928,13 @@ class AppViewModel : ViewModel() {
      * OPTIMIZED: Combined event processing and redaction handling in single pass.
      */
     private fun buildTimelineFromChain() {
+        // DIAGNOSTIC: Track when this is called
+        val callStack = Thread.currentThread().stackTrace.take(5).joinToString(" -> ") { it.methodName }
+        android.util.Log.d(
+            "Andromuks",
+            "buildTimelineFromChain: Called (eventChainMap.size=${eventChainMap.size}, currentRoomId=$currentRoomId, callStack=$callStack)"
+        )
+        
         try {
             val timelineEvents = mutableListOf<TimelineEvent>()
             val redactionMap = mutableMapOf<String, String>() // Map of target eventId -> redaction eventId
@@ -9866,6 +9951,8 @@ class AppViewModel : ViewModel() {
                 // Retry once - create a new map with current entries
                 eventChainMap.toMap()
             }
+            
+            android.util.Log.d("Andromuks", "buildTimelineFromChain: Created snapshot with ${eventChainSnapshot.size} entries")
         
             // First collect all redactions so order doesn't matter
             for ((_, entry) in eventChainSnapshot) {
@@ -9882,42 +9969,67 @@ class AppViewModel : ViewModel() {
                 }
             }
 
+            // DIAGNOSTIC: Log snapshot statistics
+            val totalEntries = eventChainSnapshot.size
+            var nullBubbleCount = 0
+            var redactionCount = 0
+            var processedCount = 0
+            var errorCount = 0
+            
             // Now process all non-redaction events with the populated map
             for ((eventId, entry) in eventChainSnapshot) {
                 val ourBubble = entry.ourBubble
-                if (ourBubble != null && ourBubble.type != "m.room.redaction") {
-                    try {
-                        // Apply redaction if this event is targeted
-                        val redactedBy = redactionMap[eventId]
-                        val finalEvent = if (redactedBy != null) {
-                            val baseEvent = getFinalEventForBubble(entry)
-                            android.util.Log.d(
-                                "Andromuks",
-                                "buildTimelineFromChain: applying redaction $redactedBy to event $eventId"
-                            )
-                            baseEvent.copy(redactedBy = redactedBy)
-                        } else {
-                            getFinalEventForBubble(entry)
-                        }
-                        
-                        timelineEvents.add(finalEvent)
-                        if (finalEvent.redactedBy != null) {
-                            android.util.Log.d(
-                                "Andromuks",
-                                "buildTimelineFromChain: timeline event ${finalEvent.eventId} marked redacted by ${finalEvent.redactedBy}"
-                            )
-                        }
-                        //android.util.Log.d("Andromuks", "AppViewModel: Added event for ${eventId} with final content from ${entry.replacedBy ?: eventId}${if (redactedBy != null) " (redacted by $redactedBy)" else ""}")
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Error processing event ${eventId} in buildTimelineFromChain", e)
-                        // Skip this event if there's an error (prevents crash from corrupt edit chain)
-                        // Add the base event without following edit chain as fallback
-                        if (ourBubble != null) {
-                            timelineEvents.add(ourBubble)
-                        }
+                if (ourBubble == null) {
+                    nullBubbleCount++
+                    android.util.Log.w("Andromuks", "buildTimelineFromChain: Entry $eventId has null ourBubble - skipping")
+                    continue
+                }
+                if (ourBubble.type == "m.room.redaction") {
+                    redactionCount++
+                    continue
+                }
+                try {
+                    // Apply redaction if this event is targeted
+                    val redactedBy = redactionMap[eventId]
+                    val finalEvent = if (redactedBy != null) {
+                        val baseEvent = getFinalEventForBubble(entry)
+                        android.util.Log.d(
+                            "Andromuks",
+                            "buildTimelineFromChain: applying redaction $redactedBy to event $eventId"
+                        )
+                        baseEvent.copy(redactedBy = redactedBy)
+                    } else {
+                        getFinalEventForBubble(entry)
+                    }
+                    
+                    timelineEvents.add(finalEvent)
+                    processedCount++
+                    if (finalEvent.redactedBy != null) {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "buildTimelineFromChain: timeline event ${finalEvent.eventId} marked redacted by ${finalEvent.redactedBy}"
+                        )
+                    }
+                    //android.util.Log.d("Andromuks", "AppViewModel: Added event for ${eventId} with final content from ${entry.replacedBy ?: eventId}${if (redactedBy != null) " (redacted by $redactedBy)" else ""}")
+                } catch (e: Exception) {
+                    errorCount++
+                    android.util.Log.e("Andromuks", "AppViewModel: Error processing event ${eventId} in buildTimelineFromChain", e)
+                    // Skip this event if there's an error (prevents crash from corrupt edit chain)
+                    // Add the base event without following edit chain as fallback
+                    if (ourBubble != null) {
+                        timelineEvents.add(ourBubble)
+                        processedCount++
                     }
                 }
             }
+            
+            // DIAGNOSTIC: Log summary
+            android.util.Log.d(
+                "Andromuks",
+                "buildTimelineFromChain: Processed $processedCount events from $totalEntries entries " +
+                "(nullBubble=$nullBubbleCount, redactions=$redactionCount, errors=$errorCount, " +
+                "timelineEvents.size=${timelineEvents.size})"
+            )
             
             // Sort by timestamp and update timeline
             val sortedTimelineEvents = timelineEvents.sortedBy { it.timestamp }
@@ -11775,12 +11887,22 @@ class AppViewModel : ViewModel() {
     fun getCacheStatistics(context: android.content.Context): Map<String, String> {
         val stats = mutableMapOf<String, String>()
         
-        // 1. Current app RAM usage
+        // 1. Current app RAM usage (with detailed diagnostics)
         val runtime = Runtime.getRuntime()
         val usedMemory = runtime.totalMemory() - runtime.freeMemory()
         val maxMemory = runtime.maxMemory()
+        val freeMemory = runtime.freeMemory()
+        val totalMemory = runtime.totalMemory()
+        val memoryUsagePercent = (usedMemory.toDouble() / maxMemory.toDouble() * 100).toInt()
+        
         stats["app_ram_usage"] = formatBytes(usedMemory)
         stats["app_ram_max"] = formatBytes(maxMemory)
+        stats["app_ram_free"] = formatBytes(freeMemory)
+        stats["app_ram_total"] = formatBytes(totalMemory)
+        stats["app_ram_usage_percent"] = "$memoryUsagePercent%"
+        
+        // Log memory diagnostics for debugging
+        android.util.Log.d("Andromuks", "Memory Stats: Used=${formatBytes(usedMemory)}, Free=${formatBytes(freeMemory)}, Max=${formatBytes(maxMemory)}, Usage=$memoryUsagePercent%")
         
         // 2. Room timeline memory cache size
         val timelineCacheStats = RoomTimelineCache.getCacheStats()

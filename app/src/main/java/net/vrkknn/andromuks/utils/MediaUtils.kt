@@ -1,6 +1,7 @@
 package net.vrkknn.andromuks.utils
 
 import android.util.Log
+import kotlinx.coroutines.launch
 
 object MediaUtils {
     /**
@@ -9,7 +10,7 @@ object MediaUtils {
      * @param homeserverUrl The gomuks backend URL (e.g., "https://testmuks.aguiarvieira.pt")
      * @return The HTTP URL for loading the media file, or null if conversion fails
      */
-    fun mxcToHttpUrl(mxcUrl: String?, homeserverUrl: String): String? {
+    fun mxcToHttpUrl(mxcUrl: String?, homeserverUrl: String, registerMapping: Boolean = true): String? {
         if (mxcUrl.isNullOrBlank()) return null
         
         try {
@@ -46,6 +47,18 @@ object MediaUtils {
             }
             
             //Log.d("Andromuks", "MediaUtils: Converted MXC URL: $mxcUrl -> $sanitizedUrl")
+            
+            // Register URL mapping for cache gallery display (async, non-blocking)
+            if (registerMapping) {
+                kotlinx.coroutines.GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    try {
+                        CoilUrlMapper.registerMapping(sanitizedUrl, mxcUrl)
+                    } catch (e: Exception) {
+                        // Ignore errors in mapping registration
+                    }
+                }
+            }
+            
             return sanitizedUrl
             
         } catch (e: Exception) {

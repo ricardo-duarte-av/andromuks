@@ -175,14 +175,18 @@ fun CachedMediaScreen(
                     }
                 }
                 
-                // Media gallery grid
+                // Media gallery grid (lazy loading to reduce memory pressure)
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 120.dp),
                     contentPadding = PaddingValues(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(mediaEntries) { entry ->
+                    items(
+                        items = mediaEntries,
+                        key = { it.filePath } // Use file path as key for better recomposition
+                    ) { entry ->
+                        // Only load image when visible (lazy loading)
                         CachedMediaItem(
                             entry = entry,
                             appViewModel = appViewModel
@@ -225,6 +229,9 @@ fun CachedMediaItem(
                         model = ImageRequest.Builder(context)
                             .data(entry.file)
                             .crossfade(true)
+                            .size(coil.size.Size(200, 200)) // Limit size to reduce memory usage
+                            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                            .diskCachePolicy(coil.request.CachePolicy.DISABLED) // Already on disk
                             .build(),
                         contentDescription = entry.mxcUrl ?: "Cached media",
                         contentScale = ContentScale.Crop,
