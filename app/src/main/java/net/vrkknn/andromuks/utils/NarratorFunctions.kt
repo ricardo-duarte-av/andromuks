@@ -110,60 +110,215 @@ fun SystemEventNarrator(
                         if (isProfileChange) {
                             val prevDisplayName = prevContent.optString("displayname", "")
                             val prevAvatar = prevContent.optString("avatar_url", "")
-                            val currentAvatar = content?.optString("avatar_url", "")
-                            // Check for profile changes: both must be non-empty and different
-                            val displayNameChanged = !prevDisplayName.isNullOrEmpty() && 
-                                                     !targetDisplayName.isNullOrEmpty() && 
-                                                     prevDisplayName != targetDisplayName
-                            val avatarChanged = !prevAvatar.isNullOrEmpty() && 
-                                                !currentAvatar.isNullOrEmpty() && 
-                                                prevAvatar != currentAvatar
+                            val currentDisplayName = content?.optString("displayname", "") ?: ""
+                            val currentAvatar = content?.optString("avatar_url", "") ?: ""
                             
-                            when {
-                                displayNameChanged && avatarChanged -> {
-                                    // Both display name and avatar change
-                                    NarratorText(
-                                        text = buildAnnotatedString {
-                                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                                append(displayName)
-                                            }
-                                            append(" changed their profile")
+                            // Check if content matches prev_content exactly (rare case)
+                            val contentMatches = prevDisplayName == currentDisplayName && 
+                                                prevAvatar == currentAvatar
+                            
+                            if (contentMatches) {
+                                // Content matches prev_content - no change
+                                NarratorText(
+                                    text = buildAnnotatedString {
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(displayName)
                                         }
-                                    )
-                                }
-                                displayNameChanged -> {
-                                    // Display name change
-                                    NarratorText(
-                                        text = buildAnnotatedString {
-                                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                                append(displayName)
+                                        append(" made no change")
+                                    }
+                                )
+                            } else {
+                                // Detect profile changes including removals
+                                val displayNameRemoved = !prevDisplayName.isNullOrEmpty() && currentDisplayName.isNullOrEmpty()
+                                val displayNameChanged = !prevDisplayName.isNullOrEmpty() && 
+                                                         !currentDisplayName.isNullOrEmpty() && 
+                                                         prevDisplayName != currentDisplayName
+                                val displayNameAdded = prevDisplayName.isNullOrEmpty() && !currentDisplayName.isNullOrEmpty()
+                                
+                                val avatarRemoved = !prevAvatar.isNullOrEmpty() && currentAvatar.isNullOrEmpty()
+                                val avatarChanged = !prevAvatar.isNullOrEmpty() && 
+                                                    !currentAvatar.isNullOrEmpty() && 
+                                                    prevAvatar != currentAvatar
+                                val avatarAdded = prevAvatar.isNullOrEmpty() && !currentAvatar.isNullOrEmpty()
+                                
+                                when {
+                                    displayNameRemoved && avatarRemoved -> {
+                                        // Both display name and avatar removed
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" removed their display name and avatar")
                                             }
-                                            append(" changed their display name")
-                                        }
-                                    )
-                                }
-                                avatarChanged -> {
-                                    // Avatar change
-                                    NarratorText(
-                                        text = buildAnnotatedString {
-                                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                                append(displayName)
+                                        )
+                                    }
+                                    displayNameRemoved && avatarChanged -> {
+                                        // Display name removed, avatar changed
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" removed their display name and changed their avatar")
                                             }
-                                            append(" changed their avatar")
-                                        }
-                                    )
-                                }
-                                else -> {
-                                    // No profile changes detected, but membership was already join
-                                    // This shouldn't normally happen, but treat as join event
-                                    NarratorText(
-                                        text = buildAnnotatedString {
-                                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                                append(displayName)
+                                        )
+                                    }
+                                    displayNameRemoved && avatarAdded -> {
+                                        // Display name removed, avatar added
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" removed their display name and set their avatar")
                                             }
-                                            append(" joined the room")
-                                        }
-                                    )
+                                        )
+                                    }
+                                    displayNameRemoved -> {
+                                        // Only display name removed
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" removed their display name")
+                                            }
+                                        )
+                                    }
+                                    displayNameChanged && avatarRemoved -> {
+                                        // Display name changed, avatar removed
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" changed their display name and removed their avatar")
+                                            }
+                                        )
+                                    }
+                                    displayNameChanged && avatarChanged -> {
+                                        // Both display name and avatar change
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" changed their profile")
+                                            }
+                                        )
+                                    }
+                                    displayNameChanged && avatarAdded -> {
+                                        // Display name changed, avatar added
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" changed their display name and set their avatar")
+                                            }
+                                        )
+                                    }
+                                    displayNameChanged -> {
+                                        // Display name change
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" changed their display name")
+                                            }
+                                        )
+                                    }
+                                    displayNameAdded && avatarRemoved -> {
+                                        // Display name added, avatar removed
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" set their display name and removed their avatar")
+                                            }
+                                        )
+                                    }
+                                    displayNameAdded && avatarChanged -> {
+                                        // Display name added, avatar changed
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" set their display name and changed their avatar")
+                                            }
+                                        )
+                                    }
+                                    displayNameAdded && avatarAdded -> {
+                                        // Both display name and avatar added
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" set their display name and avatar")
+                                            }
+                                        )
+                                    }
+                                    displayNameAdded -> {
+                                        // Display name added
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" set their display name")
+                                            }
+                                        )
+                                    }
+                                    avatarRemoved -> {
+                                        // Avatar removed
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" removed their avatar")
+                                            }
+                                        )
+                                    }
+                                    avatarChanged -> {
+                                        // Avatar change
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" changed their avatar")
+                                            }
+                                        )
+                                    }
+                                    avatarAdded -> {
+                                        // Avatar added
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" set their avatar")
+                                            }
+                                        )
+                                    }
+                                    else -> {
+                                        // No profile changes detected, but membership was already join
+                                        // This shouldn't normally happen, but treat as join event
+                                        NarratorText(
+                                            text = buildAnnotatedString {
+                                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                                    append(displayName)
+                                                }
+                                                append(" joined the room")
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         } else {

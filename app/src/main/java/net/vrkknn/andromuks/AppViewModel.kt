@@ -5946,6 +5946,7 @@ class AppViewModel : ViewModel() {
     /**
      * Update member profile from a timeline m.room.member event if display name or avatar changed.
      * This ensures member profiles stay in sync when profile changes appear in the timeline.
+     * Handles both additions/changes and removals (empty values).
      */
     private fun updateMemberProfileFromTimelineEvent(roomId: String, event: TimelineEvent) {
         if (roomId.isEmpty() || event.type != "m.room.member") {
@@ -5966,14 +5967,13 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val displayName = content.optString("displayname")?.takeIf { it.isNotBlank() }
-        val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() }
+        // Extract displayname and avatar_url - allow empty strings to handle removals
+        // Empty string means the field was explicitly removed, null means it wasn't present
+        val displayName = content.optString("displayname", null)?.takeIf { it.isNotBlank() }
+        val avatarUrl = content.optString("avatar_url", null)?.takeIf { it.isNotBlank() }
         
-        // Only update if we have profile data
-        if (displayName == null && avatarUrl == null) {
-            return
-        }
-        
+        // Always update profile, even if both are null (removal case)
+        // This ensures the profile cache reflects the current state
         val newProfile = MemberProfile(displayName, avatarUrl)
         
         // Check if this is actually a profile change (not just initial join)
