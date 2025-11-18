@@ -556,6 +556,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             putExtra("event_id", notificationData.eventId)
             putExtra("direct_navigation", true) // Flag for optimized processing
             putExtra("from_notification", true) // Flag to identify notification source
+            // Add notification timestamp for freshness check
+            notificationData.timestamp?.let { timestamp ->
+                putExtra("notification_timestamp", timestamp)
+            }
             // Keep URI for compatibility but make it simpler
             data = android.net.Uri.parse("matrix:roomid/${notificationData.roomId.substring(1)}${notificationData.eventId?.let { "/e/${it.substring(1)}" } ?: ""}")
         }

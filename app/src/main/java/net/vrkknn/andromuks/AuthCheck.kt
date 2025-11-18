@@ -165,11 +165,54 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             android.util.Log.d("Andromuks", "AuthCheckScreen: Setting app as visible")
             WebSocketService.setAppVisibility(true)
 
-            android.util.Log.d("Andromuks", "AuthCheckScreen: Verifying backend health before opening WebSocket")
-            waitForBackendHealth(homeserverUrl, loggerTag = "AuthCheckScreen")
+            // CRITICAL FIX: Only primary AppViewModel instance should create WebSocket connections
+            // Non-primary instances should attach to existing connection or wait for primary to connect
+            val isPrimary = appViewModel.isPrimaryInstance()
+            val isAlreadyConnected = WebSocketService.isWebSocketConnected()
             
-            // Connect websocket - service is now ready to receive the connection
-            connectToWebsocket(homeserverUrl, client, token, appViewModel)
+            android.util.Log.d("Andromuks", "AuthCheckScreen: WebSocket connection check - isPrimary: $isPrimary, isAlreadyConnected: $isAlreadyConnected")
+            
+            if (isAlreadyConnected) {
+                // WebSocket is already connected (from primary AppViewModel instance), just attach to it
+                android.util.Log.d("Andromuks", "AuthCheckScreen: WebSocket already connected, attaching to existing connection")
+                appViewModel.attachToExistingWebSocketIfAvailable()
+                // Don't call connectToWebsocket - we're already connected
+            } else if (isPrimary) {
+                // This is the primary instance and no connection exists - create the connection
+                // The Foreground service will maintain this connection
+                android.util.Log.d("Andromuks", "AuthCheckScreen: Primary instance - creating WebSocket connection (will be maintained by Foreground service)")
+                android.util.Log.d("Andromuks", "AuthCheckScreen: Verifying backend health before opening WebSocket")
+                waitForBackendHealth(homeserverUrl, loggerTag = "AuthCheckScreen")
+                
+                // Connect websocket - service is now ready to receive the connection
+                connectToWebsocket(homeserverUrl, client, token, appViewModel)
+            } else {
+                // Non-primary instance and no connection exists - wait for primary to connect
+                android.util.Log.d("Andromuks", "AuthCheckScreen: Non-primary instance - waiting for primary instance to establish WebSocket connection")
+                
+                // Wait for primary instance to connect (with timeout)
+                var waitCount = 0
+                val maxWaitAttempts = 50 // Wait up to 5 seconds (50 * 100ms) - shorter timeout for better UX
+                while (!WebSocketService.isWebSocketConnected() && waitCount < maxWaitAttempts) {
+                    kotlinx.coroutines.delay(100)
+                    waitCount++
+                }
+                
+                if (WebSocketService.isWebSocketConnected()) {
+                    android.util.Log.d("Andromuks", "AuthCheckScreen: Primary instance connected, attaching to WebSocket")
+                    appViewModel.attachToExistingWebSocketIfAvailable()
+                } else {
+                    // FALLBACK: If no primary instance exists (app was closed) and no connection exists,
+                    // allow this non-primary instance to create the connection
+                    // This is a fallback scenario when opening via notification/shortcut with app closed
+                    android.util.Log.w("Andromuks", "AuthCheckScreen: Primary instance did not connect within timeout - using fallback: non-primary will create connection")
+                    android.util.Log.d("Andromuks", "AuthCheckScreen: Verifying backend health before opening WebSocket (fallback)")
+                    waitForBackendHealth(homeserverUrl, loggerTag = "AuthCheckScreen")
+                    
+                    // Create connection as fallback (Foreground service will maintain it)
+                    connectToWebsocket(homeserverUrl, client, token, appViewModel)
+                }
+            }
             // Do not navigate yet; wait for spacesLoaded
         } else {
             Log.d("AuthCheckScreen", "No token or server URL found. Going to login.")

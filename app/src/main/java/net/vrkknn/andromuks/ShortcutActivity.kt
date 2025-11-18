@@ -36,6 +36,13 @@ class ShortcutActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
+        // Initialize crash handler
+        net.vrkknn.andromuks.utils.CrashHandler.initialize(this)
+        
+        // PHASE 1: Initialize RoomRepository (single source of truth for room/timeline data)
+        // This is critical for loading events from database when RAM cache is empty
+        RoomRepository.initialize(this)
+        
         // Extract room ID from intent
         val roomId = extractRoomIdFromIntent(intent)
         if (roomId == null) {
@@ -100,12 +107,43 @@ class ShortcutActivity : ComponentActivity() {
 fun ShortcutNavigation(roomId: String) {
     val navController = rememberNavController()
     val appViewModel: AppViewModel = viewModel()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    // Initialize AppViewModel like MainActivity does
+    LaunchedEffect(Unit) {
+        // Get homeserver URL and auth token from SharedPreferences (needed for initializeFCM)
+        val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+        val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+        val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+        
+        // Initialize FCM to set appContext (required for database loading via bootstrapLoader)
+        // This is critical for loading events from database when RAM cache is empty
+        appViewModel.initializeFCM(context, homeserverUrl, authToken)
+        
+        // CRITICAL: Do NOT mark as primary - only MainActivity's AppViewModel should be primary
+        // This ensures only AppViewModel_0 creates WebSocket connections, which are then maintained by the Foreground service
+        // ShortcutActivity instances should attach to existing connections created by the primary instance
+        // appViewModel.markAsPrimaryInstance() // REMOVED - ShortcutActivity is secondary
+        
+        // Load cached user profiles on app startup
+        // This restores previously saved user profile data from disk
+        appViewModel.loadCachedProfiles(context)
+        
+        // Load app settings from SharedPreferences
+        appViewModel.loadSettings(context)
+        
+        // Re-attach to existing WebSocket connection if the service already has one
+        appViewModel.attachToExistingWebSocketIfAvailable()
+        
+        android.util.Log.d("Andromuks", "ShortcutActivity: AppViewModel initialized with profiles, settings, and FCM")
+    }
     
     // OPTIMIZATION #3: Direct navigation to room timeline
     LaunchedEffect(roomId) {
         android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Direct navigation to room: $roomId")
         
         // Use cache-first navigation for instant loading
+        // This will fall back to database loading if RAM cache is empty
         appViewModel.navigateToRoomWithCache(roomId)
         
         // Navigate directly to room timeline

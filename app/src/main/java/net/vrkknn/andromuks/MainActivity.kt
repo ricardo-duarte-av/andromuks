@@ -127,10 +127,16 @@ class MainActivity : ComponentActivity() {
                             if (extractedRoomId != null) {
                                 // OPTIMIZATION #1: Direct navigation instead of pending state
                                 Log.d("Andromuks", "MainActivity: onCreate - Direct navigation to room: $extractedRoomId")
+                                // Extract notification timestamp if present
+                                val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
                                 // Store for immediate navigation once UI is ready
                                 appViewModel.setDirectRoomNavigation(extractedRoomId)
                                 if (!shortcutUserId.isNullOrBlank()) {
                                     appViewModel.reportPersonShortcutUsed(shortcutUserId)
+                                }
+                                // Navigate with notification timestamp if available
+                                if (notificationTimestamp != null) {
+                                    appViewModel.navigateToRoomWithCache(extractedRoomId, notificationTimestamp)
                                 }
                             }
                             
@@ -475,6 +481,12 @@ class MainActivity : ComponentActivity() {
                 appViewModel.setDirectRoomNavigation(roomId)
                 if (!shortcutUserId.isNullOrBlank()) {
                     appViewModel.reportPersonShortcutUsed(shortcutUserId)
+                }
+                // Extract notification timestamp if present
+                val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
+                // Navigate with notification timestamp if available
+                if (notificationTimestamp != null) {
+                    appViewModel.navigateToRoomWithCache(roomId, notificationTimestamp)
                 }
                 // Force navigation if app is already running
                 if (appViewModel.spacesLoaded) {

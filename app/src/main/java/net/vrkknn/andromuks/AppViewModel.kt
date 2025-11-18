@@ -126,6 +126,14 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Instance role set to BUBBLE for $viewModelId")
     }
     
+    /**
+     * Check if this AppViewModel instance is the primary instance
+     * Only the primary instance should create new WebSocket connections
+     */
+    fun isPrimaryInstance(): Boolean {
+        return instanceRole == InstanceRole.PRIMARY
+    }
+    
     var isLoading by mutableStateOf(false)
     var homeserverUrl by mutableStateOf("")
         private set
@@ -4186,6 +4194,15 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: Attaching $viewModelId to existing WebSocket")
             webSocket = existingWebSocket
             WebSocketService.registerReceiveCallback(viewModelId, this)
+            
+            // CRITICAL FIX: If spaces are already loaded (from cache/DB) and WebSocket is connected,
+            // trigger navigation immediately since onInitComplete() won't be called again
+            // This fixes the infinite spinner when opening via notification
+            if (spacesLoaded && isWebSocketConnected() && !navigationCallbackTriggered) {
+                android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback immediately")
+                navigationCallbackTriggered = true
+                onNavigateToRoomList?.invoke()
+            }
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: No existing WebSocket to attach for $viewModelId")
         }
@@ -4522,6 +4539,7 @@ class AppViewModel : ViewModel() {
     private val eventRequests = mutableMapOf<Int, Pair<String, (TimelineEvent?) -> Unit>>() // requestId -> (roomId, callback)
     private val paginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for pagination)
     private val backgroundPrefetchRequests = mutableMapOf<Int, String>() // requestId -> roomId (for background prefetch)
+    private val freshnessCheckRequests = mutableMapOf<Int, String>() // requestId -> roomId (for single-event freshness checks)
     private val roomStateWithMembersRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.RoomStateInfo?, String?) -> Unit>() // requestId -> callback
     private val userEncryptionInfoRequests = mutableMapOf<Int, (net.vrkknn.andromuks.utils.UserEncryptionInfo?, String?) -> Unit>() // requestId -> callback
     private val mutualRoomsRequests = mutableMapOf<Int, (List<String>?, String?) -> Unit>() // requestId -> callback
@@ -6302,6 +6320,11 @@ class AppViewModel : ViewModel() {
         // Check if we're opening from a notification (for optimized cache handling)
         val openingFromNotification = isPendingNavigationFromNotification && pendingRoomNavigation == roomId
         
+        // CRITICAL FIX: Check cache state and log what we find
+        val cacheCountBefore = RoomTimelineCache.getCachedEventCount(roomId)
+        val cacheMetadata = RoomTimelineCache.getLatestCachedEventMetadata(roomId)
+        android.util.Log.d("Andromuks", "AppViewModel: requestRoomTimeline for $roomId - RAM cache: $cacheCountBefore events, latest: ${cacheMetadata?.eventId}@${cacheMetadata?.timestamp}")
+        
         // Check if we have enough cached events BEFORE clearing anything
         // Use more lenient threshold for notification-based navigation to avoid loading spinners
         var cachedEvents = if (openingFromNotification) {
@@ -6313,6 +6336,7 @@ class AppViewModel : ViewModel() {
         
         // A: Loading from Memory Cache
         if (cachedEvents != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: ✓ Using RAM cache for $roomId: ${cachedEvents.size} events")
             if (BuildConfig.DEBUG) {
                 appContext?.let { context ->
                     android.widget.Toast.makeText(context, "A: Loading from Memory Cache", android.widget.Toast.LENGTH_SHORT).show()
@@ -6324,7 +6348,7 @@ class AppViewModel : ViewModel() {
         
         // If cache miss, try loading from database (synchronously to avoid race condition)
         if (cachedEvents == null && appContext != null && bootstrapLoader != null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Cache miss for $roomId, checking database...")
+            android.util.Log.d("Andromuks", "AppViewModel: Cache miss for $roomId (RAM cache had $cacheCountBefore events), checking database...")
             try {
                 // Use runBlocking to wait for database query (prevents race condition)
                 val dbEvents = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
@@ -6332,13 +6356,15 @@ class AppViewModel : ViewModel() {
                 }
                 
                 if (dbEvents.isNotEmpty()) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Found ${dbEvents.size} events in database for $roomId")
+                    val dbLatest = dbEvents.maxByOrNull { it.timestamp }
+                    android.util.Log.d("Andromuks", "AppViewModel: Found ${dbEvents.size} events in database for $roomId (latest: ${dbLatest?.eventId}@${dbLatest?.timestamp}, first: ${dbEvents.firstOrNull()?.eventId}@${dbEvents.firstOrNull()?.timestamp})")
                     // Seed cache with DB events
                     RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, dbEvents)
                     
                     // Check if we now have enough events in RAM after loading from disk
                     val eventsInRamAfterDiskLoad = RoomTimelineCache.getCachedEventCount(roomId)
-                    android.util.Log.d("Andromuks", "AppViewModel: After loading from disk, RAM cache has $eventsInRamAfterDiskLoad events")
+                    val cacheMetadataAfter = RoomTimelineCache.getLatestCachedEventMetadata(roomId)
+                    android.util.Log.d("Andromuks", "AppViewModel: After loading from disk, RAM cache has $eventsInRamAfterDiskLoad events (latest: ${cacheMetadataAfter?.eventId}@${cacheMetadataAfter?.timestamp})")
                     
                     if (eventsInRamAfterDiskLoad >= 200) {
                         // We have enough events, show them
@@ -6352,9 +6378,51 @@ class AppViewModel : ViewModel() {
                         processCachedEvents(roomId, cachedEvents!!, openingFromNotification)
                         return
                     } else {
-                        android.util.Log.d("Andromuks", "AppViewModel: Only have $eventsInRamAfterDiskLoad events after disk load - waiting for manual refresh to fetch more")
+                        android.util.Log.d("Andromuks", "AppViewModel: Only have $eventsInRamAfterDiskLoad events after disk load - showing cached and requesting fresh data")
                         cachedEvents = dbEvents
                         processCachedEvents(roomId, cachedEvents!!, openingFromNotification)
+                        
+                        // CRITICAL FIX: Request fresh timeline data in background when we have few cached events
+                        // This ensures the timeline shows current data and fills gaps, especially when opening via notification
+                        viewModelScope.launch {
+                            // Small delay to let UI render cached events first
+                            kotlinx.coroutines.delay(100)
+                            
+                            // Wait for WebSocket to be ready (it might not be connected yet when opening via notification/shortcut)
+                            var waitCount = 0
+                            val maxWaitAttempts = 5 // Wait up to 5 seconds (50 * 100ms)
+                            while (!isWebSocketConnected() && waitCount < maxWaitAttempts) {
+                                kotlinx.coroutines.delay(100)
+                                waitCount++
+                            }
+                            
+                            if (!isWebSocketConnected()) {
+                                android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected after waiting, cannot request fresh timeline data for $roomId")
+                                return@launch
+                            }
+                            
+                            // Request fresh timeline data to fill gaps and get latest events
+                            android.util.Log.d("Andromuks", "AppViewModel: Requesting fresh timeline data in background for $roomId (few cached events from DB)")
+                            
+                            val paginateRequestId = requestIdCounter++
+                            backgroundPrefetchRequests[paginateRequestId] = roomId
+                            
+                            val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                                "room_id" to roomId,
+                                "max_timeline_id" to 0,
+                                "limit" to 200,
+                                "reset" to false
+                            ))
+                            
+                            if (result == WebSocketResult.SUCCESS) {
+                                android.util.Log.d("Andromuks", "AppViewModel: Background paginate request sent for $roomId (requestId=$paginateRequestId)")
+                                markInitialPaginate(roomId, "few_cached_events_from_db")
+                            } else {
+                                android.util.Log.w("Andromuks", "AppViewModel: Failed to send background paginate request for $roomId: $result")
+                                backgroundPrefetchRequests.remove(paginateRequestId)
+                            }
+                        }
+                        
                         return
                     }
                 } else {
@@ -6938,8 +7006,98 @@ class AppViewModel : ViewModel() {
     }
     
     // OPTIMIZATION #4: Cache-first navigation method
-    fun navigateToRoomWithCache(roomId: String) {
+    fun navigateToRoomWithCache(roomId: String, notificationTimestamp: Long? = null) {
         updateCurrentRoomIdInPrefs(roomId)
+        
+        // FRESHNESS CHECK: Using timeline_rowid comparison approach
+        // 1. Check RAM cache - if empty, load from DB
+        // 2. If RAM is older than DB, load from DB
+        // 3. If RAM cache is now NOT empty, request single latest event (limit=1) for freshness check
+        // 4. Freshness check handler compares timeline_rowids and triggers full paginate if needed
+        viewModelScope.launch {
+            // Check RAM cache first
+            val cachedMetadata = RoomTimelineCache.getLatestCachedEventMetadata(roomId)
+            val cachedLatestRowId = cachedMetadata?.timelineRowId ?: 0L
+            
+            var shouldLoadFromDb = false
+            var dbLatestRowId = 0L
+            
+            if (cachedLatestRowId == 0L) {
+                // RAM cache is empty, load from DB
+                android.util.Log.d("Andromuks", "AppViewModel: RAM cache empty for $roomId, loading from DB")
+                shouldLoadFromDb = true
+            } else {
+                // RAM cache exists, check if DB has newer events
+                val context = appContext
+                if (context != null) {
+                    dbLatestRowId = withContext(Dispatchers.IO) {
+                        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context.applicationContext)
+                        val dbEvents = database.eventDao().getEventsForRoomDesc(roomId, 1)
+                        dbEvents.firstOrNull()?.timelineRowId ?: 0L
+                    }
+                    
+                    if (dbLatestRowId > cachedLatestRowId) {
+                        // DB has newer events than RAM, load from DB
+                        android.util.Log.d("Andromuks", "AppViewModel: DB has newer events than RAM for $roomId (DB: $dbLatestRowId > RAM: $cachedLatestRowId), loading from DB")
+                        shouldLoadFromDb = true
+                    }
+                }
+            }
+            
+            // Load from DB if needed
+            if (shouldLoadFromDb) {
+                val context = appContext
+                if (context != null) {
+                    val bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
+                    val dbEvents = bootstrapLoader.loadRoomEvents(roomId, 200)
+                    
+                    if (dbEvents.isNotEmpty()) {
+                        // Hydrate RAM cache with DB events
+                        RoomTimelineCache.mergePaginatedEvents(roomId, dbEvents)
+                        android.util.Log.d("Andromuks", "AppViewModel: Loaded ${dbEvents.size} events from DB and hydrated RAM cache for $roomId")
+                    }
+                }
+            }
+            
+            // Now check if RAM cache is NOT empty (either it was already populated or we just loaded from DB)
+            val finalCachedMetadata = RoomTimelineCache.getLatestCachedEventMetadata(roomId)
+            if (finalCachedMetadata != null) {
+                // Request single latest event for freshness check
+                android.util.Log.d("Andromuks", "AppViewModel: RAM cache has events for $roomId, requesting single latest event for freshness check")
+                
+                // Wait for WebSocket to be ready
+                var waitCount = 0
+                val maxWaitAttempts = 50 // Wait up to 5 seconds
+                while (!isWebSocketConnected() && waitCount < maxWaitAttempts) {
+                    kotlinx.coroutines.delay(100)
+                    waitCount++
+                }
+                
+                if (isWebSocketConnected()) {
+                    // Request single latest event (limit=1) for freshness check
+                    val freshnessCheckRequestId = requestIdCounter++
+                    freshnessCheckRequests[freshnessCheckRequestId] = roomId
+                    
+                    val result = sendWebSocketCommand("paginate", freshnessCheckRequestId, mapOf(
+                        "room_id" to roomId,
+                        "max_timeline_id" to 0,
+                        "limit" to 1,
+                        "reset" to false
+                    ))
+                    
+                    if (result == WebSocketResult.SUCCESS) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Sent freshness check request (limit=1) for $roomId")
+                    } else {
+                        android.util.Log.w("Andromuks", "AppViewModel: Failed to send freshness check request for $roomId: $result")
+                        freshnessCheckRequests.remove(freshnessCheckRequestId)
+                    }
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot perform freshness check for $roomId")
+                }
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: RAM cache still empty after DB load for $roomId, skipping freshness check")
+            }
+        }
         
         // Check cache first - this is the key optimization
         val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
@@ -7037,7 +7195,54 @@ class AppViewModel : ViewModel() {
                     markRoomAsRead(roomId, mostRecentEvent.eventId)
                 }
                 
-                return // Exit early - room is already rendered from cache
+                // CRITICAL FIX: Request fresh timeline data in background to update with latest events
+                // This ensures the timeline shows current data, not just cached/stale data
+                // The cached events are shown immediately for fast UI, but we fetch fresh data to update
+                viewModelScope.launch {
+                    // Small delay to let UI render cached events first
+                    kotlinx.coroutines.delay(100)
+                    
+                    // Wait for WebSocket to be ready (it might not be connected yet when opening via notification/shortcut)
+                    var waitCount = 0
+                    val maxWaitAttempts = 50 // Wait up to 5 seconds (50 * 100ms)
+                    while (!isWebSocketConnected() && waitCount < maxWaitAttempts) {
+                        kotlinx.coroutines.delay(100)
+                        waitCount++
+                    }
+                    
+                    if (!isWebSocketConnected()) {
+                        android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected after waiting, cannot request fresh timeline data for $roomId")
+                        return@launch
+                    }
+                    
+                    // Request fresh timeline data without clearing existing timeline
+                    // This will merge new events with existing cached events
+                    // CRITICAL: Always request fresh data when opening via cache-first navigation
+                    // because the cache might be stale (from database after app restart)
+                    android.util.Log.d("Andromuks", "AppViewModel: Requesting fresh timeline data in background for $roomId (cache-first navigation)")
+                    
+                    // Always request fresh data to ensure timeline is up-to-date
+                    // The cache is shown immediately for fast UI, but fresh data updates it
+                    val paginateRequestId = requestIdCounter++
+                    backgroundPrefetchRequests[paginateRequestId] = roomId
+                    
+                    val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                        "room_id" to roomId,
+                        "max_timeline_id" to 0,
+                        "limit" to 200,
+                        "reset" to false
+                    ))
+                    
+                    if (result == WebSocketResult.SUCCESS) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Sent background paginate request for fresh timeline data (room: $roomId)")
+                        markInitialPaginate(roomId, "cache_first_navigation")
+                    } else {
+                        android.util.Log.w("Andromuks", "AppViewModel: Failed to send background paginate request (room: $roomId, result: $result)")
+                        backgroundPrefetchRequests.remove(paginateRequestId)
+                    }
+                }
+                
+                return // Exit early - room is already rendered from cache, fresh data will update in background
             }
         }
         
@@ -8095,6 +8300,8 @@ class AppViewModel : ViewModel() {
             handleFCMRegistrationResponse(requestId, data)
         } else if (eventRequests.containsKey(requestId)) {
             handleEventResponse(requestId, data)
+        } else if (freshnessCheckRequests.containsKey(requestId)) {
+            handleFreshnessCheckResponse(requestId, data)
         } else if (backgroundPrefetchRequests.containsKey(requestId)) {
             handleTimelineResponse(requestId, data)
         } else if (paginateRequests.containsKey(requestId)) {
@@ -8623,6 +8830,120 @@ class AppViewModel : ViewModel() {
             android.util.Log.d("Andromuks", "AppViewModel: Added event to timeline, total events: ${timelineEvents.size}")
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: Event roomId (${event.roomId}) doesn't match currentRoomId ($currentRoomId), not adding to timeline")
+        }
+    }
+    
+    /**
+     * Handle freshness check response (single-event paginate with limit=1)
+     * This intercepts the response before SyncIngestor processes it
+     * Compares the latest event's timeline_rowid with what we have in cache/DB
+     * If newer, triggers a full paginate; otherwise continues normally
+     */
+    private fun handleFreshnessCheckResponse(requestId: Int, data: Any) {
+        val roomId = freshnessCheckRequests.remove(requestId) ?: run {
+            android.util.Log.w("Andromuks", "AppViewModel: Freshness check response for unknown requestId: $requestId")
+            return
+        }
+        
+        android.util.Log.d("Andromuks", "AppViewModel: Handling freshness check response for room: $roomId, requestId: $requestId")
+        
+        try {
+            // Parse the single event from response
+            val eventsArray = when (data) {
+                is org.json.JSONArray -> data
+                is org.json.JSONObject -> {
+                    val timeline = data.optJSONArray("timeline")
+                    if (timeline != null) timeline else org.json.JSONArray().apply { put(data) }
+                }
+                else -> {
+                    android.util.Log.w("Andromuks", "AppViewModel: Unexpected data type in freshness check response: ${data::class.java.simpleName}")
+                    return
+                }
+            }
+            
+            if (eventsArray.length() == 0) {
+                android.util.Log.d("Andromuks", "AppViewModel: Freshness check returned no events for $roomId - treating as up to date")
+                return
+            }
+            
+            // Get the latest event from response (should be only one)
+            val latestEventJson = eventsArray.optJSONObject(eventsArray.length() - 1) ?: run {
+                android.util.Log.w("Andromuks", "AppViewModel: Could not parse latest event from freshness check response")
+                return
+            }
+            
+            val latestEvent = TimelineEvent.fromJson(latestEventJson)
+            val serverLatestRowId = latestEvent.timelineRowid
+            
+            android.util.Log.d("Andromuks", "AppViewModel: Freshness check - server latest event: ${latestEvent.eventId}, timeline_rowid: $serverLatestRowId")
+            
+            // Get our latest timeline_rowid from RAM cache
+            val cachedMetadata = RoomTimelineCache.getLatestCachedEventMetadata(roomId)
+            val cachedLatestRowId = cachedMetadata?.timelineRowId ?: 0L
+            
+            // Process asynchronously to check DB if needed
+            viewModelScope.launch {
+                // If RAM cache is empty, check DB
+                val dbLatestRowId = if (cachedLatestRowId == 0L) {
+                    val context = appContext
+                    if (context != null) {
+                        withContext(Dispatchers.IO) {
+                            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context.applicationContext)
+                            val dbEvents = database.eventDao().getEventsForRoomDesc(roomId, 1)
+                            dbEvents.firstOrNull()?.timelineRowId ?: 0L
+                        }
+                    } else {
+                        0L
+                    }
+                } else {
+                    0L // Don't need to check DB if we have RAM cache
+                }
+                
+                // Use the maximum of RAM and DB
+                val ourLatestRowId = maxOf(cachedLatestRowId, dbLatestRowId)
+                
+                android.util.Log.d("Andromuks", "AppViewModel: Freshness check - our latest timeline_rowid: $ourLatestRowId (RAM: $cachedLatestRowId, DB: $dbLatestRowId), server: $serverLatestRowId")
+                
+                // Compare: if server has newer events, trigger full paginate
+                if (serverLatestRowId > ourLatestRowId) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Server has newer events (server: $serverLatestRowId > ours: $ourLatestRowId), triggering full paginate for $roomId")
+                    
+                    // Wait for WebSocket to be ready
+                    var waitCount = 0
+                    val maxWaitAttempts = 50 // Wait up to 5 seconds
+                    while (!isWebSocketConnected() && waitCount < maxWaitAttempts) {
+                        kotlinx.coroutines.delay(100)
+                        waitCount++
+                    }
+                    
+                    if (isWebSocketConnected()) {
+                        // Trigger full paginate with max_timeline_id = our latest rowId
+                        val paginateRequestId = requestIdCounter++
+                        backgroundPrefetchRequests[paginateRequestId] = roomId
+                        
+                        val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                            "room_id" to roomId,
+                            "max_timeline_id" to ourLatestRowId,
+                            "limit" to 200,
+                            "reset" to false
+                        ))
+                        
+                        if (result == WebSocketResult.SUCCESS) {
+                            android.util.Log.d("Andromuks", "AppViewModel: Sent full paginate request after freshness check for $roomId (max_timeline_id: $ourLatestRowId)")
+                            markInitialPaginate(roomId, "freshness_check_newer")
+                        } else {
+                            android.util.Log.w("Andromuks", "AppViewModel: Failed to send paginate after freshness check for $roomId: $result")
+                            backgroundPrefetchRequests.remove(paginateRequestId)
+                        }
+                    } else {
+                        android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot fetch fresh data for $roomId")
+                    }
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: We are up to date (server: $serverLatestRowId <= ours: $ourLatestRowId), no paginate needed for $roomId")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Error handling freshness check response for $roomId", e)
         }
     }
     
