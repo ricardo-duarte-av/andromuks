@@ -420,20 +420,45 @@ class FCMService : FirebaseMessagingService() {
             val dismissArray = jsonObject.getJSONArray("dismiss")
             Log.d(TAG, "Found ${dismissArray.length()} dismiss requests")
             
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val notificationManagerCompat = NotificationManagerCompat.from(this)
+            
             // Dismiss notifications for each room
             for (i in 0 until dismissArray.length()) {
                 val dismissItem = dismissArray.getJSONObject(i)
                 val roomId = dismissItem.optString("room_id", "")
                 
-                Log.d(TAG, "Dismissing notifications for room: $roomId")
+                if (roomId.isEmpty()) {
+                    Log.w(TAG, "Empty room_id in dismiss request, skipping")
+                    continue
+                }
                 
-                // For now, let's not dismiss any notifications to preserve bubbles
-                // TODO: Implement proper bubble detection to selectively dismiss
-                Log.d(TAG, "Room $roomId - NOT dismissing notification to preserve bubble")
-                Log.d(TAG, "This prevents the bubble from disappearing when conversation is marked as read")
+                Log.d(TAG, "Processing dismiss request for room: $roomId")
                 
-                // Don't dismiss the notification to preserve the bubble
-                // This is a temporary fix - ideally we'd detect if the notification has bubble metadata
+                val notifID = roomId.hashCode()
+                val existingNotification = notificationManager.activeNotifications.firstOrNull { it.id == notifID }
+                
+                if (existingNotification == null) {
+                    Log.d(TAG, "No notification found for room: $roomId - nothing to dismiss")
+                    continue
+                }
+                
+                // Check if bubble is currently open using BubbleTracker
+                // This is the source of truth - we track bubble state via lifecycle callbacks
+                val isBubbleOpen = BubbleTracker.isBubbleOpen(roomId)
+                
+                Log.d(TAG, "Room $roomId - Bubble state: isBubbleOpen=$isBubbleOpen")
+                
+                if (isBubbleOpen) {
+                    // Bubble is open - don't dismiss to preserve bubble
+                    Log.d(TAG, "Room $roomId - NOT dismissing notification (bubble is open)")
+                    Log.d(TAG, "This prevents the bubble from disappearing when conversation is marked as read")
+                } else {
+                    // Safe to dismiss - no active bubble
+                    Log.d(TAG, "Room $roomId - Dismissing notification (no active bubble)")
+                    notificationManagerCompat.cancel(notifID)
+                    Log.d(TAG, "Successfully dismissed notification for room: $roomId")
+                }
                 
                 // NOTE: Do NOT remove room shortcut when dismissing notifications
                 // The shortcut should remain so the chat bubble stays open

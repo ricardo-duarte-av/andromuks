@@ -5724,10 +5724,23 @@ class AppViewModel : ViewModel() {
             navigationCache[roomId] = currentNavigationState?.copy(memberDataLoaded = true) ?: RoomNavigationState(roomId, memberDataLoaded = true)
         }
         
-        // Mark as read
-        val mostRecentEvent = cachedEvents.maxByOrNull { it.timestamp }
-        if (mostRecentEvent != null) {
-            markRoomAsRead(roomId, mostRecentEvent.eventId)
+        // Mark as read only if room is actually visible (not just a minimized bubble)
+        // Check if this is a bubble and if it's visible
+        val shouldMarkAsRead = if (BubbleTracker.isBubbleOpen(roomId)) {
+            // Bubble exists - only mark as read if it's visible/maximized
+            BubbleTracker.isBubbleVisible(roomId)
+        } else {
+            // Not a bubble - mark as read (normal room view)
+            true
+        }
+        
+        if (shouldMarkAsRead) {
+            val mostRecentEvent = cachedEvents.maxByOrNull { it.timestamp }
+            if (mostRecentEvent != null) {
+                markRoomAsRead(roomId, mostRecentEvent.eventId)
+            }
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)")
         }
         
         // IMPORTANT: Request historical reactions even when using cache
@@ -6558,10 +6571,23 @@ class AppViewModel : ViewModel() {
                     navigationCache[roomId] = partialNavigationState?.copy(memberDataLoaded = true) ?: RoomNavigationState(roomId, memberDataLoaded = true)
                 }
                 
-                // Mark as read
-                val mostRecentEvent = partialCachedEvents.maxByOrNull { it.timestamp }
-                if (mostRecentEvent != null) {
-                    markRoomAsRead(roomId, mostRecentEvent.eventId)
+                // Mark as read only if room is actually visible (not just a minimized bubble)
+                // Check if this is a bubble and if it's visible
+                val shouldMarkAsRead = if (BubbleTracker.isBubbleOpen(roomId)) {
+                    // Bubble exists - only mark as read if it's visible/maximized
+                    BubbleTracker.isBubbleVisible(roomId)
+                } else {
+                    // Not a bubble - mark as read (normal room view)
+                    true
+                }
+                
+                if (shouldMarkAsRead) {
+                    val mostRecentEvent = partialCachedEvents.maxByOrNull { it.timestamp }
+                    if (mostRecentEvent != null) {
+                        markRoomAsRead(roomId, mostRecentEvent.eventId)
+                    }
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)")
                 }
                 
                 return // Exit early - room is shown with partial cache
@@ -7153,10 +7179,23 @@ class AppViewModel : ViewModel() {
                     ))
                 }
                 
-                // Mark as read
-                val mostRecentEvent = cachedEvents.maxByOrNull { it.timestamp }
-                if (mostRecentEvent != null) {
-                    markRoomAsRead(roomId, mostRecentEvent.eventId)
+                // Mark as read only if room is actually visible (not just a minimized bubble)
+                // Check if this is a bubble and if it's visible
+                val shouldMarkAsRead = if (BubbleTracker.isBubbleOpen(roomId)) {
+                    // Bubble exists - only mark as read if it's visible/maximized
+                    BubbleTracker.isBubbleVisible(roomId)
+                } else {
+                    // Not a bubble - mark as read (normal room view)
+                    true
+                }
+                
+                if (shouldMarkAsRead) {
+                    val mostRecentEvent = cachedEvents.maxByOrNull { it.timestamp }
+                    if (mostRecentEvent != null) {
+                        markRoomAsRead(roomId, mostRecentEvent.eventId)
+                    }
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)")
                 }
                 
                 // CRITICAL FIX: Request fresh timeline data in background to update with latest events
@@ -9069,9 +9108,23 @@ class AppViewModel : ViewModel() {
                 // Mark room as read when timeline is successfully loaded - use most recent event by timestamp
                 // (But not for background prefetch requests since we're just silently updating cache)
                 if (!backgroundPrefetchRequests.containsKey(requestId)) {
-                    val mostRecentEvent = timelineList.maxByOrNull { it.timestamp }
-                    if (mostRecentEvent != null) {
-                        markRoomAsRead(roomId, mostRecentEvent.eventId)
+                    // Mark as read only if room is actually visible (not just a minimized bubble)
+                    // Check if this is a bubble and if it's visible
+                    val shouldMarkAsRead = if (BubbleTracker.isBubbleOpen(roomId)) {
+                        // Bubble exists - only mark as read if it's visible/maximized
+                        BubbleTracker.isBubbleVisible(roomId)
+                    } else {
+                        // Not a bubble - mark as read (normal room view)
+                        true
+                    }
+                    
+                    if (shouldMarkAsRead) {
+                        val mostRecentEvent = timelineList.maxByOrNull { it.timestamp }
+                        if (mostRecentEvent != null) {
+                            markRoomAsRead(roomId, mostRecentEvent.eventId)
+                        }
+                    } else {
+                        android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)")
                     }
                 }
             }
@@ -10259,10 +10312,23 @@ class AppViewModel : ViewModel() {
             } 
         }
         
-        // Mark room as read for the newest event since user is actively viewing the room
-        val newestEvent = events.maxByOrNull { it.timestamp }
-        if (newestEvent != null) {
-            markRoomAsRead(roomId, newestEvent.eventId)
+        // Mark room as read for the newest event only if room is actually visible (not just a minimized bubble)
+        // Check if this is a bubble and if it's visible
+        val shouldMarkAsRead = if (BubbleTracker.isBubbleOpen(roomId)) {
+            // Bubble exists - only mark as read if it's visible/maximized
+            BubbleTracker.isBubbleVisible(roomId)
+        } else {
+            // Not a bubble - mark as read (normal room view)
+            true
+        }
+        
+        if (shouldMarkAsRead) {
+            val newestEvent = events.maxByOrNull { it.timestamp }
+            if (newestEvent != null) {
+                markRoomAsRead(roomId, newestEvent.eventId)
+            }
+        } else {
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)")
         }
     }
     

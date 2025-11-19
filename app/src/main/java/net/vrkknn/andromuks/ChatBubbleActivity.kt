@@ -133,6 +133,16 @@ class ChatBubbleActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         Log.d("Andromuks", "ChatBubbleActivity: onResume called")
+        
+        // Extract room ID from intent to track bubble visibility
+        val roomId = intent.getStringExtra("room_id") ?: 
+                    extractRoomIdFromMatrixUri(intent.data)
+        
+        if (roomId != null) {
+            BubbleTracker.onBubbleVisible(roomId)
+            Log.d("Andromuks", "ChatBubbleActivity: Tracked bubble visible for room: $roomId")
+        }
+        
         if (::appViewModel.isInitialized) {
             // Lightweight visibility flag - don't trigger expensive UI refresh for bubbles
             appViewModel.setBubbleVisible(true)
@@ -143,6 +153,16 @@ class ChatBubbleActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         Log.d("Andromuks", "ChatBubbleActivity: onPause called")
+        
+        // Extract room ID from intent to track bubble visibility
+        val roomId = intent.getStringExtra("room_id") ?: 
+                    extractRoomIdFromMatrixUri(intent.data)
+        
+        if (roomId != null) {
+            BubbleTracker.onBubbleInvisible(roomId)
+            Log.d("Andromuks", "ChatBubbleActivity: Tracked bubble invisible for room: $roomId")
+        }
+        
         if (::appViewModel.isInitialized) {
             // Lightweight invisibility flag - don't trigger shutdown for bubbles
             appViewModel.setBubbleVisible(false)
@@ -182,6 +202,8 @@ class ChatBubbleActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d("Andromuks", "ChatBubbleActivity: onDestroy called")
+        // Note: Bubble tracking is handled in BubbleTimelineScreen's DisposableEffect
+        // which is more accurate as it tracks when the actual screen is shown/hidden
     }
     
     /**

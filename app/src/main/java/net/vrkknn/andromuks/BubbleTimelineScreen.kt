@@ -355,6 +355,20 @@ fun BubbleTimelineScreen(
     DisposableEffect(messageSoundPlayer) {
         onDispose { messageSoundPlayer.release() }
     }
+    
+    // Track bubble lifecycle for notification dismissal logic
+    DisposableEffect(roomId) {
+        BubbleTracker.onBubbleOpened(roomId)
+        // When the screen is composed, the bubble is visible
+        BubbleTracker.onBubbleVisible(roomId)
+        Log.d("Andromuks", "BubbleTimelineScreen: Tracked bubble opened and visible for room: $roomId")
+        onDispose {
+            // When the screen is disposed, the bubble is no longer visible
+            BubbleTracker.onBubbleInvisible(roomId)
+            BubbleTracker.onBubbleClosed(roomId)
+            Log.d("Andromuks", "BubbleTimelineScreen: Tracked bubble invisible and closed for room: $roomId")
+        }
+    }
     val coroutineScope = rememberCoroutineScope()
     val sharedPreferences = remember(context) {
         context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
