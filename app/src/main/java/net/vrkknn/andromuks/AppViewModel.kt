@@ -6344,22 +6344,27 @@ class AppViewModel : ViewModel() {
         // Check if we're opening from a notification (for optimized cache handling)
         val openingFromNotification = isPendingNavigationFromNotification && pendingRoomNavigation == roomId
         
+        // Check if this is a bubble context - bubbles should always load from DB if cache is insufficient
+        val isBubbleContext = BubbleTracker.isBubbleOpen(roomId)
+        
         // CRITICAL FIX: Check cache state and log what we find
         val cacheCountBefore = RoomTimelineCache.getCachedEventCount(roomId)
         val cacheMetadata = RoomTimelineCache.getLatestCachedEventMetadata(roomId)
-        android.util.Log.d("Andromuks", "AppViewModel: requestRoomTimeline for $roomId - RAM cache: $cacheCountBefore events, latest: ${cacheMetadata?.eventId}@${cacheMetadata?.timestamp}")
+        android.util.Log.d("Andromuks", "AppViewModel: requestRoomTimeline for $roomId - RAM cache: $cacheCountBefore events, latest: ${cacheMetadata?.eventId}@${cacheMetadata?.timestamp}, isBubbleContext: $isBubbleContext")
         
         // Check if we have enough cached events BEFORE clearing anything
-        // Use more lenient threshold for notification-based navigation to avoid loading spinners
-        var cachedEvents = if (openingFromNotification) {
+        // Use more lenient threshold for notification-based navigation or bubbles to avoid loading spinners
+        var cachedEvents = if (openingFromNotification || isBubbleContext) {
             // First try the standard threshold, then fall back to notification threshold
+            // For bubbles, this allows using cache if >= 10 events, otherwise we'll check DB
             RoomTimelineCache.getCachedEvents(roomId) ?: RoomTimelineCache.getCachedEventsForNotification(roomId)
         } else {
             RoomTimelineCache.getCachedEvents(roomId)
         }
         
         // A: Loading from Memory Cache
-        if (cachedEvents != null) {
+        // For bubbles, if we have insufficient cache (< 50 events), skip cache and always check DB to get full timeline
+        if (cachedEvents != null && !(isBubbleContext && cacheCountBefore < 50)) {
             android.util.Log.d("Andromuks", "AppViewModel: ✓ Using RAM cache for $roomId: ${cachedEvents.size} events")
             if (BuildConfig.DEBUG) {
                 appContext?.let { context ->
@@ -6371,8 +6376,10 @@ class AppViewModel : ViewModel() {
         }
         
         // If cache miss, try loading from database (synchronously to avoid race condition)
-        if (cachedEvents == null && appContext != null && bootstrapLoader != null) {
-            android.util.Log.d("Andromuks", "AppViewModel: Cache miss for $roomId (RAM cache had $cacheCountBefore events), checking database...")
+        // For bubbles, always check DB if we have insufficient cache (< 50 events) to ensure full timeline
+        val shouldCheckDb = cachedEvents == null || (isBubbleContext && cacheCountBefore < 50)
+        if (shouldCheckDb && appContext != null && bootstrapLoader != null) {
+            android.util.Log.d("Andromuks", "AppViewModel: Cache miss or insufficient for $roomId (RAM cache had $cacheCountBefore events, isBubbleContext: $isBubbleContext), checking database...")
             try {
                 // Use runBlocking to wait for database query (prevents race condition)
                 val dbEvents = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
