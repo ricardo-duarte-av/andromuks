@@ -161,6 +161,8 @@ class AppViewModel : ViewModel() {
         private set
     var enableCompression by mutableStateOf(true)
         private set
+    var enterKeySendsMessage by mutableStateOf(true) // true = Enter sends, Shift+Enter newline; false = Enter newline, Shift+Enter sends
+        private set
 
     var pendingShare by mutableStateOf<PendingSharePayload?>(null)
         private set
@@ -11611,6 +11613,19 @@ class AppViewModel : ViewModel() {
         restartWebSocket("Compression setting changed")
     }
     
+    fun toggleEnterKeyBehavior() {
+        enterKeySendsMessage = !enterKeySendsMessage
+        
+        // Save setting to SharedPreferences
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("enter_key_sends_message", enterKeySendsMessage)
+                .apply()
+            android.util.Log.d("Andromuks", "AppViewModel: Saved enterKeySendsMessage setting: $enterKeySendsMessage")
+        }
+    }
+    
     /**
      * Load settings from SharedPreferences
      */
@@ -11620,8 +11635,10 @@ class AppViewModel : ViewModel() {
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             showUnprocessedEvents = prefs.getBoolean("show_unprocessed_events", true) // Default to true
             enableCompression = prefs.getBoolean("enable_compression", true) // Default to true
+            enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true) // Default to true (Enter sends, Shift+Enter newline)
             android.util.Log.d("Andromuks", "AppViewModel: Loaded showUnprocessedEvents setting: $showUnprocessedEvents")
             android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
+            android.util.Log.d("Andromuks", "AppViewModel: Loaded enterKeySendsMessage setting: $enterKeySendsMessage")
         }
     }
     /**

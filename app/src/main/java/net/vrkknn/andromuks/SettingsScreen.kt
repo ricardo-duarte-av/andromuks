@@ -122,7 +122,7 @@ fun SettingsScreen(
                     )
                 }
             }
-
+            
             // FCM Information Section
             Text(
                 text = "Push Notifications",

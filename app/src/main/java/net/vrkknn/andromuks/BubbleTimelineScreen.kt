@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -1641,7 +1642,7 @@ fun BubbleTimelineScreen(
                                 // Text input field with mention support
                                 TextField(
                                     value = textFieldValue,
-                                    onValueChange = { newValue ->
+                                    onValueChange = { newValue: TextFieldValue ->
                                         textFieldValue = newValue
                                         draft = newValue.text
                                         
@@ -1657,8 +1658,8 @@ fun BubbleTimelineScreen(
                                         }
                                     },
                                     placeholder = { Text("Type a message...") },
-                                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 200.dp),
+                                    maxLines = 5,
                                     trailingIcon = {
                                         IconButton(
                                             onClick = { showEmojiPickerForText = true },
@@ -1675,7 +1676,7 @@ fun BubbleTimelineScreen(
                                         capitalization = KeyboardCapitalization.Sentences,
                                         keyboardType = KeyboardType.Text,
                                         autoCorrect = true,
-                                        imeAction = ImeAction.Send
+                                        imeAction = ImeAction.Default // Enter always creates newline, send button always sends
                                     ),
                                     keyboardActions = KeyboardActions(
                                         onSend = {
