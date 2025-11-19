@@ -971,55 +971,50 @@ fun BubbleTimelineScreen(
 
         if (!hasInitialSnapCompleted) {
             coroutineScope.launch {
-                // CRITICAL: Wait for timeline to STABILIZE - check if size hasn't changed AND update counter has changed
-                // The update counter ensures buildTimelineFromChain() has been called at least once
-                var lastSize = timelineItems.size
-                var lastUpdateCounter = appViewModel.timelineUpdateCounter
-                var stableCount = 0
-                val requiredStableChecks = 3 // Timeline must be stable for 3 checks (150ms)
+                // OPTIMIZATION: For initial load, scroll immediately when events are available
+                // Don't wait for stability - events from cache/DB are already stable
+                // Only wait a brief moment to ensure timeline has been built at least once
                 
-                // Poll until timeline size has stabilized (no changes for required checks)
-                // AND we've seen at least one timeline update (buildTimelineFromChain called)
-                for (i in 0 until 20) { // Max 1 second of polling
-                    kotlinx.coroutines.delay(50) // Check every 50ms
-                    
-                    val currentSize = timelineItems.size
+                // Quick check: wait for timeline to be built (update counter > 0) OR wait max 200ms
+                var waitCount = 0
+                val maxWaitAttempts = 4 // Max 200ms (4 * 50ms)
+                
+                while (waitCount < maxWaitAttempts) {
                     val currentUpdateCounter = appViewModel.timelineUpdateCounter
                     val stillLoading = isLoading || appViewModel.isPaginating
+                    val hasEvents = timelineItems.isNotEmpty()
                     
                     // Check if timeline has been built at least once (update counter changed from initial)
                     val timelineHasBeenBuilt = currentUpdateCounter != lastKnownTimelineUpdateCounter || currentUpdateCounter > 0
                     
+                    // If we have events, timeline is built, and not loading - scroll immediately
+                    if (hasEvents && timelineHasBeenBuilt && !stillLoading) {
+                        Log.d("Andromuks", "BubbleTimelineScreen: Timeline ready for immediate scroll (${timelineItems.size} items, updateCounter: $currentUpdateCounter) after ${waitCount * 50}ms")
+                        lastKnownTimelineUpdateCounter = currentUpdateCounter
+                        break
+                    }
+                    
+                    // If still loading, wait a bit more
                     if (stillLoading) {
-                        // Reset if loading state changed
-                        lastSize = currentSize
-                        lastUpdateCounter = currentUpdateCounter
-                        stableCount = 0
+                        kotlinx.coroutines.delay(50)
+                        waitCount++
                         continue
                     }
                     
-                    // Timeline is stable if:
-                    // 1. Size hasn't changed
-                    // 2. Update counter hasn't changed (no new buildTimelineFromChain calls)
-                    // 3. Timeline has been built at least once
-                    if (currentSize == lastSize && currentUpdateCounter == lastUpdateCounter && currentSize > 0 && timelineHasBeenBuilt) {
-                        stableCount++
-                        if (stableCount >= requiredStableChecks) {
-                            // Timeline has been stable - safe to scroll
-                            Log.d("Andromuks", "BubbleTimelineScreen: Timeline stabilized at ${currentSize} items (updateCounter: $currentUpdateCounter) after ${i * 50}ms")
-                            lastKnownTimelineUpdateCounter = currentUpdateCounter
-                            break
-                        }
-                    } else {
-                        // Size or counter changed, reset stability counter
-                        lastSize = currentSize
-                        lastUpdateCounter = currentUpdateCounter
-                        stableCount = 0
+                    // If no events yet but timeline counter changed, wait one more check
+                    if (!hasEvents && timelineHasBeenBuilt) {
+                        kotlinx.coroutines.delay(50)
+                        waitCount++
+                        continue
                     }
+                    
+                    // Otherwise, wait and check again
+                    kotlinx.coroutines.delay(50)
+                    waitCount++
                 }
                 
                 // Final check before scrolling
-                if (timelineItems.isEmpty() || isLoading || appViewModel.isPaginating) {
+                if (timelineItems.isEmpty() || (isLoading && waitCount >= maxWaitAttempts)) {
                     Log.d("Andromuks", "BubbleTimelineScreen: Timeline not ready for scroll (empty: ${timelineItems.isEmpty()}, loading: $isLoading, paginating: ${appViewModel.isPaginating})")
                     // Still mark as completed to avoid infinite loop
                     hasInitialSnapCompleted = true
@@ -1040,7 +1035,7 @@ fun BubbleTimelineScreen(
                     // CRITICAL: Enable animations AFTER initial load and scroll complete
                     // Animations should only occur for NEW messages when room is already open
                     appViewModel.enableAnimationsForRoom(roomId)
-                    Log.d("Andromuks", "BubbleTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index $targetIndex, updateCounter: ${appViewModel.timelineUpdateCounter}) - timeline stabilized, animations enabled")
+                    Log.d("Andromuks", "BubbleTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index $targetIndex, updateCounter: ${appViewModel.timelineUpdateCounter}) - immediate scroll, animations enabled")
                 } else {
                     hasInitialSnapCompleted = true
                     Log.w("Andromuks", "BubbleTimelineScreen: Invalid target index for scroll")

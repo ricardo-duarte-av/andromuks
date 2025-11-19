@@ -7020,11 +7020,8 @@ class AppViewModel : ViewModel() {
     fun navigateToRoomWithCache(roomId: String, notificationTimestamp: Long? = null) {
         updateCurrentRoomIdInPrefs(roomId)
         
-        // FRESHNESS CHECK: Using timeline_rowid comparison approach
-        // 1. Check RAM cache - if empty, load from DB
-        // 2. If RAM is older than DB, load from DB
-        // 3. If RAM cache is now NOT empty, request single latest event (limit=1) for freshness check
-        // 4. Freshness check handler compares timeline_rowids and triggers full paginate if needed
+        // CRITICAL FIX: Load from DB and hydrate RAM cache BEFORE processing events
+        // This ensures we always have the latest events from DB before rendering
         viewModelScope.launch {
             // Check RAM cache first
             val cachedMetadata = RoomTimelineCache.getLatestCachedEventMetadata(roomId)
@@ -7055,7 +7052,7 @@ class AppViewModel : ViewModel() {
                 }
             }
             
-            // Load from DB if needed
+            // Load from DB if needed and hydrate RAM cache
             if (shouldLoadFromDb) {
                 val context = appContext
                 if (context != null) {
@@ -7070,62 +7067,18 @@ class AppViewModel : ViewModel() {
                 }
             }
             
-            // Now check if RAM cache is NOT empty (either it was already populated or we just loaded from DB)
-            val finalCachedMetadata = RoomTimelineCache.getLatestCachedEventMetadata(roomId)
-            if (finalCachedMetadata != null) {
-                // Request single latest event for freshness check
-                android.util.Log.d("Andromuks", "AppViewModel: RAM cache has events for $roomId, requesting single latest event for freshness check")
-                
-                // Wait for WebSocket to be ready
-                var waitCount = 0
-                val maxWaitAttempts = 50 // Wait up to 5 seconds
-                while (!isWebSocketConnected() && waitCount < maxWaitAttempts) {
-                    kotlinx.coroutines.delay(100)
-                    waitCount++
-                }
-                
-                if (isWebSocketConnected()) {
-                    // Request single latest event (limit=1) for freshness check
-                    val freshnessCheckRequestId = requestIdCounter++
-                    freshnessCheckRequests[freshnessCheckRequestId] = roomId
-                    
-                    val result = sendWebSocketCommand("paginate", freshnessCheckRequestId, mapOf(
-                        "room_id" to roomId,
-                        "max_timeline_id" to 0,
-                        "limit" to 1,
-                        "reset" to false
-                    ))
-                    
-                    if (result == WebSocketResult.SUCCESS) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Sent freshness check request (limit=1) for $roomId")
-                    } else {
-                        android.util.Log.w("Andromuks", "AppViewModel: Failed to send freshness check request for $roomId: $result")
-                        freshnessCheckRequests.remove(freshnessCheckRequestId)
-                    }
-                } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot perform freshness check for $roomId")
-                }
-            } else {
-                android.util.Log.d("Andromuks", "AppViewModel: RAM cache still empty after DB load for $roomId, skipping freshness check")
-            }
-        }
-        
-        // Check cache first - this is the key optimization
-        val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
-        
-        // DEBUG: Let's see what's in the cache at this moment
-        
-        
-        // OPTIMIZATION #4: Use the exact same logic as requestRoomTimeline for consistency
-        if (cachedEventCount >= 10) {
-            // OPTIMIZATION #4: Use cached data immediately (same threshold as requestRoomTimeline)
-
+            // CRITICAL: Now that RAM cache is hydrated (either from existing cache or from DB),
+            // process the cached events. This ensures we always use the latest data from DB.
+            // This ensures we always use the latest data from DB
+            val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
             
+            // OPTIMIZATION #4: Use the exact same logic as requestRoomTimeline for consistency
+            if (cachedEventCount >= 10) {
+                // OPTIMIZATION #4: Use cached data immediately (same threshold as requestRoomTimeline)
                 // Get cached events using the same method as requestRoomTimeline
                 val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
-
-            
-            if (cachedEvents != null) {
+                
+                if (cachedEvents != null) {
 
                 
                 // Set loading to false immediately to prevent loading flash
@@ -7252,13 +7205,15 @@ class AppViewModel : ViewModel() {
                         backgroundPrefetchRequests.remove(paginateRequestId)
                     }
                 }
-                
-                return // Exit early - room is already rendered from cache, fresh data will update in background
+                    
+                    return@launch // Exit early - room is already rendered from cache, fresh data will update in background
+                }
             }
+            
+            // OPTIMIZATION #4: Fallback to regular requestRoomTimeline if no cache
+            // This happens if cache is empty or has < 10 events
+            requestRoomTimeline(roomId)
         }
-        
-        // OPTIMIZATION #4: Fallback to regular requestRoomTimeline if no cache
-        requestRoomTimeline(roomId)
     }
 
     private fun requestHistoricalReactions(roomId: String, smallestCached: Long) {
