@@ -91,6 +91,16 @@ class MainActivity : ComponentActivity() {
                         if (!::appViewModel.isInitialized) {
                             appViewModel = viewModel
                             appViewModel.markAsPrimaryInstance()
+                            
+                            // CRITICAL: Initialize FCM first to set appContext before loading profiles
+                            // Get homeserver URL and auth token from SharedPreferences
+                            val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                            val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                            val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                            if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                                appViewModel.initializeFCM(this, homeserverUrl, authToken)
+                            }
+                            
                             // Load cached user profiles on app startup
                             // This restores previously saved user profile data from disk
                             appViewModel.loadCachedProfiles(this)

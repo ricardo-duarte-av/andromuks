@@ -77,6 +77,14 @@ class WebSocketService : Service() {
          * This scope continues running even when the app is backgrounded
          */
         fun getServiceScope(): CoroutineScope = serviceScope
+        
+        /**
+         * Check if the WebSocketService is currently running
+         * Returns true if the service instance exists (service is running)
+         */
+        fun isServiceRunning(): Boolean {
+            return instance != null
+        }
 
         private fun shortStackTrace(): String {
             val st = Thread.currentThread().stackTrace

@@ -4316,9 +4316,20 @@ class AppViewModel : ViewModel() {
         appInvisibleJob = null
         
         if (instanceRole == InstanceRole.PRIMARY) {
-            // Only the primary instance should perform global teardown
-        WebSocketService.cancelReconnection()
-        clearWebSocket("ViewModel cleared")
+            // CRITICAL FIX: Don't clear WebSocket when Activity is swiped away
+            // The foreground service should maintain the connection independently
+            // Only clear WebSocket if we're actually shutting down (e.g., on logout)
+            // Check if service is still running - if so, don't clear the connection
+            val serviceStillRunning = WebSocketService.isServiceRunning()
+            if (serviceStillRunning) {
+                android.util.Log.d("Andromuks", "AppViewModel: Service still running - NOT clearing WebSocket (foreground service maintains connection)")
+                // Just cancel reconnection, but keep the connection alive
+                WebSocketService.cancelReconnection()
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: Service not running - clearing WebSocket (app shutdown)")
+                WebSocketService.cancelReconnection()
+                clearWebSocket("ViewModel cleared - service not running")
+            }
         } else {
             android.util.Log.d("Andromuks", "AppViewModel: Skipping global WebSocket teardown for role=$instanceRole")
         }
@@ -8689,54 +8700,68 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Loads all cached profiles from disk and populates the member cache
+     * Loads all cached profiles from database and populates the member cache
      * Also ensures current user profile is loaded if available
      */
     fun loadCachedProfiles(context: android.content.Context) {
         try {
-            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-            val allKeys = sharedPrefs.all.keys.filter { it.startsWith("profile_") }
+            // CRITICAL FIX: Ensure appContext is set before loading profiles
+            if (appContext == null) {
+                appContext = context.applicationContext
+            }
             
             // Get current user ID from SharedPreferences if not already set
+            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
             val storedUserId = sharedPrefs.getString("current_user_id", "") ?: ""
             if (currentUserId.isBlank() && storedUserId.isNotBlank()) {
                 currentUserId = storedUserId
                 android.util.Log.d("Andromuks", "AppViewModel: Restored currentUserId from SharedPreferences: $currentUserId")
             }
             
-            for (key in allKeys) {
-                val userId = key.removePrefix("profile_")
-                val profile = loadProfileFromDisk(context, userId)
-                if (profile != null) {
-                    // Add to all room member caches where this user might be present
-                    roomMemberCache.forEach { (roomId, memberMap) ->
-                        if (memberMap.containsKey(userId)) {
-                            memberMap[userId] = profile
+            // CRITICAL FIX: Load profiles from database (ProfileRepository) instead of SharedPreferences
+            // Profiles are now stored in SQLite database for better performance
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    // Initialize ProfileRepository if not already initialized
+                    if (profileRepository == null) {
+                        profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
+                    }
+                    
+                    // Load all profiles from database
+                    val allProfiles = profileRepository?.getAllProfiles() ?: emptyList()
+                    android.util.Log.d("Andromuks", "AppViewModel: Loaded ${allProfiles.size} cached profiles from database")
+                    
+                    for ((userId, profile) in allProfiles) {
+                        // Add to all room member caches where this user might be present
+                        roomMemberCache.forEach { (roomId, memberMap) ->
+                            if (memberMap.containsKey(userId)) {
+                                memberMap[userId] = profile
+                            }
+                        }
+                        
+                        // CRITICAL FIX: If this is the current user's profile, set currentUserProfile
+                        // This ensures the header in RoomListScreen displays correctly regardless of startup path
+                        if (userId == currentUserId && currentUserProfile == null) {
+                            currentUserProfile = UserProfile(
+                                userId = userId,
+                                displayName = profile.displayName,
+                                avatarUrl = profile.avatarUrl
+                            )
+                            android.util.Log.d("Andromuks", "AppViewModel: Loaded current user profile from cache - userId: $userId, displayName: ${profile.displayName}")
                         }
                     }
                     
-                    // CRITICAL FIX: If this is the current user's profile, set currentUserProfile
-                    // This ensures the header in RoomListScreen displays correctly regardless of startup path
-                    if (userId == currentUserId && currentUserProfile == null) {
-                        currentUserProfile = UserProfile(
-                            userId = userId,
-                            displayName = profile.displayName,
-                            avatarUrl = profile.avatarUrl
-                        )
-                        android.util.Log.d("Andromuks", "AppViewModel: Loaded current user profile from cache - userId: $userId, displayName: ${profile.displayName}")
+                    // If current user profile is still null but we have a currentUserId, request it
+                    if (currentUserProfile == null && currentUserId.isNotBlank()) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Current user profile not in cache, requesting from server - userId: $currentUserId")
+                        requestUserProfile(currentUserId)
                     }
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Failed to load cached profiles from database", e)
                 }
             }
-            
-            android.util.Log.d("Andromuks", "AppViewModel: Loaded ${allKeys.size} cached profiles from disk")
-            
-            // If current user profile is still null but we have a currentUserId, request it
-            if (currentUserProfile == null && currentUserId.isNotBlank()) {
-                android.util.Log.d("Andromuks", "AppViewModel: Current user profile not in cache, requesting from server - userId: $currentUserId")
-                requestUserProfile(currentUserId)
-            }
         } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to load cached profiles from disk", e)
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to load cached profiles", e)
         }
     }
     
