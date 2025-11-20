@@ -280,14 +280,16 @@ class AppViewModel : ViewModel() {
     // PERFORMANCE: Track which sections have been loaded (for lazy loading)
     private val loadedSections = mutableSetOf<RoomSectionType>()
     
-    // Cache invalidation tracking
-    private var lastAllRoomsHash: Int = 0
+    // Cache invalidation tracking - use size + content hash for reliability
+    private var lastAllRoomsSize: Int = 0
+    private var lastAllRoomsContentHash: String = ""
     
     /**
      * Invalidate room section cache when allRooms data changes
      */
     private fun invalidateRoomSectionCache() {
-        lastAllRoomsHash = 0 // Force cache recalculation on next access
+        lastAllRoomsSize = -1 // Force cache recalculation on next access
+        lastAllRoomsContentHash = ""
     }
     
     // Current selected section
@@ -1093,36 +1095,42 @@ class AppViewModel : ViewModel() {
             allRooms
         }
         
-        // Check if we need to update cache (simple hash-based invalidation)
-        val currentHash = roomsToUse.hashCode()
-        if (currentHash == lastAllRoomsHash) {
+        // BUG FIX: Use size + content hash for reliable cache invalidation
+        // Content hash is based on room IDs and key properties to detect actual changes
+        val currentSize = roomsToUse.size
+        val currentContentHash = roomsToUse.joinToString("|") { 
+            "${it.id}:${it.isDirectMessage}:${it.isFavourite}:${it.unreadCount}:${it.highlightCount}" 
+        }
+        
+        // Check if we need to update cache
+        if (currentSize == lastAllRoomsSize && currentContentHash == lastAllRoomsContentHash) {
             return // Cache is still valid
         }
         
-        lastAllRoomsHash = currentHash
+        lastAllRoomsSize = currentSize
+        lastAllRoomsContentHash = currentContentHash
         
         // PERFORMANCE: Always pre-compute badge counts (needed for tab bar badges)
         // This is fast even for large room lists (O(n) single pass)
         updateBadgeCounts(roomsToUse)
         
-        // PERFORMANCE: Only update filtered lists for sections that have been loaded
-        // This defers expensive filtering until the user actually visits the tab
-        if (loadedSections.contains(RoomSectionType.DIRECT_CHATS)) {
-            cachedDirectChatRooms = roomsToUse.filter { it.isDirectMessage }
+        // BUG FIX: Always update cached sections when allRooms changes, not just when accessed
+        // This ensures tabs show correct data even if user hasn't visited them recently
+        // The filtering is fast (O(n)) and ensures UI consistency
+        cachedDirectChatRooms = roomsToUse.filter { it.isDirectMessage }
+        cachedUnreadRooms = roomsToUse.filter { 
+            (it.unreadCount != null && it.unreadCount > 0) || 
+            (it.highlightCount != null && it.highlightCount > 0) 
         }
+        cachedFavouriteRooms = roomsToUse.filter { it.isFavourite }
         
-        if (loadedSections.contains(RoomSectionType.UNREAD)) {
-            cachedUnreadRooms = roomsToUse.filter { 
-                (it.unreadCount != null && it.unreadCount > 0) || 
-                (it.highlightCount != null && it.highlightCount > 0) 
-            }
+        android.util.Log.d("Andromuks", "AppViewModel: Updated cached sections - allRooms: ${roomsToUse.size}, DMs: ${cachedDirectChatRooms.size}, Unread: ${cachedUnreadRooms.size}, Favourites: ${cachedFavouriteRooms.size}")
+        
+        // BUG FIX: Recreate bridges when allRooms changes (bridges depend on allRooms)
+        // Only recreate if bridges section has been loaded or if bridges are currently empty
+        if (loadedSections.contains(RoomSectionType.BRIDGES) || allBridges.isEmpty()) {
+            createBridgePseudoSpaces()
         }
-        
-        if (loadedSections.contains(RoomSectionType.FAVOURITES)) {
-            cachedFavouriteRooms = roomsToUse.filter { it.isFavourite }
-        }
-        
-        android.util.Log.d("Andromuks", "AppViewModel: Updated cached sections - Loaded: $loadedSections, DMs: ${cachedDirectChatRooms.size}, Unread: ${cachedUnreadRooms.size}, Favourites: ${cachedFavouriteRooms.size}")
     }
     
     /**
@@ -1264,7 +1272,8 @@ class AppViewModel : ViewModel() {
             invalidateRoomSectionCache()
         }
         
-        // Update cached room sections if needed
+        // BUG FIX: Always update cached room sections when getCurrentRoomSection is called
+        // This ensures cache is fresh even if allRooms changed while user was on a different tab
         updateCachedRoomSections()
         
         // Get rooms from spaceList if allRooms is empty (fallback for existing data)
@@ -3878,11 +3887,10 @@ class AppViewModel : ViewModel() {
      * 3. Process bridge info progressively as responses arrive
      */
     private fun loadBridgesIfNeeded() {
-        // Only load if not already loaded
-        if (allBridges.isNotEmpty()) {
-            android.util.Log.d("Andromuks", "AppViewModel: Bridges already loaded (${allBridges.size} bridges)")
-            return
-        }
+        // BUG FIX: Always recreate bridges to ensure they're up-to-date with current allRooms
+        // The check for isEmpty() was preventing bridges from updating when allRooms changed
+        // Creating bridges is fast (O(n) where n is number of rooms with bridge info)
+        android.util.Log.d("Andromuks", "AppViewModel: Loading/refreshing bridges from ${allRooms.size} rooms")
         
         // First, try to create bridges from cached data
         createBridgePseudoSpaces()
@@ -5171,8 +5179,8 @@ class AppViewModel : ViewModel() {
                             }
                             
                             // BUG FIX #2: Force update cached room sections after all data is loaded
-                            // Reset hash to force recalculation since we're loading from DB
-                            lastAllRoomsHash = 0
+                            // Reset cache to force recalculation since we're loading from DB
+                            invalidateRoomSectionCache()
                             updateCachedRoomSections()
                             updateBadgeCounts(allRooms)
                             android.util.Log.d("Andromuks", "AppViewModel: Updated cached room sections and badge counts (allRooms.size=${allRooms.size})")
