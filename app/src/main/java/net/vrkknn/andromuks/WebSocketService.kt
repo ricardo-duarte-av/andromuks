@@ -43,15 +43,13 @@ class WebSocketService : Service() {
         private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         
         // Constants
-        private val BASE_TIMEOUT_MS = 5000L
-        private val MAX_TIMEOUT_MS = 15000L
-        private val MIN_TIMEOUT_MS = 3000L
         private val BASE_RECONNECTION_DELAY_MS = 3000L // 3 seconds - give network time to stabilize
-        private val MAX_RECONNECTION_DELAY_MS = 30000L // 30 seconds - shorter max delay
-        private val MAX_RECONNECTION_ATTEMPTS = 5 // Give up after 5 attempts - less aggressive
         private val MIN_RECONNECTION_INTERVAL_MS = 5000L // 5 seconds minimum between any reconnections
         private val MIN_NOTIFICATION_UPDATE_INTERVAL_MS = 500L // 500ms minimum between notification updates (UI smoothing)
         private const val BACKEND_HEALTH_RETRY_DELAY_MS = 5_000L
+        private const val PONG_TIMEOUT_MS = 1_000L // 1 second - "rush to healthy"
+        private const val PING_INTERVAL_MS = 15_000L // 15 seconds normal interval
+        private const val CONSECUTIVE_FAILURES_TO_DROP = 3 // Drop WebSocket after 3 consecutive ping failures
         private val TOGGLE_STACK_DEPTH = 6
         private val toggleCounter = AtomicLong(0)
         
@@ -159,15 +157,21 @@ class WebSocketService : Service() {
                 // Persistent loop - don't exit when disconnected, just skip pings
                 while (isActive) {
                     val serviceInstance = instance ?: break
-                    android.util.Log.d("WebSocketService", "Ping loop: inside while loop, getting interval")
-                    val interval = serviceInstance.getPingInterval()
-                    android.util.Log.d("WebSocketService", "Ping interval: ${interval}ms (app visible: ${serviceInstance.isAppVisible})")
-                    delay(interval)
                     
-                    android.util.Log.d("WebSocketService", "Ping loop: after delay, checking conditions")
+                    // RUSH TO HEALTHY: If we have consecutive failures, send ping immediately (don't wait)
+                    val interval = if (serviceInstance.consecutivePingTimeouts > 0) {
+                        android.util.Log.d("WebSocketService", "RUSH TO HEALTHY: Sending ping immediately after failure (consecutive: ${serviceInstance.consecutivePingTimeouts})")
+                        0L // Send immediately
+                    } else {
+                        PING_INTERVAL_MS // Normal interval
+                    }
+                    
+                    if (interval > 0) {
+                        delay(interval)
+                    }
+                    
                     // Only send ping if connected and network is available
                     if (serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.isCurrentlyConnected) {
-                        android.util.Log.d("WebSocketService", "Ping loop: conditions met, sending ping")
                         serviceInstance.sendPing()
                     } else {
                         android.util.Log.d("WebSocketService", "Ping loop: skipping ping - connected: ${serviceInstance.connectionState == ConnectionState.CONNECTED}, network: ${serviceInstance.isCurrentlyConnected}")
@@ -416,6 +420,7 @@ class WebSocketService : Service() {
         
         /**
          * Safely trigger reconnection with validation
+         * RUSH TO HEALTHY: Simplified - no exponential backoff, just validate and reconnect
          */
         fun triggerReconnectionSafely(reason: String) {
             android.util.Log.d("WebSocketService", "triggerReconnectionSafely called: $reason")
@@ -439,68 +444,13 @@ class WebSocketService : Service() {
                 return
             }
             
-            // HANDLE EXPONENTIAL BACKOFF: For network-triggered reconnections
-            val serviceInstance = instance ?: return
-            val isNetworkTriggered = reason.contains("Network restored") || 
-                                     reason.contains("Failsafe reconnection") ||
-                                     reason.contains("Backend health check failed")
-            
-            if (isNetworkTriggered) {
-                // Network-triggered reconnections should respect or reset backoff intelligently
-                val shouldResetBackoff = shouldResetBackoffForNetworkTrigger(reason, serviceInstance)
-                
-                if (shouldResetBackoff) {
-                    // Network capability validated - reset backoff for immediate reconnection
-                    android.util.Log.i("WebSocketService", "Network capability validated - resetting backoff for immediate reconnection")
-                    serviceInstance.reconnectionAttempts = 0
-                } else {
-                    // Use scheduled reconnection with current backoff state
-                    android.util.Log.i("WebSocketService", "Using scheduled reconnection with backoff: $reason")
-                    scheduleReconnection(reason)
-                    return
-                }
-            }
-            
-            try {
-                reconnectionCallback?.invoke(reason)
-            } catch (e: Exception) {
-                android.util.Log.e("WebSocketService", "Error in reconnection callback", e)
-            }
-        }
-        
-        /**
-         * Determine if backoff should be reset for network-triggered reconnection
-         * This respects exponential backoff unless network capability is validated
-         */
-        private fun shouldResetBackoffForNetworkTrigger(reason: String, serviceInstance: WebSocketService): Boolean {
-            // Check if we're already in a backoff period
-            val timeSinceLastReconnection = System.currentTimeMillis() - serviceInstance.lastReconnectionTime
-            val currentBackoffDelay = kotlin.math.min(
-                BASE_RECONNECTION_DELAY_MS * (1 shl serviceInstance.reconnectionAttempts),
-                MAX_RECONNECTION_DELAY_MS
-            )
-            
-            // If within current backoff period and network is validated, reset backoff
-            if (timeSinceLastReconnection < currentBackoffDelay) {
-                // Check if this is a high-confidence network trigger (network restored, failsafe, etc.)
-                val isHighConfidence = reason.contains("Network restored") || 
-                                      reason.contains("Failsafe reconnection")
-                
-                if (isHighConfidence) {
-                    android.util.Log.i("WebSocketService", "High-confidence network trigger during backoff - resetting backoff")
-                    return true
-                } else {
-                    android.util.Log.d("WebSocketService", "Network trigger during backoff - respecting backoff")
-                    return false
-                }
-            }
-            
-            // Outside backoff period - can reset
-            return true
+            // RUSH TO HEALTHY: Use scheduled reconnection (handles backend health check and fast retry)
+            scheduleReconnection(reason)
         }
         
         /**
          * Handle pong response
+         * RUSH TO HEALTHY: Reset failure counter on any successful pong
          */
         fun handlePong(requestId: Int) {
             val serviceInstance = instance ?: return
@@ -510,41 +460,22 @@ class WebSocketService : Service() {
                 
                 val lagMs = System.currentTimeMillis() - serviceInstance.lastPingTimestamp
                 serviceInstance.lastKnownLagMs = lagMs
-                serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime() // Update heartbeat timestamp
+                serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
                 android.util.Log.d("WebSocketService", "Pong received, lag: ${lagMs}ms")
                 
-                // Update network metrics
-                serviceInstance.updateNetworkMetrics(lagMs)
+                // RUSH TO HEALTHY: Reset consecutive failures on successful pong
+                if (serviceInstance.consecutivePingTimeouts > 0) {
+                    android.util.Log.i("WebSocketService", "Pong received - resetting consecutive failures (was: ${serviceInstance.consecutivePingTimeouts})")
+                }
+                serviceInstance.consecutivePingTimeouts = 0
                 
                 // Update notification with lag and last sync timestamp
                 updateConnectionStatus(true, lagMs, serviceInstance.lastSyncTimestamp)
-                
-                // Reset consecutive timeouts since we got a pong
-                serviceInstance.consecutiveTimeouts = 0
-                serviceInstance.consecutivePingTimeouts = 0
-                
-                // Update ping interval to reflect improved connection quality
-                serviceInstance.updatePingInterval()
-                
-                // Update connection state to reflect improved quality
-                serviceInstance.updateConnectionStateBasedOnQuality()
             }
         }
         
         
-        /**
-         * Calculate smart timeout based on network conditions
-         */
-        private fun calculateSmartTimeout(): Long {
-            val serviceInstance = instance ?: return BASE_TIMEOUT_MS
-            val baseTimeout = BASE_TIMEOUT_MS
-            val latencyAdjustment = (serviceInstance.networkLatencyMs * 1.5).toLong().coerceAtMost(5000L)
-            val stabilityAdjustment = ((1.0f - serviceInstance.connectionStability) * 5000f).toLong()
-            val consecutiveTimeoutAdjustment = serviceInstance.consecutiveTimeouts * 2000L
-            
-            val smartTimeout = baseTimeout + latencyAdjustment + stabilityAdjustment + consecutiveTimeoutAdjustment
-            return smartTimeout.coerceIn(MIN_TIMEOUT_MS, MAX_TIMEOUT_MS)
-        }
+        // RUSH TO HEALTHY: Removed smart timeout calculation - fixed 1 second timeout
         
         /**
          * Trigger WebSocket reconnection
@@ -711,6 +642,7 @@ class WebSocketService : Service() {
         
         /**
          * Detect and recover from state corruption
+         * SIMPLIFIED: Only essential checks - ping/pong handles connection health
          */
         fun detectAndRecoverStateCorruption(): Boolean {
             val serviceInstance = instance ?: return false
@@ -718,7 +650,7 @@ class WebSocketService : Service() {
             
             android.util.Log.d("WebSocketService", "Running state corruption detection...")
             
-            // 1. Check for stuck reconnecting state
+            // 1. Check for stuck reconnecting state (>60s)
             if (serviceInstance.isReconnecting && 
                 serviceInstance.connectionState == ConnectionState.RECONNECTING &&
                 System.currentTimeMillis() - serviceInstance.lastReconnectionTime > 60_000) {
@@ -728,7 +660,7 @@ class WebSocketService : Service() {
                 corruptionDetected = true
             }
             
-            // 2. Check for inconsistent connection state
+            // 2. Check for inconsistent connection state (WebSocket vs state mismatch)
             val hasWebSocket = serviceInstance.webSocket != null
             val isConnected = serviceInstance.connectionState == ConnectionState.CONNECTED
             
@@ -742,41 +674,17 @@ class WebSocketService : Service() {
                 corruptionDetected = true
             }
             
-            // 3. Ping job behavior (CORRECT - no corruption detection needed)
-            // The ping job should run continuously even when disconnected
-            // It only attempts to send pings when connectionState == CONNECTED && isCurrentlyConnected == true
-            // This allows immediate pinging when connection is restored
-            // No corruption detection needed here - this is the correct behavior
-            
-            // 4. Check for stuck pong timeout (should only be active when waiting for pong response)
-            // Pong timeout should only be active when we've sent a ping and are waiting for response
-            // If it's active but we're not connected, it's likely a stuck timeout
+            // 3. Check for stuck pong timeout (should only be active when connected and waiting for pong)
             if (serviceInstance.pongTimeoutJob?.isActive == true && 
-                serviceInstance.connectionState != ConnectionState.CONNECTED &&
-                serviceInstance.connectionState != ConnectionState.DEGRADED) {
+                serviceInstance.connectionState != ConnectionState.CONNECTED) {
                 android.util.Log.w("WebSocketService", "CORRUPTION: Pong timeout running but not connected - stopping timeout")
                 serviceInstance.pongTimeoutJob?.cancel()
                 serviceInstance.pongTimeoutJob = null
                 corruptionDetected = true
             }
             
-            // 5. Check for excessive consecutive timeouts
-            if (serviceInstance.consecutivePingTimeouts > 10) {
-                android.util.Log.w("WebSocketService", "CORRUPTION: Excessive consecutive timeouts (${serviceInstance.consecutivePingTimeouts}) - resetting")
-                serviceInstance.consecutivePingTimeouts = 0
-                corruptionDetected = true
-            }
-            
-            // 6. Check for invalid reconnection attempts counter
-            if (serviceInstance.reconnectionAttempts > 100) {
-                android.util.Log.w("WebSocketService", "CORRUPTION: Excessive reconnection attempts (${serviceInstance.reconnectionAttempts}) - resetting")
-                serviceInstance.reconnectionAttempts = 0
-                corruptionDetected = true
-            }
-            
             if (corruptionDetected) {
                 android.util.Log.i("WebSocketService", "State corruption detected and recovered")
-                // Update notification to reflect corrected state
                 serviceInstance.updateConnectionStatus(serviceInstance.connectionState == ConnectionState.CONNECTED)
             } else {
                 android.util.Log.d("WebSocketService", "No state corruption detected")
@@ -803,7 +711,6 @@ class WebSocketService : Service() {
             serviceInstance.isCurrentlyConnected = false
             serviceInstance.connectionState = ConnectionState.DISCONNECTED
             serviceInstance.consecutivePingTimeouts = 0
-            serviceInstance.reconnectionAttempts = 0
             serviceInstance.lastReconnectionTime = 0
             
             // Clear WebSocket
@@ -833,43 +740,34 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Set reconnection state (run_id, last_received_event, vapid_key)
+         * Set reconnection state (last_received_event only)
+         * run_id is always read from SharedPreferences - not tracked in service state
+         * vapid_key is not used (we use FCM)
          */
-        fun setReconnectionState(runId: String, lastReceivedId: Int, vapidKey: String) {
+        fun setReconnectionState(lastReceivedId: Int) {
             val serviceInstance = instance ?: return
-            
-            serviceInstance.currentRunId = runId
             serviceInstance.lastReceivedSyncId = lastReceivedId
-            serviceInstance.vapidKey = vapidKey
-            
-            // Persist run_id and vapid_key so they survive app restarts (last_received_sync_id is kept in-memory only)
-            try {
-                val context = serviceInstance.applicationContext
-                val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-                prefs.edit()
-                    .putString("ws_run_id", runId)
-                    .putString("ws_vapid_key", vapidKey)
-                    .apply()
-                android.util.Log.d("WebSocketService", "Reconnection run_id persisted to SharedPreferences (last_received_sync_id kept in memory only)")
-            } catch (e: Exception) {
-                android.util.Log.e("WebSocketService", "Failed to persist reconnection state", e)
-            }
+            android.util.Log.d("WebSocketService", "Updated last_received_sync_id: $lastReceivedId (run_id read from SharedPreferences)")
         }
         
         /**
-         * Get current run_id for reconnection
+         * Get run_id from SharedPreferences (always use stored value)
          */
-        fun getCurrentRunId(): String = instance?.currentRunId ?: ""
+        fun getCurrentRunId(): String {
+            val serviceInstance = instance ?: return ""
+            return try {
+                val prefs = serviceInstance.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                prefs.getString("ws_run_id", "") ?: ""
+            } catch (e: Exception) {
+                android.util.Log.e("WebSocketService", "Failed to read run_id from SharedPreferences", e)
+                ""
+            }
+        }
         
         /**
          * Get last received sync ID for reconnection
          */
         fun getLastReceivedSyncId(): Int = instance?.lastReceivedSyncId ?: 0
-        
-        /**
-         * Get VAPID key for push notifications
-         */
-        fun getVapidKey(): String = instance?.vapidKey ?: ""
         
         /**
          * Update last received sync ID
@@ -913,26 +811,26 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Clear reconnection state
+         * Clear reconnection state (only last_received_sync_id - run_id stays in SharedPreferences)
          */
         fun clearReconnectionState() {
             val serviceInstance = instance ?: return
-            serviceInstance.currentRunId = ""
             serviceInstance.lastReceivedSyncId = 0
             serviceInstance.hasPersistedSync = false
-            serviceInstance.vapidKey = ""
-            android.util.Log.d("WebSocketService", "Cleared reconnection state")
+            android.util.Log.d("WebSocketService", "Cleared reconnection state (last_received_sync_id reset, run_id preserved in SharedPreferences)")
         }
         
         /**
          * Get reconnection parameters for WebSocket URL construction
+         * Returns: (runId from SharedPreferences, lastReceivedSyncId, isReconnecting)
          */
-        fun getReconnectionParameters(): Triple<String, Int, String> {
-            val serviceInstance = instance ?: return Triple("", 0, "")
-            android.util.Log.d("WebSocketService", "getReconnectionParameters: currentRunId='${serviceInstance.currentRunId}', lastReceivedSyncId=${serviceInstance.lastReceivedSyncId}, vapidKey='${serviceInstance.vapidKey.take(20)}...'")
-            android.util.Log.d("WebSocketService", "DEBUG - currentRunId type: ${serviceInstance.currentRunId.javaClass.simpleName}, length: ${serviceInstance.currentRunId.length}")
-            android.util.Log.d("WebSocketService", "DEBUG - currentRunId starts with '{': ${serviceInstance.currentRunId.startsWith("{")}")
-            return Triple(serviceInstance.currentRunId, serviceInstance.lastReceivedSyncId, serviceInstance.vapidKey)
+        fun getReconnectionParameters(): Triple<String, Int, Boolean> {
+            val serviceInstance = instance ?: return Triple("", 0, false)
+            val runId = getCurrentRunId() // Always read from SharedPreferences
+            val lastReceivedId = serviceInstance.lastReceivedSyncId
+            val isReconnecting = lastReceivedId > 0 // If we have lastReceivedId, we're reconnecting
+            android.util.Log.d("WebSocketService", "getReconnectionParameters: runId='$runId' (from SharedPreferences), lastReceivedSyncId=$lastReceivedId, isReconnecting=$isReconnecting")
+            return Triple(runId, lastReceivedId, isReconnecting)
         }
         
         /**
@@ -940,7 +838,6 @@ class WebSocketService : Service() {
          */
         fun resetReconnectionState() {
             val serviceInstance = instance ?: return
-            serviceInstance.reconnectionAttempts = 0
             serviceInstance.reconnectionJob?.cancel()
             serviceInstance.reconnectionJob = null
             serviceInstance.isReconnecting = false
@@ -949,64 +846,61 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Schedule WebSocket reconnection with exponential backoff and network validation
+         * Schedule WebSocket reconnection with backend health check
+         * RUSH TO HEALTHY: Fast retry with backend health check, no exponential backoff
          */
         fun scheduleReconnection(reason: String) {
             val serviceInstance = instance ?: return
             
             // ATOMIC GUARD: Use synchronized lock to prevent parallel reconnection attempts
             synchronized(serviceInstance.reconnectionLock) {
-            val currentTime = System.currentTimeMillis()
-            
+                val currentTime = System.currentTimeMillis()
+                
                 // Check if already reconnecting - if so, drop redundant request
                 if (serviceInstance.connectionState == ConnectionState.RECONNECTING || serviceInstance.isReconnecting) {
                     android.util.Log.d("WebSocketService", "Already reconnecting, dropping redundant request: $reason")
-                    return  // Drop redundant request
+                    return
                 }
                 
                 // Set reconnecting flag atomically
                 serviceInstance.isReconnecting = true
-            
-            // Check minimum interval between reconnections
-                if (currentTime - serviceInstance.lastReconnectionTime < MIN_RECONNECTION_INTERVAL_MS) {
-                android.util.Log.d("WebSocketService", "Too soon since last reconnection, ignoring: $reason")
-                    serviceInstance.isReconnecting = false  // Reset flag
-                return
-            }
-            
-            // Cancel any existing reconnection job
-                serviceInstance.reconnectionJob?.cancel()
                 
-                // Reset attempts counter if we exceeded max attempts (never give up!)
-                if (serviceInstance.reconnectionAttempts >= MAX_RECONNECTION_ATTEMPTS) {
-                    android.util.Log.w("WebSocketService", "Max reconnection attempts reached, resetting and continuing")
-                    serviceInstance.reconnectionAttempts = 0
+                // Check minimum interval between reconnections (prevent rapid-fire reconnections)
+                if (currentTime - serviceInstance.lastReconnectionTime < MIN_RECONNECTION_INTERVAL_MS) {
+                    android.util.Log.d("WebSocketService", "Too soon since last reconnection, ignoring: $reason")
+                    serviceInstance.isReconnecting = false
+                    return
                 }
                 
-                // Calculate delay with exponential backoff
-            val delay = kotlin.math.min(
-                    BASE_RECONNECTION_DELAY_MS * (1 shl serviceInstance.reconnectionAttempts),
-                MAX_RECONNECTION_DELAY_MS
-            )
-            
-                serviceInstance.reconnectionAttempts++
+                // Cancel any existing reconnection job
+                serviceInstance.reconnectionJob?.cancel()
+                
                 serviceInstance.connectionState = ConnectionState.RECONNECTING
                 serviceInstance.lastReconnectionTime = currentTime
                 
-                android.util.Log.w("WebSocketService", "Scheduling reconnection attempt #${serviceInstance.reconnectionAttempts} in ${delay}ms")
-            android.util.Log.w("WebSocketService", "Reason: $reason")
-            
-                serviceInstance.reconnectionJob = serviceScope.launch {
-                delay(delay)
+                android.util.Log.w("WebSocketService", "Scheduling reconnection: $reason")
                 
+                serviceInstance.reconnectionJob = serviceScope.launch {
+                    // RUSH TO HEALTHY: Check backend health first, then reconnect
+                    val backendHealthy = serviceInstance.checkBackendHealth()
+                    
+                    if (backendHealthy) {
+                        // Backend healthy - reconnect immediately with short delay
+                        delay(BASE_RECONNECTION_DELAY_MS)
+                    } else {
+                        // Backend unhealthy - wait longer before retry
+                        android.util.Log.w("WebSocketService", "Backend unhealthy - waiting ${BACKEND_HEALTH_RETRY_DELAY_MS}ms before retry")
+                        delay(BACKEND_HEALTH_RETRY_DELAY_MS)
+                    }
+                    
                     // Reset reconnecting flag when job completes
                     synchronized(serviceInstance.reconnectionLock) {
                         serviceInstance.isReconnecting = false
                     }
                     
                     if (isActive) {
-                        android.util.Log.d("WebSocketService", "Executing reconnection attempt #${serviceInstance.reconnectionAttempts}")
-                        reconnectionCallback?.invoke("Reconnection attempt #${serviceInstance.reconnectionAttempts}: $reason")
+                        android.util.Log.d("WebSocketService", "Executing reconnection: $reason")
+                        reconnectionCallback?.invoke(reason)
                     } else {
                         serviceInstance.connectionState = ConnectionState.DISCONNECTED
                     }
@@ -1092,10 +986,7 @@ class WebSocketService : Service() {
     private var lastNotificationText: String? = null
     private var lastNotificationUpdateTime: Long = 0
     
-    // Network optimization variables
-    private var networkLatencyMs = 1000L
-    private var connectionStability = 1.0f
-    private var consecutiveTimeouts = 0
+    // RUSH TO HEALTHY: Removed network optimization variables - ping/pong is the authority
     
     private var stateCorruptionJob: Job? = null // State corruption monitoring
     private var isCurrentlyConnected = false
@@ -1109,17 +1000,16 @@ class WebSocketService : Service() {
     private var hasPersistedSync = false
     
         // Reconnection state management
-        private var currentRunId: String = ""
+        // run_id is always read from SharedPreferences - not stored in service state
+        // vapid_key is not used (we use FCM)
         private var lastReceivedSyncId: Int = 0
-        private var vapidKey: String = ""
     
     // Connection health tracking
     private var lastSyncTimestamp: Long = 0
     private var lastKnownLagMs: Long? = null
     private var consecutivePingTimeouts: Int = 0 // Track consecutive ping timeouts for network quality detection
     
-    // Reconnection logic state
-    private var reconnectionAttempts = 0
+    // Reconnection logic state (simplified - no exponential backoff)
     private var reconnectionJob: Job? = null
     
     private var isReconnecting = false // Prevent multiple simultaneous reconnections
@@ -1132,84 +1022,8 @@ class WebSocketService : Service() {
     private var pingLoopStarted = false // Track if ping loop has been started after first sync_complete
     private var hasEverReachedReadyState = false // Track if we have ever received sync_complete on this run
     
-    /**
-     * Get adaptive ping interval based on connection quality and app visibility
-     */
-    private fun getPingInterval(): Long {
-        // Base interval is 15s for good connection quality
-        val baseInterval = 15_000L
-        
-        // Adaptive intervals based on connection quality
-        val adaptiveInterval = when {
-            consecutivePingTimeouts >= 5 -> {
-                // Poor network quality - use longer intervals to reduce battery drain
-                // and avoid overwhelming a struggling connection
-                android.util.Log.d("WebSocketService", "Poor network quality - using 60s ping interval")
-                60_000L
-            }
-            consecutivePingTimeouts >= 3 -> {
-                // Degrading network quality - use medium intervals
-                android.util.Log.d("WebSocketService", "Network quality degrading - using 30s ping interval")
-                30_000L
-            }
-            consecutivePingTimeouts >= 1 -> {
-                // Some timeouts but not critical - use slightly longer intervals
-                android.util.Log.d("WebSocketService", "Minor network issues - using 20s ping interval")
-                20_000L
-            }
-            else -> {
-                // Good connection quality - use base interval
-                baseInterval
-            }
-        }
-        
-        // App visibility factor (optional - can be enabled if needed)
-        val visibilityFactor = if (isAppVisible) 1.0 else 1.0 // Keep same for both visible and background
-        
-        return (adaptiveInterval * visibilityFactor).toLong()
-    }
-    
-    /**
-     * Update ping interval based on current connection quality
-     * This is called when connection quality changes significantly
-     */
-    private fun updatePingInterval() {
-        val newInterval = getPingInterval()
-        android.util.Log.d("WebSocketService", "Updating ping interval to ${newInterval}ms (consecutive timeouts: $consecutivePingTimeouts)")
-        
-        // The ping loop will use the new interval on the next iteration
-        // No need to restart the loop, just log the change
-    }
-    
-    /**
-     * Update connection state based on quality metrics
-     */
-    private fun updateConnectionStateBasedOnQuality() {
-        val newState = when {
-            consecutivePingTimeouts >= 5 -> {
-                android.util.Log.w("WebSocketService", "Connection quality poor - transitioning to DEGRADED state")
-                ConnectionState.DEGRADED
-            }
-            consecutivePingTimeouts >= 3 -> {
-                android.util.Log.w("WebSocketService", "Connection quality degrading - transitioning to DEGRADED state")
-                ConnectionState.DEGRADED
-            }
-            consecutivePingTimeouts == 0 && connectionState == ConnectionState.DEGRADED -> {
-                android.util.Log.i("WebSocketService", "Connection quality improved - transitioning to CONNECTED state")
-                ConnectionState.CONNECTED
-            }
-            else -> connectionState // Keep current state
-        }
-        
-        if (newState != connectionState) {
-            val oldState = connectionState
-            connectionState = newState
-            android.util.Log.i("WebSocketService", "Connection state changed: $oldState -> $newState")
-            
-            // Update notification to reflect new state
-            updateConnectionStatus(connectionState == ConnectionState.CONNECTED || connectionState == ConnectionState.DEGRADED)
-        }
-    }
+    // RUSH TO HEALTHY: Fixed ping interval - no adaptive logic needed
+    // Ping/pong failures are handled by immediate retry and dropping after 3 failures
     
     /**
      * Check backend health by making a simple HTTP GET request
@@ -1302,25 +1116,8 @@ class WebSocketService : Service() {
                     return@launch
                 }
                 
-                // Get reconnection parameters from service state, fallback to SharedPreferences
-                var (runId, lastReceivedId, vapidKey) = WebSocketService.getReconnectionParameters()
-                
-                // RESILIENCE: If service state is empty, try reading from SharedPreferences
-                // This handles the case where service was restarted and lost in-memory state
-                if (runId.isEmpty()) {
-                    android.util.Log.d("WebSocketService", "Service state empty, reading from SharedPreferences")
-                    val savedRunId = sharedPrefs.getString("ws_run_id", "") ?: ""
-                    val savedVapidKey = sharedPrefs.getString("ws_vapid_key", "") ?: ""
-                    
-                    if (savedRunId.isNotEmpty()) {
-                        runId = savedRunId
-                        vapidKey = savedVapidKey
-                        android.util.Log.d("WebSocketService", "Restored run_id from SharedPreferences: runId='$runId'")
-                        
-                        // Update service state with restored values
-                        WebSocketService.setReconnectionState(runId, lastReceivedId, vapidKey)
-                    }
-                }
+                // Get reconnection parameters (run_id always from SharedPreferences)
+                val (runId, lastReceivedId, isReconnecting) = WebSocketService.getReconnectionParameters()
                 
                 // Create OkHttpClient
                 val client = okhttp3.OkHttpClient.Builder()
@@ -1352,10 +1149,12 @@ class WebSocketService : Service() {
                 val queryParams = mutableListOf<String>()
                 if (actualRunId.isNotEmpty()) {
                     queryParams.add("run_id=$actualRunId")
-                    if (serviceInstance.shouldIncludeLastReceivedForReconnect() && lastReceivedId != 0) {
+                    // If reconnecting (have lastReceivedId), include it in URL
+                    if (isReconnecting && lastReceivedId != 0) {
                         queryParams.add("last_received_event=$lastReceivedId")
-                    } else if (lastReceivedId != 0) {
-                        android.util.Log.d("WebSocketService", "Fallback reconnection: last_received_event omitted (hasPersistedSync=${serviceInstance.hasPersistedSync})")
+                        android.util.Log.d("WebSocketService", "Fallback reconnection: including last_received_event=$lastReceivedId")
+                    } else {
+                        android.util.Log.d("WebSocketService", "Fallback reconnection: first connection (no last_received_event)")
                     }
                 }
                 if (compressionEnabled) {
@@ -1531,112 +1330,65 @@ class WebSocketService : Service() {
     
     /**
      * Start pong timeout for a ping
+     * RUSH TO HEALTHY: 1 second timeout, immediate retry on failure, drop after 3 consecutive failures
      */
     private fun startPongTimeout(pingRequestId: Int) {
         pongTimeoutJob?.cancel()
         pongTimeoutJob = WebSocketService.serviceScope.launch {
-            // Use fixed timeout: 10-15 seconds as recommended
-            val timeoutMs = 12_000L // 12 seconds - between 10-15s as recommended
-            delay(timeoutMs)
+            delay(PONG_TIMEOUT_MS) // 1 second timeout
             
-            // Check if we're still connected before triggering reconnection
+            // Check if we're still connected before processing timeout
             if (connectionState != ConnectionState.CONNECTED || !isCurrentlyConnected) {
-                android.util.Log.d("WebSocketService", "Pong timeout but connection already inactive - not triggering reconnection")
-                android.util.Log.d("WebSocketService", "Skipping timeout tracking - connection inactive during ping timeout")
+                android.util.Log.d("WebSocketService", "Pong timeout but connection already inactive - ignoring")
                 return@launch
             }
             
-            android.util.Log.w("WebSocketService", "Pong timeout for ping $pingRequestId (timeout: ${timeoutMs}ms)")
+            android.util.Log.w("WebSocketService", "Pong timeout for ping $pingRequestId (${PONG_TIMEOUT_MS}ms)")
             
-            // Update timeout tracking only if we're still connected and have network
-            // This prevents false timeout tracking when network drops during ping
-            consecutiveTimeouts++
+            // Increment consecutive failure counter
             consecutivePingTimeouts++
-            updateConnectionStability(false)
+            android.util.Log.w("WebSocketService", "Consecutive ping failures: $consecutivePingTimeouts")
             
-            // Network quality detection based on consecutive timeouts
-            when {
-                consecutivePingTimeouts >= 5 -> {
-                    android.util.Log.w("WebSocketService", "Poor network quality detected - 5+ consecutive timeouts")
-                    // Consider this a degraded connection
-                    updatePingInterval() // Update to longer intervals
-                    updateConnectionStateBasedOnQuality() // Update connection state
-                }
-                consecutivePingTimeouts >= 3 -> {
-                    android.util.Log.w("WebSocketService", "Network quality degrading - 3+ consecutive timeouts")
-                    updatePingInterval() // Update to medium intervals
-                    updateConnectionStateBasedOnQuality() // Update connection state
-                }
-                consecutivePingTimeouts >= 1 -> {
-                    android.util.Log.d("WebSocketService", "Minor network issues - 1+ consecutive timeouts")
-                    updatePingInterval() // Update to slightly longer intervals
-                    updateConnectionStateBasedOnQuality() // Update connection state
-                }
-            }
-            
-            // Evaluate backend health before deciding how to recover
-            val backendHealthy = checkBackendHealth()
-            WebSocketService.setReconnectionState(currentRunId, lastReceivedSyncId, vapidKey)
-
-            if (backendHealthy) {
-                android.util.Log.w("WebSocketService", "Ping timeout with healthy backend - restarting WebSocket immediately")
+            // RUSH TO HEALTHY: If 3 consecutive failures, drop WebSocket and reconnect
+            if (consecutivePingTimeouts >= CONSECUTIVE_FAILURES_TO_DROP) {
+                android.util.Log.e("WebSocketService", "3 consecutive ping failures - dropping WebSocket and reconnecting")
                 consecutivePingTimeouts = 0
-                consecutiveTimeouts = 0
-                restartWebSocket("Ping timeout - backend healthy")
-                return@launch
-            }
-
-            android.util.Log.w("WebSocketService", "Backend unhealthy after ping timeout - tearing down WebSocket and waiting for recovery")
-            clearWebSocket("Backend unhealthy after ping timeout")
-            consecutivePingTimeouts = 0
-            consecutiveTimeouts = 0
-
-            while (isActive) {
-                android.util.Log.d("WebSocketService", "Backend still unhealthy - retrying health check in ${BACKEND_HEALTH_RETRY_DELAY_MS}ms")
-                delay(BACKEND_HEALTH_RETRY_DELAY_MS)
-                if (!isActive) {
-                    return@launch
+                
+                // Check backend health
+                val backendHealthy = checkBackendHealth()
+                
+                if (backendHealthy) {
+                    // Backend is healthy - reconnect immediately
+                    android.util.Log.i("WebSocketService", "Backend healthy - triggering immediate reconnection")
+                    clearWebSocket("3 consecutive ping failures - backend healthy")
+                    reconnectionCallback?.invoke("3 consecutive ping failures - backend healthy")
+                } else {
+                    // Backend unhealthy - wait for recovery
+                    android.util.Log.w("WebSocketService", "Backend unhealthy - waiting for recovery")
+                    clearWebSocket("3 consecutive ping failures - backend unhealthy")
+                    
+                    // Poll backend health and reconnect when healthy
+                    while (isActive) {
+                        delay(BACKEND_HEALTH_RETRY_DELAY_MS)
+                        if (!isActive) return@launch
+                        
+                        val recovered = checkBackendHealth()
+                        if (recovered) {
+                            android.util.Log.i("WebSocketService", "Backend healthy again - triggering reconnection")
+                            reconnectionCallback?.invoke("Backend recovered after ping failures")
+                            return@launch
+                        }
+                    }
                 }
-
-                val recovered = checkBackendHealth()
-                if (recovered) {
-                    android.util.Log.i("WebSocketService", "Backend healthy again - restarting WebSocket with stored state")
-                    WebSocketService.setReconnectionState(currentRunId, lastReceivedSyncId, vapidKey)
-                    restartWebSocket("Backend recovered after ping timeout")
-                    return@launch
-                }
+            } else {
+                // RUSH TO HEALTHY: Send next ping immediately (don't wait for normal interval)
+                android.util.Log.d("WebSocketService", "Ping failure #$consecutivePingTimeouts - sending next ping immediately")
+                // The ping loop will send immediately when it sees we're still connected
             }
         }
     }
     
-    /**
-     * Update network metrics based on ping/pong data
-     */
-    private fun updateNetworkMetrics(lagMs: Long) {
-        networkLatencyMs = ((networkLatencyMs * 0.7) + (lagMs * 0.3)).toLong()
-        
-        val lagDeviation = kotlin.math.abs(lagMs - networkLatencyMs)
-        val stabilityFactor = when {
-            lagDeviation < 200 -> 0.1f
-            lagDeviation < 500 -> 0.05f
-            lagDeviation < 1000 -> 0.02f
-            else -> 0.01f
-        }
-        
-        connectionStability = (connectionStability * 0.9f + stabilityFactor).coerceIn(0.0f, 1.0f)
-    }
-    
-    /**
-     * Update connection stability
-     */
-    private fun updateConnectionStability(stable: Boolean) {
-        if (stable) {
-            consecutiveTimeouts = 0
-            connectionStability = (connectionStability * 0.9f + 0.1f).coerceIn(0.0f, 1.0f)
-        } else {
-            connectionStability = (connectionStability * 0.8f).coerceAtLeast(0.1f)
-        }
-        }
+    // RUSH TO HEALTHY: Removed network metrics - ping/pong failures are the only metric we need
         
 
     
@@ -1696,22 +1448,11 @@ class WebSocketService : Service() {
         createNotificationChannel()
         Log.d("WebSocketService", "Service created")
         
-        // Restore run_id from SharedPreferences on service startup
-        try {
-            val prefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-            val savedRunId = prefs.getString("ws_run_id", "") ?: ""
-            val savedVapidKey = prefs.getString("ws_vapid_key", "") ?: ""
-            
-            if (savedRunId.isNotEmpty()) {
-                currentRunId = savedRunId
-                vapidKey = savedVapidKey
-                lastReceivedSyncId = 0
-                hasPersistedSync = false
-                android.util.Log.d("WebSocketService", "Restored run_id from SharedPreferences on service startup: runId='$savedRunId'")
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("WebSocketService", "Failed to restore reconnection parameters on startup", e)
-        }
+        // run_id is always read from SharedPreferences when needed - no need to restore on startup
+        // Reset last_received_sync_id on service startup (will be set when sync_complete arrives)
+        lastReceivedSyncId = 0
+        hasPersistedSync = false
+        android.util.Log.d("WebSocketService", "Service startup - last_received_sync_id reset (run_id will be read from SharedPreferences when needed)")
         
         // Start state corruption monitoring immediately when service is created
         android.util.Log.d("WebSocketService", "Starting service state monitoring from onCreate")

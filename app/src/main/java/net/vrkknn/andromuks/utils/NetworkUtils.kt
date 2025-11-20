@@ -241,10 +241,12 @@ fun connectToWebsocket(
 
     val webSocketUrl = trimWebsocketHost(url)
     
-    // Build WebSocket URL with reconnection parameters if available
-    // Get reconnection parameters from AppViewModel (service may not be started yet)
-    val (runId, lastReceivedId, vapidKey) = Triple(appViewModel.getCurrentRunId(), appViewModel.getLastReceivedId(), "")
-    
+    // RUSH TO HEALTHY: Build WebSocket URL with reconnection parameters
+    // run_id is always read from SharedPreferences (via AppViewModel.getCurrentRunId())
+    // last_received_event is only included when reconnecting (lastReceivedId > 0)
+    val runId = appViewModel.getCurrentRunId() // Always from SharedPreferences
+    val lastReceivedId = appViewModel.getLastReceivedId()
+    val isReconnecting = lastReceivedId > 0 // If we have lastReceivedId, we're reconnecting
     
     // TEMPORARY FIX: If runId is JSON-encoded, extract the actual run_id
     val actualRunId = if (runId.startsWith("{")) {
@@ -263,7 +265,6 @@ fun connectToWebsocket(
     
     // Check if compression is enabled
     val compressionEnabled = appViewModel.enableCompression
-    val shouldIncludeLastId = appViewModel.shouldIncludeLastReceivedId()
     
     // Initialize streaming decompressor if compression is enabled
     if (compressionEnabled) {
@@ -274,11 +275,15 @@ fun connectToWebsocket(
     val queryParams = mutableListOf<String>()
     if (actualRunId.isNotEmpty()) {
         queryParams.add("run_id=$actualRunId")
-        if (shouldIncludeLastId && lastReceivedId != 0) {
+        // RUSH TO HEALTHY: Only include last_received_event when reconnecting
+        if (isReconnecting) {
             queryParams.add("last_received_event=$lastReceivedId")
-        } else if (!shouldIncludeLastId && lastReceivedId != 0) {
-            Log.d("NetworkUtils", "Skipping last_received_event (cold start or unsynced) despite stored value=$lastReceivedId")
+            Log.d("NetworkUtils", "Reconnecting with run_id: $actualRunId, last_received_event: $lastReceivedId, compression: $compressionEnabled")
+        } else {
+            Log.d("NetworkUtils", "First connection with run_id: $actualRunId (no last_received_event), compression: $compressionEnabled")
         }
+    } else {
+        Log.d("NetworkUtils", "First connection to websocket (no run_id yet), compression: $compressionEnabled")
     }
     if (compressionEnabled) {
         queryParams.add("compress=1")
@@ -288,15 +293,6 @@ fun connectToWebsocket(
         webSocketUrl
     } else {
         "$webSocketUrl?${queryParams.joinToString("&")}"
-    }
-    
-    when {
-        actualRunId.isNotEmpty() && shouldIncludeLastId && lastReceivedId != 0 ->
-            Log.d("NetworkUtils", "Reconnecting with run_id: $actualRunId, last_received_event: $lastReceivedId, compression: $compressionEnabled")
-        actualRunId.isNotEmpty() ->
-            Log.d("NetworkUtils", "Connecting with run_id: $actualRunId (no last_received_event), compression: $compressionEnabled")
-        else ->
-            Log.d("NetworkUtils", "First connection to websocket, compression: $compressionEnabled")
     }
     Log.d("NetworkUtils", "DEBUG: Final URL: $finalWebSocketUrl")
 

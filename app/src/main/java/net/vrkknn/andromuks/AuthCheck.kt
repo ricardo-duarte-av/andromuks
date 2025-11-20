@@ -149,12 +149,11 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             }
             Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
             
-            // Set reconnection parameters in service BEFORE starting service
-            val runId = appViewModel.getCurrentRunId()
+            // Set reconnection parameters in service BEFORE starting service (run_id is in SharedPreferences)
             val lastReceivedId = appViewModel.getLastReceivedId()
-            if (runId.isNotEmpty() && lastReceivedId != 0) {
-                android.util.Log.d("Andromuks", "AuthCheckScreen: Setting reconnection parameters in service - runId: $runId, lastReceivedId: $lastReceivedId")
-                WebSocketService.setReconnectionState(runId, lastReceivedId, "")
+            if (lastReceivedId != 0) {
+                android.util.Log.d("Andromuks", "AuthCheckScreen: Setting reconnection parameters in service - lastReceivedId: $lastReceivedId (run_id from SharedPreferences)")
+                WebSocketService.setReconnectionState(lastReceivedId)
             }
             
             // Start WebSocket service BEFORE connecting websocket

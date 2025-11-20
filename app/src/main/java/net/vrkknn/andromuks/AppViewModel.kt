@@ -836,8 +836,8 @@ class AppViewModel : ViewModel() {
         lastReceivedSyncId = 0
         lastReceivedRequestId = 0
         
-        // Sync cleared state with service
-        WebSocketService.setReconnectionState(currentRunId, 0, vapidKey)
+        // Sync cleared state with service (run_id is in SharedPreferences)
+        WebSocketService.setReconnectionState(0)
         
         val preservedRunId = currentRunId
         android.util.Log.d("Andromuks", "AppViewModel: State reset complete - run_id preserved: $preservedRunId")
@@ -4882,21 +4882,43 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Stores the run_id and vapid_key received from the gomuks backend.
-     * This is used for reconnection to resume from where we left off.
+     * Stores the run_id received from the gomuks backend.
+     * RUSH TO HEALTHY: Store run_id in SharedPreferences immediately - always use same run_id for device
+     * vapid_key is not used (we use FCM)
      */
     fun handleRunId(runId: String, vapidKey: String) {
-        android.util.Log.d("Andromuks", "AppViewModel: handleRunId called with runId='$runId', vapidKey='${vapidKey.take(20)}...'")
-        android.util.Log.d("Andromuks", "AppViewModel: DEBUG - runId type: ${runId.javaClass.simpleName}, length: ${runId.length}")
-        android.util.Log.d("Andromuks", "AppViewModel: DEBUG - runId starts with '{': ${runId.startsWith("{")}")
+        android.util.Log.d("Andromuks", "AppViewModel: handleRunId called with runId='$runId'")
         
+        // Store run_id in SharedPreferences (persistent storage)
+        appContext?.let { context ->
+            try {
+                val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                val existingRunId = prefs.getString("ws_run_id", "") ?: ""
+                
+                if (existingRunId.isEmpty()) {
+                    // First time - store run_id permanently
+                    prefs.edit().putString("ws_run_id", runId).apply()
+                    android.util.Log.i("Andromuks", "AppViewModel: Stored run_id in SharedPreferences: $runId")
+                } else if (existingRunId != runId) {
+                    // Run ID changed - update it (shouldn't happen, but handle it)
+                    android.util.Log.w("Andromuks", "AppViewModel: Run ID changed from '$existingRunId' to '$runId' - updating")
+                    prefs.edit().putString("ws_run_id", runId).apply()
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: Run ID matches existing value: $runId")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to store run_id in SharedPreferences", e)
+            }
+        }
+        
+        // Update in-memory cache for backward compatibility
         currentRunId = runId
-        this.vapidKey = vapidKey
+        this.vapidKey = vapidKey // Keep for backward compatibility, but not used
         
-        // Sync reconnection state with service
-        WebSocketService.setReconnectionState(runId, lastReceivedSyncId, vapidKey)
+        // Update service with last_received_sync_id only (run_id is read from SharedPreferences)
+        WebSocketService.setReconnectionState(lastReceivedSyncId)
         
-        android.util.Log.d("Andromuks", "AppViewModel: Stored run_id: $runId, vapid_key: ${vapidKey.take(20)}...")
+        android.util.Log.d("Andromuks", "AppViewModel: Run ID stored and service updated")
     }
     
     /**
@@ -4932,16 +4954,32 @@ class AppViewModel : ViewModel() {
             "AppViewModel: Committed lastReceivedSyncId from $previous to $requestId after persistence (pending=$pendingLog)"
         )
         
-        // Notify service for reconnection
+        // Notify service for reconnection (run_id is read from SharedPreferences)
         WebSocketService.updateLastReceivedSyncId(lastReceivedSyncId)
-        WebSocketService.setReconnectionState(currentRunId, lastReceivedSyncId, vapidKey)
+        WebSocketService.setReconnectionState(lastReceivedSyncId)
         WebSocketService.markInitialSyncPersisted()
     }
     
     /**
      * Gets the current run_id for reconnection
+     * RUSH TO HEALTHY: Always read from SharedPreferences (single source of truth)
      */
-    fun getCurrentRunId(): String = currentRunId
+    fun getCurrentRunId(): String {
+        return appContext?.let { context ->
+            try {
+                val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                val runId = prefs.getString("ws_run_id", "") ?: ""
+                // Update in-memory cache for backward compatibility
+                if (runId.isNotEmpty()) {
+                    currentRunId = runId
+                }
+                runId
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to read run_id from SharedPreferences", e)
+                currentRunId // Fallback to in-memory cache
+            }
+        } ?: currentRunId // Fallback to in-memory cache if context is null
+    }
     
     /**
      * Gets the last received sync_complete request_id for reconnection
@@ -5096,8 +5134,8 @@ class AppViewModel : ViewModel() {
                                 val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
                                 vapidKey = prefs.getString("ws_vapid_key", "") ?: ""
                                 
-                                // Sync restored state with service
-                                WebSocketService.setReconnectionState(bootstrapResult.runId, bootstrapResult.lastReceivedId, vapidKey)
+                                // Sync restored state with service (run_id is in SharedPreferences)
+                                WebSocketService.setReconnectionState(bootstrapResult.lastReceivedId)
                                 
                                 android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state from DB - run_id: ${bootstrapResult.runId}, last_received_id: ${bootstrapResult.lastReceivedId}")
                             }
@@ -5263,8 +5301,8 @@ class AppViewModel : ViewModel() {
                 hasPersistedSync = false
                 vapidKey = savedVapidKey
                 
-                // Sync restored state with service (without last_received_sync_id)
-                WebSocketService.setReconnectionState(runId, lastReceivedSyncId, savedVapidKey)
+                // Sync restored state with service (run_id is in SharedPreferences)
+                WebSocketService.setReconnectionState(lastReceivedSyncId)
                 
                 android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state - run_id: $runId (last_received_sync_id not restored)")
             }
