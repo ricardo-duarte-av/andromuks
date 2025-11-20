@@ -601,6 +601,396 @@ fun SystemEventNarrator(
                     }
                 }
             }
+            "m.room.server_acl" -> {
+                val denyArray = content?.optJSONArray("deny")
+                val unsigned = event.unsigned
+                val prevContent = unsigned?.optJSONObject("prev_content")
+                val prevDenyArray = prevContent?.optJSONArray("deny")
+                
+                // Convert arrays to sets for easier comparison
+                val currentDeny = denyArray?.let { array ->
+                    (0 until array.length()).mapNotNull { array.optString(it).takeIf { it.isNotBlank() } }.toSet()
+                } ?: emptySet()
+                
+                val previousDeny = prevDenyArray?.let { array ->
+                    (0 until array.length()).mapNotNull { array.optString(it).takeIf { it.isNotBlank() } }.toSet()
+                } ?: emptySet()
+                
+                // Check if this is an initial setup (no prev_content)
+                val isInitialSetup = prevContent == null
+                
+                // Find newly added servers (in current but not in previous)
+                val newlyAdded = currentDeny - previousDeny
+                
+                // Find removed servers (in previous but not in current)
+                val removed = previousDeny - currentDeny
+                
+                // Handle the changes
+                when {
+                    isInitialSetup -> {
+                        // First ACL setup - treat all current servers as "added"
+                        if (currentDeny.size == 1 && currentDeny.first() == "*") {
+                            // Special case: "*" means all servers banned
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" banned all servers from participating in the room")
+                                }
+                            )
+                        } else if (currentDeny.isEmpty()) {
+                            // Empty deny list - all servers allowed (shouldn't normally happen, but handle it)
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" set ACL List (all servers allowed)")
+                                }
+                            )
+                        } else {
+                            // Multiple servers in initial setup
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" added ${currentDeny.size} servers to the ACL list")
+                                }
+                            )
+                        }
+                    }
+                    newlyAdded.isNotEmpty() && removed.isEmpty() -> {
+                        // Only additions, no removals
+                        if (newlyAdded.size == 1) {
+                            val server = newlyAdded.first()
+                            // Special case: "*" means all servers banned
+                            if (server == "*") {
+                                NarratorText(
+                                    text = buildAnnotatedString {
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(displayName)
+                                        }
+                                        append(" banned all servers from participating in the room")
+                                    }
+                                )
+                            } else {
+                                NarratorText(
+                                    text = buildAnnotatedString {
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(displayName)
+                                        }
+                                        append(" added server ")
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(server)
+                                        }
+                                        append(" to the ACL List")
+                                    }
+                                )
+                            }
+                        } else {
+                            // Multiple servers added
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" added ${newlyAdded.size} servers to the ACL list")
+                                }
+                            )
+                        }
+                    }
+                    removed.isNotEmpty() && newlyAdded.isEmpty() -> {
+                        // Only removals, no additions
+                        if (removed.size == 1) {
+                            val server = removed.first()
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" removed server ")
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(server)
+                                    }
+                                    append(" from the ACL List")
+                                }
+                            )
+                        } else {
+                            // Multiple servers removed
+                            NarratorText(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" removed ${removed.size} servers from the ACL list")
+                                }
+                            )
+                        }
+                    }
+                    newlyAdded.isNotEmpty() && removed.isNotEmpty() -> {
+                        // Both additions and removals
+                        NarratorText(
+                            text = buildAnnotatedString {
+                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                    append(displayName)
+                                }
+                                append(" added ${newlyAdded.size} server${if (newlyAdded.size == 1) "" else "s"} to the ACL list")
+                                append(", and removed ${removed.size} server${if (removed.size == 1) "" else "s"}")
+                            }
+                        )
+                    }
+                    else -> {
+                        // No changes detected (shouldn't happen, but fallback)
+                        NarratorText(
+                            text = buildAnnotatedString {
+                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                    append(displayName)
+                                }
+                                append(" updated ACL List")
+                            }
+                        )
+                    }
+                }
+            }
+            "m.room.power_levels" -> {
+                val unsigned = event.unsigned
+                val prevContent = unsigned?.optJSONObject("prev_content")
+                
+                // Extract current and previous users
+                val currentUsers = content?.optJSONObject("users") ?: org.json.JSONObject()
+                val previousUsers = prevContent?.optJSONObject("users") ?: org.json.JSONObject()
+                
+                // Get user IDs from both
+                val currentUserIds = currentUsers.keys().asSequence().toSet()
+                val previousUserIds = previousUsers.keys().asSequence().toSet()
+                
+                // Find user changes
+                val addedUsers = currentUserIds - previousUserIds
+                val removedUsers = previousUserIds - currentUserIds
+                val changedUsers = currentUserIds.intersect(previousUserIds).filter { userId ->
+                    currentUsers.optInt(userId, -1) != previousUsers.optInt(userId, -1)
+                }
+                
+                // Check if room power levels changed (everything except users)
+                val roomPowerLevelKeys = setOf(
+                    "ban", "kick", "redact", "invite", "historical",
+                    "events_default", "state_default", "users_default"
+                )
+                
+                val currentEvents = content?.optJSONObject("events") ?: org.json.JSONObject()
+                val previousEvents = prevContent?.optJSONObject("events") ?: org.json.JSONObject()
+                
+                val currentEventKeys = currentEvents.keys().asSequence().toSet()
+                val previousEventKeys = previousEvents.keys().asSequence().toSet()
+                
+                // Check for changes in room power level settings
+                val changedRoomSettings = mutableListOf<String>()
+                
+                // Check top-level settings
+                for (key in roomPowerLevelKeys) {
+                    val currentValue = content?.optInt(key, -1)
+                    val previousValue = prevContent?.optInt(key, -1)
+                    if (currentValue != previousValue && (currentValue != -1 || previousValue != -1)) {
+                        changedRoomSettings.add(key)
+                    }
+                }
+                
+                // Check event-specific power levels
+                val changedEventKeys = (currentEventKeys + previousEventKeys).filter { eventKey ->
+                    val currentValue = currentEvents.optInt(eventKey, -1)
+                    val previousValue = previousEvents.optInt(eventKey, -1)
+                    currentValue != previousValue
+                }
+                
+                val hasUserChanges = addedUsers.isNotEmpty() || removedUsers.isNotEmpty() || changedUsers.isNotEmpty()
+                val hasRoomChanges = changedRoomSettings.isNotEmpty() || changedEventKeys.isNotEmpty()
+                
+                // Handle the changes
+                when {
+                    hasUserChanges && !hasRoomChanges -> {
+                        // Only user power level changes
+                        when {
+                            changedUsers.size == 1 && addedUsers.isEmpty() && removedUsers.isEmpty() -> {
+                                // Single user power level changed
+                                val userId = changedUsers.first()
+                                val newLevel = currentUsers.optInt(userId)
+                                
+                                // Request profile if not available
+                                if (appViewModel != null) {
+                                    appViewModel.requestUserProfile(userId, roomId)
+                                }
+                                
+                                val userDisplayName = appViewModel?.getUserProfile(userId, roomId)?.displayName
+                                    ?: userId
+                                
+                                NarratorText(
+                                    text = buildAnnotatedString {
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(displayName)
+                                        }
+                                        append(" set user ")
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(userDisplayName)
+                                        }
+                                        append(" power level to $newLevel")
+                                    }
+                                )
+                            }
+                            removedUsers.size == 1 && addedUsers.isEmpty() && changedUsers.isEmpty() -> {
+                                // Single user removed (set to default)
+                                val userId = removedUsers.first()
+                                
+                                // Request profile if not available
+                                if (appViewModel != null) {
+                                    appViewModel.requestUserProfile(userId, roomId)
+                                }
+                                
+                                val userDisplayName = appViewModel?.getUserProfile(userId, roomId)?.displayName
+                                    ?: userId
+                                
+                                NarratorText(
+                                    text = buildAnnotatedString {
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(displayName)
+                                        }
+                                        append(" set user ")
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(userDisplayName)
+                                        }
+                                        append(" power level to the default")
+                                    }
+                                )
+                            }
+                            addedUsers.size == 1 && removedUsers.isEmpty() && changedUsers.isEmpty() -> {
+                                // Single user added
+                                val userId = addedUsers.first()
+                                val newLevel = currentUsers.optInt(userId)
+                                
+                                // Request profile if not available
+                                if (appViewModel != null) {
+                                    appViewModel.requestUserProfile(userId, roomId)
+                                }
+                                
+                                val userDisplayName = appViewModel?.getUserProfile(userId, roomId)?.displayName
+                                    ?: userId
+                                
+                                NarratorText(
+                                    text = buildAnnotatedString {
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(displayName)
+                                        }
+                                        append(" set user ")
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(userDisplayName)
+                                        }
+                                        append(" power level to $newLevel")
+                                    }
+                                )
+                            }
+                            else -> {
+                                // Multiple user changes
+                                val totalChanges = changedUsers.size + addedUsers.size + removedUsers.size
+                                NarratorText(
+                                    text = buildAnnotatedString {
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(displayName)
+                                        }
+                                        append(" changed $totalChanges user power level${if (totalChanges == 1) "" else "s"}")
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    hasRoomChanges && !hasUserChanges -> {
+                        // Only room power level changes
+                        when {
+                            changedEventKeys.size == 1 && changedRoomSettings.isEmpty() -> {
+                                // Single event power level changed
+                                val eventKey = changedEventKeys.first()
+                                val newLevel = currentEvents.optInt(eventKey)
+                                
+                                NarratorText(
+                                    text = buildAnnotatedString {
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(displayName)
+                                        }
+                                        append(" set room ")
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(eventKey)
+                                        }
+                                        append(" powerlevel to $newLevel")
+                                    }
+                                )
+                            }
+                            changedRoomSettings.size == 1 && changedEventKeys.isEmpty() -> {
+                                // Single room setting changed
+                                val settingKey = changedRoomSettings.first()
+                                val newLevel = content?.optInt(settingKey) ?: 0
+                                
+                                NarratorText(
+                                    text = buildAnnotatedString {
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(displayName)
+                                        }
+                                        append(" set room ")
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(settingKey)
+                                        }
+                                        append(" powerlevel to $newLevel")
+                                    }
+                                )
+                            }
+                            else -> {
+                                // Multiple room power level changes
+                                val totalChanges = changedRoomSettings.size + changedEventKeys.size
+                                NarratorText(
+                                    text = buildAnnotatedString {
+                                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                            append(displayName)
+                                        }
+                                        append(" changed room power levels")
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    hasUserChanges && hasRoomChanges -> {
+                        // Both user and room changes
+                        NarratorText(
+                            text = buildAnnotatedString {
+                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                    append(displayName)
+                                }
+                                append(" changed power levels")
+                            }
+                        )
+                    }
+                    prevContent == null -> {
+                        // Initial setup
+                        NarratorText(
+                            text = buildAnnotatedString {
+                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                    append(displayName)
+                                }
+                                append(" set room power levels")
+                            }
+                        )
+                    }
+                    else -> {
+                        // No changes detected (shouldn't happen, but fallback)
+                        NarratorText(
+                            text = buildAnnotatedString {
+                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                    append(displayName)
+                                }
+                                append(" updated power levels")
+                            }
+                        )
+                    }
+                }
+            }
             else -> {
                 NarratorText(
                     text = buildAnnotatedString {

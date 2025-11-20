@@ -933,8 +933,8 @@ class SyncIngestor(private val context: Context) {
             return null
         }
         
-        // Store raw JSON - we need to reconstruct it from TimelineEvent
-        // For now, create a minimal JSON representation
+        // Store raw JSON - reconstruct it from TimelineEvent with all fields
+        // CRITICAL: Must include unsigned field (contains prev_content for state events like m.room.pinned_events)
         val rawJson = try {
             val json = org.json.JSONObject()
             json.put("event_id", eventId)
@@ -944,12 +944,33 @@ class SyncIngestor(private val context: Context) {
             if (event.timelineRowid > 0) {
                 json.put("timeline_rowid", event.timelineRowid)
             }
+            if (event.stateKey != null) {
+                json.put("state_key", event.stateKey)
+            }
             if (event.content != null) {
                 json.put("content", event.content)
             }
             if (event.decrypted != null) {
                 json.put("decrypted", event.decrypted)
-                json.put("decrypted_type", event.decryptedType)
+                if (event.decryptedType != null) {
+                    json.put("decrypted_type", event.decryptedType)
+                }
+            }
+            // CRITICAL: Include unsigned field - contains prev_content needed for state event diffs
+            if (event.unsigned != null) {
+                json.put("unsigned", event.unsigned)
+            }
+            if (event.redactedBy != null) {
+                json.put("redacted_by", event.redactedBy)
+            }
+            if (event.localContent != null) {
+                json.put("local_content", event.localContent)
+            }
+            if (event.relationType != null) {
+                json.put("relation_type", event.relationType)
+            }
+            if (event.relatesTo != null) {
+                json.put("relates_to", event.relatesTo)
             }
             json.toString()
         } catch (e: Exception) {
