@@ -7101,51 +7101,33 @@ class AppViewModel : ViewModel() {
     fun navigateToRoomWithCache(roomId: String, notificationTimestamp: Long? = null) {
         updateCurrentRoomIdInPrefs(roomId)
         
-        // CRITICAL FIX: Load from DB and hydrate RAM cache BEFORE processing events
+        // CRITICAL FIX: Always load from DB and hydrate RAM cache BEFORE processing events
         // This ensures we always have the latest events from DB before rendering
+        // Even if RAM cache has events, DB might have newer ones that weren't synced to RAM
         viewModelScope.launch {
-            // Check RAM cache first
-            val cachedMetadata = RoomTimelineCache.getLatestCachedEventMetadata(roomId)
-            val cachedLatestRowId = cachedMetadata?.timelineRowId ?: 0L
-            
-            var shouldLoadFromDb = false
-            var dbLatestRowId = 0L
-            
-            if (cachedLatestRowId == 0L) {
-                // RAM cache is empty, load from DB
-                android.util.Log.d("Andromuks", "AppViewModel: RAM cache empty for $roomId, loading from DB")
-                shouldLoadFromDb = true
+            val context = appContext
+            if (context != null) {
+                // Always check DB first to ensure we have the latest data
+                // This is especially important when opening via notification, as RAM cache might be stale
+                android.util.Log.d("Andromuks", "AppViewModel: navigateToRoomWithCache - loading from DB for $roomId to ensure latest events")
+                
+                val bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
+                val dbEvents = bootstrapLoader.loadRoomEvents(roomId, 200)
+                
+                if (dbEvents.isNotEmpty()) {
+                    // Always hydrate RAM cache with DB events (merge will deduplicate)
+                    // This ensures RAM cache has the latest data from DB
+                    RoomTimelineCache.mergePaginatedEvents(roomId, dbEvents)
+                    android.util.Log.d("Andromuks", "AppViewModel: Loaded ${dbEvents.size} events from DB and hydrated RAM cache for $roomId")
+                    
+                    if (BuildConfig.DEBUG) {
+                        android.widget.Toast.makeText(context, "B: Loading from Disk Storage", android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    android.util.Log.d("Andromuks", "AppViewModel: No events found in DB for $roomId, will use RAM cache if available")
+                }
             } else {
-                // RAM cache exists, check if DB has newer events
-                val context = appContext
-                if (context != null) {
-                    dbLatestRowId = withContext(Dispatchers.IO) {
-                        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context.applicationContext)
-                        val dbEvents = database.eventDao().getEventsForRoomDesc(roomId, 1)
-                        dbEvents.firstOrNull()?.timelineRowId ?: 0L
-                    }
-                    
-                    if (dbLatestRowId > cachedLatestRowId) {
-                        // DB has newer events than RAM, load from DB
-                        android.util.Log.d("Andromuks", "AppViewModel: DB has newer events than RAM for $roomId (DB: $dbLatestRowId > RAM: $cachedLatestRowId), loading from DB")
-                        shouldLoadFromDb = true
-                    }
-                }
-            }
-            
-            // Load from DB if needed and hydrate RAM cache
-            if (shouldLoadFromDb) {
-                val context = appContext
-                if (context != null) {
-                    val bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
-                    val dbEvents = bootstrapLoader.loadRoomEvents(roomId, 200)
-                    
-                    if (dbEvents.isNotEmpty()) {
-                        // Hydrate RAM cache with DB events
-                        RoomTimelineCache.mergePaginatedEvents(roomId, dbEvents)
-                        android.util.Log.d("Andromuks", "AppViewModel: Loaded ${dbEvents.size} events from DB and hydrated RAM cache for $roomId")
-                    }
-                }
+                android.util.Log.w("Andromuks", "AppViewModel: appContext is null, cannot load from DB for $roomId")
             }
             
             // CRITICAL: Now that RAM cache is hydrated (either from existing cache or from DB),
