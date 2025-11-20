@@ -92,6 +92,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -125,6 +126,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.utils.CustomBubbleTextField
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EditPreviewInput
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
@@ -444,6 +446,17 @@ fun RoomTimelineScreen(
     var draft by remember { mutableStateOf("") }
     var lastTypingTime by remember { mutableStateOf(0L) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+    
+    // Track text field height to match button heights
+    var textFieldHeight by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
+    val buttonHeight = remember(textFieldHeight) {
+        if (textFieldHeight > 0) {
+            with(density) { textFieldHeight.toDp() }
+        } else {
+            40.dp // Fallback height (will be updated when text field is measured)
+        }
+    }
 
     LaunchedEffect(appViewModel.pendingShareUpdateCounter) {
         val sharePayload = appViewModel.consumePendingShareForRoom(roomId)
@@ -1619,14 +1632,14 @@ fun RoomTimelineScreen(
                     Row(
                         modifier =
                             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.Bottom
                     ) {
                         // Main attach button
                         Surface(
                             color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
                             shape = RoundedCornerShape(16.dp),
                             tonalElevation = 1.dp,
-                            modifier = Modifier.width(48.dp).height(56.dp)
+                            modifier = Modifier.width(48.dp).height(buttonHeight)
                         ) {
                             IconButton(
                                 onClick = { showAttachmentMenu = !showAttachmentMenu },
@@ -1797,7 +1810,7 @@ fun RoomTimelineScreen(
                                 }
 
                                 // Text input field with mention support
-                                TextField(
+                                CustomBubbleTextField(
                                     value = textFieldValue,
                                     onValueChange = { newValue: TextFieldValue ->
                                         textFieldValue = newValue
@@ -1815,8 +1828,17 @@ fun RoomTimelineScreen(
                                         }
                                     },
                                     placeholder = { Text("Type a message...") },
-                                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 200.dp),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    minLines = 1,
                                     maxLines = 5,
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                    onHeightChanged = { height ->
+                                        // Only update if text is empty or single-line (to get the minimum height)
+                                        val lineCount = draft.lines().size.coerceAtLeast(1)
+                                        if (lineCount == 1 && (textFieldHeight == 0 || height < textFieldHeight)) {
+                                            textFieldHeight = height
+                                        }
+                                    },
                                     trailingIcon = {
                                         IconButton(
                                             onClick = { showEmojiPickerForText = true },
@@ -1869,16 +1891,7 @@ fun RoomTimelineScreen(
                                             }
                                         }
                                     ),
-                                    visualTransformation = mentionTransformation,
-                                    colors =
-                                        androidx.compose.material3.TextFieldDefaults.colors(
-                                            focusedIndicatorColor =
-                                                androidx.compose.ui.graphics.Color.Transparent,
-                                            unfocusedIndicatorColor =
-                                                androidx.compose.ui.graphics.Color.Transparent,
-                                            disabledIndicatorColor =
-                                                androidx.compose.ui.graphics.Color.Transparent
-                                        )
+                                    visualTransformation = mentionTransformation
                                 )
                             }
                         }
@@ -1937,7 +1950,7 @@ fun RoomTimelineScreen(
                                         if (draft.isNotBlank()) MaterialTheme.colorScheme.primary
                                         else MaterialTheme.colorScheme.surfaceVariant
                                 ),
-                            modifier = Modifier.size(56.dp), // Same height as pill
+                            modifier = Modifier.size(buttonHeight), // Fixed height matching single-line text field
                             contentPadding = PaddingValues(0.dp) // No padding for perfect circle
                         ) {
                             @Suppress("DEPRECATION")
