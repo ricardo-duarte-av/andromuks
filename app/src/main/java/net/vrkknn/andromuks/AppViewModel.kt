@@ -284,6 +284,9 @@ class AppViewModel : ViewModel() {
     private var lastAllRoomsSize: Int = 0
     private var lastAllRoomsContentHash: String = ""
     
+    // Bridge recreation tracking - only recreate bridges when room list hash changes
+    private var lastBridgeCreationHash: String = ""
+    
     /**
      * Invalidate room section cache when allRooms data changes
      */
@@ -408,6 +411,38 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Clear all bridge information from database and memory cache
+     * This forces bridge state to be re-requested for all rooms on next bridge load
+     */
+    fun clearBridgeInfo() {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing all bridge info from DB and memory")
+        
+        // Clear memory caches
+        bridgeInfoCache = emptyMap()
+        bridgeCacheCheckedRooms = emptySet()
+        allBridges = emptyList()
+        lastBridgeCreationHash = "" // Reset hash to force recreation
+        
+        // Clear bridge info from database
+        appContext?.let { context ->
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                    database.roomStateDao().clearAllBridgeInfo()
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared bridge info from database")
+                    
+                    // Trigger UI update
+                    withContext(Dispatchers.Main) {
+                        roomListUpdateCounter++
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Error clearing bridge info from database: ${e.message}", e)
+                }
+            }
+        }
+    }
+    
+    /**
      * Mark a room as checked for bridge state (even if no bridge was found)
      * BUG FIX #3: Also persist "no bridge" status to DB so we don't request again
      */
@@ -472,8 +507,19 @@ class AppViewModel : ViewModel() {
     
     /**
      * Update all bridges (called when bridge data changes)
+     * BUG FIX: Only update if bridges actually changed to prevent recreation loop
      */
     fun updateAllBridges(bridges: List<BridgeItem>) {
+        // Check if bridges actually changed (compare by ID and room count)
+        val currentBridgeIds = allBridges.map { "${it.id}:${it.rooms.size}" }.sorted().joinToString("|")
+        val newBridgeIds = bridges.map { "${it.id}:${it.rooms.size}" }.sorted().joinToString("|")
+        
+        if (currentBridgeIds == newBridgeIds && allBridges.isNotEmpty()) {
+            // Bridges haven't changed, skip update to prevent recreation loop
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping bridge update - bridges unchanged (${bridges.size} bridges)")
+            return
+        }
+        
         allBridges = bridges
         roomListUpdateCounter++
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated ${bridges.size} bridges")
@@ -487,19 +533,20 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Creating bridge pseudo-spaces for ${allRooms.size} rooms")
         val bridgeGroups = mutableMapOf<String, MutableList<RoomItem>>()
         
-        // Group rooms by bridge protocol
+        // Group rooms by bridge protocol (reduced logging - only log summary)
+        var bridgedRoomCount = 0
         allRooms.forEach { room ->
             val bridgeInfo = getBridgeInfo(room.id)
             if (bridgeInfo != null) {
                 val protocolId = bridgeInfo.protocol.id
                 if (protocolId.isNotBlank()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Adding room ${room.id} to bridge group: $protocolId")
                     bridgeGroups.getOrPut(protocolId) { mutableListOf() }.add(room)
+                    bridgedRoomCount++
                 }
             }
         }
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found ${bridgeGroups.size} bridge groups: ${bridgeGroups.keys}")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found ${bridgeGroups.size} bridge groups: ${bridgeGroups.keys} (${bridgedRoomCount} bridged rooms)")
         
         // Create bridge items from groups
         val bridges = bridgeGroups.map { (protocolId, rooms) ->
@@ -1128,10 +1175,17 @@ class AppViewModel : ViewModel() {
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated cached sections - allRooms: ${roomsToUse.size}, DMs: ${cachedDirectChatRooms.size}, Unread: ${cachedUnreadRooms.size}, Favourites: ${cachedFavouriteRooms.size}")
         
-        // BUG FIX: Recreate bridges when allRooms changes (bridges depend on allRooms)
+        // BUG FIX: Recreate bridges only when room list actually changes (prevent recreation loop)
         // Only recreate if bridges section has been loaded or if bridges are currently empty
+        // Track hash to prevent recreation on every recomposition
         if (loadedSections.contains(RoomSectionType.BRIDGES) || allBridges.isEmpty()) {
-            createBridgePseudoSpaces()
+            // Only recreate if the room list hash changed since last bridge creation
+            if (currentContentHash != lastBridgeCreationHash || allBridges.isEmpty()) {
+                lastBridgeCreationHash = currentContentHash
+                createBridgePseudoSpaces()
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping bridge recreation - room list hash unchanged")
+            }
         }
     }
     
