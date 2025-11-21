@@ -332,6 +332,13 @@ fun connectToWebsocket(
             Log.e("Andromuks", "NetworkUtils: WebSocket connection failed", t)
             Log.e("Andromuks", "NetworkUtils: Failure reason: ${t.message}, response: ${response?.code}")
             
+            // Check for 401 Unauthorized - invalid/expired token
+            if (response?.code == 401 || (t is java.net.ProtocolException && t.message?.contains("401") == true)) {
+                Log.e("Andromuks", "NetworkUtils: 401 Unauthorized detected - clearing credentials and navigating to login")
+                appViewModel.handleUnauthorizedError()
+                return
+            }
+            
             // Clear WebSocket connection in both AppViewModel and service
             val failureReason = "Connection failure: ${t.message}"
             appViewModel.clearWebSocket(failureReason)

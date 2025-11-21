@@ -5439,6 +5439,58 @@ class AppViewModel : ViewModel() {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to clear cached state", e)
         }
     }
+    
+    /**
+     * Handles 401 Unauthorized error by clearing all credentials and triggering login navigation.
+     * This should be called when WebSocket connection fails with 401 (invalid/expired token).
+     */
+    fun handleUnauthorizedError() {
+        android.util.Log.e("Andromuks", "AppViewModel: Handling 401 Unauthorized error - clearing credentials and navigating to login")
+        
+        val context = appContext ?: run {
+            android.util.Log.e("Andromuks", "AppViewModel: Cannot handle 401 error - appContext is null")
+            return
+        }
+        
+        try {
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+            val editor = prefs.edit()
+            
+            // Clear auth token (this will cause AuthCheck to navigate to login)
+            editor.remove("gomuks_auth_token")
+            editor.remove("homeserver_url")
+            
+            // Clear run_id and related WebSocket state
+            editor.remove("ws_run_id")
+            editor.remove("ws_vapid_key")
+            editor.remove("cached_rooms")
+            editor.remove("cached_bridge_info")
+            editor.remove("cached_bridge_checked_rooms")
+            editor.remove("state_saved_timestamp")
+            
+            editor.apply()
+            
+            // Clear in-memory state
+            currentRunId = ""
+            lastReceivedSyncId = 0
+            pendingLastReceivedSyncId = null
+            hasPersistedSync = false
+            vapidKey = ""
+            navigationCallbackTriggered = false
+            
+            // Clear WebSocket connection
+            clearWebSocket("401 Unauthorized - credentials cleared")
+            WebSocketService.clearWebSocket("401 Unauthorized - credentials cleared")
+            WebSocketService.clearReconnectionState()
+            
+            // Stop WebSocket service
+            WebSocketService.stopService()
+            
+            android.util.Log.i("Andromuks", "AppViewModel: Credentials cleared due to 401 Unauthorized - app will navigate to login on next AuthCheck")
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to clear credentials on 401 error", e)
+        }
+    }
 
     
     private fun restartWebSocket(reason: String = "Unknown reason") {
@@ -6737,16 +6789,12 @@ class AppViewModel : ViewModel() {
         setAutoPaginationEnabled(false, "manual_refresh_$roomId")
         
         // For manual refresh, clear the pagination flag to allow pagination to proceed
+        // Force removal to ensure we can always request fresh events
         roomsPaginatedOnce.remove(roomId)
         android.util.Log.d("Andromuks", "AppViewModel: Cleared pagination flag for manual refresh of room: $roomId")
         
-        if (hasInitialPaginate(roomId)) {
-            logSkippedPaginate(roomId, "full_refresh")
-            viewModelScope.launch {
-                ensureTimelineCacheIsFresh(roomId)
-            }
-            return
-        }
+        // REMOVED: Skip check - manual refresh should always request fresh events from server
+        // Even if the room was paginated before, we want to force a new paginate request
         
         // 1. Mark room as current so sync handlers and pagination know which timeline is active
         updateCurrentRoomIdInPrefs(roomId)
@@ -6757,9 +6805,10 @@ class AppViewModel : ViewModel() {
         android.util.Log.d("Andromuks", "AppViewModel: Cleared timeline cache for room: $roomId")
         
         timelineEvents = emptyList()
-        if (currentRoomId.isNotEmpty()) {
-            RoomRepository.clearTimeline(currentRoomId)
-        }
+        // DISABLED: DB wipe - keeping database entries to preserve timeline data
+        // if (currentRoomId.isNotEmpty()) {
+        //     RoomRepository.clearTimeline(currentRoomId)
+        // }
         isTimelineLoading = true
         
         // 3. Reset pagination flags and bookkeeping
