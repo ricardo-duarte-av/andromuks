@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -9,15 +10,17 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Color
 import net.vrkknn.andromuks.utils.BlurHashDecoder
 
+
+
 object BlurHashUtils {
     /**
      * Decode a BlurHash string into a Bitmap
      */
     fun decodeBlurHash(blurHash: String, width: Int = 32, height: Int = 32): Bitmap? {
         return try {
-            android.util.Log.d("Andromuks", "BlurHashUtils: Decoding '$blurHash' to ${width}x${height}")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BlurHashUtils: Decoding '$blurHash' to ${width}x${height}")
             val result = BlurHashDecoder.decode(blurHash, width, height)
-            android.util.Log.d("Andromuks", "BlurHashUtils: Decode result: ${result != null}")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BlurHashUtils: Decode result: ${result != null}")
             result
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "BlurHashUtils: Decode failed", e)

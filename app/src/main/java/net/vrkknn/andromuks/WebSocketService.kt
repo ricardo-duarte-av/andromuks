@@ -20,6 +20,8 @@ import java.util.concurrent.atomic.AtomicLong
 import okhttp3.WebSocket
 import org.json.JSONObject
 import net.vrkknn.andromuks.utils.trimWebsocketHost
+import net.vrkknn.andromuks.BuildConfig
+
 
 /**
  * WebSocketService - Foreground service that maintains app process
@@ -108,7 +110,7 @@ class WebSocketService : Service() {
          * Set callback for logging activity events
          */
         fun setActivityLogCallback(callback: (String, String?) -> Unit) {
-            android.util.Log.d("WebSocketService", "setActivityLogCallback() called")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setActivityLogCallback() called")
             activityLogCallback = callback
         }
         
@@ -144,13 +146,13 @@ class WebSocketService : Service() {
                 serviceInstance.pongTimeoutJob = null
             }
             instance?.pingJob = serviceScope.launch {
-                android.util.Log.d("WebSocketService", "Ping loop coroutine started")
-                android.util.Log.d("WebSocketService", "Ping loop: isActive=$isActive, connectionState=${instance?.connectionState}")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop coroutine started")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop: isActive=$isActive, connectionState=${instance?.connectionState}")
                 
                 // Send immediate ping when loop starts (if conditions are met)
                 val serviceInstance = instance
                 if (serviceInstance != null && serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.isCurrentlyConnected) {
-                    android.util.Log.d("WebSocketService", "Ping loop: sending immediate ping on start")
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop: sending immediate ping on start")
                     serviceInstance.sendPing()
                 }
                 
@@ -160,7 +162,7 @@ class WebSocketService : Service() {
                     
                     // RUSH TO HEALTHY: If we have consecutive failures, send ping immediately (don't wait)
                     val interval = if (serviceInstance.consecutivePingTimeouts > 0) {
-                        android.util.Log.d("WebSocketService", "RUSH TO HEALTHY: Sending ping immediately after failure (consecutive: ${serviceInstance.consecutivePingTimeouts})")
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "RUSH TO HEALTHY: Sending ping immediately after failure (consecutive: ${serviceInstance.consecutivePingTimeouts})")
                         0L // Send immediately
                     } else {
                         PING_INTERVAL_MS // Normal interval
@@ -174,12 +176,12 @@ class WebSocketService : Service() {
                     if (serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.isCurrentlyConnected) {
                         serviceInstance.sendPing()
                     } else {
-                        android.util.Log.d("WebSocketService", "Ping loop: skipping ping - connected: ${serviceInstance.connectionState == ConnectionState.CONNECTED}, network: ${serviceInstance.isCurrentlyConnected}")
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop: skipping ping - connected: ${serviceInstance.connectionState == ConnectionState.CONNECTED}, network: ${serviceInstance.isCurrentlyConnected}")
                     }
                 }
-                android.util.Log.d("WebSocketService", "Ping loop coroutine ended - isActive=$isActive")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop coroutine ended - isActive=$isActive")
             }
-            android.util.Log.d("WebSocketService", "Ping loop started")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop started")
             logPingStatus()
         }
         
@@ -208,7 +210,7 @@ class WebSocketService : Service() {
             instance?.pongTimeoutJob?.cancel()
             instance?.pingJob = null
             instance?.pongTimeoutJob = null
-            android.util.Log.d("WebSocketService", "Ping loop stopped")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop stopped")
             logPingStatus()
         }
         
@@ -217,18 +219,18 @@ class WebSocketService : Service() {
          */
         fun setAppVisibility(visible: Boolean) {
             instance?.isAppVisible = visible
-            android.util.Log.d("WebSocketService", "App visibility changed to: $visible")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "App visibility changed to: $visible")
             
             // Log current ping interval when visibility changes
             val interval = instance?.let { serviceInstance ->
                 if (serviceInstance.isAppVisible) 15_000L else 60_000L
             } ?: 60_000L
-            android.util.Log.d("WebSocketService", "Ping interval: ${interval}ms (app visible: $visible)")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping interval: ${interval}ms (app visible: $visible)")
             
             // Force update the ping loop if it's running
             instance?.let { serviceInstance ->
                 if (serviceInstance.pingJob?.isActive == true) {
-                    android.util.Log.d("WebSocketService", "App visibility changed while ping loop running - will use new interval on next ping")
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "App visibility changed while ping loop running - will use new interval on next ping")
                 }
             }
         }
@@ -253,7 +255,7 @@ class WebSocketService : Service() {
                 }
                 
                 webSocketSendCallbacks.add(Pair(callbackId, callback))
-                android.util.Log.d("WebSocketService", "Registered WebSocket callback for: $callbackId (total: ${webSocketSendCallbacks.size})")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Registered WebSocket callback for: $callbackId (total: ${webSocketSendCallbacks.size})")
                 return true
             }
         }
@@ -268,7 +270,7 @@ class WebSocketService : Service() {
             synchronized(callbacksLock) {
                 val removed = webSocketSendCallbacks.removeIf { it.first == callbackId }
                 if (removed) {
-                    android.util.Log.d("WebSocketService", "Unregistered WebSocket callback for: $callbackId (remaining: ${webSocketSendCallbacks.size})")
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Unregistered WebSocket callback for: $callbackId (remaining: ${webSocketSendCallbacks.size})")
                 } else {
                     android.util.Log.w("WebSocketService", "No callback found to unregister for: $callbackId")
                 }
@@ -292,7 +294,7 @@ class WebSocketService : Service() {
                 }
                 
                 webSocketReceiveCallbacks.add(Pair(viewModelId, viewModel))
-                android.util.Log.d("WebSocketService", "Registered receive callback for: $viewModelId (total: ${webSocketReceiveCallbacks.size})")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Registered receive callback for: $viewModelId (total: ${webSocketReceiveCallbacks.size})")
             }
         }
         
@@ -305,7 +307,7 @@ class WebSocketService : Service() {
             synchronized(callbacksLock) {
                 val removed = webSocketReceiveCallbacks.removeIf { it.first == viewModelId }
                 if (removed) {
-                    android.util.Log.d("WebSocketService", "Unregistered receive callback for: $viewModelId (remaining: ${webSocketReceiveCallbacks.size})")
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Unregistered receive callback for: $viewModelId (remaining: ${webSocketReceiveCallbacks.size})")
                 } else {
                     android.util.Log.w("WebSocketService", "No receive callback found for: $viewModelId")
                 }
@@ -330,7 +332,7 @@ class WebSocketService : Service() {
          */
         @Deprecated("Use registerWebSocketSendCallback instead", ReplaceWith("registerWebSocketSendCallback(\"legacy\", callback)"))
         fun setWebSocketSendCallback(callback: (String, Int, Map<String, Any>) -> Boolean) {
-            android.util.Log.d("WebSocketService", "setWebSocketSendCallback() called (deprecated - use registerWebSocketSendCallback)")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setWebSocketSendCallback() called (deprecated - use registerWebSocketSendCallback)")
             registerWebSocketSendCallback("legacy", callback)
         }
         
@@ -338,7 +340,7 @@ class WebSocketService : Service() {
          * Set callback for triggering reconnection
          */
         fun setReconnectionCallback(callback: (String) -> Unit) {
-            android.util.Log.d("WebSocketService", "setReconnectionCallback() called")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setReconnectionCallback() called")
             reconnectionCallback = callback
         }
         
@@ -346,7 +348,7 @@ class WebSocketService : Service() {
          * Set callback for offline mode management
          */
         fun setOfflineModeCallback(callback: (Boolean) -> Unit) {
-            android.util.Log.d("WebSocketService", "setOfflineModeCallback() called")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setOfflineModeCallback() called")
             offlineModeCallback = callback
         }
         
@@ -374,7 +376,7 @@ class WebSocketService : Service() {
             val serviceInstance = instance ?: return
             serviceInstance.isCurrentlyConnected = true
             serviceInstance.consecutivePingTimeouts = 0
-            android.util.Log.d("WebSocketService", "Network marked as healthy")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network marked as healthy")
         }
     
         /**
@@ -385,14 +387,14 @@ class WebSocketService : Service() {
             val serviceInstance = instance ?: return
             serviceScope.launch {
                 try {
-                    android.util.Log.d("WebSocketService", "Triggering manual backend health check")
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Triggering manual backend health check")
                     val isHealthy = serviceInstance.checkBackendHealth()
                     
                     if (!isHealthy && (serviceInstance.connectionState == ConnectionState.CONNECTED || serviceInstance.connectionState == ConnectionState.DEGRADED)) {
                         android.util.Log.w("WebSocketService", "Manual backend health check failed - triggering reconnection")
                         triggerReconnectionFromExternal("Manual backend health check failed")
                     } else if (isHealthy) {
-                        android.util.Log.d("WebSocketService", "Manual backend health check passed")
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Manual backend health check passed")
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("WebSocketService", "Error in manual backend health check", e)
@@ -413,7 +415,7 @@ class WebSocketService : Service() {
          * Trigger WebSocket reconnection from external callers
          */
         fun triggerReconnectionFromExternal(reason: String) {
-            android.util.Log.d("WebSocketService", "triggerReconnectionFromExternal called: $reason")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "triggerReconnectionFromExternal called: $reason")
             // Call the reconnection callback directly
             reconnectionCallback?.invoke(reason)
         }
@@ -423,7 +425,7 @@ class WebSocketService : Service() {
          * RUSH TO HEALTHY: Simplified - no exponential backoff, just validate and reconnect
          */
         fun triggerReconnectionSafely(reason: String) {
-            android.util.Log.d("WebSocketService", "triggerReconnectionSafely called: $reason")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "triggerReconnectionSafely called: $reason")
             
             // Validate service health first
             if (!validateServiceHealth()) {
@@ -461,7 +463,7 @@ class WebSocketService : Service() {
                 val lagMs = System.currentTimeMillis() - serviceInstance.lastPingTimestamp
                 serviceInstance.lastKnownLagMs = lagMs
                 serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
-                android.util.Log.d("WebSocketService", "Pong received, lag: ${lagMs}ms")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Pong received, lag: ${lagMs}ms")
                 
                 // RUSH TO HEALTHY: Reset consecutive failures on successful pong
                 if (serviceInstance.consecutivePingTimeouts > 0) {
@@ -487,7 +489,7 @@ class WebSocketService : Service() {
             if (serviceInstance.connectionState != ConnectionState.RECONNECTING && !serviceInstance.isReconnecting) {
                 scheduleReconnection(reason)
             } else {
-                android.util.Log.d("WebSocketService", "Already reconnecting, ignoring trigger: $reason")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Already reconnecting, ignoring trigger: $reason")
             }
         }
         
@@ -500,7 +502,7 @@ class WebSocketService : Service() {
             traceToggle("setWebSocket", "state=${instance?.connectionState}")
             val serviceInstance = instance ?: return
             android.util.Log.i("WebSocketService", "setWebSocket() called - setting up WebSocket connection")
-            android.util.Log.d("WebSocketService", "Current connection state: ${serviceInstance.connectionState}")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Current connection state: ${serviceInstance.connectionState}")
             
             // Validate state before setting WebSocket
             detectAndRecoverStateCorruption()
@@ -513,7 +515,7 @@ class WebSocketService : Service() {
             
             // If already connected, close the old connection first (for reconnection)
             if (serviceInstance.connectionState == ConnectionState.CONNECTED) {
-                android.util.Log.d("WebSocketService", "Replacing existing WebSocket connection (reconnection)")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Replacing existing WebSocket connection (reconnection)")
                 serviceInstance.webSocket?.close(1000, "Reconnecting")
             }
             
@@ -522,9 +524,9 @@ class WebSocketService : Service() {
             serviceInstance.connectionState = ConnectionState.CONNECTED
             // Track connection start time for duration display
             serviceInstance.connectionStartTime = System.currentTimeMillis()
-            android.util.Log.d("WebSocketService", "Connection state set to CONNECTED")
-            android.util.Log.d("WebSocketService", "WebSocket reference set: ${webSocket != null}")
-            android.util.Log.d("WebSocketService", "Connection start time recorded: ${serviceInstance.connectionStartTime}")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Connection state set to CONNECTED")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket reference set: ${webSocket != null}")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Connection start time recorded: ${serviceInstance.connectionStartTime}")
             serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
             
             // Ensure network connectivity is marked as available when WebSocket connects
@@ -534,10 +536,10 @@ class WebSocketService : Service() {
             // Get network type from the service instance's connectivity manager
             val actualNetworkType = serviceInstance.getNetworkTypeFromCapabilities()
             serviceInstance.currentNetworkType = actualNetworkType
-            android.util.Log.d("WebSocketService", "Network type set to: $actualNetworkType")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network type set to: $actualNetworkType")
             
             // Don't start ping loop yet - wait for first sync_complete to get lastReceivedSyncId
-            android.util.Log.d("WebSocketService", "WebSocket connected, waiting for sync_complete before starting ping loop")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket connected, waiting for sync_complete before starting ping loop")
             
             // Log activity: WebSocket connected
             logActivity("WebSocket Connected", actualNetworkType.name)
@@ -561,7 +563,7 @@ class WebSocketService : Service() {
             
             if (!wasConnected) {
                 // Already disconnected, don't log redundant disconnection
-                android.util.Log.d("WebSocketService", "clearWebSocket() called but already disconnected - skipping")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "clearWebSocket() called but already disconnected - skipping")
                 return
             }
             
@@ -596,7 +598,7 @@ class WebSocketService : Service() {
             // Update notification to show disconnection
             updateConnectionStatus(false, null, serviceInstance.lastSyncTimestamp)
             
-            android.util.Log.d("WebSocketService", "WebSocket connection cleared in service")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket connection cleared in service")
             logPingStatus()
         }
         
@@ -648,7 +650,7 @@ class WebSocketService : Service() {
             val serviceInstance = instance ?: return false
             var corruptionDetected = false
             
-            android.util.Log.d("WebSocketService", "Running state corruption detection...")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Running state corruption detection...")
             
             // 1. Check for stuck reconnecting state (>60s)
             if (serviceInstance.isReconnecting && 
@@ -687,7 +689,7 @@ class WebSocketService : Service() {
                 android.util.Log.i("WebSocketService", "State corruption detected and recovered")
                 serviceInstance.updateConnectionStatus(serviceInstance.connectionState == ConnectionState.CONNECTED)
             } else {
-                android.util.Log.d("WebSocketService", "No state corruption detected")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "No state corruption detected")
             }
             
             return !corruptionDetected
@@ -728,7 +730,7 @@ class WebSocketService : Service() {
          * This can be called from external sources (like FCM) to check for corruption
          */
         fun checkStateCorruption() {
-            android.util.Log.d("WebSocketService", "Manual state corruption check requested")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Manual state corruption check requested")
             detectAndRecoverStateCorruption()
         }
         
@@ -747,7 +749,7 @@ class WebSocketService : Service() {
         fun setReconnectionState(lastReceivedId: Int) {
             val serviceInstance = instance ?: return
             serviceInstance.lastReceivedSyncId = lastReceivedId
-            android.util.Log.d("WebSocketService", "Updated last_received_sync_id: $lastReceivedId (run_id read from SharedPreferences)")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Updated last_received_sync_id: $lastReceivedId (run_id read from SharedPreferences)")
         }
         
         /**
@@ -783,7 +785,7 @@ class WebSocketService : Service() {
             val serviceInstance = instance ?: return
             serviceInstance.lastSyncTimestamp = System.currentTimeMillis()
             
-        android.util.Log.d("WebSocketService", "updateLastSyncTimestamp() called - connectionState: ${serviceInstance.connectionState}")
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "updateLastSyncTimestamp() called - connectionState: ${serviceInstance.connectionState}")
             
             // Start ping loop on first sync_complete (when we have a valid lastReceivedSyncId)
             if (!serviceInstance.pingLoopStarted) {
@@ -806,7 +808,7 @@ class WebSocketService : Service() {
             val serviceInstance = instance ?: return
             if (!serviceInstance.hasPersistedSync) {
                 serviceInstance.hasPersistedSync = true
-                android.util.Log.d("WebSocketService", "Initial sync persisted - last_received_event will be included on reconnections")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Initial sync persisted - last_received_event will be included on reconnections")
             }
         }
         
@@ -817,7 +819,7 @@ class WebSocketService : Service() {
             val serviceInstance = instance ?: return
             serviceInstance.lastReceivedSyncId = 0
             serviceInstance.hasPersistedSync = false
-            android.util.Log.d("WebSocketService", "Cleared reconnection state (last_received_sync_id reset, run_id preserved in SharedPreferences)")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Cleared reconnection state (last_received_sync_id reset, run_id preserved in SharedPreferences)")
         }
         
         /**
@@ -829,7 +831,7 @@ class WebSocketService : Service() {
             val runId = getCurrentRunId() // Always read from SharedPreferences
             val lastReceivedId = serviceInstance.lastReceivedSyncId
             val isReconnecting = lastReceivedId > 0 // If we have lastReceivedId, we're reconnecting
-            android.util.Log.d("WebSocketService", "getReconnectionParameters: runId='$runId' (from SharedPreferences), lastReceivedSyncId=$lastReceivedId, isReconnecting=$isReconnecting")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "getReconnectionParameters: runId='$runId' (from SharedPreferences), lastReceivedSyncId=$lastReceivedId, isReconnecting=$isReconnecting")
             return Triple(runId, lastReceivedId, isReconnecting)
         }
         
@@ -842,7 +844,7 @@ class WebSocketService : Service() {
             serviceInstance.reconnectionJob = null
             serviceInstance.isReconnecting = false
             serviceInstance.connectionState = ConnectionState.CONNECTED
-            android.util.Log.d("WebSocketService", "Reset reconnection state (successful connection)")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Reset reconnection state (successful connection)")
         }
         
         /**
@@ -858,7 +860,7 @@ class WebSocketService : Service() {
                 
                 // Check if already reconnecting - if so, drop redundant request
                 if (serviceInstance.connectionState == ConnectionState.RECONNECTING || serviceInstance.isReconnecting) {
-                    android.util.Log.d("WebSocketService", "Already reconnecting, dropping redundant request: $reason")
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Already reconnecting, dropping redundant request: $reason")
                     return
                 }
                 
@@ -867,7 +869,7 @@ class WebSocketService : Service() {
                 
                 // Check minimum interval between reconnections (prevent rapid-fire reconnections)
                 if (currentTime - serviceInstance.lastReconnectionTime < MIN_RECONNECTION_INTERVAL_MS) {
-                    android.util.Log.d("WebSocketService", "Too soon since last reconnection, ignoring: $reason")
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Too soon since last reconnection, ignoring: $reason")
                     serviceInstance.isReconnecting = false
                     return
                 }
@@ -899,7 +901,7 @@ class WebSocketService : Service() {
                     }
                     
                     if (isActive) {
-                        android.util.Log.d("WebSocketService", "Executing reconnection: $reason")
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Executing reconnection: $reason")
                         reconnectionCallback?.invoke(reason)
                     } else {
                         serviceInstance.connectionState = ConnectionState.DISCONNECTED
@@ -912,14 +914,14 @@ class WebSocketService : Service() {
          * Restart WebSocket connection
          */
         fun restartWebSocket(reason: String = "Unknown reason") {
-            android.util.Log.d("WebSocketService", "Restarting WebSocket connection - Reason: $reason")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Restarting WebSocket connection - Reason: $reason")
             
             val serviceInstance = instance ?: return
             
             // Properly close existing WebSocket first
             val currentWebSocket = serviceInstance.webSocket
             if (currentWebSocket != null) {
-                android.util.Log.d("WebSocketService", "Closing existing WebSocket before restart")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Closing existing WebSocket before restart")
                 try {
                     currentWebSocket.close(1000, "Restarting connection")
                 } catch (e: Exception) {
@@ -931,7 +933,7 @@ class WebSocketService : Service() {
             if (!reason.contains("Network restored")) {
             clearWebSocket(reason)
             } else {
-                android.util.Log.d("WebSocketService", "Network restored - skipping clearWebSocket to preserve state")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network restored - skipping clearWebSocket to preserve state")
             }
             
             // Reset reconnection state to allow new reconnection
@@ -940,7 +942,7 @@ class WebSocketService : Service() {
             // Add a small delay to ensure WebSocket is properly closed
             serviceScope.launch {
                 delay(1000) // 1 second delay to ensure proper closure
-                android.util.Log.d("WebSocketService", "Triggering reconnection after delay")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Triggering reconnection after delay")
                 
                 // Check if this is called from FCM (external trigger) or from AppViewModel
                 val isExternalTrigger = !reason.contains("Network restored") && 
@@ -970,7 +972,7 @@ class WebSocketService : Service() {
             if (serviceInstance.connectionState == ConnectionState.RECONNECTING) {
                 serviceInstance.connectionState = ConnectionState.DISCONNECTED
             }
-            android.util.Log.d("WebSocketService", "Cancelled pending reconnection")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Cancelled pending reconnection")
         }
         
     }
@@ -1052,7 +1054,7 @@ class WebSocketService : Service() {
             val response = client.newCall(request).execute()
             val isHealthy = response.isSuccessful && response.code == 200
             
-            android.util.Log.d("WebSocketService", "Backend health check: ${response.code} - ${if (isHealthy) "HEALTHY" else "UNHEALTHY"}")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Backend health check: ${response.code} - ${if (isHealthy) "HEALTHY" else "UNHEALTHY"}")
             
             response.close()
             isHealthy
@@ -1072,14 +1074,14 @@ class WebSocketService : Service() {
                 delay(60_000) // Check every 60 seconds
                 
                 try {
-                    android.util.Log.d("WebSocketService", "Running periodic state corruption check")
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Running periodic state corruption check")
                     WebSocketService.detectAndRecoverStateCorruption()
                 } catch (e: Exception) {
                     android.util.Log.e("WebSocketService", "Error in state corruption monitoring", e)
                 }
             }
         }
-        android.util.Log.d("WebSocketService", "State corruption monitoring started")
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "State corruption monitoring started")
     }
     
     /**
@@ -1088,7 +1090,7 @@ class WebSocketService : Service() {
     private fun stopStateCorruptionMonitoring() {
         stateCorruptionJob?.cancel()
         stateCorruptionJob = null
-        android.util.Log.d("WebSocketService", "State corruption monitoring stopped")
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "State corruption monitoring stopped")
     }
     
     private fun shouldIncludeLastReceivedForReconnect(): Boolean {
@@ -1105,7 +1107,7 @@ class WebSocketService : Service() {
      * This should be called when the app is being closed or when we want to stop the service
      */
     fun stopService() {
-        android.util.Log.d("WebSocketService", "Stopping WebSocket service")
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Stopping WebSocket service")
         
         try {
             // Stop monitoring jobs immediately
@@ -1138,7 +1140,7 @@ class WebSocketService : Service() {
             // Stop self immediately
             stopSelf()
             
-            android.util.Log.d("WebSocketService", "WebSocket service stopped successfully")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket service stopped successfully")
         } catch (e: Exception) {
             android.util.Log.e("WebSocketService", "Error stopping service", e)
             // Even if there's an error, try to stop the service
@@ -1162,13 +1164,13 @@ class WebSocketService : Service() {
         
         // Don't send pings if network is unavailable
         if (!isCurrentlyConnected) {
-            android.util.Log.d("WebSocketService", "Skipping ping - network unavailable")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Skipping ping - network unavailable")
             return
         }
         
         // Don't send pings if we don't have a valid lastReceivedSyncId yet
         if (lastReceivedSyncId == 0) {
-            android.util.Log.d("WebSocketService", "Skipping ping - no sync_complete received yet (lastReceivedSyncId: $lastReceivedSyncId)")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Skipping ping - no sync_complete received yet (lastReceivedSyncId: $lastReceivedSyncId)")
             return
         }
         
@@ -1178,7 +1180,7 @@ class WebSocketService : Service() {
         
         val data = mapOf("last_received_id" to lastReceivedSyncId)
         
-        android.util.Log.d("WebSocketService", "Sending ping (requestId: $reqId, lastReceivedSyncId: $lastReceivedSyncId)")
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Sending ping (requestId: $reqId, lastReceivedSyncId: $lastReceivedSyncId)")
         
         // Log ping status before sending
         android.util.Log.i("WebSocketService", "Pinger status: Sending ping (requestId: $reqId, lastReceivedSyncId: $lastReceivedSyncId)")
@@ -1196,7 +1198,7 @@ class WebSocketService : Service() {
             
             val success = currentWebSocket.send(jsonString)
             if (success) {
-                android.util.Log.d("WebSocketService", "Ping sent successfully")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping sent successfully")
                 // Start timeout for this ping
                 startPongTimeout(reqId)
             } else {
@@ -1218,7 +1220,7 @@ class WebSocketService : Service() {
             
             // Check if we're still connected before processing timeout
             if (connectionState != ConnectionState.CONNECTED || !isCurrentlyConnected) {
-                android.util.Log.d("WebSocketService", "Pong timeout but connection already inactive - ignoring")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Pong timeout but connection already inactive - ignoring")
                 return@launch
             }
             
@@ -1261,7 +1263,7 @@ class WebSocketService : Service() {
                 }
             } else {
                 // RUSH TO HEALTHY: Send next ping immediately (don't wait for normal interval)
-                android.util.Log.d("WebSocketService", "Ping failure #$consecutivePingTimeouts - sending next ping immediately")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping failure #$consecutivePingTimeouts - sending next ping immediately")
                 // The ping loop will send immediately when it sees we're still connected
             }
         }
@@ -1325,25 +1327,25 @@ class WebSocketService : Service() {
         super.onCreate()
         instance = this
         createNotificationChannel()
-        Log.d("WebSocketService", "Service created")
+        if (BuildConfig.DEBUG) Log.d("WebSocketService", "Service created")
         
         // run_id is always read from SharedPreferences when needed - no need to restore on startup
         // Reset last_received_sync_id on service startup (will be set when sync_complete arrives)
         lastReceivedSyncId = 0
         hasPersistedSync = false
-        android.util.Log.d("WebSocketService", "Service startup - last_received_sync_id reset (run_id will be read from SharedPreferences when needed)")
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service startup - last_received_sync_id reset (run_id will be read from SharedPreferences when needed)")
         
         // Start state corruption monitoring immediately when service is created
-        android.util.Log.d("WebSocketService", "Starting service state monitoring from onCreate")
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Starting service state monitoring from onCreate")
         startStateCorruptionMonitoring()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        android.util.Log.d("WebSocketService", "Service started with intent: ${intent?.action}")
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service started with intent: ${intent?.action}")
         
         // Handle stop request
         if (intent?.action == "STOP_SERVICE") {
-            android.util.Log.d("WebSocketService", "Stop service requested via intent")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Stop service requested via intent")
             stopService()
             return START_NOT_STICKY
         }
@@ -1354,10 +1356,10 @@ class WebSocketService : Service() {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 // Android 14+ requires explicit service type
                 startForeground(NOTIFICATION_ID, createNotification(), android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
-                android.util.Log.d("WebSocketService", "Foreground service started successfully (Android 14+)")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Foreground service started successfully (Android 14+)")
             } else {
                 startForeground(NOTIFICATION_ID, createNotification())
-                android.util.Log.d("WebSocketService", "Foreground service started successfully")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Foreground service started successfully")
             }
         } catch (e: Exception) {
             android.util.Log.e("WebSocketService", "Failed to start foreground service", e)
@@ -1373,7 +1375,7 @@ class WebSocketService : Service() {
             
             val isConnected = connectionState == ConnectionState.CONNECTED && webSocket != null
             
-            android.util.Log.d("WebSocketService", "Service restart check: connected=$isConnected, reconnectionCallback=${reconnectionCallback != null}")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restart check: connected=$isConnected, reconnectionCallback=${reconnectionCallback != null}")
             
             // If we have no active connection and we're not already reconnecting, attempt reconnection
             // BUT: Only if AppViewModel is available (reconnectionCallback is set)
@@ -1392,10 +1394,10 @@ class WebSocketService : Service() {
                 } else {
                     // AppViewModel not available - DO NOT create ad-hoc WebSocket
                     // Wait for AppViewModel to connect the WebSocket properly when app starts
-                    android.util.Log.d("WebSocketService", "Service restarted but AppViewModel not available - waiting for app to connect WebSocket properly")
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restarted but AppViewModel not available - waiting for app to connect WebSocket properly")
                 }
             } else if (isConnected) {
-                android.util.Log.d("WebSocketService", "Service restarted and WebSocket already connected")
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restarted and WebSocket already connected")
             }
         }
         
@@ -1407,7 +1409,7 @@ class WebSocketService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         
-        android.util.Log.d("WebSocketService", "Service onDestroy() called - cleaning up resources")
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service onDestroy() called - cleaning up resources")
         
         try {
             // Stop all monitoring and jobs
@@ -1435,7 +1437,7 @@ class WebSocketService : Service() {
             // Clear instance reference
         instance = null
             
-            android.util.Log.d("WebSocketService", "Service cleanup completed")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service cleanup completed")
         } catch (e: Exception) {
             android.util.Log.e("WebSocketService", "Error during service cleanup", e)
         }
@@ -1531,7 +1533,7 @@ class WebSocketService : Service() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(NOTIFICATION_ID, notification)
         
-        Log.d("WebSocketService", "Notification updated: $notificationText")
+        if (BuildConfig.DEBUG) Log.d("WebSocketService", "Notification updated: $notificationText")
     }
     
     /**
@@ -1639,7 +1641,7 @@ class WebSocketService : Service() {
         
         // IDEMPOTENT: Only update notification if the text actually changed
         if (lastNotificationText == notificationText) {
-            Log.d("WebSocketService", "Skipping notification update - text unchanged: $notificationText")
+            if (BuildConfig.DEBUG) Log.d("WebSocketService", "Skipping notification update - text unchanged: $notificationText")
             return
         }
         
@@ -1649,7 +1651,7 @@ class WebSocketService : Service() {
         
         if (timeSinceLastUpdate < MIN_NOTIFICATION_UPDATE_INTERVAL_MS) {
             // Too soon - skip this update to avoid flicker
-            Log.d("WebSocketService", "Throttling notification update (${timeSinceLastUpdate}ms < ${MIN_NOTIFICATION_UPDATE_INTERVAL_MS}ms)")
+            if (BuildConfig.DEBUG) Log.d("WebSocketService", "Throttling notification update (${timeSinceLastUpdate}ms < ${MIN_NOTIFICATION_UPDATE_INTERVAL_MS}ms)")
             
             // Schedule a delayed update to ensure we eventually update
             serviceScope.launch {
@@ -1676,7 +1678,7 @@ class WebSocketService : Service() {
                     val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                     notificationManager.notify(NOTIFICATION_ID, delayedNotification)
                     
-                    Log.d("WebSocketService", "Delayed notification update: $notificationText")
+                    if (BuildConfig.DEBUG) Log.d("WebSocketService", "Delayed notification update: $notificationText")
                 }
             }
             return
@@ -1699,7 +1701,7 @@ class WebSocketService : Service() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.notify(NOTIFICATION_ID, notification)
         
-        Log.d("WebSocketService", "Connection status updated: $notificationText")
+        if (BuildConfig.DEBUG) Log.d("WebSocketService", "Connection status updated: $notificationText")
     }
     
     /**

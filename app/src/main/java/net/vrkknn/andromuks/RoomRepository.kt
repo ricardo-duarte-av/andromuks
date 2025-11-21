@@ -1,5 +1,7 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.BuildConfig
+
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -58,7 +60,7 @@ object RoomRepository {
         }
         this.context = context.applicationContext
         isInitialized = true
-        Log.d(TAG, "RoomRepository initialized")
+        if (BuildConfig.DEBUG) Log.d(TAG, "RoomRepository initialized")
     }
     
     /**
@@ -100,7 +102,7 @@ object RoomRepository {
      */
     fun setCurrentRoom(roomId: String) {
         _currentRoomId.value = roomId
-        Log.d(TAG, "Current room set to: $roomId")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Current room set to: $roomId")
     }
     
     /**
@@ -140,7 +142,7 @@ object RoomRepository {
                 currentMap + (roomId to events.sortedBy { it.timestamp })
             }
         }
-        Log.d(TAG, "Updated timeline for room $roomId: ${getEventCount(roomId)} events")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Updated timeline for room $roomId: ${getEventCount(roomId)} events")
     }
     
     /**
@@ -173,7 +175,7 @@ object RoomRepository {
                 currentMap + (roomId to merged)
             }
         }
-        Log.d(TAG, "Appended ${newEvents.size} events to room $roomId: ${getEventCount(roomId)} total")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Appended ${newEvents.size} events to room $roomId: ${getEventCount(roomId)} total")
     }
     
     /**
@@ -190,7 +192,7 @@ object RoomRepository {
         }
         
         _roomMap.value = rooms
-        Log.d(TAG, "Updated room map: ${rooms.size} rooms")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Updated room map: ${rooms.size} rooms")
     }
     
     /**
@@ -207,7 +209,7 @@ object RoomRepository {
         }
         
         _roomMap.update { it + (room.id to room) }
-        Log.d(TAG, "Updated room: ${room.id}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Updated room: ${room.id}")
     }
     
     /**
@@ -224,7 +226,7 @@ object RoomRepository {
         }
         
         _timelineEvents.update { it - roomId }
-        Log.d(TAG, "Cleared timeline for room: $roomId")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cleared timeline for room: $roomId")
     }
     
     /**
@@ -239,7 +241,7 @@ object RoomRepository {
         _timelineEvents.value = emptyMap()
         _roomMap.value = emptyMap()
         _currentRoomId.value = ""
-        Log.d(TAG, "Cleared all Repository data")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all Repository data")
     }
     
     // ========== PHASE 1: PLACEHOLDER FUNCTIONS (Will be implemented in Phase 2) ==========
@@ -261,7 +263,7 @@ object RoomRepository {
         memberMap: Map<String, MemberProfile>
     ) = withContext(Dispatchers.IO) {
         // Phase 1: Do nothing - AppViewModel still handles this
-        Log.d(TAG, "updateFromSyncComplete called (Phase 1: placeholder - AppViewModel handles this)")
+        if (BuildConfig.DEBUG) Log.d(TAG, "updateFromSyncComplete called (Phase 1: placeholder - AppViewModel handles this)")
     }
     
     /**
@@ -281,7 +283,7 @@ object RoomRepository {
         beforeRowId: Long = -1
     ): List<TimelineEvent> = withContext(Dispatchers.IO) {
         // Phase 1: Return empty - AppViewModel still handles this
-        Log.d(TAG, "loadEventsFromDatabase called (Phase 1: placeholder - AppViewModel handles this)")
+        if (BuildConfig.DEBUG) Log.d(TAG, "loadEventsFromDatabase called (Phase 1: placeholder - AppViewModel handles this)")
         emptyList()
     }
     
@@ -299,7 +301,7 @@ object RoomRepository {
         events: List<TimelineEvent>
     ) = withContext(Dispatchers.IO) {
         // Phase 1: Do nothing - AppViewModel still handles this
-        Log.d(TAG, "updateFromPaginateResponse called (Phase 1: placeholder - AppViewModel handles this)")
+        if (BuildConfig.DEBUG) Log.d(TAG, "updateFromPaginateResponse called (Phase 1: placeholder - AppViewModel handles this)")
     }
     
     // ========== DEBUG/STATS ==========

@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+
+
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.util.Log
 import androidx.media3.exoplayer.ExoPlayer
@@ -58,7 +61,7 @@ object AdvancedExoPlayerManager {
         // Reuse existing player if available
         playerPool[playerId]?.let { existingPlayer ->
             updatePlayerUsage(playerId)
-            Log.d(TAG, "Reusing existing player: $playerId")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Reusing existing player: $playerId")
             return@withLock existingPlayer
         }
         
@@ -72,14 +75,14 @@ object AdvancedExoPlayerManager {
                 lastUsed = System.currentTimeMillis(),
                 mediaUrl = mediaUrl
             )
-            Log.d(TAG, "Created new player: $playerId (pool size: ${playerPool.size})")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Created new player: $playerId (pool size: ${playerPool.size})")
             return@withLock newPlayer
         }
         
         // Replace least used player
         val leastUsedPlayer = playerUsage.minByOrNull { it.value }?.key
         leastUsedPlayer?.let { oldPlayerId ->
-            Log.d(TAG, "Replacing least used player: $oldPlayerId")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Replacing least used player: $oldPlayerId")
             releasePlayer(oldPlayerId)
         }
         
@@ -91,7 +94,7 @@ object AdvancedExoPlayerManager {
             lastUsed = System.currentTimeMillis(),
             mediaUrl = mediaUrl
         )
-        Log.d(TAG, "Created replacement player: $playerId")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Created replacement player: $playerId")
         return@withLock newPlayer
     }
     
@@ -178,7 +181,7 @@ object AdvancedExoPlayerManager {
         playerStates[playerId]?.let { state ->
             playerStates[playerId] = state.copy(isPlaying = false)
         }
-        Log.d(TAG, "Paused player: $playerId")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Paused player: $playerId")
     }
     
     /**
@@ -189,7 +192,7 @@ object AdvancedExoPlayerManager {
         playerStates[playerId]?.let { state ->
             playerStates[playerId] = state.copy(isPlaying = false)
         }
-        Log.d(TAG, "Stopped player: $playerId")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Stopped player: $playerId")
     }
     
     /**
@@ -200,7 +203,7 @@ object AdvancedExoPlayerManager {
         playerPool.remove(playerId)
         playerUsage.remove(playerId)
         playerStates.remove(playerId)
-        Log.d(TAG, "Released player: $playerId (pool size: ${playerPool.size})")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Released player: $playerId (pool size: ${playerPool.size})")
     }
     
     /**
@@ -217,7 +220,7 @@ object AdvancedExoPlayerManager {
         }
         
         if (inactivePlayers.isNotEmpty()) {
-            Log.d(TAG, "Cleaned up ${inactivePlayers.size} inactive players")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cleaned up ${inactivePlayers.size} inactive players")
         }
     }
     
@@ -229,7 +232,7 @@ object AdvancedExoPlayerManager {
         playerStates.values.forEach { state ->
             playerStates[state.mediaUrl] = state.copy(isPlaying = false)
         }
-        Log.d(TAG, "Paused all ${playerPool.size} active players")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Paused all ${playerPool.size} active players")
     }
     
     /**
@@ -240,7 +243,7 @@ object AdvancedExoPlayerManager {
         playerStates.values.forEach { state ->
             playerStates[state.mediaUrl] = state.copy(isPlaying = false)
         }
-        Log.d(TAG, "Stopped all ${playerPool.size} active players")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Stopped all ${playerPool.size} active players")
     }
     
     /**
@@ -251,7 +254,7 @@ object AdvancedExoPlayerManager {
         playerPool.clear()
         playerUsage.clear()
         playerStates.clear()
-        Log.d(TAG, "Released all players and cleared pool")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Released all players and cleared pool")
     }
     
     /**
@@ -291,6 +294,6 @@ object AdvancedExoPlayerManager {
      */
     suspend fun cleanup() {
         releaseAllPlayers()
-        Log.d(TAG, "AdvancedExoPlayerManager cleanup completed")
+        if (BuildConfig.DEBUG) Log.d(TAG, "AdvancedExoPlayerManager cleanup completed")
     }
 }

@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.content.SharedPreferences
 import android.util.Log
 import androidx.core.content.edit
@@ -19,6 +20,7 @@ import okio.IOException
 import org.json.JSONObject
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.WebSocketService
+
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.util.zip.Inflater
@@ -109,7 +111,7 @@ fun performHttpLogin(
 ) {
     val authUrl = buildAuthHttpUrl(url)
     val credentials = okhttp3.Credentials.basic(username, password)
-    Log.d("LoginScreen", "Attempting HTTP(S) login to: $authUrl with user: $username")
+    if (BuildConfig.DEBUG) Log.d("LoginScreen", "Attempting HTTP(S) login to: $authUrl with user: $username")
 
     val request = buildRequest(authUrl, credentials)
 
@@ -132,19 +134,19 @@ fun performHttpLogin(
                             putString("gomuks_auth_token", receivedToken)
                             putString("homeserver_url", url)
                         }
-                        Log.d(
+                        if (BuildConfig.DEBUG) Log.d(
                             "LoginScreen",
                             "Token and server base URL saved to SharedPreferences."
                         )
                         // Log a dump of SharedPreferences (mask sensitive values)
                         try {
                             val allPrefs = sharedPreferences.all
-                            Log.d("LoginScreen", "SharedPreferences dump start →")
+                            if (BuildConfig.DEBUG) Log.d("LoginScreen", "SharedPreferences dump start →")
                             for ((key, value) in allPrefs) {
                                 val masked = if (key.contains("token", ignoreCase = true) || key.contains("password", ignoreCase = true)) "<redacted>" else value?.toString()
-                                Log.d("LoginScreen", "pref[$key] = $masked")
+                                if (BuildConfig.DEBUG) Log.d("LoginScreen", "pref[$key] = $masked")
                             }
-                            Log.d("LoginScreen", "← SharedPreferences dump end")
+                            if (BuildConfig.DEBUG) Log.d("LoginScreen", "← SharedPreferences dump end")
                         } catch (e: Exception) {
                             Log.w("LoginScreen", "Failed to dump SharedPreferences", e)
                         }
@@ -180,7 +182,7 @@ fun buildRequest(url: String, credentials: String): Request {
         .header("Authorization", credentials)
         .post(requestBody)
         .build()
-    Log.d("LoginScreen", "Request: $request with Authorization header")
+    if (BuildConfig.DEBUG) Log.d("LoginScreen", "Request: $request with Authorization header")
 
     return request
 }
@@ -205,7 +207,7 @@ suspend fun waitForBackendHealth(
 
                 healthClient.newCall(request).execute().use { response ->
                     val healthy = response.isSuccessful && response.code == 200
-                    Log.d(loggerTag, "Backend health check: HTTP ${response.code} (healthy=$healthy)")
+                    if (BuildConfig.DEBUG) Log.d(loggerTag, "Backend health check: HTTP ${response.code} (healthy=$healthy)")
                     healthy
                 }
             } catch (e: Exception) {
@@ -235,7 +237,7 @@ fun connectToWebsocket(
     appViewModel: AppViewModel,
     reason: String = "Initial connection"
 ) {
-    Log.d("NetworkUtils", "connectToWebsocket: Initializing... Reason: $reason")
+    if (BuildConfig.DEBUG) Log.d("NetworkUtils", "connectToWebsocket: Initializing... Reason: $reason")
     
     var streamingDecompressor: StreamingDeflateDecompressor? = null
 
@@ -269,7 +271,7 @@ fun connectToWebsocket(
     // Initialize streaming decompressor if compression is enabled
     if (compressionEnabled) {
         streamingDecompressor = StreamingDeflateDecompressor()
-        Log.d("NetworkUtils", "Streaming DEFLATE decompressor initialized")
+        if (BuildConfig.DEBUG) Log.d("NetworkUtils", "Streaming DEFLATE decompressor initialized")
     }
     
     val queryParams = mutableListOf<String>()
@@ -278,12 +280,12 @@ fun connectToWebsocket(
         // RUSH TO HEALTHY: Only include last_received_event when reconnecting
         if (isReconnecting) {
             queryParams.add("last_received_event=$lastReceivedId")
-            Log.d("NetworkUtils", "Reconnecting with run_id: $actualRunId, last_received_event: $lastReceivedId, compression: $compressionEnabled")
+            if (BuildConfig.DEBUG) Log.d("NetworkUtils", "Reconnecting with run_id: $actualRunId, last_received_event: $lastReceivedId, compression: $compressionEnabled")
         } else {
-            Log.d("NetworkUtils", "First connection with run_id: $actualRunId (no last_received_event), compression: $compressionEnabled")
+            if (BuildConfig.DEBUG) Log.d("NetworkUtils", "First connection with run_id: $actualRunId (no last_received_event), compression: $compressionEnabled")
         }
     } else {
-        Log.d("NetworkUtils", "First connection to websocket (no run_id yet), compression: $compressionEnabled")
+        if (BuildConfig.DEBUG) Log.d("NetworkUtils", "First connection to websocket (no run_id yet), compression: $compressionEnabled")
     }
     if (compressionEnabled) {
         queryParams.add("compress=1")
@@ -294,7 +296,7 @@ fun connectToWebsocket(
     } else {
         "$webSocketUrl?${queryParams.joinToString("&")}"
     }
-    Log.d("NetworkUtils", "DEBUG: Final URL: $finalWebSocketUrl")
+    if (BuildConfig.DEBUG) Log.d("NetworkUtils", "DEBUG: Final URL: $finalWebSocketUrl")
 
     val request = Request.Builder()
         .url(finalWebSocketUrl)
@@ -304,25 +306,25 @@ fun connectToWebsocket(
     
     // Set up websocket restart callback
     appViewModel.onRestartWebSocket = { reason ->
-        Log.d("NetworkUtils", "Websocket restart requested, reconnecting... Reason: $reason")
+        if (BuildConfig.DEBUG) Log.d("NetworkUtils", "Websocket restart requested, reconnecting... Reason: $reason")
         connectToWebsocket(url, client, token, appViewModel, reason)
     }
 
     val websocketListener = object : WebSocketListener() {
         override fun onOpen(webSocket: WebSocket, response: Response) {
-            Log.d("Andromuks", "NetworkUtils: onOpen: ws opened on "+response.message)
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: onOpen: ws opened on "+response.message)
             
             // Debug: Log all response headers to see if backend request ID is available
-            Log.d("Andromuks", "NetworkUtils: WebSocket response headers:")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: WebSocket response headers:")
             response.headers.names().forEach { name ->
                 val value = response.header(name)
-                Log.d("Andromuks", "NetworkUtils: Header '$name': '$value'")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: Header '$name': '$value'")
             }
             
             // Set WebSocket in AppViewModel (which will also set it in service)
-            Log.d("Andromuks", "NetworkUtils: Calling appViewModel.setWebSocket()")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: Calling appViewModel.setWebSocket()")
             appViewModel.setWebSocket(webSocket)
-            Log.d("Andromuks", "NetworkUtils: connectToWebsocket using AppViewModel instance: $appViewModel")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: connectToWebsocket using AppViewModel instance: $appViewModel")
             
             // Reset reconnection tracking on successful connection
             appViewModel.resetReconnectionState()
@@ -541,7 +543,7 @@ fun connectToWebsocket(
                                 "init_complete" -> {
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.Main) {
-                                        Log.d("Andromuks", "NetworkUtils: Calling onInitComplete on main thread")
+                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: Calling onInitComplete on main thread")
                                         for (viewModel in WebSocketService.getRegisteredViewModels()) {
                                             viewModel.onInitComplete()
                                         }
@@ -602,7 +604,7 @@ fun connectToWebsocket(
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-            Log.d("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
             
             // Determine the close reason
             val closeReason = when (code) {
@@ -620,7 +622,7 @@ fun connectToWebsocket(
             when (code) {
                 1000 -> {
                     // Normal closure - don't reconnect
-                    Log.d("Andromuks", "NetworkUtils: Normal WebSocket closure")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: Normal WebSocket closure")
                 }
                 1001 -> {
                     // Going away - reconnect after delay
@@ -641,7 +643,7 @@ fun connectToWebsocket(
         }
         
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            Log.d("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
             streamingDecompressor?.close()
             appViewModel.clearWebSocket("WebSocket closed ($code)")
         }

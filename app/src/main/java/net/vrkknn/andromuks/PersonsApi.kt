@@ -29,6 +29,8 @@ import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.MainActivity
+import net.vrkknn.andromuks.BuildConfig
+
 
 data class PersonTarget(
     val userId: String,
@@ -63,13 +65,13 @@ class PersonsApi(
 
     fun updatePersons(targets: List<PersonTarget>) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) {
-            Log.d(TAG, "Skipping Persons update - API level too low")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Skipping Persons update - API level too low")
             return
         }
 
         val trimmed = trimTargets(targets)
         if (!needsUpdate(trimmed)) {
-            Log.d(TAG, "PersonsApi: No changes detected, skipping update")
+            if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: No changes detected, skipping update")
             return
         }
 
@@ -83,7 +85,7 @@ class PersonsApi(
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return
         val shortcutId = shortcutId(userId)
         ShortcutManagerCompat.reportShortcutUsed(context, shortcutId)
-        Log.d(TAG, "PersonsApi: Reported shortcut used for $userId ($shortcutId)")
+        if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Reported shortcut used for $userId ($shortcutId)")
     }
 
     fun clear() {
@@ -92,7 +94,7 @@ class PersonsApi(
 
         try {
             ShortcutManagerCompat.removeDynamicShortcuts(context, lastShortcutIds.toList())
-            Log.d(TAG, "PersonsApi: Cleared ${lastShortcutIds.size} people shortcuts")
+            if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Cleared ${lastShortcutIds.size} people shortcuts")
         } catch (e: Exception) {
             Log.e(TAG, "PersonsApi: Failed to clear shortcuts", e)
         } finally {
@@ -132,7 +134,7 @@ class PersonsApi(
             if (toRemove.isNotEmpty()) {
                 try {
                     ShortcutManagerCompat.removeDynamicShortcuts(context, toRemove.toList())
-                    Log.d(TAG, "PersonsApi: Removed ${toRemove.size} outdated people shortcuts")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Removed ${toRemove.size} outdated people shortcuts")
                 } catch (e: Exception) {
                     Log.e(TAG, "PersonsApi: Failed to remove outdated shortcuts", e)
                 }
@@ -142,7 +144,7 @@ class PersonsApi(
                 try {
                     val shortcut = buildShortcut(target)
                     ShortcutManagerCompat.pushDynamicShortcut(context, shortcut)
-                    Log.d(TAG, "PersonsApi: Published person shortcut for ${target.userId}")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Published person shortcut for ${target.userId}")
                 } catch (e: Exception) {
                     Log.e(TAG, "PersonsApi: Failed to publish shortcut for ${target.userId}", e)
                 }
@@ -237,7 +239,7 @@ class PersonsApi(
 
             val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
             if (cachedFile == null || !cachedFile.exists()) {
-                Log.d(TAG, "PersonsApi: Avatar for ${target.userId} not cached, using fallback")
+                if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Avatar for ${target.userId} not cached, using fallback")
                 return@withContext null
             }
 

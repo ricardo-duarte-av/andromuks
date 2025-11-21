@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -47,6 +48,8 @@ import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReadReceipt
 import net.vrkknn.andromuks.ui.components.AvatarImage
+
+
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -80,7 +83,7 @@ object ReceiptFunctions {
         updateCounter: () -> Unit,
         onMovementDetected: ((String, String?, String) -> Unit)? = null
     ): Boolean {
-        Log.d("Andromuks", "ReceiptFunctions: processReadReceipts called with ${receiptsJson.length()} event receipts")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: processReadReceipts called with ${receiptsJson.length()} event receipts")
         val keys = receiptsJson.keys()
         var totalReceipts = 0
         var hasChanges = false
@@ -117,7 +120,7 @@ object ReceiptFunctions {
         
         // Early return if no receipts to process
         if (userLatestReceipts.isEmpty()) {
-            Log.d("Andromuks", "ReceiptFunctions: No receipts to process, skipping")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: No receipts to process, skipping")
             return false
         }
         
@@ -172,7 +175,7 @@ object ReceiptFunctions {
             }
         }
         
-        Log.d("Andromuks", "ReceiptFunctions: processReadReceipts completed - processed $totalReceipts total receipts, ${userLatestReceipts.size} unique users, hasChanges: $hasChanges")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: processReadReceipts completed - processed $totalReceipts total receipts, ${userLatestReceipts.size} unique users, hasChanges: $hasChanges")
         
         // Only trigger UI update if receipts actually changed
         if (hasChanges) {
@@ -220,7 +223,7 @@ object ReceiptFunctions {
         userId: String,
         readReceiptsMap: MutableMap<String, MutableList<ReadReceipt>>
     ): Int {
-        Log.d("Andromuks", "ReceiptFunctions: removeUserReceipts called for userId: $userId")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: removeUserReceipts called for userId: $userId")
         var removedCount = 0
         
         for (eventId in readReceiptsMap.keys.toList()) {
@@ -233,18 +236,18 @@ object ReceiptFunctions {
                 
                 if (removed > 0) {
                     removedCount += removed
-                    Log.d("Andromuks", "ReceiptFunctions: Removed $removed receipts for user $userId from event: $eventId")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: Removed $removed receipts for user $userId from event: $eventId")
                     
                     // Remove the event entry if no receipts remain
                     if (receiptsList.isEmpty()) {
                         readReceiptsMap.remove(eventId)
-                        Log.d("Andromuks", "ReceiptFunctions: Removed empty event entry: $eventId")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: Removed empty event entry: $eventId")
                     }
                 }
             }
         }
         
-        Log.d("Andromuks", "ReceiptFunctions: removeUserReceipts completed - removed $removedCount total receipts for user: $userId")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ReceiptFunctions: removeUserReceipts completed - removed $removedCount total receipts for user: $userId")
         return removedCount
     }
 }
@@ -273,40 +276,40 @@ fun InlineReadReceiptAvatars(
     val context = LocalContext.current
     var showReceiptDialog by remember { mutableStateOf(false) }
     
-    Log.d("Andromuks", "InlineReadReceiptAvatars: Called with ${receipts.size} receipts for sender: $messageSender")
-    Log.d("Andromuks", "InlineReadReceiptAvatars: Receipt users: ${receipts.map { it.userId }}")
+    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Called with ${receipts.size} receipts for sender: $messageSender")
+    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Receipt users: ${receipts.map { it.userId }}")
     
     // Debug: Check if any receipt user matches the message sender
     val senderMatches = receipts.any { it.userId == messageSender }
-    Log.d("Andromuks", "InlineReadReceiptAvatars: Any receipt matches sender: $senderMatches")
+    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Any receipt matches sender: $senderMatches")
     
     // Filter out the message sender from read receipts
     val filteredReceipts = receipts.filter { it.userId != messageSender }
-    Log.d("Andromuks", "InlineReadReceiptAvatars: After filtering: ${filteredReceipts.size} receipts, users: ${filteredReceipts.map { it.userId }}")
+    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: After filtering: ${filteredReceipts.size} receipts, users: ${filteredReceipts.map { it.userId }}")
     
     // OPPORTUNISTIC PROFILE LOADING: Request profiles for read receipt users
     LaunchedEffect(filteredReceipts.map { it.userId }, roomId, appViewModel?.memberUpdateCounter) {
-        Log.d("Andromuks", "InlineReadReceiptAvatars: LaunchedEffect triggered - receipts: ${filteredReceipts.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel?.memberUpdateCounter}")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: LaunchedEffect triggered - receipts: ${filteredReceipts.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel?.memberUpdateCounter}")
         
         if (appViewModel != null && roomId != null && filteredReceipts.isNotEmpty()) {
-            Log.d("Andromuks", "InlineReadReceiptAvatars: Requesting profiles for ${filteredReceipts.size} read receipt users")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Requesting profiles for ${filteredReceipts.size} read receipt users")
             filteredReceipts.forEach { receipt ->
-                Log.d("Andromuks", "InlineReadReceiptAvatars: Processing receipt for user: ${receipt.userId}")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Processing receipt for user: ${receipt.userId}")
                 
                 // Check if profile is already cached to avoid unnecessary requests
                 val existingProfile = appViewModel.getUserProfile(receipt.userId, roomId)
-                Log.d("Andromuks", "InlineReadReceiptAvatars: Profile check for ${receipt.userId} - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile check for ${receipt.userId} - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}")
                 
                 if (existingProfile == null) {
-                    Log.d("Andromuks", "InlineReadReceiptAvatars: Profile not cached for ${receipt.userId}, requesting...")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile not cached for ${receipt.userId}, requesting...")
                     appViewModel.requestUserProfileOnDemand(receipt.userId, roomId)
-                    Log.d("Andromuks", "InlineReadReceiptAvatars: Profile request sent for ${receipt.userId}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile request sent for ${receipt.userId}")
                 } else {
-                    Log.d("Andromuks", "InlineReadReceiptAvatars: Profile already cached for ${receipt.userId} - displayName: ${existingProfile.displayName}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile already cached for ${receipt.userId} - displayName: ${existingProfile.displayName}")
                 }
             }
         } else {
-            Log.d("Andromuks", "InlineReadReceiptAvatars: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, receipts: ${filteredReceipts.size}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, receipts: ${filteredReceipts.size}")
         }
     }
     
@@ -325,7 +328,7 @@ fun InlineReadReceiptAvatars(
     }
     
     if (filteredReceipts.isNotEmpty()) {
-        Log.d("Andromuks", "InlineReadReceiptAvatars: Rendering ${filteredReceipts.size} read receipt avatars")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Rendering ${filteredReceipts.size} read receipt avatars")
         Row(
             horizontalArrangement = Arrangement.spacedBy(1.dp),
             verticalAlignment = Alignment.Top,
@@ -342,15 +345,15 @@ fun InlineReadReceiptAvatars(
                 val avatarUrl = userProfile?.avatarUrl
                 val displayName = userProfile?.displayName
                 
-                Log.d("Andromuks", "InlineReadReceiptAvatars: Rendering avatar for user: ${receipt.userId}")
-                Log.d("Andromuks", "InlineReadReceiptAvatars: Profile source - AppViewModel: ${appViewModel?.getUserProfile(receipt.userId, roomId) != null}, Cache: ${userProfileCache[receipt.userId] != null}")
-                Log.d("Andromuks", "InlineReadReceiptAvatars: Final profile - displayName: $displayName, avatarUrl: $avatarUrl")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Rendering avatar for user: ${receipt.userId}")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile source - AppViewModel: ${appViewModel?.getUserProfile(receipt.userId, roomId) != null}, Cache: ${userProfileCache[receipt.userId] != null}")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Final profile - displayName: $displayName, avatarUrl: $avatarUrl")
                 
                 Box(
                     modifier = Modifier
                         .size(24.dp)
                         .clickable { 
-                            Log.d("Andromuks", "Read receipt avatar clicked for user: ${receipt.userId}")
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "Read receipt avatar clicked for user: ${receipt.userId}")
                             showReceiptDialog = true
                         }
                 ) {
@@ -372,7 +375,7 @@ fun InlineReadReceiptAvatars(
                     modifier = Modifier
                         .size(24.dp)
                         .clickable {
-                            Log.d("Andromuks", "Read receipt + indicator clicked")
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "Read receipt + indicator clicked")
                             showReceiptDialog = true
                         }
                         .background(
@@ -566,22 +569,22 @@ fun ReadReceiptDetailsDialog(
     // OPPORTUNISTIC PROFILE LOADING: Request profiles for read receipt users when dialog opens
     LaunchedEffect(receipts.map { it.userId }, roomId, appViewModel?.memberUpdateCounter) {
         if (appViewModel != null && roomId != null && receipts.isNotEmpty()) {
-            Log.d("Andromuks", "ReadReceiptDetailsDialog: LaunchedEffect triggered - receipts: ${receipts.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel.memberUpdateCounter}")
-            Log.d("Andromuks", "ReadReceiptDetailsDialog: Requesting profiles for ${receipts.size} read receipt users")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ReadReceiptDetailsDialog: LaunchedEffect triggered - receipts: ${receipts.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel.memberUpdateCounter}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ReadReceiptDetailsDialog: Requesting profiles for ${receipts.size} read receipt users")
             receipts.forEach { receipt ->
-                Log.d("Andromuks", "ReadReceiptDetailsDialog: Processing receipt for user: ${receipt.userId}")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "ReadReceiptDetailsDialog: Processing receipt for user: ${receipt.userId}")
                 val existingProfile = appViewModel.getUserProfile(receipt.userId, roomId)
-                Log.d("Andromuks", "ReadReceiptDetailsDialog: Profile check for ${receipt.userId} - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "ReadReceiptDetailsDialog: Profile check for ${receipt.userId} - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}")
                 if (existingProfile == null) {
-                    Log.d("Andromuks", "ReadReceiptDetailsDialog: Profile not cached for ${receipt.userId}, requesting...")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "ReadReceiptDetailsDialog: Profile not cached for ${receipt.userId}, requesting...")
                     appViewModel.requestUserProfileOnDemand(receipt.userId, roomId)
-                    Log.d("Andromuks", "ReadReceiptDetailsDialog: Profile request sent for ${receipt.userId}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "ReadReceiptDetailsDialog: Profile request sent for ${receipt.userId}")
                 } else {
-                    Log.d("Andromuks", "ReadReceiptDetailsDialog: Profile already cached for ${receipt.userId} - displayName: ${existingProfile.displayName}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "ReadReceiptDetailsDialog: Profile already cached for ${receipt.userId} - displayName: ${existingProfile.displayName}")
                 }
             }
         } else {
-            Log.d("Andromuks", "ReadReceiptDetailsDialog: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, receipts: ${receipts.size}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ReadReceiptDetailsDialog: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, receipts: ${receipts.size}")
         }
     }
 

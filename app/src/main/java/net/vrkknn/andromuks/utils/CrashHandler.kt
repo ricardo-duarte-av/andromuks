@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+
+
+import net.vrkknn.andromuks.BuildConfig
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
@@ -44,7 +47,7 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         this.context = context.applicationContext
         defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler(this)
-        Log.d(TAG, "Crash handler initialized")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Crash handler initialized")
     }
     
     override fun uncaughtException(thread: Thread, throwable: Throwable) {
@@ -110,7 +113,7 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
                 }
             }
             
-            Log.d(TAG, "Crash log saved to: ${crashFile.absolutePath}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Crash log saved to: ${crashFile.absolutePath}")
             return crashFile.absolutePath
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save crash log", e)

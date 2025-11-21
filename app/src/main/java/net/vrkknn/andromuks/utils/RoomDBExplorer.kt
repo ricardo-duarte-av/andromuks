@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,6 +50,8 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.database.entities.EventEntity
+
+
 import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -210,7 +213,7 @@ fun RoomDBExplorerScreen(
                                     append("\"raw_json\":${row.rawPreview.toJsonString()}}")
                                 }
                             }
-                            android.util.Log.d("RoomDBExplorer", export)
+                            if (BuildConfig.DEBUG) android.util.Log.d("RoomDBExplorer", export)
                         }
                     ) {
                         Icon(

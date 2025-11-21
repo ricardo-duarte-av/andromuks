@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -20,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ui.components.AvatarImage
+
+
 
 /**
  * Displays a typing notification area that shows which users are currently typing.
@@ -48,22 +51,22 @@ fun TypingNotificationArea(
     // OPPORTUNISTIC PROFILE LOADING: Request profiles for typing users when they start typing
     LaunchedEffect(typingUsers, roomId, appViewModel?.memberUpdateCounter) {
         if (appViewModel != null && roomId.isNotEmpty() && typingUsers.isNotEmpty()) {
-            android.util.Log.d("Andromuks", "TypingNotificationArea: LaunchedEffect triggered - typing users: ${typingUsers.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel.memberUpdateCounter}")
-            android.util.Log.d("Andromuks", "TypingNotificationArea: Requesting profiles for ${typingUsers.size} typing users")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: LaunchedEffect triggered - typing users: ${typingUsers.size}, roomId: $roomId, memberUpdateCounter: ${appViewModel.memberUpdateCounter}")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Requesting profiles for ${typingUsers.size} typing users")
             typingUsers.forEach { userId ->
-                android.util.Log.d("Andromuks", "TypingNotificationArea: Processing typing user: $userId")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Processing typing user: $userId")
                 val existingProfile = appViewModel.getUserProfile(userId, roomId)
-                android.util.Log.d("Andromuks", "TypingNotificationArea: Profile check for $userId - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Profile check for $userId - cached: ${existingProfile != null}, displayName: ${existingProfile?.displayName}")
                 if (existingProfile == null) {
-                    android.util.Log.d("Andromuks", "TypingNotificationArea: Profile not cached for $userId, requesting...")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Profile not cached for $userId, requesting...")
                     appViewModel.requestUserProfileOnDemand(userId, roomId)
-                    android.util.Log.d("Andromuks", "TypingNotificationArea: Profile request sent for $userId")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Profile request sent for $userId")
                 } else {
-                    android.util.Log.d("Andromuks", "TypingNotificationArea: Profile already cached for $userId - displayName: ${existingProfile.displayName}")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Profile already cached for $userId - displayName: ${existingProfile.displayName}")
                 }
             }
         } else {
-            android.util.Log.d("Andromuks", "TypingNotificationArea: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, typingUsers: ${typingUsers.size}")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TypingNotificationArea: Skipping profile requests - appViewModel: ${appViewModel != null}, roomId: $roomId, typingUsers: ${typingUsers.size}")
         }
     }
 

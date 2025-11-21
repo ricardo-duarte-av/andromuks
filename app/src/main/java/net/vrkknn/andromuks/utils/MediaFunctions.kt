@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -46,6 +47,8 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import net.vrkknn.andromuks.TimelineEvent
+
+
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontStyle
@@ -875,7 +878,7 @@ private fun MediaContent(
                         remember(mediaMessage.url, isEncrypted, cachedFile) {
                             if (cachedFile != null) {
                                 // Use cached file
-                                Log.d(
+                                if (BuildConfig.DEBUG) Log.d(
                                     "Andromuks",
                                     "MediaMessage: Using cached file: ${cachedFile!!.absolutePath}"
                                 )
@@ -886,7 +889,7 @@ private fun MediaContent(
                                     MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
                                 if (isEncrypted) {
                                     val encryptedUrl = "$httpUrl?encrypted=true"
-                                    Log.d(
+                                    if (BuildConfig.DEBUG) Log.d(
                                         "Andromuks",
                                         "MediaMessage: Added encrypted=true to URL: $encryptedUrl"
                                     )
@@ -903,7 +906,7 @@ private fun MediaContent(
 
                     if (mediaMessage.msgType == "m.image") {
                         // Debug logging
-                        Log.d(
+                        if (BuildConfig.DEBUG) Log.d(
                             "Andromuks",
                             "MediaMessage: URL=$imageUrl, BlurHash=${mediaMessage.info.blurHash}, AuthToken=$authToken"
                         )
@@ -911,16 +914,16 @@ private fun MediaContent(
                         val blurHashPainter =
                             remember(mediaMessage.info.blurHash) {
                                 mediaMessage.info.blurHash?.let { blurHash ->
-                                    Log.d("Andromuks", "Decoding BlurHash: $blurHash")
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "Decoding BlurHash: $blurHash")
                                     val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
-                                    Log.d("Andromuks", "BlurHash decoded: ${bitmap != null}")
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BlurHash decoded: ${bitmap != null}")
                                     if (bitmap != null) {
                                         val imageBitmap = bitmap.asImageBitmap()
-                                        Log.d(
+                                        if (BuildConfig.DEBUG) Log.d(
                                             "Andromuks",
                                             "BlurHash converted to ImageBitmap: ${imageBitmap.width}x${imageBitmap.height}"
                                         )
-                                        Log.d(
+                                        if (BuildConfig.DEBUG) Log.d(
                                             "Andromuks",
                                             "BlurHash bitmap info: config=${bitmap.config}, hasAlpha=${bitmap.hasAlpha()}"
                                         )
@@ -938,7 +941,7 @@ private fun MediaContent(
                                 }
                                     ?: run {
                                         // Simple fallback placeholder without MaterialTheme
-                                        Log.d(
+                                        if (BuildConfig.DEBUG) Log.d(
                                             "Andromuks",
                                             "No BlurHash available, using simple fallback"
                                         )
@@ -952,9 +955,9 @@ private fun MediaContent(
                                     }
                             }
 
-                        Log.d("Andromuks", "BlurHash painter created: ${blurHashPainter != null}")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "BlurHash painter created: ${blurHashPainter != null}")
 
-                        Log.d("Andromuks", "AsyncImage: Starting image load for $imageUrl")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "AsyncImage: Starting image load for $imageUrl")
 
                         // PERFORMANCE: Use optimized AsyncImage with better caching
                         AsyncImage(
@@ -995,7 +998,7 @@ private fun MediaContent(
                             placeholder = blurHashPainter,
                             error = blurHashPainter,
                             onSuccess = {
-                                Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
                             },
                             onError = { state ->
                                 if (state is coil.request.ErrorResult) {
@@ -1008,7 +1011,7 @@ private fun MediaContent(
                                 }
                             },
                             onLoading = { state ->
-                                Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
                             }
                         )
                     } else if (mediaMessage.msgType == "m.video") {
@@ -1085,7 +1088,7 @@ private fun MediaContent(
                                     placeholder = thumbnailBlurHashPainter,
                                     error = thumbnailBlurHashPainter,
                                     onSuccess = {
-                                        Log.d(
+                                        if (BuildConfig.DEBUG) Log.d(
                                             "Andromuks",
                                             "✅ Video thumbnail loaded: $thumbnailFinalUrl"
                                         )
@@ -1490,7 +1493,7 @@ private suspend fun downloadFile(
         
         downloadManager.enqueue(request)
         
-        Log.d("Andromuks", "File download started: $filename to ${finalFile.absolutePath}")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "File download started: $filename to ${finalFile.absolutePath}")
         
     } catch (e: Exception) {
         Log.e("Andromuks", "Failed to download file: $filename", e)
@@ -1548,7 +1551,7 @@ private suspend fun downloadFileWithOkHttp(
                 }
             }
             
-            Log.d("Andromuks", "File downloaded successfully: $filename to ${finalFile.absolutePath}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "File downloaded successfully: $filename to ${finalFile.absolutePath}")
         }
     } catch (e: Exception) {
         Log.e("Andromuks", "OkHttp download failed for $filename", e)
@@ -1695,7 +1698,7 @@ private fun ImageViewerDialog(
                     .transformable(state = transformableState)
                     .clip(RoundedCornerShape(8.dp)),
                 onSuccess = { 
-                    Log.d("Andromuks", "✅ ImageViewer: Image loaded successfully: $imageUrl")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Image loaded successfully: $imageUrl")
                 },
                 onError = { state ->
                     if (state is coil.request.ErrorResult) {

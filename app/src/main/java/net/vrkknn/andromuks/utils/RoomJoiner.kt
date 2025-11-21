@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.util.Log
 import androidx.compose.foundation.background
@@ -40,6 +41,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
+
+
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLDecoder
@@ -421,13 +424,13 @@ fun RoomJoinerScreen(
                     val (summary, summaryError) = summaryResult ?: Pair(null, null)
                     if (summaryError != null) {
                         // For invites, errors are OK - we'll show the invite info
-                        Log.d("RoomJoiner", "Room summary error for invite (this is OK): $summaryError")
+                        if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Room summary error for invite (this is OK): $summaryError")
                         roomSummary = null
                         errorMessage = null // Don't show error for invites
                     } else if (summary != null) {
                         // If num_joined_members is 0 or missing, also request get_room_state with include_members to get actual count
                         if (summary.numJoinedMembers <= 0) {
-                            Log.d("RoomJoiner", "Room summary has no member count, requesting get_room_state with members for invite")
+                            if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Room summary has no member count, requesting get_room_state with members for invite")
                             appViewModel.requestRoomStateWithMembers(inviteId) { roomStateInfo, stateError ->
                                 if (roomStateInfo != null && roomStateInfo.members.isNotEmpty()) {
                                     // Update summary with actual member count
@@ -435,7 +438,7 @@ fun RoomJoinerScreen(
                                         numJoinedMembers = roomStateInfo.members.size
                                     )
                                     roomSummary = updatedSummary
-                                    Log.d("RoomJoiner", "Updated room summary with member count: ${roomStateInfo.members.size}")
+                                    if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Updated room summary with member count: ${roomStateInfo.members.size}")
                                 } else {
                                     // Use summary as-is (member count will show as "Unknown")
                                     roomSummary = summary
@@ -447,7 +450,7 @@ fun RoomJoinerScreen(
                         errorMessage = null
                         // If already joined, navigate directly
                         if (summary.membership == "join") {
-                            Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
+                            if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
                             onJoinSuccess(summary.roomId)
                         }
                     }
@@ -457,7 +460,7 @@ fun RoomJoinerScreen(
                 // Timeout: if summary doesn't load in 3 seconds, show the invite anyway
                 kotlinx.coroutines.delay(3000)
                 if (isLoading && !summaryLoaded) {
-                    Log.d("RoomJoiner", "Room summary timeout for invite, showing invite info anyway")
+                    if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Room summary timeout for invite, showing invite info anyway")
                     isLoading = false
                 }
             } else {
@@ -485,7 +488,7 @@ fun RoomJoinerScreen(
                                     errorMessage = null
                                     // If already joined, navigate directly
                                     if (summary.membership == "join") {
-                                        Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
+                                        if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
                                         onJoinSuccess(summary.roomId)
                                     }
                                 } else {
@@ -511,7 +514,7 @@ fun RoomJoinerScreen(
                             errorMessage = null
                             // If already joined, navigate directly
                             if (summary.membership == "join") {
-                                Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
+                                if (BuildConfig.DEBUG) Log.d("RoomJoiner", "Already joined to room ${summary.roomId}, navigating")
                                 onJoinSuccess(summary.roomId)
                             }
                         } else {

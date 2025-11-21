@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+
+
+import net.vrkknn.andromuks.BuildConfig
 import android.util.Base64
 import android.util.Log
 import java.security.SecureRandom
@@ -65,7 +68,7 @@ object Encryption {
          * Decrypt encrypted ByteArray
          */
         fun decrypt(encrypted: ByteArray): ByteArray {
-            Log.d(TAG, "Decrypting ByteArray of size: ${encrypted.size}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Decrypting ByteArray of size: ${encrypted.size}")
             
             if (encrypted.size < GCM_IV_SIZE) {
                 Log.e(TAG, "Encrypted data too short: ${encrypted.size} < $GCM_IV_SIZE")
@@ -75,8 +78,8 @@ object Encryption {
             val iv = encrypted.sliceArray(0 until GCM_IV_SIZE)
             val actualEncrypted = encrypted.sliceArray(GCM_IV_SIZE until encrypted.size)
             
-            Log.d(TAG, "IV size: ${iv.size}, Encrypted data size: ${actualEncrypted.size}")
-            Log.d(TAG, "IV (first 4 bytes): ${iv.take(4).joinToString { "%02x".format(it) }}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "IV size: ${iv.size}, Encrypted data size: ${actualEncrypted.size}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "IV (first 4 bytes): ${iv.take(4).joinToString { "%02x".format(it) }}")
             
             val cipher = Cipher.getInstance(AES_MODE)
             cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(GCM_TAG_SIZE * 8, iv))  // Tag size in bits
@@ -87,17 +90,17 @@ object Encryption {
          * Decrypt encrypted String (base64-encoded)
          */
         fun decrypt(encrypted: String): String {
-            Log.d(TAG, "Decrypting String of length: ${encrypted.length}")
-            Log.d(TAG, "String first 50 chars: ${encrypted.take(50)}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Decrypting String of length: ${encrypted.length}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "String first 50 chars: ${encrypted.take(50)}")
             
             val decodedBytes = Base64.decode(encrypted, Base64.DEFAULT)
-            Log.d(TAG, "Base64 decoded to ${decodedBytes.size} bytes")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Base64 decoded to ${decodedBytes.size} bytes")
             
             val decryptedBytes = decrypt(decodedBytes)
             val result = decryptedBytes.toString(Charsets.UTF_8)
             
-            Log.d(TAG, "Decrypted result length: ${result.length}")
-            Log.d(TAG, "Decrypted result first 100 chars: ${result.take(100)}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Decrypted result length: ${result.length}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Decrypted result first 100 chars: ${result.take(100)}")
             
             return result
         }

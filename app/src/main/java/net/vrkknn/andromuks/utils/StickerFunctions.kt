@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -41,6 +42,8 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.TimelineEvent
+
+
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.rememberTransformableState
@@ -110,7 +113,7 @@ fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
         return null
     }
     
-    Log.d("Andromuks", "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${width}x${height}, hasEncryptedFile=$hasEncryptedFile")
+    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${width}x${height}, hasEncryptedFile=$hasEncryptedFile")
     return StickerMessage(url, body, width, height, hasEncryptedFile)
 }
 
@@ -327,13 +330,13 @@ private fun StickerContent(
             val imageUrl = remember(stickerMessage.url, isEncrypted, cachedFile) {
                 if (cachedFile != null && cachedFile.exists()) {
                     // Use raw cached file path (like AvatarImage does)
-                    Log.d("Andromuks", "StickerMessage: Using cached file: ${cachedFile.absolutePath}")
-                    Log.d("Andromuks", "StickerMessage: Cached file size: ${cachedFile.length()} bytes, canRead: ${cachedFile.canRead()}, isEncrypted: $isEncrypted")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Using cached file: ${cachedFile.absolutePath}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Cached file size: ${cachedFile.length()} bytes, canRead: ${cachedFile.canRead()}, isEncrypted: $isEncrypted")
                     // Check if file looks like image data (starts with common image magic bytes)
                     try {
                         val header = cachedFile.inputStream().use { it.readNBytes(4) }
                         val headerHex = header.joinToString("") { "%02x".format(it) }
-                        Log.d("Andromuks", "StickerMessage: File header (hex): $headerHex")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: File header (hex): $headerHex")
                     } catch (e: Exception) {
                         Log.e("Andromuks", "StickerMessage: Failed to read file header", e)
                     }
@@ -343,7 +346,7 @@ private fun StickerContent(
                     val httpUrl = MediaUtils.mxcToHttpUrl(stickerMessage.url, homeserverUrl)
                     if (isEncrypted) {
                         val encryptedUrl = "$httpUrl?encrypted=true"
-                        Log.d("Andromuks", "StickerMessage: Added encrypted=true to URL: $encryptedUrl")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Added encrypted=true to URL: $encryptedUrl")
                         encryptedUrl
                     } else {
                         httpUrl
@@ -364,7 +367,7 @@ private fun StickerContent(
                 )
             }
             
-            Log.d("Andromuks", "StickerMessage: Loading sticker from $imageUrl")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Loading sticker from $imageUrl")
             
             AsyncImage(
                 model = ImageRequest.Builder(context)
@@ -391,7 +394,7 @@ private fun StickerContent(
                 placeholder = placeholderPainter,
                 error = placeholderPainter,
                 onSuccess = {
-                    Log.d("Andromuks", "✅ Sticker loaded successfully: $imageUrl")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Sticker loaded successfully: $imageUrl")
                 },
                 onError = { state ->
                     if (state is coil.request.ErrorResult) {
@@ -404,7 +407,7 @@ private fun StickerContent(
                     }
                 },
                 onLoading = { state ->
-                    Log.d("Andromuks", "⏳ Sticker loading: $imageUrl, state: $state")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Sticker loading: $imageUrl, state: $state")
                 }
             )
         }
@@ -481,13 +484,13 @@ private fun StickerViewerDialog(
             val imageUrl = remember(stickerMessage.url, isEncrypted, cachedFile) {
                 if (cachedFile != null && cachedFile.exists()) {
                     // Use raw cached file path (like AvatarImage does)
-                    Log.d("Andromuks", "StickerViewer: Using cached file: ${cachedFile.absolutePath}")
-                    Log.d("Andromuks", "StickerViewer: Cached file size: ${cachedFile.length()} bytes, canRead: ${cachedFile.canRead()}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerViewer: Using cached file: ${cachedFile.absolutePath}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerViewer: Cached file size: ${cachedFile.length()} bytes, canRead: ${cachedFile.canRead()}")
                     // Check if file looks like image data (starts with common image magic bytes)
                     try {
                         val header = cachedFile.inputStream().use { it.readNBytes(4) }
                         val headerHex = header.joinToString("") { "%02x".format(it) }
-                        Log.d("Andromuks", "StickerViewer: File header (hex): $headerHex")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerViewer: File header (hex): $headerHex")
                     } catch (e: Exception) {
                         Log.e("Andromuks", "StickerViewer: Failed to read file header", e)
                     }
@@ -528,7 +531,7 @@ private fun StickerViewerDialog(
                     .transformable(state = transformableState)
                     .clip(RoundedCornerShape(8.dp)),
                 onSuccess = {
-                    Log.d("Andromuks", "✅ StickerViewer: Sticker loaded successfully: $imageUrl")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ StickerViewer: Sticker loaded successfully: $imageUrl")
                 },
                 onError = { state ->
                     if (state is coil.request.ErrorResult) {

@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+
+
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -179,7 +182,7 @@ object ProgressiveImageLoader {
             val optimizedSize = optimizedFile.length()
             val compressionRatio = (1.0 - optimizedSize.toDouble() / originalSize) * 100
             
-            Log.d(TAG, "Optimized image: ${originalSize / 1024}KB -> ${optimizedSize / 1024}KB (${compressionRatio.toInt()}% reduction)")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Optimized image: ${originalSize / 1024}KB -> ${optimizedSize / 1024}KB (${compressionRatio.toInt()}% reduction)")
             optimizedFile
             
         } catch (e: Exception) {

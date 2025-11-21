@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -68,6 +69,8 @@ import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.extractRoomLink
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.AppViewModel
+
+
 
 private val matrixUserRegex = Regex("matrix:(?:/+)?(?:u|user)/(@?.+)")
 
@@ -267,7 +270,7 @@ object HtmlParser {
                 }
             }
             attributes[name.lowercase()] = value
-            Log.d("Andromuks", "HtmlParser: Parsed attribute: $name=\"$value\"")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlParser: Parsed attribute: $name=\"$value\"")
         }
         
         return attributes
@@ -768,7 +771,7 @@ fun HtmlMessageText(
                 // Check if we already have the profile
                 val existingProfile = appViewModel.getUserProfile(userId, event.roomId)
                 if (existingProfile == null) {
-                    Log.d("Andromuks", "HtmlMessageText: Requesting profile on-demand for $userId from HTML")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: Requesting profile on-demand for $userId from HTML")
                     appViewModel.requestUserProfileOnDemand(userId, event.roomId)
                 }
             }
@@ -924,7 +927,7 @@ fun HtmlMessageText(
                                     .firstOrNull()?.let { annotation ->
                                         val roomLink = extractRoomLink(annotation.item)
                                         if (roomLink != null) {
-                                            Log.d("Andromuks", "HtmlMessageText: room link tapped for ${roomLink.roomIdOrAlias}")
+                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: room link tapped for ${roomLink.roomIdOrAlias}")
                                             onRoomLinkClick(roomLink)
                                             return@awaitEachGesture
                                         }
@@ -938,7 +941,7 @@ fun HtmlMessageText(
                                             url.startsWith("matrix:u/") -> {
                                                 val rawId = url.removePrefix("matrix:u/")
                                                 val userId = if (rawId.startsWith("@")) rawId else "@${rawId}"
-                                                Log.d("Andromuks", "HtmlMessageText: matrix:u link tapped for $userId")
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: matrix:u link tapped for $userId")
                                                 onMatrixUserClick(userId)
                                             }
                                             url.startsWith("https://matrix.to/#/") -> {
@@ -946,14 +949,14 @@ fun HtmlMessageText(
                                                 val userId = runCatching { URLDecoder.decode(encodedPart, Charsets.UTF_8.name()) }
                                                     .getOrDefault(encodedPart)
                                                 if (userId.startsWith("@")) {
-                                                    Log.d("Andromuks", "HtmlMessageText: matrix.to link tapped for $userId")
+                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: matrix.to link tapped for $userId")
                                                     onMatrixUserClick(userId)
                                                 } else {
                                                     // Fallback to opening in browser for non-user matrix.to links
                                                     try {
                                                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                                                         context.startActivity(intent)
-                                                        Log.d("Andromuks", "Opening URL: $url")
+                                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "Opening URL: $url")
                                                     } catch (e: Exception) {
                                                         Log.e("Andromuks", "Failed to open URL: $url", e)
                                                     }
@@ -964,7 +967,7 @@ fun HtmlMessageText(
                                                 try {
                                                     val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                                                     context.startActivity(intent)
-                                                    Log.d("Andromuks", "Opening URL: $url")
+                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "Opening URL: $url")
                                                 } catch (e: Exception) {
                                                     Log.e("Andromuks", "Failed to open URL: $url", e)
                                                 }
@@ -1026,7 +1029,7 @@ private fun InlineImage(
     val imageUrl = remember(src, homeserverUrl, cachedFile) {
         if (cachedFile != null) {
             // Use cached file
-            Log.d("Andromuks", "InlineImage: Using cached file: ${cachedFile.absolutePath}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineImage: Using cached file: ${cachedFile.absolutePath}")
             cachedFile.absolutePath
         } else {
             // Use HTTP URL

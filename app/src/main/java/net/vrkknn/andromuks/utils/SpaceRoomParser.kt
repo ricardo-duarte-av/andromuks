@@ -1,8 +1,11 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import net.vrkknn.andromuks.RoomItem
 import net.vrkknn.andromuks.SyncUpdateResult
+
+
 import org.json.JSONObject
 
 object SpaceRoomParser {
@@ -217,7 +220,7 @@ object SpaceRoomParser {
                 if (roomId.isNotBlank()) {
                     // For invited rooms, we might want to show them differently
                     // For now, we'll just log them
-                    Log.d("Andromuks", "SpaceRoomParser: Invited room: $roomId")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "SpaceRoomParser: Invited room: $roomId")
                 }
             }
         }
@@ -591,7 +594,7 @@ object SpaceRoomParser {
                                 // Check if this child is a space (has space_edges) - if so, skip it
                                 val isChildSpace = spaceEdges.has(childId)
                                 if (isChildSpace) {
-                                    android.util.Log.d("Andromuks", "SpaceRoomParser: Skipping child space: $childName")
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceRoomParser: Skipping child space: $childName")
                                 } else {
                                     val childRoom = net.vrkknn.andromuks.RoomItem(
                                         id = childId,

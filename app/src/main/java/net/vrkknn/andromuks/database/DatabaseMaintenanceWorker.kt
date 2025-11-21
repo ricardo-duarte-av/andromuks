@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.database
 
+
+
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
@@ -26,14 +29,14 @@ class DatabaseMaintenanceWorker(
     private val TAG = "DatabaseMaintenanceWorker"
     
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        Log.d(TAG, "Database maintenance worker started")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Database maintenance worker started")
         
         try {
             val maintenance = DatabaseMaintenance(applicationContext)
             val result = maintenance.performMaintenance()
             
             if (result.success) {
-                Log.d(TAG, "Database maintenance completed successfully: ${result.deletedEvents} events deleted")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Database maintenance completed successfully: ${result.deletedEvents} events deleted")
                 Result.success()
             } else {
                 Log.e(TAG, "Database maintenance failed: ${result.error}")
@@ -88,7 +91,7 @@ class DatabaseMaintenanceWorker(
                 maintenanceWork
             )
             
-            Log.d("DatabaseMaintenanceWorker", "Scheduled daily database maintenance starting at 2 AM (${initialDelay / 1000 / 60 / 60} hours from now)")
+            if (BuildConfig.DEBUG) Log.d("DatabaseMaintenanceWorker", "Scheduled daily database maintenance starting at 2 AM (${initialDelay / 1000 / 60 / 60} hours from now)")
         }
         
         /**
@@ -96,7 +99,7 @@ class DatabaseMaintenanceWorker(
          */
         fun cancel(context: Context) {
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
-            Log.d("DatabaseMaintenanceWorker", "Cancelled database maintenance")
+            if (BuildConfig.DEBUG) Log.d("DatabaseMaintenanceWorker", "Cancelled database maintenance")
         }
     }
 }

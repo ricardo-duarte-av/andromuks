@@ -53,6 +53,8 @@ import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
 import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.RoomLink
+import net.vrkknn.andromuks.BuildConfig
+
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -80,7 +82,7 @@ private fun isMentioningUser(event: TimelineEvent, userId: String?): Boolean {
         if (userIds != null) {
             for (i in 0 until userIds.length()) {
                 if (userIds.optString(i) == userId) {
-                    Log.d("Andromuks", "isMentioningUser: Found mention of $userId in event ${event.eventId}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "isMentioningUser: Found mention of $userId in event ${event.eventId}")
                     return true
                 }
             }
@@ -94,7 +96,7 @@ private fun isMentioningUser(event: TimelineEvent, userId: String?): Boolean {
         if (userIds != null) {
             for (i in 0 until userIds.length()) {
                 if (userIds.optString(i) == userId) {
-                    Log.d("Andromuks", "isMentioningUser: Found mention of $userId in encrypted event ${event.eventId}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "isMentioningUser: Found mention of $userId in encrypted event ${event.eventId}")
                     return true
                 }
             }
@@ -166,7 +168,7 @@ fun AdaptiveMessageText(
     
     // Check if HTML rendering is supported and available (and not redacted)
     if (!isRedacted && supportsHtmlRendering(event)) {
-        Log.d("Andromuks", "AdaptiveMessageText: Using HTML rendering for event ${event.eventId}")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "AdaptiveMessageText: Using HTML rendering for event ${event.eventId}")
         HtmlMessageText(
             event = event,
             homeserverUrl = homeserverUrl,
@@ -180,9 +182,9 @@ fun AdaptiveMessageText(
     } else {
         // Fallback to plain text for redacted messages or when HTML is not available
         if (isRedacted) {
-            Log.d("Andromuks", "AdaptiveMessageText: Using plain text for redacted event ${event.eventId}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "AdaptiveMessageText: Using plain text for redacted event ${event.eventId}")
         } else {
-            Log.d("Andromuks", "AdaptiveMessageText: Using SmartMessageText for event ${event.eventId}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "AdaptiveMessageText: Using SmartMessageText for event ${event.eventId}")
         }
         
         // Show deletion message (in body parameter) or regular text
@@ -524,7 +526,7 @@ private fun RoomMessageContent(
     // Request profile if redaction sender is missing from cache
     if (isRedacted && redactionSender != null && appViewModel != null) {
         if (!userProfileCache.containsKey(redactionSender)) {
-            android.util.Log.d(
+            if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "RoomTimelineScreen: Requesting profile for redaction sender: $redactionSender in room ${event.roomId}"
             )
@@ -642,7 +644,7 @@ private fun RoomMediaMessageContent(
     onThreadClick: (TimelineEvent) -> Unit,
     onShowEditHistory: (() -> Unit)? = null
 ) {
-    Log.d(
+    if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
         "TimelineEventItem: Found media message - msgType=$msgType, body=$body"
     )
@@ -733,7 +735,7 @@ private fun RoomMediaMessageContent(
     val filename = content?.optString("filename", "") ?: ""
     val info = content?.optJSONObject("info")
 
-    Log.d(
+    if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
         "TimelineEventItem: Media data - url=$url, filename=$filename, info=${info != null}, hasEncryptedFile=$hasEncryptedFile"
     )
@@ -1237,7 +1239,7 @@ private fun EncryptedMessageContent(
         event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") ==
             "m.replace"
     if (isEditEvent) {
-        android.util.Log.d(
+        if (BuildConfig.DEBUG) android.util.Log.d(
             "Andromuks",
             "RoomTimelineScreen: Filtering out edit event ${event.eventId}"
         )
@@ -1254,7 +1256,7 @@ private fun EncryptedMessageContent(
             } else {
                 decrypted?.optString("body", "") ?: ""
             }
-        android.util.Log.d(
+        if (BuildConfig.DEBUG) android.util.Log.d(
             "Andromuks",
             "RoomTimelineScreen: Displaying encrypted event ${event.eventId} with body: '$body'"
         )
@@ -1313,7 +1315,7 @@ private fun EncryptedMessageContent(
         // Request profile if redaction sender is missing from cache
         if (isRedacted && redactionSender != null && appViewModel != null) {
             if (!userProfileCache.containsKey(redactionSender)) {
-                android.util.Log.d(
+                if (BuildConfig.DEBUG) android.util.Log.d(
                     "Andromuks",
                     "RoomTimelineScreen: Requesting profile for encrypted message redaction sender: $redactionSender in room ${event.roomId}"
                 )
@@ -1367,23 +1369,23 @@ private fun EncryptedMessageContent(
 
         // Check if it's a media message
         if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file") {
-            Log.d(
+            if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
                 "TimelineEventItem: Found encrypted media message - msgType=$msgType, body=$body"
             )
 
             // Debug: Check what's in the decrypted object
-            Log.d(
+            if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
                 "TimelineEventItem: Direct url field: ${decrypted?.optString("url", "NOT_FOUND")}"
             )
-            Log.d(
+            if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
                 "TimelineEventItem: File object exists: ${decrypted?.has("file")}"
             )
             if (decrypted?.has("file") == true) {
                 val fileObj = decrypted.optJSONObject("file")
-                Log.d(
+                if (BuildConfig.DEBUG) Log.d(
                     "Andromuks",
                     "TimelineEventItem: File url field: ${fileObj?.optString("url", "NOT_FOUND")}"
                 )
@@ -1398,7 +1400,7 @@ private fun EncryptedMessageContent(
             val fileUrl = fileObj?.optString("url", "") ?: ""
             val url = directUrl.takeIf { it.isNotBlank() } ?: fileUrl
 
-            Log.d(
+            if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
                 "TimelineEventItem: URL extraction - directUrl='$directUrl', fileObj=${fileObj != null}, fileUrl='$fileUrl', finalUrl='$url', hasEncryptedFile=$hasEncryptedFile"
             )
@@ -1406,7 +1408,7 @@ private fun EncryptedMessageContent(
             val filename = decrypted?.optString("filename", "") ?: ""
             val info = decrypted?.optJSONObject("info")
 
-            Log.d(
+            if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
                 "TimelineEventItem: Encrypted media data - url=$url, filename=$filename, info=${info != null}"
             )
@@ -1483,7 +1485,7 @@ private fun EncryptedMessageContent(
                         msgType = msgType
                     )
 
-                Log.d(
+                if (BuildConfig.DEBUG) Log.d(
                     "Andromuks",
                     "TimelineEventItem: Created encrypted MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}"
                 )
@@ -1940,7 +1942,7 @@ private fun StickerMessageContent(
     val stickerMessage = extractStickerFromEvent(event)
 
     if (stickerMessage != null) {
-        Log.d(
+        if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
             "TimelineEventItem: Found sticker - url=${stickerMessage.url}, body=${stickerMessage.body}, dimensions=${stickerMessage.width}x${stickerMessage.height}"
         )
@@ -2067,7 +2069,7 @@ fun TimelineEventItem(
             // Check if we already have the profile (including for current user)
             val existingProfile = appViewModel.getUserProfile(event.sender, event.roomId)
             if (existingProfile == null || existingProfile.displayName.isNullOrBlank()) {
-                Log.d("Andromuks", "TimelineEventItem: Requesting profile on-demand for ${event.sender}")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "TimelineEventItem: Requesting profile on-demand for ${event.sender}")
                 appViewModel.requestUserProfileOnDemand(event.sender, event.roomId)
             }
         }

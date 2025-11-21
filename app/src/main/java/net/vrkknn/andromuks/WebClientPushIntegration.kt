@@ -1,5 +1,7 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.BuildConfig
+
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
@@ -41,7 +43,7 @@ class WebClientPushIntegration(private val context: Context) {
      */
     fun storeDeviceId(deviceId: String) {
         prefs.edit().putString(KEY_DEVICE_ID, deviceId).apply()
-        Log.d(TAG, "Stored device ID: $deviceId")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Stored device ID: $deviceId")
     }
     
     /**
@@ -49,7 +51,7 @@ class WebClientPushIntegration(private val context: Context) {
      */
     fun getDeviceID(): String? {
         val deviceId = prefs.getString(KEY_DEVICE_ID, null)
-        Log.d(TAG, "getDeviceID: returning $deviceId")
+        if (BuildConfig.DEBUG) Log.d(TAG, "getDeviceID: returning $deviceId")
         return deviceId
     }
     
@@ -61,22 +63,22 @@ class WebClientPushIntegration(private val context: Context) {
             // First, check if we already have a key stored
             val existingKey = prefs.getString(KEY_PUSH_ENCRYPTION_KEY, null)
             if (existingKey != null) {
-                Log.d(TAG, "getPushEncryptionKey: Reusing existing key from SharedPreferences")
-                Log.d(TAG, "getPushEncryptionKey: Existing key (first 20 chars): ${existingKey.take(20)}...")
+                if (BuildConfig.DEBUG) Log.d(TAG, "getPushEncryptionKey: Reusing existing key from SharedPreferences")
+                if (BuildConfig.DEBUG) Log.d(TAG, "getPushEncryptionKey: Existing key (first 20 chars): ${existingKey.take(20)}...")
                 return existingKey
             }
             
             // No existing key, generate a new one
-            Log.d(TAG, "getPushEncryptionKey: No existing key found, generating new one")
+            if (BuildConfig.DEBUG) Log.d(TAG, "getPushEncryptionKey: No existing key found, generating new one")
             val keyBytes = getOrCreatePushEncryptionKey()
             val base64Key = Base64.encodeToString(keyBytes, Base64.NO_WRAP)
-            Log.d(TAG, "getPushEncryptionKey: Generated new key of size ${keyBytes.size} bytes")
-            Log.d(TAG, "getPushEncryptionKey: Key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}")
-            Log.d(TAG, "getPushEncryptionKey: Base64 key: $base64Key")
+            if (BuildConfig.DEBUG) Log.d(TAG, "getPushEncryptionKey: Generated new key of size ${keyBytes.size} bytes")
+            if (BuildConfig.DEBUG) Log.d(TAG, "getPushEncryptionKey: Key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "getPushEncryptionKey: Base64 key: $base64Key")
             
             // Store the key in SharedPreferences for FCMService to use
             prefs.edit().putString(KEY_PUSH_ENCRYPTION_KEY, base64Key).apply()
-            Log.d(TAG, "getPushEncryptionKey: Stored new key in SharedPreferences: $base64Key")
+            if (BuildConfig.DEBUG) Log.d(TAG, "getPushEncryptionKey: Stored new key in SharedPreferences: $base64Key")
             
             base64Key
         } catch (e: Exception) {
@@ -96,22 +98,22 @@ class WebClientPushIntegration(private val context: Context) {
         return try {
             // Check if Android Keystore is available
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
-                Log.d(TAG, "Android Keystore not available on this API level, using fallback")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Android Keystore not available on this API level, using fallback")
                 return generateFallbackKey()
             }
             
-            Log.d(TAG, "Attempting to use Android Keystore for encryption key")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Attempting to use Android Keystore for encryption key")
             val keyStore = KeyStore.getInstance("AndroidKeyStore")
             keyStore.load(null)
             
             if (keyStore.containsAlias(KEY_ALIAS)) {
                 // Key exists, retrieve it
-                Log.d(TAG, "Retrieving existing key from AndroidKeyStore")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Retrieving existing key from AndroidKeyStore")
                 val key = keyStore.getKey(KEY_ALIAS, null)
                 if (key is SecretKey) {
                     val keyBytes = key.encoded ?: generateFallbackKey()
-                    Log.d(TAG, "Retrieved AndroidKeyStore key of size: ${keyBytes.size} bytes")
-                    Log.d(TAG, "AndroidKeyStore key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Retrieved AndroidKeyStore key of size: ${keyBytes.size} bytes")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "AndroidKeyStore key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}")
                     keyBytes
                 } else {
                     Log.w(TAG, "Retrieved key is not a SecretKey, using fallback")
@@ -119,7 +121,7 @@ class WebClientPushIntegration(private val context: Context) {
                 }
             } else {
                 // Generate new key
-                Log.d(TAG, "Generating new key in AndroidKeyStore")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Generating new key in AndroidKeyStore")
                 val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
                 val keyGenParameterSpec = KeyGenParameterSpec.Builder(
                     KEY_ALIAS,
@@ -133,8 +135,8 @@ class WebClientPushIntegration(private val context: Context) {
                 keyGenerator.init(keyGenParameterSpec)
                 val secretKey = keyGenerator.generateKey()
                 val keyBytes = secretKey.encoded ?: generateFallbackKey()
-                Log.d(TAG, "Generated new AndroidKeyStore key of size: ${keyBytes.size} bytes")
-                Log.d(TAG, "New AndroidKeyStore key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Generated new AndroidKeyStore key of size: ${keyBytes.size} bytes")
+                if (BuildConfig.DEBUG) Log.d(TAG, "New AndroidKeyStore key (first 8 bytes): ${keyBytes.take(8).joinToString { "%02x".format(it) }}")
                 keyBytes
             }
         } catch (e: Exception) {
@@ -150,9 +152,9 @@ class WebClientPushIntegration(private val context: Context) {
         val fallbackKey = UUID.randomUUID().toString().replace("-", "").toByteArray()
         val base64Key = Base64.encodeToString(fallbackKey, Base64.NO_WRAP)
         prefs.edit().putString(KEY_PUSH_ENCRYPTION_KEY, base64Key).apply()
-        Log.d(TAG, "Generated fallback encryption key of size ${fallbackKey.size} bytes")
-        Log.d(TAG, "Fallback key (first 8 bytes): ${fallbackKey.take(8).joinToString { "%02x".format(it) }}")
-        Log.d(TAG, "Fallback key stored as: $base64Key")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Generated fallback encryption key of size ${fallbackKey.size} bytes")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Fallback key (first 8 bytes): ${fallbackKey.take(8).joinToString { "%02x".format(it) }}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Fallback key stored as: $base64Key")
         return fallbackKey
     }
     
@@ -165,10 +167,10 @@ class WebClientPushIntegration(private val context: Context) {
         val intervalMs = PUSH_REG_INTERVAL_HOURS * 60 * 60 * 1000
         val timeSinceLastReg = now - lastReg
         
-        Log.d(TAG, "shouldRegisterPush: lastReg=$lastReg, now=$now, timeSinceLastReg=$timeSinceLastReg ms, intervalMs=$intervalMs ms")
+        if (BuildConfig.DEBUG) Log.d(TAG, "shouldRegisterPush: lastReg=$lastReg, now=$now, timeSinceLastReg=$timeSinceLastReg ms, intervalMs=$intervalMs ms")
         
         val shouldRegister = timeSinceLastReg > intervalMs
-        Log.d(TAG, "shouldRegisterPush: returning $shouldRegister")
+        if (BuildConfig.DEBUG) Log.d(TAG, "shouldRegisterPush: returning $shouldRegister")
         
         return shouldRegister
     }
@@ -179,7 +181,7 @@ class WebClientPushIntegration(private val context: Context) {
     fun markPushRegistrationCompleted() {
         val timestamp = System.currentTimeMillis()
         prefs.edit().putLong(KEY_LAST_PUSH_REG, timestamp).apply()
-        Log.d(TAG, "Marked push registration as completed at timestamp: $timestamp")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Marked push registration as completed at timestamp: $timestamp")
     }
     
     /**

@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,6 +23,8 @@ import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.TimelineEventItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
+
+
 import org.json.JSONObject
 import androidx.compose.foundation.shape.RoundedCornerShape
 import net.vrkknn.andromuks.utils.navigateToUserInfo
@@ -119,7 +122,7 @@ fun RoomInfoScreen(
     
     // Request room state when the screen is created
     LaunchedEffect(roomId) {
-        android.util.Log.d("Andromuks", "RoomInfoScreen: Requesting room state for $roomId")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomInfoScreen: Requesting room state for $roomId")
         appViewModel.requestRoomStateWithMembers(roomId) { stateInfo, error ->
             isLoading = false
             if (error != null) {
@@ -127,7 +130,7 @@ fun RoomInfoScreen(
                 android.util.Log.e("Andromuks", "RoomInfoScreen: Error loading room state: $error")
             } else {
                 roomStateInfo = stateInfo
-                android.util.Log.d("Andromuks", "RoomInfoScreen: Loaded room state successfully")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomInfoScreen: Loaded room state successfully")
             }
         }
     }
@@ -524,7 +527,7 @@ fun RoomInfoScreen(
                     .distinct()
                     .filter { it != appViewModel.currentUserId }
                 
-                android.util.Log.d("Andromuks", "RoomInfoScreen: Triggering opportunistic profile loading for ${senders.size} pinned event senders")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomInfoScreen: Triggering opportunistic profile loading for ${senders.size} pinned event senders")
                 senders.forEach { sender ->
                     appViewModel.requestUserProfileOnDemand(sender, roomId)
                 }
@@ -570,7 +573,7 @@ private fun loadPinnedEvents(
     var errorMessage: String? = null
     var hasTimeout = false
 
-    android.util.Log.d("Andromuks", "loadPinnedEvents: Loading ${pinnedIds.size} pinned events for room $roomId")
+    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "loadPinnedEvents: Loading ${pinnedIds.size} pinned events for room $roomId")
 
     pinnedIds.forEach { eventId ->
         appViewModel.getEvent(roomId, eventId) { timelineEvent ->
@@ -582,10 +585,10 @@ private fun loadPinnedEvents(
                     hasTimeout = true
                     android.util.Log.w("Andromuks", "loadPinnedEvents: Failed to load event $eventId")
                 } else {
-                    android.util.Log.d("Andromuks", "loadPinnedEvents: Successfully loaded event $eventId")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "loadPinnedEvents: Successfully loaded event $eventId")
                 }
 
-                android.util.Log.d("Andromuks", "loadPinnedEvents: Progress: ${pinnedIds.size - remaining}/${pinnedIds.size} events loaded")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "loadPinnedEvents: Progress: ${pinnedIds.size - remaining}/${pinnedIds.size} events loaded")
 
                 if (remaining == 0) {
                     // Get all successfully loaded events and sort by timestamp (most recent first)
@@ -606,8 +609,8 @@ private fun loadPinnedEvents(
                         else -> null
                     }
                     
-                    android.util.Log.d("Andromuks", "loadPinnedEvents: Completed loading pinned events. Success: ${results.count { it.timelineEvent != null }}/${pinnedIds.size}")
-                    android.util.Log.d("Andromuks", "loadPinnedEvents: Events ordered by timestamp (most recent first)")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "loadPinnedEvents: Completed loading pinned events. Success: ${results.count { it.timelineEvent != null }}/${pinnedIds.size}")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "loadPinnedEvents: Events ordered by timestamp (most recent first)")
                     onResult(ordered, finalErrorMessage)
                 }
             }
@@ -692,7 +695,7 @@ private fun PinnedEventItemView(
     LaunchedEffect(event?.sender, memberMap) {
         if (event?.sender != null) {
             val profile = memberMap[event.sender]
-            android.util.Log.d("Andromuks", "PinnedEventItemView: Event sender: ${event.sender}, Profile found: ${profile != null}, DisplayName: ${profile?.displayName}")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "PinnedEventItemView: Event sender: ${event.sender}, Profile found: ${profile != null}, DisplayName: ${profile?.displayName}")
         }
     }
 
@@ -940,16 +943,16 @@ fun ServerAclDialog(
  * Parse room state response from the server
  */
 fun parseRoomStateResponse(data: Any): RoomStateInfo? {
-    android.util.Log.d("Andromuks", "parseRoomStateResponse: Parsing room state response")
+    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "parseRoomStateResponse: Parsing room state response")
     
     try {
         val eventsArray = when (data) {
             is org.json.JSONArray -> {
-                android.util.Log.d("Andromuks", "parseRoomStateResponse: Received JSONArray with ${data.length()} events")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "parseRoomStateResponse: Received JSONArray with ${data.length()} events")
                 data
             }
             is List<*> -> {
-                android.util.Log.d("Andromuks", "parseRoomStateResponse: Received List with ${data.size} events, converting to JSONArray")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "parseRoomStateResponse: Received List with ${data.size} events, converting to JSONArray")
                 // Convert list to JSONArray
                 val jsonArray = org.json.JSONArray()
                 data.forEach { jsonArray.put(it) }
@@ -1136,7 +1139,7 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
         val invitedCount = members.count { it.membership == "invite" }
         val leftCount = members.count { it.membership == "leave" }
         val bannedCount = members.count { it.membership == "ban" }
-        android.util.Log.d("Andromuks", "parseRoomStateResponse: Parsed ${members.size} total members from $totalMemberEvents member events: $joinedMemberEvents joined, $invitedCount invited, $leftCount left, $bannedCount banned")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "parseRoomStateResponse: Parsed ${members.size} total members from $totalMemberEvents member events: $joinedMemberEvents joined, $invitedCount invited, $leftCount left, $bannedCount banned")
         
         return RoomStateInfo(
             roomId = roomId,

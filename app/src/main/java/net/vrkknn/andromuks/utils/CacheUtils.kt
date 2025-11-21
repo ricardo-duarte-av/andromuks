@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+
+
+import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import coil.ImageLoader
 import coil.memory.MemoryCache
@@ -36,13 +39,13 @@ object CacheUtils {
         return when {
             // HTTP 404 - media not found (deleted or invalid)
             errorMessage.contains("404") || errorMessage.contains("not found") -> {
-                Log.d("Andromuks", "CacheUtils: Should invalidate - 404 Not Found")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Should invalidate - 404 Not Found")
                 true
             }
             
             // HTTP 410 - media permanently removed
             errorMessage.contains("410") || errorMessage.contains("gone") -> {
-                Log.d("Andromuks", "CacheUtils: Should invalidate - 410 Gone")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Should invalidate - 410 Gone")
                 true
             }
             
@@ -53,13 +56,13 @@ object CacheUtils {
                 errorMessage.contains("invalid") ||
                 errorMessage.contains("malformed")
             ) -> {
-                Log.d("Andromuks", "CacheUtils: Should invalidate - corrupt/decode error")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Should invalidate - corrupt/decode error")
                 true
             }
             
             // Stream reset - usually network issue, don't invalidate
             throwable is StreamResetException -> {
-                Log.d("Andromuks", "CacheUtils: Not invalidating - stream reset (transient)")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Not invalidating - stream reset (transient)")
                 false
             }
             
@@ -67,13 +70,13 @@ object CacheUtils {
             errorMessage.contains("timeout") ||
             errorMessage.contains("unable to resolve host") ||
             errorMessage.contains("failed to connect") -> {
-                Log.d("Andromuks", "CacheUtils: Not invalidating - network error (transient)")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Not invalidating - network error (transient)")
                 false
             }
             
             // Auth errors - might be refreshing token, don't invalidate
             errorMessage.contains("401") || errorMessage.contains("403") -> {
-                Log.d("Andromuks", "CacheUtils: Not invalidating - auth error (transient)")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Not invalidating - auth error (transient)")
                 false
             }
             
@@ -82,13 +85,13 @@ object CacheUtils {
             errorMessage.contains("502") ||
             errorMessage.contains("503") ||
             errorMessage.contains("504") -> {
-                Log.d("Andromuks", "CacheUtils: Not invalidating - server error (transient)")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Not invalidating - server error (transient)")
                 false
             }
             
             // For unknown errors, be conservative and don't invalidate
             else -> {
-                Log.d("Andromuks", "CacheUtils: Not invalidating - unknown error (conservative)")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "CacheUtils: Not invalidating - unknown error (conservative)")
                 false
             }
         }

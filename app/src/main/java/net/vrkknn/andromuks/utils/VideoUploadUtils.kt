@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+
+
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
@@ -44,7 +47,7 @@ object VideoUploadUtils {
         isEncrypted: Boolean = false
     ): VideoUploadResult? = withContext(Dispatchers.IO) {
         try {
-            Log.d("Andromuks", "VideoUploadUtils: Starting video upload for URI: $uri")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Starting video upload for URI: $uri")
             
             // Extract video metadata
             val retriever = MediaMetadataRetriever()
@@ -57,7 +60,7 @@ object VideoUploadUtils {
             // Get video duration in milliseconds
             val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toIntOrNull() ?: 0
             
-            Log.d("Andromuks", "VideoUploadUtils: Video dimensions: ${width}x${height}, duration: ${duration}ms")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Video dimensions: ${width}x${height}, duration: ${duration}ms")
             
             // Extract frame at 10% of video duration for thumbnail
             val thumbnailTimeUs = (duration * 1000L * 0.1).toLong() // Convert to microseconds and get 10%
@@ -75,7 +78,7 @@ object VideoUploadUtils {
                 return@withContext null
             }
             
-            Log.d("Andromuks", "VideoUploadUtils: Extracted thumbnail frame: ${thumbnailFrame.width}x${thumbnailFrame.height}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Extracted thumbnail frame: ${thumbnailFrame.width}x${thumbnailFrame.height}")
             
             // Thumbnail the frame if it's HD or higher (reduce to max 1280 width while maintaining aspect ratio)
             val maxThumbnailWidth = 1280
@@ -84,7 +87,7 @@ object VideoUploadUtils {
                 val thumbnailWidth = maxThumbnailWidth
                 val thumbnailHeight = (thumbnailFrame.height * scale).toInt()
                 
-                Log.d("Andromuks", "VideoUploadUtils: Scaling thumbnail to ${thumbnailWidth}x${thumbnailHeight}")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Scaling thumbnail to ${thumbnailWidth}x${thumbnailHeight}")
                 Bitmap.createScaledBitmap(thumbnailFrame, thumbnailWidth, thumbnailHeight, true).also {
                     if (it != thumbnailFrame) {
                         thumbnailFrame.recycle()
@@ -100,7 +103,7 @@ object VideoUploadUtils {
             val thumbnailBytes = thumbnailOutputStream.toByteArray()
             val thumbnailSize = thumbnailBytes.size.toLong()
             
-            Log.d("Andromuks", "VideoUploadUtils: Thumbnail JPEG size: $thumbnailSize bytes")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Thumbnail JPEG size: $thumbnailSize bytes")
             
             // Calculate blurhash from thumbnail (use smaller version for speed)
             val blurHashSize = 400
@@ -110,14 +113,14 @@ object VideoUploadUtils {
             val blurHashBitmap = Bitmap.createScaledBitmap(thumbnailBitmap, blurHashWidth, blurHashHeight, true)
             
             val thumbnailBlurHash = MediaUploadUtils.encodeBlurHash(blurHashBitmap)
-            Log.d("Andromuks", "VideoUploadUtils: Thumbnail BlurHash calculated: $thumbnailBlurHash")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Thumbnail BlurHash calculated: $thumbnailBlurHash")
             
             if (blurHashBitmap != thumbnailBitmap) {
                 blurHashBitmap.recycle()
             }
             
             // Upload thumbnail first
-            Log.d("Andromuks", "VideoUploadUtils: Uploading thumbnail...")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Uploading thumbnail...")
             val thumbnailFilename = "video_thumbnail_${System.currentTimeMillis()}.jpg"
             val thumbnailMxcUrl = uploadBytes(
                 bytes = thumbnailBytes,
@@ -135,7 +138,7 @@ object VideoUploadUtils {
                 return@withContext null
             }
             
-            Log.d("Andromuks", "VideoUploadUtils: Thumbnail uploaded: $thumbnailMxcUrl")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Thumbnail uploaded: $thumbnailMxcUrl")
             
             // Save thumbnail dimensions before recycling
             val thumbnailWidth = thumbnailBitmap.width
@@ -162,10 +165,10 @@ object VideoUploadUtils {
             // Get filename
             val videoFilename = getFileNameFromUri(context, uri) ?: "video_${System.currentTimeMillis()}.mp4"
             
-            Log.d("Andromuks", "VideoUploadUtils: Video size: $videoSize bytes, mimeType: $mimeType, filename: $videoFilename")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Video size: $videoSize bytes, mimeType: $mimeType, filename: $videoFilename")
             
             // Upload video
-            Log.d("Andromuks", "VideoUploadUtils: Uploading video...")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Uploading video...")
             val videoMxcUrl = uploadBytes(
                 bytes = videoBytes,
                 filename = videoFilename,
@@ -180,7 +183,7 @@ object VideoUploadUtils {
                 return@withContext null
             }
             
-            Log.d("Andromuks", "VideoUploadUtils: Video uploaded: $videoMxcUrl")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoUploadUtils: Video uploaded: $videoMxcUrl")
             
             VideoUploadResult(
                 videoMxcUrl = videoMxcUrl,

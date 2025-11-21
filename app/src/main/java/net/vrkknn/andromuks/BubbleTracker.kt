@@ -1,5 +1,7 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.BuildConfig
+
 import android.util.Log
 
 /**
@@ -28,7 +30,7 @@ object BubbleTracker {
     fun onBubbleOpened(roomId: String) {
         synchronized(openBubbles) {
             openBubbles.add(roomId)
-            Log.d(TAG, "Bubble opened for room: $roomId (total open: ${openBubbles.size})")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Bubble opened for room: $roomId (total open: ${openBubbles.size})")
         }
     }
     
@@ -40,7 +42,7 @@ object BubbleTracker {
         synchronized(openBubbles) {
             openBubbles.remove(roomId)
             visibleBubbles.remove(roomId) // Also remove from visible when closed
-            Log.d(TAG, "Bubble closed for room: $roomId (total open: ${openBubbles.size})")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Bubble closed for room: $roomId (total open: ${openBubbles.size})")
         }
     }
     
@@ -52,7 +54,7 @@ object BubbleTracker {
         synchronized(openBubbles) {
             if (roomId in openBubbles) {
                 visibleBubbles.add(roomId)
-                Log.d(TAG, "Bubble became visible for room: $roomId (total visible: ${visibleBubbles.size})")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Bubble became visible for room: $roomId (total visible: ${visibleBubbles.size})")
             } else {
                 Log.w(TAG, "Bubble visibility set for room $roomId but bubble is not tracked as open")
             }
@@ -66,7 +68,7 @@ object BubbleTracker {
     fun onBubbleInvisible(roomId: String) {
         synchronized(openBubbles) {
             visibleBubbles.remove(roomId)
-            Log.d(TAG, "Bubble became invisible for room: $roomId (total visible: ${visibleBubbles.size})")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Bubble became invisible for room: $roomId (total visible: ${visibleBubbles.size})")
         }
     }
     
@@ -79,7 +81,7 @@ object BubbleTracker {
     fun isBubbleOpen(roomId: String): Boolean {
         synchronized(openBubbles) {
             val isOpen = roomId in openBubbles
-            Log.d(TAG, "Checking bubble state for room: $roomId -> $isOpen")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Checking bubble state for room: $roomId -> $isOpen")
             return isOpen
         }
     }
@@ -94,7 +96,7 @@ object BubbleTracker {
     fun isBubbleVisible(roomId: String): Boolean {
         synchronized(openBubbles) {
             val isVisible = roomId in visibleBubbles
-            Log.d(TAG, "Checking bubble visibility for room: $roomId -> $isVisible")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Checking bubble visibility for room: $roomId -> $isVisible")
             return isVisible
         }
     }
@@ -126,7 +128,7 @@ object BubbleTracker {
             val visibleCount = visibleBubbles.size
             openBubbles.clear()
             visibleBubbles.clear()
-            Log.d(TAG, "Cleared all bubble tracking (was tracking $count bubbles, $visibleCount visible)")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all bubble tracking (was tracking $count bubbles, $visibleCount visible)")
         }
     }
 }

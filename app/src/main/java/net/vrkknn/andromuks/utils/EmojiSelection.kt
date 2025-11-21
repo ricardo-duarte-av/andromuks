@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.os.Build
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -38,6 +39,8 @@ import coil.request.CachePolicy
 import coil.ImageLoader
 import net.vrkknn.andromuks.utils.MediaUtils
 
+
+
 /**
  * Displays an image emoji in the emoji selection grid using Coil (supports GIFs).
  * 
@@ -53,7 +56,7 @@ fun ImageEmoji(
 ) {
     val context = LocalContext.current
     
-    android.util.Log.d("Andromuks", "ImageEmoji: Starting to load emoji from MXC URL: $mxcUrl")
+    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ImageEmoji: Starting to load emoji from MXC URL: $mxcUrl")
     
     // Convert MXC URL to HTTP URL
     val httpUrl = remember(mxcUrl, homeserverUrl) {
@@ -63,7 +66,7 @@ fun ImageEmoji(
     // Use shared ImageLoader singleton with custom User-Agent
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
     
-    android.util.Log.d("Andromuks", "ImageEmoji: Converted HTTP URL: $httpUrl")
+    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ImageEmoji: Converted HTTP URL: $httpUrl")
     
     if (httpUrl != null) {
         AsyncImage(
@@ -80,7 +83,7 @@ fun ImageEmoji(
                 .clip(RoundedCornerShape(6.dp)),
             contentScale = ContentScale.Crop,
             onSuccess = {
-                android.util.Log.d("Andromuks", "ImageEmoji: Successfully loaded emoji for $mxcUrl")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ImageEmoji: Successfully loaded emoji for $mxcUrl")
             },
             onError = { state ->
                 if (state is coil.request.ErrorResult) {

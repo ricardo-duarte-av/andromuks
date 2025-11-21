@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+
+
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.util.Log
 import java.io.File
@@ -89,7 +92,7 @@ object CoilUrlMapper {
                     }
                 }
                 
-                Log.d(TAG, "Loaded $loadedCount URL mappings from disk")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Loaded $loadedCount URL mappings from disk")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to load URL mappings", e)
@@ -113,7 +116,7 @@ object CoilUrlMapper {
             }
             
             mappingFile.writeText(json.toString())
-            Log.d(TAG, "Saved ${mappingsToSave.size} URL mappings to disk")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Saved ${mappingsToSave.size} URL mappings to disk")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to save URL mappings", e)
         }

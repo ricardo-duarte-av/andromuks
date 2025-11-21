@@ -22,6 +22,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.OptimizedTimelineProcessor
 import net.vrkknn.andromuks.utils.ViewportProfileLoader
+import net.vrkknn.andromuks.BuildConfig
+
 
 /**
  * OPTIMIZED RoomTimelineScreen with performance improvements.
@@ -102,15 +104,15 @@ fun OptimizedRoomTimelineScreen(
         // Update attachment state
         if (isAtBottom && !isAttachedToBottom) {
             isAttachedToBottom = true
-            Log.d("Andromuks", "User reached bottom, re-attaching")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "User reached bottom, re-attaching")
         } else if (!isAtBottom && isAttachedToBottom && listState.firstVisibleItemIndex > 0) {
             isAttachedToBottom = false
-            Log.d("Andromuks", "User scrolled up, detaching from bottom")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "User scrolled up, detaching from bottom")
         }
         
         // Check for auto-pagination
         if (OptimizedTimelineProcessor.shouldTriggerAutoPagination(listState, appViewModel)) {
-            Log.d("Andromuks", "Triggering auto-pagination")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "Triggering auto-pagination")
             appViewModel.loadOlderMessages(roomId)
         }
         
@@ -178,7 +180,7 @@ fun OptimizedRoomTimelineScreen(
                         stableCount++
                         if (stableCount >= requiredStableChecks) {
                             // Timeline has been stable - safe to scroll
-                            android.util.Log.d("Andromuks", "OptimizedRoomTimelineScreen: Timeline stabilized at ${currentSize} items (updateCounter: $currentUpdateCounter) after ${i * 50}ms")
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "OptimizedRoomTimelineScreen: Timeline stabilized at ${currentSize} items (updateCounter: $currentUpdateCounter) after ${i * 50}ms")
                             lastKnownTimelineUpdateCounter = currentUpdateCounter
                             break
                         }
@@ -192,7 +194,7 @@ fun OptimizedRoomTimelineScreen(
                 
                 // Final check before scrolling
                 if (timelineItems.isEmpty() || isLoading || appViewModel.isPaginating) {
-                    android.util.Log.d("Andromuks", "OptimizedRoomTimelineScreen: Timeline not ready for scroll (empty: ${timelineItems.isEmpty()}, loading: $isLoading, paginating: ${appViewModel.isPaginating})")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "OptimizedRoomTimelineScreen: Timeline not ready for scroll (empty: ${timelineItems.isEmpty()}, loading: $isLoading, paginating: ${appViewModel.isPaginating})")
                     // Still mark as completed to avoid infinite loop
                     hasInitialSnapCompleted = true
                     return@launch
@@ -205,7 +207,7 @@ fun OptimizedRoomTimelineScreen(
                     isAttachedToBottom = true
                     hasInitialSnapCompleted = true
                     lastKnownTimelineUpdateCounter = appViewModel.timelineUpdateCounter
-                    android.util.Log.d("Andromuks", "OptimizedRoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index $targetIndex, updateCounter: ${appViewModel.timelineUpdateCounter}) - timeline stabilized")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "OptimizedRoomTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index $targetIndex, updateCounter: ${appViewModel.timelineUpdateCounter}) - timeline stabilized")
                 } else {
                     hasInitialSnapCompleted = true
                     android.util.Log.w("Andromuks", "OptimizedRoomTimelineScreen: Invalid target index for scroll")
@@ -222,7 +224,7 @@ fun OptimizedRoomTimelineScreen(
     
     // PERFORMANCE: Consolidated LaunchedEffect for room loading
     LaunchedEffect(roomId) {
-        Log.d("Andromuks", "Loading timeline for room: $roomId")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "Loading timeline for room: $roomId")
         isLoading = true
         hasInitialSnapCompleted = false
         isAttachedToBottom = true
@@ -240,7 +242,7 @@ fun OptimizedRoomTimelineScreen(
     // PERFORMANCE: Consolidated LaunchedEffect for refresh handling
     LaunchedEffect(appViewModel.timelineRefreshTrigger) {
         if (appViewModel.timelineRefreshTrigger > 0 && appViewModel.currentRoomId == roomId) {
-            Log.d("Andromuks", "Refreshing timeline for room: $roomId")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "Refreshing timeline for room: $roomId")
             appViewModel.requestRoomTimeline(roomId)
         }
     }
@@ -260,7 +262,7 @@ fun OptimizedRoomTimelineScreen(
         val foregroundRefreshReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action == "net.vrkknn.andromuks.FOREGROUND_REFRESH") {
-                    Log.d("Andromuks", "Received FOREGROUND_REFRESH broadcast")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "Received FOREGROUND_REFRESH broadcast")
                     appViewModel.refreshTimelineUI()
                 }
             }

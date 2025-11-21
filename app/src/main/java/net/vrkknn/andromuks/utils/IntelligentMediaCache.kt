@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+
+
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.util.Log
 import java.io.File
@@ -84,7 +87,7 @@ object IntelligentMediaCache {
             }
         }
         
-        Log.d(TAG, "Updated visibility for ${visibleUrls.size} media items")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Updated visibility for ${visibleUrls.size} media items")
     }
     
     /**
@@ -123,11 +126,11 @@ object IntelligentMediaCache {
             )
             cacheEntries[mxcUrl] = updatedEntry
             
-            Log.d(TAG, "Cache hit for $mxcUrl (access count: ${updatedEntry.accessCount})")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cache hit for $mxcUrl (access count: ${updatedEntry.accessCount})")
             return@withLock entry.file
         }
         
-        Log.d(TAG, "Cache miss for $mxcUrl")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cache miss for $mxcUrl")
         return@withLock null
     }
     
@@ -160,7 +163,7 @@ object IntelligentMediaCache {
         )
         
         cacheEntries[mxcUrl] = entry
-        Log.d(TAG, "Cached file for $mxcUrl (size: ${entry.size / 1024}KB, type: $fileType)")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cached file for $mxcUrl (size: ${entry.size / 1024}KB, type: $fileType)")
         
         // Ensure cache size is within limits
         ensureCacheSize(context)
@@ -173,7 +176,7 @@ object IntelligentMediaCache {
         val totalSize = cacheEntries.values.sumOf { it.size }
         if (totalSize <= MAX_CACHE_SIZE) return
         
-        Log.d(TAG, "Cache size ${totalSize / 1024 / 1024}MB exceeds limit ${MAX_CACHE_SIZE / 1024 / 1024}MB, evicting...")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cache size ${totalSize / 1024 / 1024}MB exceeds limit ${MAX_CACHE_SIZE / 1024 / 1024}MB, evicting...")
         
         // Sort by priority (lowest first for eviction)
         val sortedEntries = cacheEntries.values.sortedBy { it.priority }
@@ -192,11 +195,11 @@ object IntelligentMediaCache {
                 cacheEntries.remove(entry.mxcUrl)
                 currentSize -= entry.size
                 evictedCount++
-                Log.d(TAG, "Evicted ${entry.mxcUrl} (priority: ${entry.priority}, size: ${entry.size / 1024}KB)")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Evicted ${entry.mxcUrl} (priority: ${entry.priority}, size: ${entry.size / 1024}KB)")
             }
         }
         
-        Log.d(TAG, "Evicted $evictedCount files, new cache size: ${currentSize / 1024 / 1024}MB")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Evicted $evictedCount files, new cache size: ${currentSize / 1024 / 1024}MB")
     }
     
     /**
@@ -266,7 +269,7 @@ object IntelligentMediaCache {
             }
         }
         
-        Log.d(TAG, "Cleaned up $cleanedCount old files (${cleanedSize / 1024 / 1024}MB)")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cleaned up $cleanedCount old files (${cleanedSize / 1024 / 1024}MB)")
     }
     
     /**
@@ -289,7 +292,7 @@ object IntelligentMediaCache {
         cacheEntries.clear()
         visibleMedia.clear()
         
-        Log.d(TAG, "Cleared cache: $deletedCount files (${deletedSize / 1024 / 1024}MB)")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cleared cache: $deletedCount files (${deletedSize / 1024 / 1024}MB)")
     }
     
     /**

@@ -1,7 +1,10 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import net.vrkknn.andromuks.TimelineEvent
+
+
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -33,7 +36,7 @@ object OptimizedTimelineProcessor {
         allowedEventTypes: Set<String>
     ): List<TimelineEvent> = withContext(Dispatchers.Default) {
         
-        Log.d(TAG, "Processing ${timelineEvents.size} events with optimized algorithms")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Processing ${timelineEvents.size} events with optimized algorithms")
         
         // PERFORMANCE: Single pass with optimized filtering using sequences
         val processedEvents = timelineEvents
@@ -57,7 +60,7 @@ object OptimizedTimelineProcessor {
             .sortedBy { it.timestamp }
             .toList()
         
-        Log.d(TAG, "Optimized processing complete: ${processedEvents.size} events (${timelineEvents.size - processedEvents.size} filtered)")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Optimized processing complete: ${processedEvents.size} events (${timelineEvents.size - processedEvents.size} filtered)")
         processedEvents
     }
     
@@ -74,7 +77,7 @@ object OptimizedTimelineProcessor {
     fun buildTimelineItemsOptimized(events: List<TimelineEvent>): List<net.vrkknn.andromuks.TimelineItem> {
         if (events.isEmpty()) return emptyList()
         
-        Log.d(TAG, "Building timeline items for ${events.size} events")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Building timeline items for ${events.size} events")
         
         val items = mutableListOf<net.vrkknn.andromuks.TimelineItem>()
         var lastDate: String? = null
@@ -108,7 +111,7 @@ object OptimizedTimelineProcessor {
             previousEvent = event
         }
         
-        Log.d(TAG, "Timeline items built: ${items.size} items")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Timeline items built: ${items.size} items")
         return items
     }
     

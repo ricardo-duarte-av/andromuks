@@ -21,6 +21,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.BuildConfig
+
 import android.app.ActivityManager
 import android.content.ComponentName
 import androidx.activity.OnBackPressedCallback
@@ -35,16 +37,16 @@ class ChatBubbleActivity : ComponentActivity() {
         RoomRepository.initialize(this)
         enableEdgeToEdge()
 
-        Log.d("Andromuks", "ChatBubbleActivity: onCreate called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCreate called")
 
         // Set up proper back button handling for bubbles
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                Log.d("Andromuks", "ChatBubbleActivity: OnBackPressedCallback triggered - minimizing bubble")
-                Log.d("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - calling moveTaskToBack")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: OnBackPressedCallback triggered - minimizing bubble")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - calling moveTaskToBack")
                 try {
                     moveTaskToBack(true)
-                    Log.d("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - moveTaskToBack completed")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - moveTaskToBack completed")
                 } catch (e: Exception) {
                     Log.e("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - moveTaskToBack failed", e)
                     // Try alternative approach - simulate home button
@@ -54,7 +56,7 @@ class ChatBubbleActivity : ComponentActivity() {
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
                         }
                         startActivity(homeIntent)
-                        Log.d("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - home intent completed")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - home intent completed")
                     } catch (e2: Exception) {
                         Log.e("Andromuks", "ChatBubbleActivity: OnBackPressedCallback - home intent also failed", e2)
                     }
@@ -77,7 +79,7 @@ class ChatBubbleActivity : ComponentActivity() {
                         // IMPORTANT: Mark bubble as visible for live updates WITHOUT expensive UI refresh
                         // Bubbles don't need to update shortcuts or refresh room list
                         appViewModel.setBubbleVisible(true)
-                        Log.d("Andromuks", "ChatBubbleActivity: Marked bubble as visible (lightweight)")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: Marked bubble as visible (lightweight)")
                         
                         // OPTIMIZATION #2: Optimized intent processing for ChatBubbleActivity
                         val roomId = intent.getStringExtra("room_id")
@@ -85,16 +87,16 @@ class ChatBubbleActivity : ComponentActivity() {
                         val bubbleMode = intent.getBooleanExtra("bubble_mode", false)
                         val matrixUri = intent.data
                         
-                        Log.d("Andromuks", "ChatBubbleActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, bubbleMode: $bubbleMode, matrixUri: $matrixUri")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, bubbleMode: $bubbleMode, matrixUri: $matrixUri")
                         
                         val extractedRoomId = if (directNavigation && roomId != null) {
                             // OPTIMIZATION #2: Fast path - room ID already extracted
-                            Log.d("Andromuks", "ChatBubbleActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
                             roomId
                         } else {
                             // Fallback to URI parsing for legacy intents
                             val uriRoomId = extractRoomIdFromMatrixUri(matrixUri)
-                            Log.d("Andromuks", "ChatBubbleActivity: onCreate - Fallback URI parsing: $uriRoomId")
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCreate - Fallback URI parsing: $uriRoomId")
                             uriRoomId
                         }
                         
@@ -103,18 +105,18 @@ class ChatBubbleActivity : ComponentActivity() {
                         }
                     },
                     onCloseBubble = {
-                        Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble called - minimizing bubble")
-                        Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - calling moveTaskToBack")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble called - minimizing bubble")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - calling moveTaskToBack")
                         try {
                             moveTaskToBack(true)
-                            Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - moveTaskToBack completed")
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - moveTaskToBack completed")
                         } catch (e: Exception) {
                             Log.e("Andromuks", "ChatBubbleActivity: onCloseBubble - moveTaskToBack failed", e)
                             // Try alternative approach
                             try {
                                 val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
                                 activityManager.moveTaskToFront(taskId, ActivityManager.MOVE_TASK_WITH_HOME)
-                                Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - alternative method completed")
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - alternative method completed")
                             } catch (e2: Exception) {
                                 Log.e("Andromuks", "ChatBubbleActivity: onCloseBubble - alternative method also failed", e2)
                             }
@@ -127,12 +129,12 @@ class ChatBubbleActivity : ComponentActivity() {
     
     override fun onStart() {
         super.onStart()
-        Log.d("Andromuks", "ChatBubbleActivity: onStart called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onStart called")
     }
     
     override fun onResume() {
         super.onResume()
-        Log.d("Andromuks", "ChatBubbleActivity: onResume called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onResume called")
         
         // Extract room ID from intent to track bubble visibility
         val roomId = intent.getStringExtra("room_id") ?: 
@@ -140,7 +142,7 @@ class ChatBubbleActivity : ComponentActivity() {
         
         if (roomId != null) {
             BubbleTracker.onBubbleVisible(roomId)
-            Log.d("Andromuks", "ChatBubbleActivity: Tracked bubble visible for room: $roomId")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: Tracked bubble visible for room: $roomId")
         }
         
         if (::appViewModel.isInitialized) {
@@ -152,7 +154,7 @@ class ChatBubbleActivity : ComponentActivity() {
     
     override fun onPause() {
         super.onPause()
-        Log.d("Andromuks", "ChatBubbleActivity: onPause called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onPause called")
         
         // Extract room ID from intent to track bubble visibility
         val roomId = intent.getStringExtra("room_id") ?: 
@@ -160,7 +162,7 @@ class ChatBubbleActivity : ComponentActivity() {
         
         if (roomId != null) {
             BubbleTracker.onBubbleInvisible(roomId)
-            Log.d("Andromuks", "ChatBubbleActivity: Tracked bubble invisible for room: $roomId")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: Tracked bubble invisible for room: $roomId")
         }
         
         if (::appViewModel.isInitialized) {
@@ -171,12 +173,12 @@ class ChatBubbleActivity : ComponentActivity() {
     
     override fun onStop() {
         super.onStop()
-        Log.d("Andromuks", "ChatBubbleActivity: onStop called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onStop called")
     }
     
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        Log.d("Andromuks", "ChatBubbleActivity: onNewIntent called - bubble reactivated")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onNewIntent called - bubble reactivated")
         // When the bubble is tapped again, bring it to foreground
         // Note: moveTaskToFront() is not available in ComponentActivity
         // The system will handle bringing the bubble to foreground
@@ -184,16 +186,16 @@ class ChatBubbleActivity : ComponentActivity() {
     
     
     override fun onBackPressed() {
-        Log.d("Andromuks", "ChatBubbleActivity: Back pressed - minimizing bubble")
-        Log.d("Andromuks", "ChatBubbleActivity: Back pressed - calling moveTaskToBack")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: Back pressed - minimizing bubble")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: Back pressed - calling moveTaskToBack")
         
         // Minimize the bubble by moving it to background
         moveTaskToBack(true)
-        Log.d("Andromuks", "ChatBubbleActivity: Back pressed - moveTaskToBack completed")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: Back pressed - moveTaskToBack completed")
     }
     
     override fun finish() {
-        Log.d("Andromuks", "ChatBubbleActivity: finish() called - minimizing bubble instead of destroying")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: finish() called - minimizing bubble instead of destroying")
         // Don't call super.finish() to prevent the bubble from being destroyed
         // Instead, just move to background so it can be reopened
         moveTaskToBack(true)
@@ -201,7 +203,7 @@ class ChatBubbleActivity : ComponentActivity() {
     
     override fun onDestroy() {
         super.onDestroy()
-        Log.d("Andromuks", "ChatBubbleActivity: onDestroy called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onDestroy called")
         // Note: Bubble tracking is handled in BubbleTimelineScreen's DisposableEffect
         // which is more accurate as it tracks when the actual screen is shown/hidden
     }
@@ -215,7 +217,7 @@ class ChatBubbleActivity : ComponentActivity() {
     private fun extractRoomIdFromMatrixUri(uri: android.net.Uri?): String? {
         if (uri == null) return null
         
-        Log.d("Andromuks", "ChatBubbleActivity: Extracting room ID from URI: $uri")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: Extracting room ID from URI: $uri")
         
         // Handle matrix://bubble/roomId format
         if (uri.scheme == "matrix" && uri.host == "bubble") {
@@ -223,12 +225,12 @@ class ChatBubbleActivity : ComponentActivity() {
             if (pathSegments.isNotEmpty()) {
                 val roomIdWithoutExclamation = pathSegments[0]
                 val roomId = "!$roomIdWithoutExclamation"
-                Log.d("Andromuks", "ChatBubbleActivity: Extracted room ID: $roomId")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: Extracted room ID: $roomId")
                 return roomId
             }
         }
         
-        Log.d("Andromuks", "ChatBubbleActivity: Room ID without exclamation is empty")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: Room ID without exclamation is empty")
         return null
     }
 }
@@ -247,12 +249,12 @@ fun ChatBubbleNavigation(
         onViewModelCreated(appViewModel)
     }
     
-    Log.d("Andromuks", "ChatBubbleNavigation: Starting bubble navigation")
+    if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleNavigation: Starting bubble navigation")
     
     // Handle back navigation - if we're at the root, close the bubble
     LaunchedEffect(navController) {
         navController.addOnDestinationChangedListener { _, destination, _ ->
-            Log.d("Andromuks", "ChatBubbleNavigation: Navigated to ${destination.route}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleNavigation: Navigated to ${destination.route}")
         }
     }
     

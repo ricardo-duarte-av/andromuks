@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+
+
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.*
@@ -62,20 +65,20 @@ object DownloadDeduplicationManager {
     ): File = withContext(Dispatchers.IO) {
         // Check if already cached
         IntelligentMediaCache.getCachedFile(context, mxcUrl)?.let { cachedFile ->
-            Log.d(TAG, "Using cached file for $mxcUrl")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Using cached file for $mxcUrl")
             return@withContext cachedFile
         }
         
         // Check if download is already in progress
         activeDownloads[mxcUrl]?.let { deferred ->
-            Log.d(TAG, "Download already in progress for $mxcUrl")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Download already in progress for $mxcUrl")
             duplicatePrevented++
             return@withContext deferred.await()
         }
         
         // Check if we've reached the concurrent download limit
         if (activeDownloads.size >= MAX_CONCURRENT_DOWNLOADS) {
-            Log.d(TAG, "Download queue full, queuing $mxcUrl")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Download queue full, queuing $mxcUrl")
             downloadQueue[mxcUrl] = DownloadInfo(mxcUrl, httpUrl, authToken, System.currentTimeMillis())
             
             // Wait for a slot to become available
@@ -98,7 +101,7 @@ object DownloadDeduplicationManager {
             downloadHistory[mxcUrl] = System.currentTimeMillis()
             successfulDownloads++
             
-            Log.d(TAG, "Successfully downloaded $mxcUrl")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Successfully downloaded $mxcUrl")
             result
             
         } catch (e: Exception) {
@@ -150,7 +153,7 @@ object DownloadDeduplicationManager {
         
         while (retryCount < MAX_RETRIES) {
             try {
-                Log.d(TAG, "Downloading $mxcUrl (attempt ${retryCount + 1}/$MAX_RETRIES)")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Downloading $mxcUrl (attempt ${retryCount + 1}/$MAX_RETRIES)")
                 
                 val connection = URL(httpUrl).openConnection().apply {
                     setRequestProperty("Cookie", "gomuks_auth=$authToken")
@@ -166,7 +169,7 @@ object DownloadDeduplicationManager {
                     }
                 }
                 
-                Log.d(TAG, "Successfully downloaded $mxcUrl (${cachedFile.length() / 1024}KB)")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Successfully downloaded $mxcUrl (${cachedFile.length() / 1024}KB)")
                 return@withContext cachedFile
                 
             } catch (e: Exception) {
@@ -177,7 +180,7 @@ object DownloadDeduplicationManager {
                 
                 if (retryCount < MAX_RETRIES) {
                     val delay = BASE_RETRY_DELAY * (1L shl retryCount) // Exponential backoff
-                    Log.d(TAG, "Retrying download for $mxcUrl in ${delay}ms")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Retrying download for $mxcUrl in ${delay}ms")
                     delay(delay)
                 }
             }
@@ -193,7 +196,7 @@ object DownloadDeduplicationManager {
         activeDownloads[mxcUrl]?.cancel()
         activeDownloads.remove(mxcUrl)
         downloadQueue.remove(mxcUrl)
-        Log.d(TAG, "Cancelled download for $mxcUrl")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cancelled download for $mxcUrl")
     }
     
     /**
@@ -203,7 +206,7 @@ object DownloadDeduplicationManager {
         activeDownloads.values.forEach { it.cancel() }
         activeDownloads.clear()
         downloadQueue.clear()
-        Log.d(TAG, "Cancelled all downloads")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cancelled all downloads")
     }
     
     /**
@@ -249,7 +252,7 @@ object DownloadDeduplicationManager {
      */
     fun clearDownloadHistory() {
         downloadHistory.clear()
-        Log.d(TAG, "Cleared download history")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cleared download history")
     }
     
     /**
@@ -293,6 +296,6 @@ object DownloadDeduplicationManager {
     suspend fun cleanup() = downloadMutex.withLock {
         cancelAllDownloads()
         clearDownloadHistory()
-        Log.d(TAG, "DownloadDeduplicationManager cleanup completed")
+        if (BuildConfig.DEBUG) Log.d(TAG, "DownloadDeduplicationManager cleanup completed")
     }
 }

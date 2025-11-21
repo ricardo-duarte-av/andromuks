@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.database
 
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -18,6 +19,8 @@ import net.vrkknn.andromuks.database.dao.SyncMetaDao
 import net.vrkknn.andromuks.database.entities.EventEntity
 import net.vrkknn.andromuks.database.entities.SpaceEntity
 import net.vrkknn.andromuks.database.entities.SpaceRoomEntity
+
+
 import org.json.JSONObject
 
 /**
@@ -46,12 +49,12 @@ class BootstrapLoader(private val context: Context) {
      * Returns BootstrapResult with loaded data
      */
     suspend fun loadBootstrap(): BootstrapResult = withContext(Dispatchers.IO) {
-        Log.d(TAG, "Loading bootstrap data from Room database")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Loading bootstrap data from Room database")
         
         // 1. Check run_id - if it doesn't match, don't load anything
         val storedRunId = syncMetaDao.get("run_id") ?: ""
         if (storedRunId.isEmpty()) {
-            Log.d(TAG, "No run_id stored - database is empty or was cleared")
+            if (BuildConfig.DEBUG) Log.d(TAG, "No run_id stored - database is empty or was cleared")
             return@withContext BootstrapResult(
                 rooms = emptyList(),
                 runId = "",
@@ -68,16 +71,16 @@ class BootstrapLoader(private val context: Context) {
         
         // 2.5. Load account_data
         val accountDataJson = accountDataDao.getAccountData()
-        Log.d(TAG, "Loaded account_data from database: ${if (accountDataJson != null) "${accountDataJson.length} chars" else "null"}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Loaded account_data from database: ${if (accountDataJson != null) "${accountDataJson.length} chars" else "null"}")
         
         // 3. Load ALL room summaries (not just top 200) - needed for complete room list
         val roomSummaries = roomSummaryDao.getAllRooms()
-        Log.d(TAG, "Loaded ${roomSummaries.size} room summaries from database")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Loaded ${roomSummaries.size} room summaries from database")
         
         // 4. Load ALL room states for efficient lookup
         val allRoomStates = roomStateDao.getAllRoomStates()
         val roomStateMap = allRoomStates.associateBy { it.roomId }
-        Log.d(TAG, "Loaded ${allRoomStates.size} room states from database")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Loaded ${allRoomStates.size} room states from database")
         
         // 5. Build room list from summaries + room state
         val rooms = mutableListOf<RoomItem>()
@@ -91,7 +94,7 @@ class BootstrapLoader(private val context: Context) {
                     val lastEventTimestamp = eventDao.getLastEventTimestamp(summary.roomId)
                     if (lastEventTimestamp != null && lastEventTimestamp > 0) {
                         sortingTimestamp = lastEventTimestamp
-                        Log.d(TAG, "Room ${summary.roomId}: Using last event timestamp $sortingTimestamp instead of summary.lastTimestamp (0)")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Room ${summary.roomId}: Using last event timestamp $sortingTimestamp instead of summary.lastTimestamp (0)")
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to get last event timestamp for room ${summary.roomId}: ${e.message}")
@@ -120,7 +123,7 @@ class BootstrapLoader(private val context: Context) {
                                 if (body != null) {
                                     messagePreview = body
                                     messageSender = eventJson.optString("sender")?.takeIf { it.isNotBlank() }
-                                    Log.d(TAG, "Room ${summary.roomId}: Loaded message preview from DB events: '${messagePreview.take(50)}...', sender: $messageSender")
+                                    if (BuildConfig.DEBUG) Log.d(TAG, "Room ${summary.roomId}: Loaded message preview from DB events: '${messagePreview.take(50)}...', sender: $messageSender")
                                     break
                                 }
                             }
@@ -132,7 +135,7 @@ class BootstrapLoader(private val context: Context) {
                                 if (body != null) {
                                     messagePreview = body
                                     messageSender = eventJson.optString("sender")?.takeIf { it.isNotBlank() }
-                                    Log.d(TAG, "Room ${summary.roomId}: Loaded encrypted message preview from DB events: '${messagePreview.take(50)}...', sender: $messageSender")
+                                    if (BuildConfig.DEBUG) Log.d(TAG, "Room ${summary.roomId}: Loaded encrypted message preview from DB events: '${messagePreview.take(50)}...', sender: $messageSender")
                                     break
                                 }
                             }
@@ -147,7 +150,7 @@ class BootstrapLoader(private val context: Context) {
                     messagePreview = summary.messagePreview
                     messageSender = summary.messageSender
                     if (!messagePreview.isNullOrBlank()) {
-                        Log.d(TAG, "Room ${summary.roomId}: Using message preview from summary (no recent events in DB): '${messagePreview.take(50)}...'")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Room ${summary.roomId}: Using message preview from summary (no recent events in DB): '${messagePreview.take(50)}...'")
                     }
                 }
             } catch (e: Exception) {
@@ -188,11 +191,11 @@ class BootstrapLoader(private val context: Context) {
                 // Seed RoomTimelineCache with events from DB
                 RoomTimelineCache.seedCacheWithPaginatedEvents(summary.roomId, timelineEvents)
                 totalEventsLoaded += timelineEvents.size
-                Log.d(TAG, "Pre-loaded ${timelineEvents.size} events for room ${summary.roomId}")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Pre-loaded ${timelineEvents.size} events for room ${summary.roomId}")
             }
         }
         
-        Log.d(TAG, "Bootstrap complete: ${rooms.size} rooms, $totalEventsLoaded events pre-loaded, runId=$storedRunId, lastReceivedId=$lastReceivedId")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Bootstrap complete: ${rooms.size} rooms, $totalEventsLoaded events pre-loaded, runId=$storedRunId, lastReceivedId=$lastReceivedId")
         
         BootstrapResult(
             rooms = rooms,
@@ -274,7 +277,7 @@ class BootstrapLoader(private val context: Context) {
                     bridgeInfoMap[state.roomId] = state.bridgeInfoJson
                 }
             }
-            Log.d(TAG, "Loaded ${bridgeInfoMap.size} bridge info entries from database (${allStates.count { it.bridgeInfoJson != null }} total checked)")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Loaded ${bridgeInfoMap.size} bridge info entries from database (${allStates.count { it.bridgeInfoJson != null }} total checked)")
             bridgeInfoMap
         } catch (e: Exception) {
             Log.e(TAG, "Error loading bridge info from database: ${e.message}", e)
@@ -293,7 +296,7 @@ class BootstrapLoader(private val context: Context) {
                 .filter { it.bridgeInfoJson != null } // null = not checked, empty string or JSON = checked
                 .map { it.roomId }
                 .toSet()
-            Log.d(TAG, "Found ${checkedRooms.size} rooms already checked for bridge info")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Found ${checkedRooms.size} rooms already checked for bridge info")
             checkedRooms
         } catch (e: Exception) {
             Log.e(TAG, "Error getting bridge checked rooms: ${e.message}", e)
@@ -328,7 +331,7 @@ class BootstrapLoader(private val context: Context) {
                 spaces.add(space)
             }
             
-            Log.d(TAG, "Loaded ${spaces.size} spaces from database with ${allSpaceRooms.size} room relationships")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Loaded ${spaces.size} spaces from database with ${allSpaceRooms.size} room relationships")
             spaces
         } catch (e: Exception) {
             Log.e(TAG, "Error loading spaces from database: ${e.message}", e)
@@ -380,7 +383,7 @@ class BootstrapLoader(private val context: Context) {
                     isDirectMessage = entity.isDirectMessage
                 )
             }
-            Log.d(TAG, "Loaded ${invites.size} pending invites from database")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Loaded ${invites.size} pending invites from database")
             invites
         } catch (e: Exception) {
             Log.e(TAG, "Error loading invites from database: ${e.message}", e)

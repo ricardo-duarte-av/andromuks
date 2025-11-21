@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+
+
+import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import androidx.media3.exoplayer.ExoPlayer
 import java.util.concurrent.ConcurrentHashMap
@@ -27,7 +30,7 @@ object OptimizedMediaCache {
     fun registerPlayer(playerId: String, player: ExoPlayer) {
         activePlayers[playerId] = player
         playerUsageCount[playerId] = 0
-        Log.d(TAG, "Registered player: $playerId (total: ${activePlayers.size})")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Registered player: $playerId (total: ${activePlayers.size})")
         
         // Clean up if we have too many players
         if (activePlayers.size > MAX_ACTIVE_PLAYERS) {
@@ -45,7 +48,7 @@ object OptimizedMediaCache {
             player.release()
             activePlayers.remove(playerId)
             playerUsageCount.remove(playerId)
-            Log.d(TAG, "Unregistered player: $playerId (total: ${activePlayers.size})")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Unregistered player: $playerId (total: ${activePlayers.size})")
         }
     }
     
@@ -67,7 +70,7 @@ object OptimizedMediaCache {
                 player.pause()
             }
         }
-        Log.d(TAG, "Paused all ${activePlayers.size} active players")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Paused all ${activePlayers.size} active players")
     }
     
     /**
@@ -80,7 +83,7 @@ object OptimizedMediaCache {
         }
         activePlayers.clear()
         playerUsageCount.clear()
-        Log.d(TAG, "Stopped and released all players")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Stopped and released all players")
     }
     
     /**
@@ -99,7 +102,7 @@ object OptimizedMediaCache {
             unregisterPlayer(playerId)
         }
         
-        Log.d(TAG, "Cleaned up ${playersToRemove.size} least used players")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cleaned up ${playersToRemove.size} least used players")
     }
     
     /**
@@ -132,6 +135,6 @@ object OptimizedMediaCache {
      */
     fun cleanup() {
         stopAllPlayers()
-        Log.d(TAG, "Media cache cleanup completed")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Media cache cleanup completed")
     }
 }

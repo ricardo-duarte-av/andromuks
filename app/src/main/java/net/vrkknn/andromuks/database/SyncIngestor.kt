@@ -64,7 +64,7 @@ class SyncIngestor(private val context: Context) {
         type: String,
         timelineRowId: Long
     ) {
-        Log.d(
+        if (BuildConfig.DEBUG) Log.d(
             TAG,
             "SyncIngestor: Persisted event (room=$roomId, eventId=$eventId, type=$type, timelineRowId=$timelineRowId, source=$source)"
         )
@@ -94,7 +94,7 @@ class SyncIngestor(private val context: Context) {
      * Clear all persisted data (called when run_id changes)
      */
     private suspend fun clearAllData() {
-        Log.d(TAG, "Clearing all persisted sync data")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Clearing all persisted sync data")
         database.withTransaction {
             // Clear all events, room states, summaries, receipts
             eventDao.deleteAll()
@@ -114,7 +114,7 @@ class SyncIngestor(private val context: Context) {
             syncMetaDao.upsert(SyncMetaEntity("last_received_id", "0"))
             syncMetaDao.upsert(SyncMetaEntity("since", ""))
         }
-        Log.d(TAG, "Cleared all sync data: events, room states, summaries, receipts, spaces, account_data")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all sync data: events, room states, summaries, receipts, spaces, account_data")
     }
     
     /**
@@ -162,20 +162,20 @@ class SyncIngestor(private val context: Context) {
                     while (incomingKeys.hasNext()) {
                         val key = incomingKeys.next()
                         merged.put(key, incomingAccountData.get(key))
-                        Log.d(TAG, "Account data: Merged key '$key' from incoming sync")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Account data: Merged key '$key' from incoming sync")
                     }
                     
                     merged
                 } else {
                     // No existing data, use incoming as-is
-                    Log.d(TAG, "Account data: No existing data, using incoming as-is")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No existing data, using incoming as-is")
                     incomingAccountData
                 }
                 
                 // Store merged account_data
                 val mergedAccountDataStr = mergedAccountData.toString()
                 accountDataDao.upsert(AccountDataEntity("account_data", mergedAccountDataStr))
-                Log.d(TAG, "Persisted merged account_data to database (${mergedAccountDataStr.length} chars, ${mergedAccountData.length()} keys)")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Persisted merged account_data to database (${mergedAccountDataStr.length} chars, ${mergedAccountData.length()} keys)")
             } catch (e: Exception) {
                 Log.e(TAG, "Error merging account_data: ${e.message}", e)
                 // Fallback: store incoming as-is if merge fails
@@ -214,7 +214,7 @@ class SyncIngestor(private val context: Context) {
                 // Delete all data for left rooms in a single transaction
                 database.withTransaction {
                     for (roomId in leftRoomIds) {
-                        Log.d(TAG, "Deleting data for left room: $roomId (events, state, summaries, receipts, reactions)")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Deleting data for left room: $roomId (events, state, summaries, receipts, reactions)")
                         eventDao.deleteAllForRoom(roomId)
                         roomStateDao.deleteForRoom(roomId)
                         roomSummaryDao.deleteForRoom(roomId)
@@ -224,7 +224,7 @@ class SyncIngestor(private val context: Context) {
                         inviteDao.deleteInvite(roomId)
                     }
                 }
-                Log.d(TAG, "Deleted all data for ${leftRoomIds.size} left rooms: ${leftRoomIds.joinToString(", ")}")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Deleted all data for ${leftRoomIds.size} left rooms: ${leftRoomIds.joinToString(", ")}")
             }
         }
         
@@ -246,9 +246,9 @@ class SyncIngestor(private val context: Context) {
                 }
             }
             
-            Log.d(TAG, "Ingested sync_complete: $requestId, ${roomsToProcess.size} rooms, since=$since")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Ingested sync_complete: $requestId, ${roomsToProcess.size} rooms, since=$since")
         } else {
-            Log.d(TAG, "Ingested sync_complete: $requestId, 0 rooms (no rooms object)")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Ingested sync_complete: $requestId, 0 rooms (no rooms object)")
         }
     }
     
@@ -284,14 +284,14 @@ class SyncIngestor(private val context: Context) {
                             // Only update tags if m.tag is present (explicit tag update)
                             isFavourite = tags.has("m.favourite")
                             isLowPriority = tags.has("m.lowpriority")
-                            Log.d(TAG, "Room $roomId: Updated tags from account_data - isFavourite=$isFavourite, isLowPriority=$isLowPriority")
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId: Updated tags from account_data - isFavourite=$isFavourite, isLowPriority=$isLowPriority")
                         }
                     }
                 }
                 // If account_data exists but m.tag is not present, preserve existing tags
             } else {
                 // If account_data is not present at all, preserve existing tags
-                Log.d(TAG, "Room $roomId: No account_data in sync, preserving existing tags - isFavourite=$isFavourite, isLowPriority=$isLowPriority")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId: No account_data in sync, preserving existing tags - isFavourite=$isFavourite, isLowPriority=$isLowPriority")
             }
             
             // Extract bridge info if present (from room state events)
@@ -360,7 +360,7 @@ class SyncIngestor(private val context: Context) {
         // 3. Process events array (preview/additional events)
         val eventsArray = roomObj.optJSONArray("events")
         if (eventsArray != null) {
-            Log.d(TAG, "SyncIngestor: Processing ${eventsArray.length()} events from 'events' array for room $roomId")
+            if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Processing ${eventsArray.length()} events from 'events' array for room $roomId")
             val events = mutableListOf<EventPersistCandidate>()
             var skippedCount = 0
             for (i in 0 until eventsArray.length()) {
@@ -382,7 +382,7 @@ class SyncIngestor(private val context: Context) {
                 if (eventEntity != null) {
                     events.add(EventPersistCandidate(eventEntity, sourceLabel))
                     if (BuildConfig.DEBUG && eventEntity.type == "m.room.encrypted") {
-                        Log.d(TAG, "SyncIngestor: Parsed encrypted event ${eventEntity.eventId} with timestamp=${eventEntity.timestamp}, timelineRowId=${eventEntity.timelineRowId}")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Parsed encrypted event ${eventEntity.eventId} with timestamp=${eventEntity.timestamp}, timelineRowId=${eventEntity.timelineRowId}")
                     }
                 } else {
                     skippedCount++
@@ -393,7 +393,7 @@ class SyncIngestor(private val context: Context) {
             }
             
             if (events.isNotEmpty()) {
-                Log.d(TAG, "SyncIngestor: Persisting ${events.size} events from 'events' array for room $roomId (skipped $skippedCount)")
+                if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Persisting ${events.size} events from 'events' array for room $roomId (skipped $skippedCount)")
                 eventDao.upsertAll(events.map { it.entity })
                 events.forEach { candidate ->
                     logEventPersisted(
@@ -408,18 +408,18 @@ class SyncIngestor(private val context: Context) {
                 Log.w(TAG, "SyncIngestor: No events were parsed from 'events' array for room $roomId (all ${eventsArray.length()} events were skipped)")
             }
         } else {
-            Log.d(TAG, "SyncIngestor: No 'events' array found for room $roomId")
+            if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: No 'events' array found for room $roomId")
         }
         
         if (reactionDeletes.isNotEmpty()) {
-            Log.d(
+            if (BuildConfig.DEBUG) Log.d(
                 TAG,
                 "SyncIngestor: Deleting ${reactionDeletes.size} reactions (sync) -> ${reactionDeletes.joinToString()}"
             )
             reactionDao.deleteByEventIds(reactionDeletes.toList())
         }
         if (reactionUpserts.isNotEmpty()) {
-            Log.d(
+            if (BuildConfig.DEBUG) Log.d(
                 TAG,
                 "SyncIngestor: Upserting ${reactionUpserts.size} reactions (sync) -> ${
                     reactionUpserts.values.joinToString { it.eventId }
@@ -654,7 +654,7 @@ class SyncIngestor(private val context: Context) {
             eventJson.toString()
         }
         if (aggregatedReactionsJson != null) {
-            Log.d(TAG, "SyncIngestor: Detected aggregated reactions for event $eventId -> $aggregatedReactionsJson")
+            if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Detected aggregated reactions for event $eventId -> $aggregatedReactionsJson")
         }
         
         return EventEntity(
@@ -687,18 +687,18 @@ class SyncIngestor(private val context: Context) {
                 val content = eventJson.optJSONObject("content") ?: return
                 val relatesTo = content.optJSONObject("m.relates_to")
                 if (relatesTo == null) {
-                    Log.d(TAG, "SyncIngestor: Skipping reaction $eventId - missing m.relates_to")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping reaction $eventId - missing m.relates_to")
                     return
                 }
                 if (relatesTo.optString("rel_type") != "m.annotation") {
-                    Log.d(TAG, "SyncIngestor: Skipping reaction $eventId - rel_type='${relatesTo.optString("rel_type")}'")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping reaction $eventId - rel_type='${relatesTo.optString("rel_type")}'")
                     return
                 }
                 
                 val targetEventId = relatesTo.optString("event_id")
                 val key = relatesTo.optString("key")
                 if (targetEventId.isBlank() || key.isBlank()) {
-                    Log.d(TAG, "SyncIngestor: Skipping reaction $eventId - missing target/key (target='$targetEventId', key='$key')")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping reaction $eventId - missing target/key (target='$targetEventId', key='$key')")
                     return
                 }
                 
@@ -737,7 +737,7 @@ class SyncIngestor(private val context: Context) {
                     eventId = eventId,
                     timestamp = timestamp
                 )
-                Log.d(
+                if (BuildConfig.DEBUG) Log.d(
                     TAG,
                     "SyncIngestor: Queued reaction upsert from JSON eventId=$eventId target=$targetEventId key=$key sender=$sender ts=$timestamp"
                 )
@@ -747,14 +747,14 @@ class SyncIngestor(private val context: Context) {
                 if (!redacts.isNullOrBlank()) {
                     reactionDeletes.add(redacts)
                     reactionUpserts.remove(redacts)
-                    Log.d(TAG, "SyncIngestor: Queued reaction delete due to JSON redaction of $redacts")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Queued reaction delete due to JSON redaction of $redacts")
                 }
             }
             "m.room.message" -> {
                 val reactionsObj = eventJson.optJSONObject("content")?.optJSONObject("reactions")
                 if (reactionsObj != null && reactionsObj.length() > 0) {
                     val keys = reactionsObj.keys().asSequence().joinToString()
-                    Log.d(TAG, "SyncIngestor: Message $eventId contains aggregated reactions [$keys] (expecting individual m.reaction events)")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Message $eventId contains aggregated reactions [$keys] (expecting individual m.reaction events)")
                 }
             }
         }
@@ -770,23 +770,23 @@ class SyncIngestor(private val context: Context) {
             "m.reaction" -> {
                 val content = event.content
                 if (content == null) {
-                    Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - missing content")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - missing content")
                     return
                 }
                 val relatesTo = content.optJSONObject("m.relates_to")
                 if (relatesTo == null) {
-                    Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - missing m.relates_to")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - missing m.relates_to")
                     return
                 }
                 if (relatesTo.optString("rel_type") != "m.annotation") {
-                    Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - rel_type='${relatesTo.optString("rel_type")}'")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - rel_type='${relatesTo.optString("rel_type")}'")
                     return
                 }
                 
                 val targetEventId = relatesTo.optString("event_id")
                 val key = relatesTo.optString("key")
                 if (targetEventId.isBlank() || key.isBlank()) {
-                    Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - missing target/key (target='$targetEventId', key='$key')")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - missing target/key (target='$targetEventId', key='$key')")
                     return
                 }
                 
@@ -794,7 +794,7 @@ class SyncIngestor(private val context: Context) {
                 if (!event.redactedBy.isNullOrBlank() || redactedBecause != null) {
                     reactionDeletes.add(event.eventId)
                     reactionUpserts.remove(event.eventId)
-                    Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - redacted (by='${event.redactedBy}', because=${redactedBecause != null})")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - redacted (by='${event.redactedBy}', because=${redactedBecause != null})")
                     return
                 }
                 
@@ -814,7 +814,7 @@ class SyncIngestor(private val context: Context) {
                     eventId = event.eventId,
                     timestamp = reactionTimestamp
                 )
-                Log.d(
+                if (BuildConfig.DEBUG) Log.d(
                     TAG,
                     "SyncIngestor: Queued reaction upsert from timeline eventId=${event.eventId} target=$targetEventId key=$key sender=${event.sender} ts=$reactionTimestamp"
                 )
@@ -824,14 +824,14 @@ class SyncIngestor(private val context: Context) {
                 if (!redacts.isNullOrBlank()) {
                     reactionDeletes.add(redacts)
                     reactionUpserts.remove(redacts)
-                    Log.d(TAG, "SyncIngestor: Queued reaction delete due to timeline redaction of $redacts")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Queued reaction delete due to timeline redaction of $redacts")
                 }
             }
             "m.room.message" -> {
                 val reactionsObj = event.content?.optJSONObject("reactions")
                 if (reactionsObj != null && reactionsObj.length() > 0) {
                     val keys = reactionsObj.keys().asSequence().joinToString()
-                    Log.d(TAG, "SyncIngestor: Timeline message ${event.eventId} contains aggregated reactions [$keys] (expecting individual m.reaction events)")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Timeline message ${event.eventId} contains aggregated reactions [$keys] (expecting individual m.reaction events)")
                 }
             }
         }
@@ -884,14 +884,14 @@ class SyncIngestor(private val context: Context) {
                         eventDao.upsertAll(candidates.map { it.entity })
                     }
                     if (reactionDeletes.isNotEmpty()) {
-                        Log.d(
+                        if (BuildConfig.DEBUG) Log.d(
                             TAG,
                             "SyncIngestor: Deleting ${reactionDeletes.size} reactions -> ${reactionDeletes.joinToString()}"
                         )
                         reactionDao.deleteByEventIds(reactionDeletes.toList())
                     }
                     if (reactionUpserts.isNotEmpty()) {
-                        Log.d(
+                        if (BuildConfig.DEBUG) Log.d(
                             TAG,
                             "SyncIngestor: Upserting ${reactionUpserts.size} reactions -> ${
                                 reactionUpserts.values.joinToString { it.eventId }
@@ -1045,7 +1045,7 @@ class SyncIngestor(private val context: Context) {
         val reactionsObj = event.aggregatedReactions ?: event.content?.optJSONObject("reactions")
         val aggregatedReactionsJson = reactionsObj?.toString()
         if (aggregatedReactionsJson != null) {
-            android.util.Log.d(TAG, "SyncIngestor: Detected aggregated reactions in timeline for event ${event.eventId} -> $aggregatedReactionsJson")
+            if (BuildConfig.DEBUG) android.util.Log.d(TAG, "SyncIngestor: Detected aggregated reactions in timeline for event ${event.eventId} -> $aggregatedReactionsJson")
         }
         
         return EventEntity(
@@ -1091,7 +1091,7 @@ class SyncIngestor(private val context: Context) {
             if (existingState != null) {
                 val updatedState = existingState.copy(bridgeInfoJson = bridgeJson.toString())
                 roomStateDao.upsert(updatedState)
-                Log.d(TAG, "Persisted bridge info for room $roomId")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Persisted bridge info for room $roomId")
             } else {
                 // Create new room state entry with bridge info
                 val newState = RoomStateEntity(
@@ -1107,7 +1107,7 @@ class SyncIngestor(private val context: Context) {
                     updatedAt = System.currentTimeMillis()
                 )
                 roomStateDao.upsert(newState)
-                Log.d(TAG, "Created new room state with bridge info for room $roomId")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Created new room state with bridge info for room $roomId")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error persisting bridge info for room $roomId: ${e.message}", e)
@@ -1155,7 +1155,7 @@ class SyncIngestor(private val context: Context) {
                     // Also clear all space-room relationships since spaces are being replaced
                     spaceRoomDao.deleteAllSpaceRooms()
                 }
-                Log.d(TAG, "Replaced all spaces with ${spaces.size} spaces from top_level_spaces")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Replaced all spaces with ${spaces.size} spaces from top_level_spaces")
             }
             
             // Process space_edges (complete replacement per space)
@@ -1206,7 +1206,7 @@ class SyncIngestor(private val context: Context) {
                 val totalRelationships = spacesToUpdate.sumOf { spaceId ->
                     spaceEdges.optJSONArray(spaceId)?.length() ?: 0
                 }
-                Log.d(TAG, "Replaced space-room relationships for ${spacesToUpdate.size} spaces (${totalRelationships} total relationships)")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Replaced space-room relationships for ${spacesToUpdate.size} spaces (${totalRelationships} total relationships)")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing spaces: ${e.message}", e)

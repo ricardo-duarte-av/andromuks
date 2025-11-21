@@ -44,6 +44,8 @@ import androidx.navigation.compose.rememberNavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.CrashHandler
 import net.vrkknn.andromuks.utils.CrashReportDialog
+import net.vrkknn.andromuks.BuildConfig
+
 import androidx.lifecycle.Lifecycle
 import net.vrkknn.andromuks.SharedMediaItem
 import java.net.URLDecoder
@@ -121,22 +123,22 @@ class MainActivity : ComponentActivity() {
                             val fromNotification = intent.getBooleanExtra("from_notification", false)
                             val matrixUri = intent.data
                             
-                            Log.d("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
                             
                             val extractedRoomId = if (directNavigation && roomId != null) {
                                 // OPTIMIZATION #2: Fast path - room ID already extracted
-                                Log.d("Andromuks", "MainActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
                                 roomId
                             } else {
                                 // Fallback to URI parsing for legacy intents
                                 val uriRoomId = extractRoomIdFromMatrixUri(matrixUri)
-                                Log.d("Andromuks", "MainActivity: onCreate - Fallback URI parsing: $uriRoomId")
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - Fallback URI parsing: $uriRoomId")
                                 uriRoomId
                             }
                             
                             if (extractedRoomId != null) {
                                 // OPTIMIZATION #1: Direct navigation instead of pending state
-                                Log.d("Andromuks", "MainActivity: onCreate - Direct navigation to room: $extractedRoomId")
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - Direct navigation to room: $extractedRoomId")
                                 // Extract notification timestamp if present
                                 val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
                                 // Store for immediate navigation once UI is ready
@@ -166,7 +168,7 @@ class MainActivity : ComponentActivity() {
                         if (!viewModelVisibilitySynced) {
                             viewModelVisibilitySynced = true
                             if (lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
-                                Log.d("Andromuks", "MainActivity: ViewModel created after onResume - forcing visible state")
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: ViewModel created after onResume - forcing visible state")
                                 viewModel.onAppBecameVisible()
                             }
                         }
@@ -184,7 +186,7 @@ class MainActivity : ComponentActivity() {
 
     private fun processShareIntent(intent: Intent) {
         if (!::appViewModel.isInitialized) {
-            Log.d("Andromuks", "MainActivity: ViewModel not ready, storing share intent for later processing")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: ViewModel not ready, storing share intent for later processing")
             pendingShareIntent = intent
             return
         }
@@ -198,7 +200,7 @@ class MainActivity : ComponentActivity() {
         }
 
         appViewModel.setPendingShare(shareItems, sharedText, targetRoomId)
-        Log.d(
+        if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
             "MainActivity: Share intent processed with ${shareItems.size} media items, targetRoom=$targetRoomId"
         )
@@ -279,19 +281,19 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun registerNotificationBroadcastReceiver() {
-        Log.d("Andromuks", "MainActivity: Registering notification broadcast receiver")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Registering notification broadcast receiver")
         notificationBroadcastReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                Log.d("Andromuks", "MainActivity: Broadcast receiver got intent: ${intent?.action}")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Broadcast receiver got intent: ${intent?.action}")
                 when (intent?.action) {
                     "net.vrkknn.andromuks.SEND_MESSAGE" -> {
                         val roomId = intent.getStringExtra("room_id")
                         val messageText = intent.getStringExtra("message_text")
-                        Log.d("Andromuks", "MainActivity: SEND_MESSAGE broadcast - roomId: $roomId, messageText: $messageText")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: SEND_MESSAGE broadcast - roomId: $roomId, messageText: $messageText")
                         if (roomId != null && messageText != null) {
-                            Log.d("Andromuks", "MainActivity: Received send message broadcast for room $roomId: $messageText")
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Received send message broadcast for room $roomId: $messageText")
                             appViewModel.sendMessageFromNotification(roomId, messageText) {
-                                Log.d("Andromuks", "MainActivity: Broadcast send message completed")
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Broadcast send message completed")
                                 // Update the notification with the sent message
                                 try {
                                     val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
@@ -301,7 +303,7 @@ class MainActivity : ComponentActivity() {
                                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
                                         val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
                                         enhancedNotificationDisplay.updateNotificationWithReply(roomId, messageText)
-                                        Log.d("Andromuks", "MainActivity: Updated notification with reply for room: $roomId")
+                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Updated notification with reply for room: $roomId")
                                     } else {
                                         Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
                                     }
@@ -316,11 +318,11 @@ class MainActivity : ComponentActivity() {
                     "net.vrkknn.andromuks.MARK_READ" -> {
                         val roomId = intent.getStringExtra("room_id")
                         val eventId = intent.getStringExtra("event_id")
-                        Log.d("Andromuks", "MainActivity: MARK_READ broadcast - roomId: $roomId, eventId: $eventId")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: MARK_READ broadcast - roomId: $roomId, eventId: $eventId")
                         if (roomId != null) {
-                            Log.d("Andromuks", "MainActivity: Received mark read broadcast for room $roomId, event: $eventId")
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Received mark read broadcast for room $roomId, event: $eventId")
                             appViewModel.markRoomAsReadFromNotification(roomId, eventId ?: "") {
-                                Log.d("Andromuks", "MainActivity: Broadcast mark read completed")
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Broadcast mark read completed")
                                 // Update the notification to show it's been read
                                 try {
                                     val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
@@ -330,7 +332,7 @@ class MainActivity : ComponentActivity() {
                                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
                                         val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
                                         enhancedNotificationDisplay.updateNotificationAsRead(roomId)
-                                        Log.d("Andromuks", "MainActivity: Updated notification as read for room: $roomId")
+                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Updated notification as read for room: $roomId")
                                     } else {
                                         Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
                                     }
@@ -354,7 +356,7 @@ class MainActivity : ComponentActivity() {
             addAction("net.vrkknn.andromuks.MARK_READ")
         }
         registerReceiver(notificationBroadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        Log.d("Andromuks", "MainActivity: Notification broadcast receiver registered successfully")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Notification broadcast receiver registered successfully")
     }
     
     private fun registerNotificationActionReceiver() {
@@ -362,17 +364,17 @@ class MainActivity : ComponentActivity() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 when (intent?.action) {
                     "net.vrkknn.andromuks.ACTION_REPLY" -> {
-                        Log.d("Andromuks", "MainActivity: ACTION_REPLY received in broadcast receiver")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: ACTION_REPLY received in broadcast receiver")
                         val roomId = intent.getStringExtra("room_id")
                         val eventId = intent.getStringExtra("event_id")
                         val replyText = getReplyText(intent)
                         
-                        Log.d("Andromuks", "MainActivity: Reply data extracted - roomId: $roomId, eventId: $eventId, replyText: '$replyText'")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Reply data extracted - roomId: $roomId, eventId: $eventId, replyText: '$replyText'")
                         
                         if (roomId != null && replyText != null) {
-                            Log.d("Andromuks", "MainActivity: Calling appViewModel.sendMessageFromNotification for room: $roomId")
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Calling appViewModel.sendMessageFromNotification for room: $roomId")
                             appViewModel.sendMessageFromNotification(roomId, replyText) {
-                                Log.d("Andromuks", "MainActivity: Reply message sent successfully")
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Reply message sent successfully")
                                 // Update the notification with the sent message
                                 try {
                                     val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
@@ -382,7 +384,7 @@ class MainActivity : ComponentActivity() {
                                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
                                         val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
                                         enhancedNotificationDisplay.updateNotificationWithReply(roomId, replyText)
-                                        Log.d("Andromuks", "MainActivity: Updated notification with reply for room: $roomId")
+                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Updated notification with reply for room: $roomId")
                                     } else {
                                         Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
                                     }
@@ -390,22 +392,22 @@ class MainActivity : ComponentActivity() {
                                     Log.e("Andromuks", "MainActivity: Error updating notification with reply", e)
                                 }
                             }
-                            Log.d("Andromuks", "MainActivity: sendMessageFromNotification call completed")
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: sendMessageFromNotification call completed")
                         } else {
                             Log.w("Andromuks", "MainActivity: Missing required data - roomId: $roomId, replyText: $replyText")
                         }
                     }
                     "net.vrkknn.andromuks.ACTION_MARK_READ" -> {
-                        Log.d("Andromuks", "MainActivity: ACTION_MARK_READ received in broadcast receiver")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: ACTION_MARK_READ received in broadcast receiver")
                         val roomId = intent.getStringExtra("room_id")
                         val eventId = intent.getStringExtra("event_id")
                         
-                        Log.d("Andromuks", "MainActivity: Mark read data extracted - roomId: $roomId, eventId: '$eventId'")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Mark read data extracted - roomId: $roomId, eventId: '$eventId'")
                         
                         if (roomId != null && eventId != null && eventId.isNotEmpty()) {
-                            Log.d("Andromuks", "MainActivity: Calling appViewModel.markRoomAsReadFromNotification for room: $roomId, event: $eventId")
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Calling appViewModel.markRoomAsReadFromNotification for room: $roomId, event: $eventId")
                             appViewModel.markRoomAsReadFromNotification(roomId, eventId) {
-                                Log.d("Andromuks", "MainActivity: Mark read completed successfully")
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Mark read completed successfully")
                                 // Update the notification to show it's been read
                                 try {
                                     val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
@@ -415,7 +417,7 @@ class MainActivity : ComponentActivity() {
                                     if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
                                         val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
                                         enhancedNotificationDisplay.updateNotificationAsRead(roomId)
-                                        Log.d("Andromuks", "MainActivity: Updated notification as read for room: $roomId")
+                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Updated notification as read for room: $roomId")
                                     } else {
                                         Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
                                     }
@@ -439,15 +441,15 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun getReplyText(intent: Intent): String? {
-        Log.d("Andromuks", "MainActivity: getReplyText called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: getReplyText called")
         val remoteInputResults = androidx.core.app.RemoteInput.getResultsFromIntent(intent)
-        Log.d("Andromuks", "MainActivity: RemoteInput results: $remoteInputResults")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: RemoteInput results: $remoteInputResults")
         
         val replyText = remoteInputResults
             ?.getCharSequence("key_reply_text")
             ?.toString()
             
-        Log.d("Andromuks", "MainActivity: Extracted reply text: '$replyText'")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Extracted reply text: '$replyText'")
         return replyText
     }
     
@@ -471,22 +473,22 @@ class MainActivity : ComponentActivity() {
         val fromNotification = intent.getBooleanExtra("from_notification", false)
         val matrixUri = intent.data
         
-        Log.d("Andromuks", "MainActivity: onNewIntent - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
         
         val extractedRoomId = if (directNavigation && roomId != null) {
             // OPTIMIZATION #2: Fast path - room ID already extracted
-            Log.d("Andromuks", "MainActivity: onNewIntent - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
             roomId
         } else {
             // Fallback to URI parsing for legacy intents
             val uriRoomId = extractRoomIdFromMatrixUri(matrixUri)
-            Log.d("Andromuks", "MainActivity: onNewIntent - Fallback URI parsing: $uriRoomId")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - Fallback URI parsing: $uriRoomId")
             uriRoomId
         }
         
         extractedRoomId?.let { roomId ->
             if (::appViewModel.isInitialized) {
-                Log.d("Andromuks", "MainActivity: onNewIntent - Direct navigation to room: $roomId")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - Direct navigation to room: $roomId")
                 // OPTIMIZATION #1: Direct navigation instead of pending state
                 appViewModel.setDirectRoomNavigation(roomId)
                 if (!shortcutUserId.isNullOrBlank()) {
@@ -509,7 +511,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        Log.d("Andromuks", "MainActivity: onDestroy called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onDestroy called")
         try {
             if (::notificationBroadcastReceiver.isInitialized) {
                 unregisterReceiver(notificationBroadcastReceiver)
@@ -524,12 +526,12 @@ class MainActivity : ComponentActivity() {
     
     override fun onStop() {
         super.onStop()
-        Log.d("Andromuks", "MainActivity: onStop called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onStop called")
     }
     
     override fun onPause() {
         super.onPause()
-        Log.d("Andromuks", "MainActivity: onPause called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onPause called")
         if (::appViewModel.isInitialized) {
             appViewModel.onAppBecameInvisible()
         }
@@ -537,7 +539,7 @@ class MainActivity : ComponentActivity() {
     
     override fun onResume() {
         super.onResume()
-        Log.d("Andromuks", "MainActivity: onResume called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onResume called")
         if (::appViewModel.isInitialized) {
             appViewModel.onAppBecameVisible()
         }
@@ -545,12 +547,12 @@ class MainActivity : ComponentActivity() {
         // Broadcast that app is now in foreground so screens can refresh
         val foregroundRefreshIntent = Intent("net.vrkknn.andromuks.FOREGROUND_REFRESH")
         sendBroadcast(foregroundRefreshIntent)
-        Log.d("Andromuks", "MainActivity: Sent FOREGROUND_REFRESH broadcast")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Sent FOREGROUND_REFRESH broadcast")
     }
     
     override fun onStart() {
         super.onStart()
-        Log.d("Andromuks", "MainActivity: onStart called")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onStart called")
     }
     
     override fun onBackPressed() {
@@ -564,9 +566,9 @@ class MainActivity : ComponentActivity() {
      * - matrix:r/#test9test:aguiarvieira.pt
      */
     private fun extractRoomIdFromMatrixUri(uri: android.net.Uri?): String? {
-        Log.d("Andromuks", "MainActivity: extractRoomIdFromMatrixUri called with uri: $uri")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: extractRoomIdFromMatrixUri called with uri: $uri")
         if (uri == null) {
-            Log.d("Andromuks", "MainActivity: URI is null")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: URI is null")
             return null
         }
 
@@ -583,7 +585,7 @@ class MainActivity : ComponentActivity() {
             if (::appViewModel.isInitialized) {
                 val roomId = appViewModel.getDirectRoomIdForUser(userId)
                 if (roomId != null) {
-                    Log.d(
+                    if (BuildConfig.DEBUG) Log.d(
                         "Andromuks",
                         "MainActivity: Resolved matrix:u URI for $userId to direct room $roomId"
                     )
@@ -606,11 +608,11 @@ class MainActivity : ComponentActivity() {
         // Use the extractRoomLink utility function for all other matrix URIs
         val roomLink = net.vrkknn.andromuks.utils.extractRoomLink(uriString)
         if (roomLink != null) {
-            Log.d("Andromuks", "MainActivity: Extracted room link: ${roomLink.roomIdOrAlias}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Extracted room link: ${roomLink.roomIdOrAlias}")
             return roomLink.roomIdOrAlias
         }
         
-        Log.d("Andromuks", "MainActivity: Could not extract room link from URI")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Could not extract room link from URI")
         return null
     }
 }

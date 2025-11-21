@@ -111,6 +111,8 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.NotificationsOff
 import net.vrkknn.andromuks.ui.components.AvatarImage
+import net.vrkknn.andromuks.BuildConfig
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -165,17 +167,17 @@ fun RoomListScreen(
             }
             previousSectionType = stableSection.type
             stableSection = newSection
-            android.util.Log.d("Andromuks", "RoomListScreen: Section type changed from ${previousSectionType} to ${newSection.type}")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section type changed from ${previousSectionType} to ${newSection.type}")
         } else if (roomsChanged || spacesChanged || bridgesChanged) {
             // Same section type but data changed - update without animation
             sectionAnimationDirection = 0
             stableSection = newSection
-            android.util.Log.d("Andromuks", "RoomListScreen: Section data changed - rooms:$roomsChanged spaces:$spacesChanged bridges:$bridgesChanged")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section data changed - rooms:$roomsChanged spaces:$spacesChanged bridges:$bridgesChanged")
         }
         // If nothing changed, skip update - prevents unnecessary recomposition and avatar flashing
     }
     
-    android.util.Log.d("Andromuks", "RoomListScreen: stableSection = ${stableSection.type}, roomListUpdateCounter = $roomListUpdateCounter, rooms.size = ${stableSection.rooms.size}")
+    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: stableSection = ${stableSection.type}, roomListUpdateCounter = $roomListUpdateCounter, rooms.size = ${stableSection.rooms.size}")
     
     // Always show the interface, even if rooms/spaces are empty
     var searchQuery by remember { mutableStateOf("") }
@@ -189,7 +191,7 @@ fun RoomListScreen(
     // When user presses back from room list, app suspends and moves to background
     // A 15-second timer starts to close the websocket for resource management
     BackHandler {
-        android.util.Log.d("Andromuks", "RoomListScreen: Back button pressed, suspending app")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Back button pressed, suspending app")
         appViewModel.suspendApp() // Start 15-second timer to close websocket
         // Move app to background instead of closing completely
         (context as? ComponentActivity)?.moveTaskToBack(true)
@@ -197,12 +199,12 @@ fun RoomListScreen(
     
     // Clear current room ID when room list is shown - allows notifications to resume for previously open rooms
     LaunchedEffect(Unit) {
-        android.util.Log.d("Andromuks", "RoomListScreen: Clearing current room ID - user is viewing room list, not a specific room")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Clearing current room ID - user is viewing room list, not a specific room")
         appViewModel.clearCurrentRoomId()
         
         // PERFORMANCE: Force immediate sort when returning to RoomListScreen
         // This ensures the list is properly sorted when the user navigates back
-        android.util.Log.d("Andromuks", "RoomListScreen: Returning to room list - forcing immediate sort")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Returning to room list - forcing immediate sort")
         appViewModel.forceRoomListSort()
     }
     
@@ -210,7 +212,7 @@ fun RoomListScreen(
     LaunchedEffect(Unit) {
         val directRoomId = appViewModel.getDirectRoomNavigation()
         if (directRoomId != null) {
-            android.util.Log.d("Andromuks", "RoomListScreen: OPTIMIZATION #1 + #4 - Direct navigation with cache-first loading to: $directRoomId")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: OPTIMIZATION #1 + #4 - Direct navigation with cache-first loading to: $directRoomId")
             appViewModel.clearDirectRoomNavigation()
             // OPTIMIZATION #4: Use cache-first navigation for instant loading
             appViewModel.navigateToRoomWithCache(directRoomId)
@@ -222,7 +224,7 @@ fun RoomListScreen(
         // Fallback to pending room navigation (legacy path)
         val pendingRoomId = appViewModel.getPendingRoomNavigation()
         if (pendingRoomId != null) {
-            android.util.Log.d("Andromuks", "RoomListScreen: Detected pending room navigation to: $pendingRoomId")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Detected pending room navigation to: $pendingRoomId")
             appViewModel.clearPendingRoomNavigation()
             // OPTIMIZATION #4: Use cache-first navigation for pending navigation too
             appViewModel.navigateToRoomWithCache(pendingRoomId)
@@ -260,7 +262,7 @@ fun RoomListScreen(
         val foregroundRefreshReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 if (intent?.action == "net.vrkknn.andromuks.FOREGROUND_REFRESH") {
-                    android.util.Log.d("Andromuks", "RoomListScreen: Received FOREGROUND_REFRESH broadcast, refreshing UI from cache")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Received FOREGROUND_REFRESH broadcast, refreshing UI from cache")
                     // Lightweight refresh from cached sync data (no WebSocket restart needed)
                     appViewModel.refreshUIFromCache()
                 }
@@ -269,12 +271,12 @@ fun RoomListScreen(
         
         val filter = IntentFilter("net.vrkknn.andromuks.FOREGROUND_REFRESH")
         context.registerReceiver(foregroundRefreshReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        android.util.Log.d("Andromuks", "RoomListScreen: Registered FOREGROUND_REFRESH broadcast receiver")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Registered FOREGROUND_REFRESH broadcast receiver")
         
         onDispose {
             try {
                 context.unregisterReceiver(foregroundRefreshReceiver)
-                android.util.Log.d("Andromuks", "RoomListScreen: Unregistered FOREGROUND_REFRESH broadcast receiver")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Unregistered FOREGROUND_REFRESH broadcast receiver")
             } catch (e: Exception) {
                 android.util.Log.w("Andromuks", "RoomListScreen: Error unregistering foreground refresh receiver", e)
             }
@@ -292,7 +294,7 @@ fun RoomListScreen(
                 .distinct()
                 .filter { sender -> sender != appViewModel.currentUserId }
             
-            android.util.Log.d(
+            if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${messageSenders.size} message senders from ${stableSection.rooms.size} rooms"
             )
@@ -314,7 +316,7 @@ fun RoomListScreen(
                 .distinct()
                 .filter { sender -> sender != appViewModel.currentUserId }
             
-            android.util.Log.d(
+            if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${spaceMessageSenders.size} message senders from space rooms"
             )
@@ -334,7 +336,7 @@ fun RoomListScreen(
                 .distinct()
                 .filter { sender -> sender != appViewModel.currentUserId }
             
-            android.util.Log.d(
+            if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
                 "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${bridgeMessageSenders.size} message senders from bridge rooms"
             )
@@ -669,8 +671,8 @@ fun BridgeListItem(
     homeserverUrl: String,
     authToken: String
 ) {
-    android.util.Log.d("Andromuks", "BridgeListItem: Called for bridge: ${bridge.name}")
-    android.util.Log.d("Andromuks", "BridgeListItem: Using homeserver URL: $homeserverUrl")
+    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BridgeListItem: Called for bridge: ${bridge.name}")
+    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BridgeListItem: Using homeserver URL: $homeserverUrl")
     
     // Calculate unread counts and highlights outside the Row
     val totalRooms = bridge.rooms.size
@@ -771,8 +773,8 @@ fun SpaceListItem(
     homeserverUrl: String,
     authToken: String
 ) {
-    android.util.Log.d("Andromuks", "SpaceListItem: Called for space: ${space.name}")
-    android.util.Log.d("Andromuks", "SpaceListItem: Using homeserver URL: $homeserverUrl")
+    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceListItem: Called for space: ${space.name}")
+    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpaceListItem: Using homeserver URL: $homeserverUrl")
     
     // Calculate unread counts and highlights outside the Row
     val totalRooms = space.rooms.size
@@ -1406,7 +1408,7 @@ fun RoomListContent(
             // Trigger prefetching if we have rooms to prefetch
             if (nearbyRoomIds.isNotEmpty()) {
                 appViewModel.prefetchRoomData(nearbyRoomIds, listState.firstVisibleItemIndex)
-                android.util.Log.d("Andromuks", "RoomListScreen: NAVIGATION OPTIMIZATION - Triggered prefetch for ${nearbyRoomIds.size} nearby rooms")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: NAVIGATION OPTIMIZATION - Triggered prefetch for ${nearbyRoomIds.size} nearby rooms")
             }
         }
     }
@@ -1476,7 +1478,7 @@ fun RoomListContent(
                     authToken = authToken,
                     onRoomClick = { 
                         if (roomOpenInProgress != null) {
-                            android.util.Log.d("Andromuks", "RoomListScreen: Room open already in progress, ignoring tap on ${room.id}")
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Room open already in progress, ignoring tap on ${room.id}")
                             return@RoomListItem
                         }
                         roomOpenInProgress = roomIdForNavigation
@@ -1528,7 +1530,7 @@ fun SpacesListContent(
     authToken: String,
     navController: NavController
 ) {
-    android.util.Log.d("Andromuks", "SpacesListContent: Displaying ${spaces.size} spaces")
+    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpacesListContent: Displaying ${spaces.size} spaces")
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Top,
@@ -1568,7 +1570,7 @@ fun BridgesListContent(
     authToken: String,
     navController: NavController
 ) {
-    android.util.Log.d("Andromuks", "BridgesListContent: Displaying ${bridges.size} bridges")
+    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BridgesListContent: Displaying ${bridges.size} bridges")
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Top,

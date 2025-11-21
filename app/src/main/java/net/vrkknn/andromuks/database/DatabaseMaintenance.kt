@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.database
 
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -10,6 +11,8 @@ import net.vrkknn.andromuks.database.dao.RoomStateDao
 import net.vrkknn.andromuks.database.dao.RoomSummaryDao
 import net.vrkknn.andromuks.database.dao.SpaceDao
 import net.vrkknn.andromuks.database.dao.SpaceRoomDao
+
+
 import java.util.concurrent.TimeUnit
 
 /**
@@ -44,30 +47,30 @@ class DatabaseMaintenance(private val context: Context) {
      * 4. Vacuum database (SQLite compaction)
      */
     suspend fun performMaintenance(): MaintenanceResult = withContext(Dispatchers.IO) {
-        Log.d(TAG, "Starting database maintenance...")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Starting database maintenance...")
         val startTime = System.currentTimeMillis()
         
         try {
             // 1. Delete old events (older than 1 year)
             val cutoffTime = System.currentTimeMillis() - TTL_ONE_YEAR_MS
             val deletedEvents = eventDao.deleteEventsOlderThan(cutoffTime)
-            Log.d(TAG, "Deleted $deletedEvents events older than 1 year")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Deleted $deletedEvents events older than 1 year")
             
             // 2. Clean up orphaned receipts (receipts for events that no longer exist)
             val deletedOrphanedReceipts = receiptDao.deleteOrphanedReceipts()
-            Log.d(TAG, "Deleted $deletedOrphanedReceipts orphaned receipts")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Deleted $deletedOrphanedReceipts orphaned receipts")
             
             // 3. Clean up orphaned room summaries (for rooms that no longer exist)
             val deletedOrphanedSummaries = roomSummaryDao.deleteOrphanedSummaries()
-            Log.d(TAG, "Deleted $deletedOrphanedSummaries orphaned room summaries")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Deleted $deletedOrphanedSummaries orphaned room summaries")
             
             // 4. Clean up orphaned space-room relationships
             val deletedOrphanedSpaceRooms = spaceRoomDao.deleteOrphanedSpaceRooms()
-            Log.d(TAG, "Deleted $deletedOrphanedSpaceRooms orphaned space-room relationships")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Deleted $deletedOrphanedSpaceRooms orphaned space-room relationships")
             
             // 5. Vacuum database to reclaim space
             database.vacuum()
-            Log.d(TAG, "Database vacuum completed")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Database vacuum completed")
             
             val duration = System.currentTimeMillis() - startTime
             val result = MaintenanceResult(
@@ -79,7 +82,7 @@ class DatabaseMaintenance(private val context: Context) {
                 success = true
             )
             
-            Log.d(TAG, "Database maintenance completed in ${duration}ms: ${result.deletedEvents} events, ${result.deletedOrphanedReceipts} receipts, ${result.deletedOrphanedSummaries} summaries deleted")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Database maintenance completed in ${duration}ms: ${result.deletedEvents} events, ${result.deletedOrphanedReceipts} receipts, ${result.deletedOrphanedSummaries} summaries deleted")
             return@withContext result
         } catch (e: Exception) {
             Log.e(TAG, "Error during database maintenance: ${e.message}", e)

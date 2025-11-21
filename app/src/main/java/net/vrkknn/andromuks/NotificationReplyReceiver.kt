@@ -1,5 +1,7 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.BuildConfig
+
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -19,12 +21,12 @@ class NotificationReplyReceiver : BroadcastReceiver() {
     }
     
     override fun onReceive(context: Context, intent: Intent) {
-        Log.d(TAG, "onReceive called with action: ${intent.action}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "onReceive called with action: ${intent.action}")
         
         val roomId = intent.getStringExtra("room_id")
         val replyText = getReplyText(intent)
         
-        Log.d(TAG, "Reply - roomId: $roomId, replyText: $replyText")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Reply - roomId: $roomId, replyText: $replyText")
         
         if (roomId == null) {
             Log.e(TAG, "roomId is null, cannot send reply")
@@ -55,13 +57,13 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         )
         
         context.sendOrderedBroadcast(forwardIntent, null)
-        Log.d(TAG, "Forwarded reply via ordered ACTION_REPLY broadcast for roomId: $roomId")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Forwarded reply via ordered ACTION_REPLY broadcast for roomId: $roomId")
     }
     
     private fun getReplyText(intent: Intent): String? {
-        Log.d(TAG, "getReplyText called")
+        if (BuildConfig.DEBUG) Log.d(TAG, "getReplyText called")
         val remoteInputResults = RemoteInput.getResultsFromIntent(intent)
-        Log.d(TAG, "RemoteInput results: $remoteInputResults")
+        if (BuildConfig.DEBUG) Log.d(TAG, "RemoteInput results: $remoteInputResults")
         
         if (remoteInputResults == null) {
             Log.e(TAG, "RemoteInput results is null")
@@ -69,7 +71,7 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         }
         
         val replyText = remoteInputResults.getCharSequence(KEY_REPLY_TEXT)?.toString()
-        Log.d(TAG, "Extracted reply text: '$replyText'")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Extracted reply text: '$replyText'")
         return replyText
     }
 }

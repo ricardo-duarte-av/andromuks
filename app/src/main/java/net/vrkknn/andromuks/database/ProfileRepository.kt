@@ -1,11 +1,14 @@
 package net.vrkknn.andromuks.database
 
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.MemberProfile
+
+
 
 /**
  * Simple SQLite-based repository for managing user profile data.
@@ -30,7 +33,7 @@ class ProfileRepository(private val context: Context) {
             
             // Use INSERT OR REPLACE to handle conflicts
             db.insertWithOnConflict("user_profiles", null, values, SQLiteDatabase.CONFLICT_REPLACE)
-            android.util.Log.d("Andromuks", "ProfileRepository: Saved profile for $userId")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ProfileRepository: Saved profile for $userId")
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "ProfileRepository: Failed to save profile for $userId", e)
         }
@@ -64,7 +67,7 @@ class ProfileRepository(private val context: Context) {
             }
             
             val duration = System.currentTimeMillis() - startTime
-            android.util.Log.d("Andromuks", "ProfileRepository: Batch saved ${profiles.size} profiles in ${duration}ms")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ProfileRepository: Batch saved ${profiles.size} profiles in ${duration}ms")
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "ProfileRepository: Failed to batch save profiles", e)
         }
@@ -191,7 +194,7 @@ class ProfileRepository(private val context: Context) {
             val db = dbHelper.writableDatabase
             val deletedCount = db.delete("user_profiles", "last_updated < ?", arrayOf(cutoffTime.toString()))
             if (deletedCount > 0) {
-                android.util.Log.d("Andromuks", "ProfileRepository: Cleaned up $deletedCount old profiles")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ProfileRepository: Cleaned up $deletedCount old profiles")
             }
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "ProfileRepository: Failed to cleanup old profiles", e)

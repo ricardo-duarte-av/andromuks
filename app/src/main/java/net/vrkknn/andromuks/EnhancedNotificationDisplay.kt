@@ -31,6 +31,8 @@ import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.htmlToNotificationText
+import net.vrkknn.andromuks.BuildConfig
+
 import androidx.core.content.FileProvider
 import java.io.IOException
 import java.net.URL
@@ -176,31 +178,31 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
             
             if (lowPriorityRooms.contains(notificationData.roomId)) {
-                Log.d(TAG, "Skipping notification for low priority room (EnhancedNotificationDisplay): ${notificationData.roomId} (${notificationData.roomName})")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Skipping notification for low priority room (EnhancedNotificationDisplay): ${notificationData.roomId} (${notificationData.roomName})")
                 return
             }
             
             // Check if this room is currently open in the app - skip notifications if user is viewing the room
             val currentOpenRoomId = sharedPrefs.getString("current_open_room_id", null)
             val appIsVisible = sharedPrefs.getBoolean("app_is_visible", false)
-            Log.d(
+            if (BuildConfig.DEBUG) Log.d(
                 TAG,
                 "Notification check - appVisible: $appIsVisible, currentOpenRoomId: '$currentOpenRoomId', notificationRoomId: '${notificationData.roomId}', match: ${currentOpenRoomId == notificationData.roomId}"
             )
             if (appIsVisible && currentOpenRoomId != null && currentOpenRoomId == notificationData.roomId) {
-                Log.d(TAG, "Skipping notification for currently visible room: ${notificationData.roomId} (${notificationData.roomName}) - user is already viewing this room")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Skipping notification for currently visible room: ${notificationData.roomId} (${notificationData.roomName}) - user is already viewing this room")
                 return
             }
             
             val isGroupRoom = notificationData.roomName != notificationData.senderDisplayName
             val hasImage = !notificationData.image.isNullOrEmpty()
-            Log.d(TAG, "showEnhancedNotification - hasImage: $hasImage, image: ${notificationData.image}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "showEnhancedNotification - hasImage: $hasImage, image: ${notificationData.image}")
             // Load avatars asynchronously with fallbacks
             val roomAvatarIcon = notificationData.roomAvatarUrl?.let { 
                 loadAvatarAsIcon(it) 
             } ?: run {
                 // Create fallback avatar for room (use room name + room ID)
-                Log.d(TAG, "No room avatar URL, creating fallback for: ${notificationData.roomName}")
+                if (BuildConfig.DEBUG) Log.d(TAG, "No room avatar URL, creating fallback for: ${notificationData.roomName}")
                 createFallbackAvatarIcon(notificationData.roomName, notificationData.roomId)
             }
             
@@ -208,7 +210,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 loadAvatarAsIcon(it)
             } ?: run {
                 // Create fallback avatar for sender
-                Log.d(TAG, "No sender avatar URL, creating fallback for: ${notificationData.senderDisplayName}")
+                if (BuildConfig.DEBUG) Log.d(TAG, "No sender avatar URL, creating fallback for: ${notificationData.senderDisplayName}")
                 createFallbackAvatarIcon(notificationData.senderDisplayName, notificationData.sender)
             }
             
@@ -234,7 +236,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 if (!avatarUrl.isNullOrEmpty()) {
                     val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
                     val avatarBitmap = if (cachedFile != null) {
-                        Log.d(TAG, "Using cached avatar for current user: $avatarUrl")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar for current user: $avatarUrl")
                         android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
                     } else {
                         // Try to download avatar for current user
@@ -242,14 +244,14 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         if (httpUrl != null) {
                             val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
                             if (downloadedFile != null) {
-                                Log.d(TAG, "Downloaded current user avatar to cache: ${downloadedFile.absolutePath}")
+                                if (BuildConfig.DEBUG) Log.d(TAG, "Downloaded current user avatar to cache: ${downloadedFile.absolutePath}")
                                 android.graphics.BitmapFactory.decodeFile(downloadedFile.absolutePath)
                             } else {
-                                Log.d(TAG, "Failed to download current user avatar: $avatarUrl")
+                                if (BuildConfig.DEBUG) Log.d(TAG, "Failed to download current user avatar: $avatarUrl")
                                 null
                             }
                         } else {
-                            Log.d(TAG, "Failed to convert current user avatar MXC URL: $avatarUrl")
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Failed to convert current user avatar MXC URL: $avatarUrl")
                             null
                         }
                     }
@@ -259,7 +261,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         IconCompat.createWithBitmap(createCircularBitmap(it))
                     }
                 } else {
-                    Log.d(TAG, "No avatar URL stored for current user")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "No avatar URL stored for current user")
                     null
                 }
             } catch (e: Exception) {
@@ -289,7 +291,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Download image for image notifications
             val imageUri = if (hasImage && notificationData.image != null) {
                 try {
-                    Log.d(TAG, "Downloading image for notification: ${notificationData.image}")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Downloading image for notification: ${notificationData.image}")
                     
                     // Parse the image URL and convert to MXC format for caching
                     val (mxcUrl, httpUrl) = when {
@@ -321,13 +323,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         }
                     }
                     
-                    Log.d(TAG, "Parsed image URLs - MXC: $mxcUrl, HTTP: $httpUrl")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Parsed image URLs - MXC: $mxcUrl, HTTP: $httpUrl")
                     
                     if (mxcUrl != null && httpUrl != null) {
                         // Check cache first
                         val cachedFile = MediaCache.getCachedFile(context, mxcUrl)
                         if (cachedFile != null) {
-                            Log.d(TAG, "Using cached image: ${cachedFile.absolutePath}")
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Using cached image: ${cachedFile.absolutePath}")
                             // Use FileProvider to create a content:// URI that can be accessed by the notification system
                             FileProvider.getUriForFile(
                                 context,
@@ -336,10 +338,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                             )
                         } else {
                             // Download and cache
-                            Log.d(TAG, "Downloading image from: $httpUrl")
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Downloading image from: $httpUrl")
                             val downloadedFile = MediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
                             if (downloadedFile != null) {
-                                Log.d(TAG, "Downloaded image to cache: ${downloadedFile.absolutePath}")
+                                if (BuildConfig.DEBUG) Log.d(TAG, "Downloaded image to cache: ${downloadedFile.absolutePath}")
                                 // Use FileProvider to create a content:// URI that can be accessed by the notification system
                                 FileProvider.getUriForFile(
                                     context,
@@ -399,7 +401,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Add message to style
             val message = if (hasImage && imageUri != null) {
                 // Image message with downloaded image
-                Log.d(TAG, "Adding image message to notification with URI: $imageUri")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Adding image message to notification with URI: $imageUri")
                 MessagingStyle.Message(
                     "[Image]",
                     notificationData.timestamp ?: System.currentTimeMillis(),
@@ -434,20 +436,20 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     )
                     
                     // Update shortcuts asynchronously (non-blocking)
-                    Log.d(TAG, "━━━ TIMING: Triggering async shortcut update NOW ━━━")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "━━━ TIMING: Triggering async shortcut update NOW ━━━")
                     api.updateConversationShortcuts(roomList)
                     
-                    Log.d(TAG, "Shortcuts update triggered (async) for: ${notificationData.roomId}")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Shortcuts update triggered (async) for: ${notificationData.roomId}")
                     
                     // Try to get existing shortcut (may not exist yet)
                     val existingShortcut = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
                         .firstOrNull { it.id == notificationData.roomId }
                     
                     if (existingShortcut != null) {
-                        Log.d(TAG, "Found existing shortcut: ${existingShortcut.shortLabel}")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Found existing shortcut: ${existingShortcut.shortLabel}")
                         existingShortcut
                     } else {
-                        Log.d(TAG, "No existing shortcut yet, will be created asynchronously")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "No existing shortcut yet, will be created asynchronously")
                         null
                     }
                 } catch (e: Exception) {
@@ -521,7 +523,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Grant URI permission for image if present
             if (imageUri != null) {
                 try {
-                    Log.d(TAG, "Granting URI permission for notification image: $imageUri")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Granting URI permission for notification image: $imageUri")
                     context.grantUriPermission(
                         "com.android.systemui",  // System UI package for notifications
                         imageUri,
@@ -634,7 +636,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Create reply action
      */
     private fun createReplyAction(data: NotificationData): NotificationCompat.Action {
-        Log.d(TAG, "createReplyAction: Creating reply action for room: ${data.roomId}, event: ${data.eventId}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "createReplyAction: Creating reply action for room: ${data.roomId}, event: ${data.eventId}")
         
         val remoteInput = RemoteInput.Builder(KEY_REPLY_TEXT)
             .setLabel("Reply")
@@ -647,7 +649,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             putExtra("event_id", data.eventId)
         }
         
-        Log.d(TAG, "createReplyAction: Intent created with room_id: ${data.roomId}, event_id: ${data.eventId}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "createReplyAction: Intent created with room_id: ${data.roomId}, event_id: ${data.eventId}")
         
         val replyPendingIntent = PendingIntent.getBroadcast(
             context,
@@ -660,7 +662,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
         )
         
-        Log.d(TAG, "createReplyAction: PendingIntent created successfully")
+        if (BuildConfig.DEBUG) Log.d(TAG, "createReplyAction: PendingIntent created successfully")
         
         return NotificationCompat.Action.Builder(
             R.mipmap.ic_launcher,
@@ -673,7 +675,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Create mark as read action
      */
     private fun createMarkReadAction(data: NotificationData): NotificationCompat.Action {
-        Log.d(TAG, "createMarkReadAction: Creating mark read action for room: ${data.roomId}, event: ${data.eventId}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "createMarkReadAction: Creating mark read action for room: ${data.roomId}, event: ${data.eventId}")
         
         // Use broadcast receiver to avoid trampoline and UI visibility
         val markReadIntent = Intent(context, NotificationMarkReadReceiver::class.java).apply {
@@ -682,7 +684,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             putExtra("event_id", data.eventId)
         }
         
-        Log.d(TAG, "createMarkReadAction: Intent created with room_id: ${data.roomId}, event_id: ${data.eventId}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "createMarkReadAction: Intent created with room_id: ${data.roomId}, event_id: ${data.eventId}")
         
         val markReadPendingIntent = PendingIntent.getBroadcast(
             context,
@@ -695,7 +697,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
         )
         
-        Log.d(TAG, "createMarkReadAction: PendingIntent created successfully")
+        if (BuildConfig.DEBUG) Log.d(TAG, "createMarkReadAction: PendingIntent created successfully")
         
         return NotificationCompat.Action.Builder(
             R.mipmap.ic_launcher,
@@ -728,17 +730,17 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     private suspend fun loadAvatarAsIcon(avatarUrl: String): IconCompat? {
         return try {
-            Log.d(TAG, "━━━ loadAvatarAsIcon called ━━━")
-            Log.d(TAG, "  Avatar URL: $avatarUrl")
+            if (BuildConfig.DEBUG) Log.d(TAG, "━━━ loadAvatarAsIcon called ━━━")
+            if (BuildConfig.DEBUG) Log.d(TAG, "  Avatar URL: $avatarUrl")
             
             // Load bitmap (from cache or download)
             val bitmap = loadAvatarBitmap(avatarUrl)
-            Log.d(TAG, "  Bitmap loaded: ${bitmap != null}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "  Bitmap loaded: ${bitmap != null}")
             
             if (bitmap != null) {
                 // Make it circular and use directly as adaptive bitmap
                 val circularBitmap = createCircularBitmap(bitmap)
-                Log.d(TAG, "  ✓✓✓ SUCCESS: Created circular bitmap icon for notification Person")
+                if (BuildConfig.DEBUG) Log.d(TAG, "  ✓✓✓ SUCCESS: Created circular bitmap icon for notification Person")
                 IconCompat.createWithAdaptiveBitmap(circularBitmap)
             } else {
                 Log.w(TAG, "  ✗✗✗ FAILED: loadAvatarBitmap returned null, using default icon")
@@ -862,7 +864,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     private fun createCircularBitmap(bitmap: Bitmap): Bitmap {
         // Convert hardware bitmap to software bitmap if needed
         val softwareBitmap = if (bitmap.config == Bitmap.Config.HARDWARE) {
-            Log.d(TAG, "Converting hardware bitmap to software bitmap")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Converting hardware bitmap to software bitmap")
             bitmap.copy(Bitmap.Config.ARGB_8888, false)
         } else {
             bitmap
@@ -912,7 +914,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     private suspend fun loadAvatarBitmap(avatarUrl: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
-            Log.d(TAG, "loadAvatarBitmap called with: $avatarUrl")
+            if (BuildConfig.DEBUG) Log.d(TAG, "loadAvatarBitmap called with: $avatarUrl")
             
             if (avatarUrl.isEmpty()) {
                 Log.w(TAG, "Avatar URL is empty, returning null")
@@ -923,7 +925,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
             
             if (cachedFile != null) {
-                Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar file: ${cachedFile.absolutePath}")
                 return@withContext android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
             }
             
@@ -945,13 +947,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 return@withContext null
             }
             
-            Log.d(TAG, "Downloading and caching avatar from: $httpUrl")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Downloading and caching avatar from: $httpUrl")
             
             // Download and cache using existing MediaCache infrastructure
             val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
             
             if (downloadedFile != null) {
-                Log.d(TAG, "Successfully downloaded and cached avatar: ${downloadedFile.absolutePath}")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Successfully downloaded and cached avatar: ${downloadedFile.absolutePath}")
                 android.graphics.BitmapFactory.decodeFile(downloadedFile.absolutePath)
             } else {
                 Log.e(TAG, "Failed to download avatar")
@@ -1025,7 +1027,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             // Extract the event_id from the notification extras
             val eventId = existingNotification.notification.extras?.getString("event_id")
-            Log.d(TAG, "Extracted event_id from notification: $eventId")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Extracted event_id from notification: $eventId")
             
             // Get current user info to create the same "me" Person as the original notification
             val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
@@ -1038,10 +1040,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 if (!avatarUrl.isNullOrEmpty()) {
                     val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
                     val avatarBitmap = if (cachedFile != null) {
-                        Log.d(TAG, "Using cached avatar for reply: $avatarUrl")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar for reply: $avatarUrl")
                         android.graphics.BitmapFactory.decodeFile(cachedFile.absolutePath)
                     } else {
-                        Log.d(TAG, "Avatar not cached, reply will show without avatar: $avatarUrl")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Avatar not cached, reply will show without avatar: $avatarUrl")
                         null
                     }
                     
@@ -1050,7 +1052,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         IconCompat.createWithBitmap(createCircularBitmap(it))
                     }
                 } else {
-                    Log.d(TAG, "No avatar URL stored for current user")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "No avatar URL stored for current user")
                     null
                 }
             } catch (e: Exception) {
@@ -1088,7 +1090,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     )
                 )
             } else {
-                Log.d(TAG, "Reply already present in notification, skipping duplicate entry")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Reply already present in notification, skipping duplicate entry")
             }
             
             // Get the channel ID from the notification
@@ -1169,7 +1171,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val notificationManagerCompat = NotificationManagerCompat.from(context)
             notificationManagerCompat.notify(notifID, updatedNotification)
             
-            Log.d(TAG, "Updated notification with reply for room: $roomId")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Updated notification with reply for room: $roomId")
             
         } catch (e: Exception) {
             Log.e(TAG, "Error updating notification with reply", e)
@@ -1201,7 +1203,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             // Extract the event_id from the notification extras
             val eventId = existingNotification.notification.extras?.getString("event_id")
-            Log.d(TAG, "Extracted event_id from notification for mark read: $eventId")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Extracted event_id from notification for mark read: $eventId")
             
             // Note: Unread count clearing is handled automatically by our shortcut updates
             // No need to call clearUnreadCount() which can lose icons
@@ -1210,7 +1212,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val notificationManagerCompat = NotificationManagerCompat.from(context)
             notificationManagerCompat.cancel(notifID)
             
-            Log.d(TAG, "Dismissed notification and cleared unread count for room: $roomId")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Dismissed notification and cleared unread count for room: $roomId")
             
         } catch (e: Exception) {
             Log.e(TAG, "Error updating notification as read", e)

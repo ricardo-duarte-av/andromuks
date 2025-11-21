@@ -29,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.material.icons.filled.Power
 import net.vrkknn.andromuks.utils.AutoStartPermissionHelper
+import net.vrkknn.andromuks.BuildConfig
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -47,7 +49,7 @@ fun PermissionsScreen(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         notificationPermissionGranted = isGranted
-        Log.d("PermissionsScreen", "Notification permission result: $isGranted")
+        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Notification permission result: $isGranted")
         checkAndProceed(notificationPermissionGranted, batteryOptimizationDisabled, onPermissionsGranted)
     }
     
@@ -57,7 +59,7 @@ fun PermissionsScreen(
     ) {
         // Re-check battery optimization status after returning from settings
         batteryOptimizationDisabled = checkBatteryOptimization(context)
-        Log.d("PermissionsScreen", "Battery optimization disabled: $batteryOptimizationDisabled")
+        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Battery optimization disabled: $batteryOptimizationDisabled")
         checkAndProceed(notificationPermissionGranted, batteryOptimizationDisabled, onPermissionsGranted)
     }
     
@@ -66,11 +68,11 @@ fun PermissionsScreen(
         notificationPermissionGranted = checkNotificationPermission(context)
         batteryOptimizationDisabled = checkBatteryOptimization(context)
         
-        Log.d("PermissionsScreen", "Initial permission check - notifications: $notificationPermissionGranted, battery: $batteryOptimizationDisabled")
+        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Initial permission check - notifications: $notificationPermissionGranted, battery: $batteryOptimizationDisabled")
         
         // If all permissions are granted, proceed immediately
         if (notificationPermissionGranted && batteryOptimizationDisabled) {
-            Log.d("PermissionsScreen", "All permissions already granted, proceeding")
+            if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "All permissions already granted, proceeding")
             onPermissionsGranted()
         }
     }
@@ -107,7 +109,7 @@ fun PermissionsScreen(
                 isGranted = notificationPermissionGranted,
                 onRequestClick = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        Log.d("PermissionsScreen", "Requesting notification permission")
+                        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Requesting notification permission")
                         notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     } else {
                         // Notifications are auto-granted on Android 12 and below
@@ -124,7 +126,7 @@ fun PermissionsScreen(
                 description = "Keep connection alive in the background for instant message delivery",
                 isGranted = batteryOptimizationDisabled,
                 onRequestClick = {
-                    Log.d("PermissionsScreen", "Requesting battery optimization exemption")
+                    if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Requesting battery optimization exemption")
                     requestBatteryOptimizationExemption(context, batteryOptimizationLauncher)
                 }
             )
@@ -143,7 +145,7 @@ fun PermissionsScreen(
             if (notificationPermissionGranted && batteryOptimizationDisabled) {
                 Button(
                     onClick = {
-                        Log.d("PermissionsScreen", "Continue button clicked")
+                        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Continue button clicked")
                         onPermissionsGranted()
                     },
                     modifier = Modifier
@@ -277,7 +279,7 @@ private fun AutoStartInfoCard(
             
             OutlinedButton(
                 onClick = {
-                    Log.d("PermissionsScreen", "Opening auto-start settings")
+                    if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Opening auto-start settings")
                     AutoStartPermissionHelper.openAutoStartSettings(context)
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -351,10 +353,10 @@ private fun checkAndProceed(
     onPermissionsGranted: () -> Unit
 ) {
     if (notificationGranted && batteryOptimizationDisabled) {
-        Log.d("PermissionsScreen", "All permissions granted, proceeding")
+        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "All permissions granted, proceeding")
         onPermissionsGranted()
     } else {
-        Log.d("PermissionsScreen", "Not all permissions granted yet - notifications: $notificationGranted, battery: $batteryOptimizationDisabled")
+        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Not all permissions granted yet - notifications: $notificationGranted, battery: $batteryOptimizationDisabled")
     }
 }
 

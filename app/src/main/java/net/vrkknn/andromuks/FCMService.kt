@@ -18,6 +18,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.Encryption
+import net.vrkknn.andromuks.BuildConfig
+
 import org.json.JSONObject
 import java.util.UUID
 
@@ -31,13 +33,13 @@ private fun getExistingPushEncryptionKey(context: Context): ByteArray? {
         val sharedPref = context.getSharedPreferences("web_client_prefs", Context.MODE_PRIVATE)
         val encryptedKey = sharedPref.getString("push_encryption_key", null)
         
-        Log.d("Andromuks", "FCMService: Retrieved encrypted key from SharedPreferences: $encryptedKey")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "FCMService: Retrieved encrypted key from SharedPreferences: $encryptedKey")
         
         if (encryptedKey != null) {
             // The key is stored as base64-encoded bytes
             val decodedKey = android.util.Base64.decode(encryptedKey, android.util.Base64.DEFAULT)
-            Log.d("Andromuks", "FCMService: Decoded key of size: ${decodedKey.size} bytes")
-            Log.d("Andromuks", "FCMService: Decoded key (first 8 bytes): ${decodedKey.take(8).joinToString { "%02x".format(it) }}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "FCMService: Decoded key of size: ${decodedKey.size} bytes")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "FCMService: Decoded key (first 8 bytes): ${decodedKey.take(8).joinToString { "%02x".format(it) }}")
             decodedKey
         } else {
             Log.e("Andromuks", "FCMService: No push encryption key found in SharedPreferences")
@@ -84,11 +86,11 @@ class FCMService : FirebaseMessagingService() {
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
         
-        Log.d(TAG, "FCM message received - data: ${remoteMessage.data}, notification: ${remoteMessage.notification}")
+        if (BuildConfig.DEBUG) Log.d(TAG, "FCM message received - data: ${remoteMessage.data}, notification: ${remoteMessage.notification}")
         
         // Handle data payload (matches the other Gomuks client approach)
         if (remoteMessage.data.isNotEmpty()) {
-            Log.d(TAG, "Processing data payload: ${remoteMessage.data}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Processing data payload: ${remoteMessage.data}")
             
             // Get push encryption key (matches the other Gomuks client)
             val pushEncKey = getExistingPushEncryptionKey(this)
@@ -104,11 +106,11 @@ class FCMService : FirebaseMessagingService() {
                 return
             }
             
-            Log.d(TAG, "Using push encryption key of size: ${pushEncKey.size} bytes")
-            Log.d(TAG, "Key (first 8 bytes): ${pushEncKey.take(8).joinToString { "%02x".format(it) }}")
-            Log.d(TAG, "Encrypted payload length: ${encryptedPayload.length}")
-            Log.d(TAG, "Encrypted payload (first 50 chars): ${encryptedPayload.take(50)}")
-            Log.d(TAG, "Encrypted payload (last 50 chars): ${encryptedPayload.takeLast(50)}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Using push encryption key of size: ${pushEncKey.size} bytes")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Key (first 8 bytes): ${pushEncKey.take(8).joinToString { "%02x".format(it) }}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Encrypted payload length: ${encryptedPayload.length}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Encrypted payload (first 50 chars): ${encryptedPayload.take(50)}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Encrypted payload (last 50 chars): ${encryptedPayload.takeLast(50)}")
             
             // Determine payload type based on length
             val payloadType = when {
@@ -116,12 +118,12 @@ class FCMService : FirebaseMessagingService() {
                 encryptedPayload.length > 1000 -> "LONG_PAYLOAD (likely mark_read/sync notification)"
                 else -> "MEDIUM_PAYLOAD (unknown type)"
             }
-            Log.d(TAG, "Detected payload type: $payloadType")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Detected payload type: $payloadType")
             
             // Check if payload might be JSON with multiple encrypted parts
             if (encryptedPayload.startsWith("{") || encryptedPayload.contains("\"")) {
-                Log.d(TAG, "Payload appears to be JSON format, not raw encrypted data")
-                Log.d(TAG, "Full payload: $encryptedPayload")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Payload appears to be JSON format, not raw encrypted data")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Full payload: $encryptedPayload")
                 return // Skip decryption for JSON payloads
             }
             
@@ -134,26 +136,26 @@ class FCMService : FirebaseMessagingService() {
                 return
             }
             
-            Log.d(TAG, "Successfully decrypted payload: ${decryptedPayload.take(100)}...")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Successfully decrypted payload: ${decryptedPayload.take(100)}...")
             
             // Parse the decrypted JSON and handle different payload types
             CoroutineScope(Dispatchers.Main).launch {
                 try {
                     val jsonObject = JSONObject(decryptedPayload)
-                    Log.d(TAG, "Decrypted JSON keys: ${jsonObject.keys().asSequence().toList()}")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Decrypted JSON keys: ${jsonObject.keys().asSequence().toList()}")
                     
                     // Handle different payload types
                     when {
                         jsonObject.has("messages") -> {
-                            Log.d(TAG, "Processing message notification payload")
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Processing message notification payload")
                             handleMessageNotification(jsonObject)
                         }
                         jsonObject.has("dismiss") -> {
-                            Log.d(TAG, "Processing dismiss notification payload")
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Processing dismiss notification payload")
                             handleDismissNotification(jsonObject)
                         }
                         else -> {
-                            Log.d(TAG, "Unknown payload type, trying legacy parsing")
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Unknown payload type, trying legacy parsing")
                             // Try legacy parsing for backward compatibility
                             val jsonDataMap = mutableMapOf<String, String>()
                             jsonObject.keys().forEach { key ->
@@ -167,9 +169,9 @@ class FCMService : FirebaseMessagingService() {
                                 val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
                                 
                                 if (lowPriorityRooms.contains(notificationData.roomId)) {
-                                    Log.d(TAG, "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})")
+                                    if (BuildConfig.DEBUG) Log.d(TAG, "Skipping notification for low priority room (legacy path): ${notificationData.roomId} (${notificationData.roomName})")
                                 } else if (shouldSuppressNotification(notificationData.roomId)) {
-                                    Log.d(TAG, "Suppressing notification for room (legacy path): ${notificationData.roomId} (${notificationData.roomName}) - room is open and app is in foreground")
+                                    if (BuildConfig.DEBUG) Log.d(TAG, "Suppressing notification for room (legacy path): ${notificationData.roomId} (${notificationData.roomName}) - room is open and app is in foreground")
                                 } else {
                                     CoroutineScope(Dispatchers.Main).launch {
                                         try {
@@ -191,7 +193,7 @@ class FCMService : FirebaseMessagingService() {
         
         // Handle notification payload (for when app is in background)
         remoteMessage.notification?.let { notification ->
-            Log.d(TAG, "Processing notification payload - title: ${notification.title}, body: ${notification.body}")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Processing notification payload - title: ${notification.title}, body: ${notification.body}")
             showNotification(
                 title = notification.title ?: "New message",
                 body = notification.body ?: "",
@@ -242,7 +244,7 @@ class FCMService : FirebaseMessagingService() {
      */
     private fun shouldSuppressNotification(roomId: String): Boolean {
         if (roomId.isEmpty()) {
-            Log.d(TAG, "shouldSuppressNotification: roomId is empty, not suppressing")
+            if (BuildConfig.DEBUG) Log.d(TAG, "shouldSuppressNotification: roomId is empty, not suppressing")
             return false
         }
         
@@ -263,26 +265,26 @@ class FCMService : FirebaseMessagingService() {
             // Double-check using ActivityManager if SharedPreferences says false
             val isForeground = isAppInForeground()
             if (isForeground) {
-                Log.d(TAG, "shouldSuppressNotification: SharedPreferences says app not visible, but ActivityManager says app is in foreground - using ActivityManager result")
+                if (BuildConfig.DEBUG) Log.d(TAG, "shouldSuppressNotification: SharedPreferences says app not visible, but ActivityManager says app is in foreground - using ActivityManager result")
             }
             isForeground
         }
         
         val shouldSuppress = roomMatches && isAppVisible
         
-        Log.d(TAG, "shouldSuppressNotification: roomId='$roomId' (normalized='$normalizedRoomId'), " +
+        if (BuildConfig.DEBUG) Log.d(TAG, "shouldSuppressNotification: roomId='$roomId' (normalized='$normalizedRoomId'), " +
                 "currentOpenRoomId='$currentOpenRoomId' (normalized='$normalizedCurrentRoomId'), " +
                 "isAppVisiblePrefs=$isAppVisiblePrefs, isAppVisible=$isAppVisible, roomMatches=$roomMatches, shouldSuppress=$shouldSuppress")
         
         if (shouldSuppress) {
-            Log.d(TAG, "✅ Suppressing notification for room $roomId - room is open AND app is in foreground")
+            if (BuildConfig.DEBUG) Log.d(TAG, "✅ Suppressing notification for room $roomId - room is open AND app is in foreground")
         } else {
             val reason = when {
                 !roomMatches -> "room doesn't match or no room open"
                 !isAppVisible -> "app is not visible (backgrounded)"
                 else -> "unknown"
             }
-            Log.d(TAG, "❌ NOT suppressing notification for room $roomId - $reason")
+            if (BuildConfig.DEBUG) Log.d(TAG, "❌ NOT suppressing notification for room $roomId - $reason")
         }
         
         return shouldSuppress
@@ -294,12 +296,12 @@ class FCMService : FirebaseMessagingService() {
     private suspend fun handleMessageNotification(jsonObject: JSONObject) {
         try {
             val messagesArray = jsonObject.getJSONArray("messages")
-            Log.d(TAG, "Found ${messagesArray.length()} messages in notification")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Found ${messagesArray.length()} messages in notification")
             
             // Process each message
             for (i in 0 until messagesArray.length()) {
                 val message = messagesArray.getJSONObject(i)
-                Log.d(TAG, "Processing message: $message")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Processing message: $message")
                 
                 // Extract message data from the correct JSON structure
                 val roomId = message.optString("room_id", "")
@@ -321,14 +323,14 @@ class FCMService : FirebaseMessagingService() {
                 
                 // Extract image field for image notifications
                 val image = message.optString("image", null)
-                Log.d(TAG, "Extracted image field: $image")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Extracted image field: $image")
                 
                 // Convert relative URLs to full URLs
                 val avatarUrl = senderAvatar?.let { convertToFullUrl(it) }
                 val roomAvatarUrl = roomAvatar?.let { convertToFullUrl(it) }
                 val imageUrl = image?.let { convertToFullUrl(it) }
                 
-                Log.d(TAG, "Avatar URLs - sender: $avatarUrl, room: $roomAvatarUrl, image: $imageUrl")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Avatar URLs - sender: $avatarUrl, room: $roomAvatarUrl, image: $imageUrl")
                 
                 // Determine if this is a DM or Group room
                 val isDirectMessage = roomName == senderDisplayName
@@ -354,17 +356,17 @@ class FCMService : FirebaseMessagingService() {
                 val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
                 
                 if (lowPriorityRooms.contains(roomId)) {
-                    Log.d(TAG, "Skipping notification for low priority room: $roomId ($roomName)")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Skipping notification for low priority room: $roomId ($roomName)")
                     continue
                 }
                 
                 // Check if notification should be suppressed (room is open and app is foreground)
                 if (shouldSuppressNotification(roomId)) {
-                    Log.d(TAG, "Suppressing notification for room: $roomId ($roomName) - room is open and app is in foreground")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Suppressing notification for room: $roomId ($roomName) - room is open and app is in foreground")
                     continue
                 }
                 
-                Log.d(TAG, "Showing notification for room: $roomId, sender: $senderDisplayName, text: $text")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Showing notification for room: $roomId, sender: $senderDisplayName, text: $text")
                 CoroutineScope(Dispatchers.Main).launch {
                     try {
                         enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
@@ -418,7 +420,7 @@ class FCMService : FirebaseMessagingService() {
     private fun handleDismissNotification(jsonObject: JSONObject) {
         try {
             val dismissArray = jsonObject.getJSONArray("dismiss")
-            Log.d(TAG, "Found ${dismissArray.length()} dismiss requests")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Found ${dismissArray.length()} dismiss requests")
             
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val notificationManagerCompat = NotificationManagerCompat.from(this)
@@ -433,13 +435,13 @@ class FCMService : FirebaseMessagingService() {
                     continue
                 }
                 
-                Log.d(TAG, "Processing dismiss request for room: $roomId")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Processing dismiss request for room: $roomId")
                 
                 val notifID = roomId.hashCode()
                 val existingNotification = notificationManager.activeNotifications.firstOrNull { it.id == notifID }
                 
                 if (existingNotification == null) {
-                    Log.d(TAG, "No notification found for room: $roomId - nothing to dismiss")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId - nothing to dismiss")
                     continue
                 }
                 
@@ -447,17 +449,17 @@ class FCMService : FirebaseMessagingService() {
                 // This is the source of truth - we track bubble state via lifecycle callbacks
                 val isBubbleOpen = BubbleTracker.isBubbleOpen(roomId)
                 
-                Log.d(TAG, "Room $roomId - Bubble state: isBubbleOpen=$isBubbleOpen")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - Bubble state: isBubbleOpen=$isBubbleOpen")
                 
                 if (isBubbleOpen) {
                     // Bubble is open - don't dismiss to preserve bubble
-                    Log.d(TAG, "Room $roomId - NOT dismissing notification (bubble is open)")
-                    Log.d(TAG, "This prevents the bubble from disappearing when conversation is marked as read")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - NOT dismissing notification (bubble is open)")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "This prevents the bubble from disappearing when conversation is marked as read")
                 } else {
                     // Safe to dismiss - no active bubble
-                    Log.d(TAG, "Room $roomId - Dismissing notification (no active bubble)")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - Dismissing notification (no active bubble)")
                     notificationManagerCompat.cancel(notifID)
-                    Log.d(TAG, "Successfully dismissed notification for room: $roomId")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Successfully dismissed notification for room: $roomId")
                 }
                 
                 // NOTE: Do NOT remove room shortcut when dismissing notifications
@@ -513,13 +515,13 @@ class FCMService : FirebaseMessagingService() {
             val lowPriorityRooms = sharedPrefs.getStringSet("low_priority_rooms", emptySet()) ?: emptySet()
             
             if (lowPriorityRooms.contains(roomId)) {
-                Log.d(TAG, "Skipping background notification for low priority room: $roomId")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Skipping background notification for low priority room: $roomId")
                 return
             }
             
             // Check if notification should be suppressed (room is open and app is foreground)
             if (shouldSuppressNotification(roomId)) {
-                Log.d(TAG, "Suppressing background notification for room: $roomId - room is open and app is in foreground")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Suppressing background notification for room: $roomId - room is open and app is in foreground")
                 return
             }
         }
@@ -589,7 +591,7 @@ class FCMService : FirebaseMessagingService() {
         // 3. Handle response and store registration status
         
         // For now, we'll just log the token
-        android.util.Log.d("Andromuks", "FCMService: New FCM token: $token")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "FCMService: New FCM token: $token")
     }
     
 }

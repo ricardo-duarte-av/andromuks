@@ -14,6 +14,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.BuildConfig
+
 
 /**
  * ShortcutActivity - Direct room navigation for shortcuts
@@ -51,7 +53,7 @@ class ShortcutActivity : ComponentActivity() {
             return
         }
         
-        android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Direct shortcut navigation to room: $roomId")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Direct shortcut navigation to room: $roomId")
         
         setContent {
             AndromuksTheme {
@@ -69,14 +71,14 @@ class ShortcutActivity : ComponentActivity() {
         // OPTIMIZATION #3: Fast path - check for direct room_id first
         val directRoomId = intent.getStringExtra("room_id")
         if (directRoomId != null) {
-            android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Using direct room_id: $directRoomId")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Using direct room_id: $directRoomId")
             return directRoomId
         }
         
         // Fallback to URI parsing for legacy shortcuts
         val data = intent.data
         if (data != null) {
-            android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Parsing URI: $data")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Parsing URI: $data")
             return extractRoomIdFromMatrixUri(data.toString())
         }
         
@@ -135,12 +137,12 @@ fun ShortcutNavigation(roomId: String) {
         // Re-attach to existing WebSocket connection if the service already has one
         appViewModel.attachToExistingWebSocketIfAvailable()
         
-        android.util.Log.d("Andromuks", "ShortcutActivity: AppViewModel initialized with profiles, settings, and FCM")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: AppViewModel initialized with profiles, settings, and FCM")
     }
     
     // OPTIMIZATION #3: Direct navigation to room timeline
     LaunchedEffect(roomId) {
-        android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Direct navigation to room: $roomId")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Direct navigation to room: $roomId")
         
         // Use cache-first navigation for instant loading
         // This will fall back to database loading if RAM cache is empty

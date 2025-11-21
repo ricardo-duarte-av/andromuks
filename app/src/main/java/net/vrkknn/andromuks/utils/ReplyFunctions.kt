@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -75,6 +76,8 @@ import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
+
+
 
 /**
  * Displays a reply preview showing the original message being replied to.
@@ -220,18 +223,18 @@ fun Modifier.messageBubbleMenu(
     
     return this
         .clickable { 
-            android.util.Log.d("ReplyFunctions", "MessageBubbleMenu: Click detected, showing menu")
+            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleMenu: Click detected, showing menu")
             showMenu = !showMenu 
         }
         .then(
             Modifier.pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { 
-                        android.util.Log.d("ReplyFunctions", "MessageBubbleMenu: Long press detected")
+                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleMenu: Long press detected")
                         showMenu = true 
                     },
                     onDragEnd = { 
-                        android.util.Log.d("ReplyFunctions", "MessageBubbleMenu: Drag end")
+                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleMenu: Drag end")
                         showMenu = false 
                     },
                     onDrag = { _, _ -> }
@@ -264,7 +267,7 @@ fun ReplyPreviewInput(
     
     if (profile?.displayName == null && appViewModel != null && !isFetchingProfile) {
         LaunchedEffect(event.sender) {
-            android.util.Log.d("ReplyPreviewInput", "No display name for ${event.sender}, fetching profile...")
+            if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "No display name for ${event.sender}, fetching profile...")
             isFetchingProfile = true
             appViewModel.requestUserProfile(event.sender)
             // Note: The profile will be updated via the profile cache when the response comes back
@@ -284,13 +287,13 @@ fun ReplyPreviewInput(
     
     if (needsFullEvent && appViewModel != null && roomId != null && !isFetchingEvent && fetchedEvent == null) {
         LaunchedEffect(event.eventId) {
-            android.util.Log.d("ReplyPreviewInput", "Missing content/body/msgType, fetching full event details for: ${event.eventId}")
-            android.util.Log.d("ReplyPreviewInput", "Content null: ${content == null}, Body blank: ${body.isBlank()}, MsgType blank: ${msgType.isBlank()}")
+            if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Missing content/body/msgType, fetching full event details for: ${event.eventId}")
+            if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Content null: ${content == null}, Body blank: ${body.isBlank()}, MsgType blank: ${msgType.isBlank()}")
             isFetchingEvent = true
             appViewModel.getEvent(roomId, event.eventId) { fullEvent ->
                 isFetchingEvent = false
                 if (fullEvent != null) {
-                    android.util.Log.d("ReplyPreviewInput", "Successfully fetched event: ${fullEvent.eventId}")
+                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Successfully fetched event: ${fullEvent.eventId}")
                     fetchedEvent = fullEvent
                 } else {
                     android.util.Log.w("ReplyPreviewInput", "Failed to fetch event: ${event.eventId}")
@@ -301,32 +304,32 @@ fun ReplyPreviewInput(
     
     // Use fetched event data if available
     if (fetchedEvent != null) {
-        android.util.Log.d("ReplyPreviewInput", "Processing fetched event data...")
-        android.util.Log.d("ReplyPreviewInput", "Fetched event type: '${fetchedEvent!!.type}'")
+        if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Processing fetched event data...")
+        if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Fetched event type: '${fetchedEvent!!.type}'")
         
         // Choose content source based on event type
         content = when (fetchedEvent!!.type) {
             "m.room.encrypted" -> {
-                android.util.Log.d("ReplyPreviewInput", "Event is encrypted, using decrypted content")
+                if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Event is encrypted, using decrypted content")
                 fetchedEvent!!.decrypted
             }
             "m.room.message" -> {
-                android.util.Log.d("ReplyPreviewInput", "Event is message, using content")
+                if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Event is message, using content")
                 fetchedEvent!!.content
             }
             else -> {
-                android.util.Log.d("ReplyPreviewInput", "Unknown event type, trying decrypted then content")
+                if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Unknown event type, trying decrypted then content")
                 fetchedEvent!!.decrypted ?: fetchedEvent!!.content
             }
         }
         
-        android.util.Log.d("ReplyPreviewInput", "Selected content: $content")
+        if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Selected content: $content")
         
         body = content?.optString("body", "") ?: ""
         msgType = content?.optString("msgtype", "") ?: ""
         
-        android.util.Log.d("ReplyPreviewInput", "Fetched body: '$body'")
-        android.util.Log.d("ReplyPreviewInput", "Fetched msgType: '$msgType'")
+        if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Fetched body: '$body'")
+        if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Fetched msgType: '$msgType'")
         
         // Update display name if we got a full event with sender info
         if (fetchedEvent!!.sender.isNotBlank()) {
@@ -338,16 +341,16 @@ fun ReplyPreviewInput(
     }
     
     // Final debug logging
-    android.util.Log.d("ReplyPreviewInput", "=== FINAL VALUES ===")
-    android.util.Log.d("ReplyPreviewInput", "Event sender: ${event.sender}")
-    android.util.Log.d("ReplyPreviewInput", "Profile: $profile")
-    android.util.Log.d("ReplyPreviewInput", "Display name: $displayName")
-    android.util.Log.d("ReplyPreviewInput", "Final body: '$body'")
-    android.util.Log.d("ReplyPreviewInput", "Final msgType: '$msgType'")
-    android.util.Log.d("ReplyPreviewInput", "Content null: ${content == null}")
-    android.util.Log.d("ReplyPreviewInput", "Fetched event null: ${fetchedEvent == null}")
-    android.util.Log.d("ReplyPreviewInput", "Is fetching event: $isFetchingEvent")
-    android.util.Log.d("ReplyPreviewInput", "Is fetching profile: $isFetchingProfile")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "=== FINAL VALUES ===")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Event sender: ${event.sender}")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Profile: $profile")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Display name: $displayName")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Final body: '$body'")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Final msgType: '$msgType'")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Content null: ${content == null}")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Fetched event null: ${fetchedEvent == null}")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Is fetching event: $isFetchingEvent")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Is fetching profile: $isFetchingProfile")
     
     Surface(
         modifier = Modifier
@@ -638,12 +641,12 @@ fun MessageBubbleWithMenu(
                 .pointerInput(showMenu) {
                     detectTapGestures(
                         onLongPress = { 
-                            android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Long press detected")
+                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Long press detected")
                             hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                             showMenu = true 
                         },
                         onTap = {
-                            android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Regular tap detected")
+                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Regular tap detected")
                             // If there's a bubble click handler (e.g., for threads), call it
                             onBubbleClick?.invoke()
                         }
@@ -675,7 +678,7 @@ fun MessageBubbleWithMenu(
             // Use Popup to create a fullscreen overlay independent of parent layout
             Popup(
                 onDismissRequest = {
-                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Popup dismissed")
+                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Popup dismissed")
                     showMenu = false
                 },
                 properties = PopupProperties(
@@ -693,7 +696,7 @@ fun MessageBubbleWithMenu(
                             .pointerInput(Unit) {
                                 detectTapGestures(
                                     onTap = {
-                                        android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Scrim tapped, dismissing menu")
+                                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Scrim tapped, dismissing menu")
                                         showMenu = false
                                     }
                                 )
@@ -725,7 +728,7 @@ fun MessageBubbleWithMenu(
                                         .coerceAtMost(screenWidth - menuWidth - margin)  // Don't go past right edge
                                     val clampedY = menuY.coerceAtLeast(margin)
                                     
-                                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu position: x=$clampedX, y=$clampedY, menuWidth=$menuWidth, screenWidth=$screenWidth, buttonCount=$buttonCount")
+                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Menu position: x=$clampedX, y=$clampedY, menuWidth=$menuWidth, screenWidth=$screenWidth, buttonCount=$buttonCount")
                                     
                                     IntOffset(
                                         x = clampedX.toInt(),
@@ -746,7 +749,7 @@ fun MessageBubbleWithMenu(
                             // React button
                             IconButton(
                                 onClick = {
-                                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: React clicked")
+                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: React clicked")
                                     showMenu = false
                                     onReact()
                                 },
@@ -762,7 +765,7 @@ fun MessageBubbleWithMenu(
                             // Reply button
                             IconButton(
                                 onClick = {
-                                    android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Reply clicked")
+                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Reply clicked")
                                     showMenu = false
                                     onReply()
                                 },
@@ -779,7 +782,7 @@ fun MessageBubbleWithMenu(
                             if (canEdit) {
                                 IconButton(
                                     onClick = {
-                                        android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit clicked")
+                                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit clicked")
                                         showMenu = false
                                         onEdit()
                                     },
@@ -797,7 +800,7 @@ fun MessageBubbleWithMenu(
                             if (canDelete) {
                                 IconButton(
                                     onClick = {
-                                        android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Delete clicked")
+                                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Delete clicked")
                                         showMenu = false
                                         onDelete()
                                     },
@@ -815,7 +818,7 @@ fun MessageBubbleWithMenu(
                             if (hasBeenEdited && onShowEditHistory != null) {
                                 IconButton(
                                     onClick = {
-                                        android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit History clicked")
+                                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit History clicked")
                                         showMenu = false
                                         onShowEditHistory()
                                     },

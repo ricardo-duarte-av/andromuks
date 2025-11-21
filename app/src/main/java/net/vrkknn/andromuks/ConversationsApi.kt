@@ -29,6 +29,8 @@ import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
+import net.vrkknn.andromuks.BuildConfig
+
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -817,7 +819,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     fun updateShortcutForNewMessage(roomId: String, message: String, timestamp: Long) {
         // This function is deprecated and does nothing to avoid Android system warnings
         // Regular shortcut updates via updateConversationShortcuts() handle everything properly
-        Log.d(TAG, "updateShortcutForNewMessage called for $roomId - using regular update flow instead")
+        if (BuildConfig.DEBUG) Log.d(TAG, "updateShortcutForNewMessage called for $roomId - using regular update flow instead")
     }
     
     /**

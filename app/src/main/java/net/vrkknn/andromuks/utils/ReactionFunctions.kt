@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.os.Build
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -35,6 +36,8 @@ import coil.ImageLoader
 import net.vrkknn.andromuks.MessageReaction
 import net.vrkknn.andromuks.ReactionEvent
 import net.vrkknn.andromuks.utils.MediaUtils
+
+
 
 /**
  * Displays a single reaction badge showing either an emoji or an image.
@@ -132,7 +135,7 @@ fun ImageReaction(
                 .clip(RoundedCornerShape(4.dp)),
             contentScale = ContentScale.Crop,
             onSuccess = {
-                android.util.Log.d("Andromuks", "ImageReaction: Successfully loaded image for $mxcUrl")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ImageReaction: Successfully loaded image for $mxcUrl")
             },
             onError = { state ->
                 if (state is coil.request.ErrorResult) {

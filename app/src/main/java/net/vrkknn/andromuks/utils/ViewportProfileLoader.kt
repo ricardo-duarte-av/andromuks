@@ -1,8 +1,11 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.TimelineEvent
+
+
 
 /**
  * Viewport-based profile loading system for optimized performance.
@@ -51,11 +54,11 @@ object ViewportProfileLoader {
             .take(5) // Only 5 profiles at a time to avoid overwhelming
         
         if (visibleUsers.isEmpty()) {
-            Log.d(TAG, "No new profiles to load for viewport")
+            if (BuildConfig.DEBUG) Log.d(TAG, "No new profiles to load for viewport")
             return
         }
         
-        Log.d(TAG, "Loading ${visibleUsers.size} profiles for viewport (was 50+ with opportunistic loading)")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Loading ${visibleUsers.size} profiles for viewport (was 50+ with opportunistic loading)")
         
         // Load profiles in background
         visibleUsers.forEach { userId ->
@@ -70,7 +73,7 @@ object ViewportProfileLoader {
     fun markProfileLoaded(userId: String) {
         loadedProfiles.add(userId)
         loadingProfiles.remove(userId)
-        Log.d(TAG, "Profile loaded: $userId (total loaded: ${loadedProfiles.size})")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Profile loaded: $userId (total loaded: ${loadedProfiles.size})")
     }
     
     /**
@@ -97,7 +100,7 @@ object ViewportProfileLoader {
     fun clearLoadedProfiles() {
         loadedProfiles.clear()
         loadingProfiles.clear()
-        Log.d(TAG, "Cleared all loaded profiles")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all loaded profiles")
     }
     
     /**
@@ -108,7 +111,7 @@ object ViewportProfileLoader {
         if (loadedProfiles.size > maxProfiles) {
             val profilesToRemove = loadedProfiles.take(loadedProfiles.size - maxProfiles)
             loadedProfiles.removeAll(profilesToRemove)
-            Log.d(TAG, "Cleaned up ${profilesToRemove.size} old profiles")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cleaned up ${profilesToRemove.size} old profiles")
         }
     }
 }

@@ -93,6 +93,8 @@ import net.vrkknn.andromuks.utils.EmojiSelectionDialog
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.utils.TypingNotificationArea
+import net.vrkknn.andromuks.BuildConfig
+
 
 /** Floating member list for mentions */
 @Composable
@@ -204,7 +206,7 @@ fun ThreadViewerScreen(
     val roomItem = appViewModel.getRoomById(roomId)
     val roomName = roomItem?.name ?: "Thread"
     
-    Log.d(
+    if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
         "ThreadViewerScreen: Thread root: $threadRootEventId, messages count: ${threadMessages.size}"
     )
@@ -352,7 +354,7 @@ fun ThreadViewerScreen(
     // OPPORTUNISTIC PROFILE LOADING: Only request profiles when actually needed for rendering
     // This prevents loading 15,000+ profiles upfront for large rooms
     LaunchedEffect(threadMessages, roomId) {
-        Log.d(
+        if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
             "ThreadViewerScreen: Using opportunistic profile loading for $roomId (no bulk loading)"
         )
@@ -365,7 +367,7 @@ fun ThreadViewerScreen(
                 .distinct()
                 .filter { it != appViewModel.currentUserId }
             
-            Log.d(
+            if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
                 "ThreadViewerScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${threadMessages.size} events)"
             )

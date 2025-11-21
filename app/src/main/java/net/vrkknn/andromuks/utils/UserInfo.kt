@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks.utils
 
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -32,6 +33,8 @@ import androidx.navigation.NavOptionsBuilder
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.RoomItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
+
+
 import org.json.JSONObject
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -128,12 +131,12 @@ fun UserInfoScreen(
     
     // Request all user info when screen is created
     LaunchedEffect(userId, effectiveRoomId) {
-        android.util.Log.d("Andromuks", "UserInfoScreen: Requesting user info for $userId${if (effectiveRoomId != null) " in room $effectiveRoomId" else ""}")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Requesting user info for $userId${if (effectiveRoomId != null) " in room $effectiveRoomId" else ""}")
         
         // OPTIMIZATION: Check room-specific cache first if effectiveRoomId is provided, otherwise check global cache
         val cachedProfile = appViewModel.getUserProfile(userId, roomId = effectiveRoomId)
         if (cachedProfile != null) {
-            android.util.Log.d("Andromuks", "UserInfoScreen: Found ${if (effectiveRoomId != null) "room-specific" else "cached"} profile for $userId")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Found ${if (effectiveRoomId != null) "room-specific" else "cached"} profile for $userId")
             // Prefill with cached data while loading full info in background
             userProfileInfo = net.vrkknn.andromuks.utils.UserProfileInfo(
                 userId = userId,
@@ -148,7 +151,7 @@ fun UserInfoScreen(
         
         // If roomId is provided, request room-specific profile from backend
         if (effectiveRoomId != null) {
-            android.util.Log.d("Andromuks", "UserInfoScreen: Requesting room-specific profile for $userId in room $effectiveRoomId")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Requesting room-specific profile for $userId in room $effectiveRoomId")
             appViewModel.requestRoomSpecificUserProfile(effectiveRoomId, userId)
         }
         
@@ -179,7 +182,7 @@ fun UserInfoScreen(
                     profileInfo
                 }
                 userProfileInfo = finalProfileInfo
-                android.util.Log.d("Andromuks", "UserInfoScreen: Loaded user info successfully${if (effectiveRoomId != null && roomSpecificProfile != null) " (using room-specific display name/avatar)" else ""}")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Loaded user info successfully${if (effectiveRoomId != null && roomSpecificProfile != null) " (using room-specific display name/avatar)" else ""}")
             }
         }
     }
@@ -198,7 +201,7 @@ fun UserInfoScreen(
                         displayName = updatedRoomSpecificProfile.displayName ?: currentProfile.displayName,
                         avatarUrl = updatedRoomSpecificProfile.avatarUrl ?: currentProfile.avatarUrl
                     )
-                    android.util.Log.d("Andromuks", "UserInfoScreen: Updated room-specific profile from backend response")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Updated room-specific profile from backend response")
                 }
             }
         }

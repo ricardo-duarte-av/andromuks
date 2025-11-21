@@ -1,5 +1,8 @@
 package net.vrkknn.andromuks.utils
 
+
+
+import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -80,7 +83,7 @@ object AutoStartPermissionHelper {
             intent?.let {
                 it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 context.startActivity(it)
-                Log.d(TAG, "Opened auto-start settings for $manufacturer")
+                if (BuildConfig.DEBUG) Log.d(TAG, "Opened auto-start settings for $manufacturer")
                 true
             } ?: run {
                 Log.w(TAG, "No auto-start settings available for $manufacturer")
@@ -199,7 +202,7 @@ object AutoStartPermissionHelper {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
-            Log.d(TAG, "Opened app settings as fallback")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Opened app settings as fallback")
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to open fallback settings", e)

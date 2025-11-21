@@ -1,5 +1,7 @@
 package net.vrkknn.andromuks
 
+import net.vrkknn.andromuks.BuildConfig
+
 import android.content.Context
 import android.content.Intent
 import android.util.Log
@@ -31,7 +33,7 @@ class WebSocketHealthCheckWorker(
     private val TAG = "WebSocketHealthCheckWorker"
     
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        Log.d(TAG, "WebSocket health check worker started")
+        if (BuildConfig.DEBUG) Log.d(TAG, "WebSocket health check worker started")
         
         try {
             // Check if we have credentials (user is logged in)
@@ -40,7 +42,7 @@ class WebSocketHealthCheckWorker(
             val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
             
             if (homeserverUrl.isEmpty() || authToken.isEmpty()) {
-                Log.d(TAG, "No credentials found - user not logged in, skipping health check")
+                if (BuildConfig.DEBUG) Log.d(TAG, "No credentials found - user not logged in, skipping health check")
                 return@withContext Result.success()
             }
             
@@ -48,7 +50,7 @@ class WebSocketHealthCheckWorker(
             val isServiceRunning = isServiceRunning(applicationContext)
             val isWebSocketConnected = WebSocketService.isConnected()
             
-            Log.d(TAG, "Health check: serviceRunning=$isServiceRunning, websocketConnected=$isWebSocketConnected")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Health check: serviceRunning=$isServiceRunning, websocketConnected=$isWebSocketConnected")
             
             if (!isServiceRunning) {
                 // Service was killed - restart it
@@ -68,7 +70,7 @@ class WebSocketHealthCheckWorker(
             }
             
             // Everything is healthy
-            Log.d(TAG, "WebSocket health check passed - service running and connected")
+            if (BuildConfig.DEBUG) Log.d(TAG, "WebSocket health check passed - service running and connected")
             Result.success()
             
         } catch (e: Exception) {
@@ -97,7 +99,7 @@ class WebSocketHealthCheckWorker(
         try {
             val intent = Intent(context, WebSocketService::class.java)
             context.startForegroundService(intent)
-            Log.d(TAG, "WebSocketService restart initiated")
+            if (BuildConfig.DEBUG) Log.d(TAG, "WebSocketService restart initiated")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to restart WebSocketService", e)
         }
@@ -136,7 +138,7 @@ class WebSocketHealthCheckWorker(
                 healthCheckWork
             )
             
-            Log.d("WebSocketHealthCheckWorker", "Scheduled periodic WebSocket health checks (every $REPEAT_INTERVAL_MINUTES minutes)")
+            if (BuildConfig.DEBUG) Log.d("WebSocketHealthCheckWorker", "Scheduled periodic WebSocket health checks (every $REPEAT_INTERVAL_MINUTES minutes)")
         }
         
         /**
@@ -144,7 +146,7 @@ class WebSocketHealthCheckWorker(
          */
         fun cancel(context: Context) {
             WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
-            Log.d("WebSocketHealthCheckWorker", "Cancelled WebSocket health checks")
+            if (BuildConfig.DEBUG) Log.d("WebSocketHealthCheckWorker", "Cancelled WebSocket health checks")
         }
     }
 }

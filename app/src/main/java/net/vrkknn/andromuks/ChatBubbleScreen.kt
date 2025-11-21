@@ -48,6 +48,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.activity.ComponentActivity
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.BuildConfig
+
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -183,28 +185,28 @@ fun ChatBubbleLoadingScreen(
     
     // Handle back button press to minimize the bubble
     BackHandler {
-        Log.d("Andromuks", "ChatBubbleLoadingScreen: Back button pressed - minimizing bubble")
-        Log.d("Andromuks", "ChatBubbleLoadingScreen: BackHandler triggered - calling onCloseBubble")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Back button pressed - minimizing bubble")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: BackHandler triggered - calling onCloseBubble")
         onCloseBubble()
-        Log.d("Andromuks", "ChatBubbleLoadingScreen: BackHandler - onCloseBubble call completed")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: BackHandler - onCloseBubble call completed")
     }
     
     LaunchedEffect(Unit) {
-        Log.d("Andromuks", "ChatBubbleLoadingScreen: ═══ BUBBLE LOADING STARTED ═══")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: ═══ BUBBLE LOADING STARTED ═══")
         
         if (token != null && homeserverUrl != null) {
-            Log.d("Andromuks", "ChatBubbleLoadingScreen: Token and server URL found")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Token and server URL found")
             appViewModel.initializeFCM(context, homeserverUrl, token)
             appViewModel.updateHomeserverUrl(homeserverUrl)
             appViewModel.updateAuthToken(token)
             appViewModel.loadSettings(context)
             
             val cachedState = appViewModel.loadStateFromStorage(context)
-            Log.d("Andromuks", "ChatBubbleLoadingScreen: Cached state loaded: $cachedState")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Cached state loaded: $cachedState")
             
             // Get room ID from intent first
             val roomId = (context as? ComponentActivity)?.intent?.getStringExtra("room_id")
-            Log.d("Andromuks", "ChatBubbleLoadingScreen: Room ID from intent: $roomId")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Room ID from intent: $roomId")
             
             if (roomId == null) {
                 Log.e("Andromuks", "ChatBubbleLoadingScreen: ✗ No room ID found in intent!")
@@ -215,7 +217,7 @@ fun ChatBubbleLoadingScreen(
             
             // Check WebSocket connection status (should be already connected from main app flow)
             val isWebSocketConnected = appViewModel.isWebSocketConnected()
-            Log.d("Andromuks", "ChatBubbleLoadingScreen: WebSocket connected: $isWebSocketConnected")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: WebSocket connected: $isWebSocketConnected")
             if (!isWebSocketConnected) {
                 Log.w("Andromuks", "ChatBubbleLoadingScreen: WebSocket not connected - starting foreground service and connecting")
                 appViewModel.startWebSocketService()
@@ -231,7 +233,7 @@ fun ChatBubbleLoadingScreen(
             appViewModel.setNavigationCallback {
                 val pendingBubbleId = appViewModel.getPendingBubbleNavigation() ?: roomId
                 if (pendingBubbleId != null) {
-                    Log.d("Andromuks", "ChatBubbleLoadingScreen: Navigation callback - opening bubble $pendingBubbleId")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Navigation callback - opening bubble $pendingBubbleId")
                     appViewModel.clearPendingBubbleNavigation()
                     navController.navigate("chat_bubble/$pendingBubbleId") {
                         popUpTo("chat_bubble_loading") { inclusive = true }
@@ -243,7 +245,7 @@ fun ChatBubbleLoadingScreen(
             if (appViewModel.spacesLoaded) {
                 val pendingBubbleId = appViewModel.getPendingBubbleNavigation() ?: roomId
                 if (pendingBubbleId != null) {
-                    Log.d("Andromuks", "ChatBubbleLoadingScreen: Spaces already loaded - opening bubble immediately for $pendingBubbleId")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Spaces already loaded - opening bubble immediately for $pendingBubbleId")
                     appViewModel.clearPendingBubbleNavigation()
                     navController.navigate("chat_bubble/$pendingBubbleId") {
                         popUpTo("chat_bubble_loading") { inclusive = true }
@@ -251,7 +253,7 @@ fun ChatBubbleLoadingScreen(
                 }
             }
         } else {
-            Log.d("Andromuks", "ChatBubbleLoadingScreen: No token or server URL, navigating to login")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: No token or server URL, navigating to login")
             navController.navigate("login")
         }
     }
@@ -264,7 +266,7 @@ fun ChatBubbleLoadingScreen(
             val contextRoomId = (context as? ComponentActivity)?.intent?.getStringExtra("room_id")
             val pendingBubbleId = appViewModel.getPendingBubbleNavigation() ?: contextRoomId
             if (!pendingBubbleId.isNullOrBlank()) {
-                Log.d("Andromuks", "ChatBubbleLoadingScreen: Spaces became loaded - navigating to $pendingBubbleId")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Spaces became loaded - navigating to $pendingBubbleId")
                 appViewModel.clearPendingBubbleNavigation()
                 hasNavigated = true
                 navController.navigate("chat_bubble/$pendingBubbleId") {
@@ -301,30 +303,30 @@ fun ChatBubbleScreen(
 ) {
     // Debug logging for bubble lifecycle
     LaunchedEffect(Unit) {
-        Log.d("Andromuks", "ChatBubbleScreen: Launched - roomId: $roomId")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: Launched - roomId: $roomId")
     }
     
     val context = LocalContext.current
     
     // Handle back button press to minimize the bubble
     BackHandler {
-        Log.d("Andromuks", "ChatBubbleScreen: Back button pressed - minimizing bubble")
-        Log.d("Andromuks", "ChatBubbleScreen: BackHandler triggered - calling onCloseBubble")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: Back button pressed - minimizing bubble")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: BackHandler triggered - calling onCloseBubble")
         onCloseBubble()
-        Log.d("Andromuks", "ChatBubbleScreen: BackHandler - onCloseBubble call completed")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: BackHandler - onCloseBubble call completed")
     }
     
     DisposableEffect(Unit) {
-        Log.d("Andromuks", "ChatBubbleScreen: Disposed - roomId: $roomId")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: Disposed - roomId: $roomId")
         onDispose {
-            Log.d("Andromuks", "ChatBubbleScreen: onDispose - roomId: $roomId")
-            Log.d("Andromuks", "ChatBubbleScreen: onDispose - Stack trace:")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: onDispose - roomId: $roomId")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: onDispose - Stack trace:")
             Thread.currentThread().stackTrace.take(15).forEach {
-                Log.d("Andromuks", "ChatBubbleScreen: onDispose -   at $it")
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: onDispose -   at $it")
             }
-            Log.d("Andromuks", "ChatBubbleScreen: onDispose - Activity state check:")
-            Log.d("Andromuks", "ChatBubbleScreen: onDispose - isFinishing: ${(context as? ComponentActivity)?.isFinishing}")
-            Log.d("Andromuks", "ChatBubbleScreen: onDispose - isDestroyed: ${(context as? ComponentActivity)?.isDestroyed}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: onDispose - Activity state check:")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: onDispose - isFinishing: ${(context as? ComponentActivity)?.isFinishing}")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: onDispose - isDestroyed: ${(context as? ComponentActivity)?.isDestroyed}")
         }
     }
     val coroutineScope = rememberCoroutineScope()
@@ -336,7 +338,7 @@ fun ChatBubbleScreen(
     val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
     
-    Log.d("Andromuks", "ChatBubbleScreen: Loading timeline for room: $roomId")
+    if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: Loading timeline for room: $roomId")
     
     // Get the room item to check if it's a DM and get proper display name
     val roomItem = appViewModel.getRoomById(roomId)
@@ -371,7 +373,7 @@ fun ChatBubbleScreen(
     // OPTIMIZED: Sort events and filter - no O(n²) operations
     // The AppViewModel already handles edit filtering via buildTimelineFromChain()
     val sortedEvents = remember(timelineEvents) {
-        Log.d("Andromuks", "ChatBubbleScreen: Processing ${timelineEvents.size} timeline events")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: Processing ${timelineEvents.size} timeline events")
         
         // Simple O(n) filter - just filter by type
         // Edit filtering is already done by AppViewModel's buildTimelineFromChain()
@@ -380,7 +382,7 @@ fun ChatBubbleScreen(
         }
         
         val sorted = filteredEvents.sortedBy { it.timestamp }
-        Log.d("Andromuks", "ChatBubbleScreen: Final sorted events: ${sorted.size} events")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: Final sorted events: ${sorted.size} events")
         sorted
     }
     
@@ -487,12 +489,12 @@ fun ChatBubbleScreen(
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
     LaunchedEffect(sortedEvents.size, isLoading) {
-        Log.d("Andromuks", "ChatBubbleScreen: LaunchedEffect - sortedEvents.size: ${sortedEvents.size}, isLoading: $isLoading")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: LaunchedEffect - sortedEvents.size: ${sortedEvents.size}, isLoading: $isLoading")
         if (!isLoading && sortedEvents.isNotEmpty()) {
-            Log.d("Andromuks", "ChatBubbleScreen: Auto-scrolling to bottom")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: Auto-scrolling to bottom")
             listState.scrollToItem(sortedEvents.lastIndex)
         } else if (!isLoading && sortedEvents.isEmpty()) {
-            Log.d("Andromuks", "ChatBubbleScreen: No events to display, staying at top")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: No events to display, staying at top")
         }
     }
     
@@ -511,19 +513,19 @@ fun ChatBubbleScreen(
     }
     
     LaunchedEffect(roomId) {
-        Log.d("Andromuks", "ChatBubbleScreen: ═══ LOADING TIMELINE ═══")
-        Log.d("Andromuks", "ChatBubbleScreen:   Room ID: $roomId")
-        Log.d("Andromuks", "ChatBubbleScreen:   Current events: ${timelineEvents.size}")
-        Log.d("Andromuks", "ChatBubbleScreen:   Is loading: $isLoading")
-        Log.d("Andromuks", "ChatBubbleScreen:   WebSocket: ${appViewModel.isWebSocketConnected()}")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: ═══ LOADING TIMELINE ═══")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen:   Room ID: $roomId")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen:   Current events: ${timelineEvents.size}")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen:   Is loading: $isLoading")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen:   WebSocket: ${appViewModel.isWebSocketConnected()}")
         
         appViewModel.requestRoomTimeline(roomId)
         
         // Wait a bit and log the result
         kotlinx.coroutines.delay(500)
-        Log.d("Andromuks", "ChatBubbleScreen: After requestRoomTimeline:")
-        Log.d("Andromuks", "ChatBubbleScreen:   Events: ${timelineEvents.size}")
-        Log.d("Andromuks", "ChatBubbleScreen:   Is loading: $isLoading")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: After requestRoomTimeline:")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen:   Events: ${timelineEvents.size}")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen:   Is loading: $isLoading")
         
         // If still loading after 5 seconds, log warning
         kotlinx.coroutines.delay(4500)
@@ -532,7 +534,7 @@ fun ChatBubbleScreen(
             Log.e("Andromuks", "ChatBubbleScreen:   This indicates cache miss + paginate not completing")
             Log.e("Andromuks", "ChatBubbleScreen:   WebSocket connected: ${appViewModel.isWebSocketConnected()}")
         } else {
-            Log.d("Andromuks", "ChatBubbleScreen: ✓ Timeline loaded successfully with ${timelineEvents.size} events")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleScreen: ✓ Timeline loaded successfully with ${timelineEvents.size} events")
         }
     }
     
@@ -540,7 +542,7 @@ fun ChatBubbleScreen(
     // OPPORTUNISTIC PROFILE LOADING: Only request profiles when actually needed for rendering
     // This prevents loading 15,000+ profiles upfront for large rooms
     LaunchedEffect(sortedEvents, roomId) {
-        Log.d(
+        if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
             "ChatBubbleScreen: Using opportunistic profile loading for $roomId (no bulk loading)"
         )
@@ -553,7 +555,7 @@ fun ChatBubbleScreen(
                 .distinct()
                 .filter { it != appViewModel.currentUserId }
             
-            Log.d(
+            if (BuildConfig.DEBUG) Log.d(
                 "Andromuks",
                 "ChatBubbleScreen: Requesting profiles on-demand for ${visibleUsers.size} visible users (instead of all ${sortedEvents.size} events)"
             )
