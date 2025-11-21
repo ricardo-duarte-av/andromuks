@@ -55,6 +55,7 @@ class WebSocketHealthCheckWorker(
             if (!isServiceRunning) {
                 // Service was killed - restart it
                 Log.w(TAG, "WebSocketService not running - restarting service")
+                WebSocketService.logActivity("Health Check: Service Not Running - Restarting", null)
                 restartService(applicationContext)
                 return@withContext Result.success()
             }
@@ -62,6 +63,7 @@ class WebSocketHealthCheckWorker(
             if (!isWebSocketConnected) {
                 // Service is running but WebSocket is disconnected - trigger reconnection
                 Log.w(TAG, "WebSocketService running but WebSocket disconnected - triggering reconnection")
+                WebSocketService.logActivity("Health Check: WebSocket Disconnected - Reconnecting", null)
                 
                 // Use safe reconnection which has fallback logic if AppViewModel is not available
                 WebSocketService.triggerReconnectionSafely("WorkManager health check - connection lost")
@@ -71,6 +73,7 @@ class WebSocketHealthCheckWorker(
             
             // Everything is healthy
             if (BuildConfig.DEBUG) Log.d(TAG, "WebSocket health check passed - service running and connected")
+            WebSocketService.logActivity("Health Check: Service Running and Connected", null)
             Result.success()
             
         } catch (e: Exception) {

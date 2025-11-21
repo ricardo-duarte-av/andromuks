@@ -468,6 +468,7 @@ class WebSocketService : Service() {
                 // RUSH TO HEALTHY: Reset consecutive failures on successful pong
                 if (serviceInstance.consecutivePingTimeouts > 0) {
                     android.util.Log.i("WebSocketService", "Pong received - resetting consecutive failures (was: ${serviceInstance.consecutivePingTimeouts})")
+                    logActivity("Pong Received - Recovered (was ${serviceInstance.consecutivePingTimeouts} failures)", serviceInstance.currentNetworkType.name)
                 }
                 serviceInstance.consecutivePingTimeouts = 0
                 
@@ -881,6 +882,7 @@ class WebSocketService : Service() {
                 serviceInstance.lastReconnectionTime = currentTime
                 
                 android.util.Log.w("WebSocketService", "Scheduling reconnection: $reason")
+                logActivity("Connecting - $reason", serviceInstance.currentNetworkType.name)
                 
                 serviceInstance.reconnectionJob = serviceScope.launch {
                     // RUSH TO HEALTHY: Check backend health first, then reconnect
@@ -892,6 +894,7 @@ class WebSocketService : Service() {
                     } else {
                         // Backend unhealthy - wait longer before retry
                         android.util.Log.w("WebSocketService", "Backend unhealthy - waiting ${BACKEND_HEALTH_RETRY_DELAY_MS}ms before retry")
+                        logActivity("Backend Unhealthy - Delaying Reconnection", serviceInstance.currentNetworkType.name)
                         delay(BACKEND_HEALTH_RETRY_DELAY_MS)
                     }
                     
@@ -902,6 +905,7 @@ class WebSocketService : Service() {
                     
                     if (isActive) {
                         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Executing reconnection: $reason")
+                        logActivity("Reconnection Attempt - $reason", serviceInstance.currentNetworkType.name)
                         reconnectionCallback?.invoke(reason)
                     } else {
                         serviceInstance.connectionState = ConnectionState.DISCONNECTED
@@ -987,6 +991,7 @@ class WebSocketService : Service() {
     // Notification state cache for idempotent updates
     private var lastNotificationText: String? = null
     private var lastNotificationUpdateTime: Long = 0
+    private var lastConnectionStateForNotification: ConnectionState? = null // Track state changes for release builds
     
     // RUSH TO HEALTHY: Removed network optimization variables - ping/pong is the authority
     
@@ -1056,10 +1061,14 @@ class WebSocketService : Service() {
             
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Backend health check: ${response.code} - ${if (isHealthy) "HEALTHY" else "UNHEALTHY"}")
             
+            // Log backend health check result
+            logActivity("Backend Health Check: ${if (isHealthy) "HEALTHY" else "UNHEALTHY"} (HTTP ${response.code})", currentNetworkType.name)
+            
             response.close()
             isHealthy
         } catch (e: Exception) {
             android.util.Log.w("WebSocketService", "Backend health check failed", e)
+            logActivity("Backend Health Check: FAILED - ${e.message}", currentNetworkType.name)
             false
         }
     }
@@ -1230,9 +1239,13 @@ class WebSocketService : Service() {
             consecutivePingTimeouts++
             android.util.Log.w("WebSocketService", "Consecutive ping failures: $consecutivePingTimeouts")
             
+            // Log ping timeout to activity log
+            logActivity("Ping Timeout (${consecutivePingTimeouts}/${CONSECUTIVE_FAILURES_TO_DROP})", currentNetworkType.name)
+            
             // RUSH TO HEALTHY: If 3 consecutive failures, drop WebSocket and reconnect
             if (consecutivePingTimeouts >= CONSECUTIVE_FAILURES_TO_DROP) {
                 android.util.Log.e("WebSocketService", "3 consecutive ping failures - dropping WebSocket and reconnecting")
+                logActivity("Dropping Connection - 3 consecutive ping failures", currentNetworkType.name)
                 consecutivePingTimeouts = 0
                 
                 // Check backend health
@@ -1241,11 +1254,13 @@ class WebSocketService : Service() {
                 if (backendHealthy) {
                     // Backend is healthy - reconnect immediately
                     android.util.Log.i("WebSocketService", "Backend healthy - triggering immediate reconnection")
+                    logActivity("Backend Healthy - Reconnecting", currentNetworkType.name)
                     clearWebSocket("3 consecutive ping failures - backend healthy")
                     reconnectionCallback?.invoke("3 consecutive ping failures - backend healthy")
                 } else {
                     // Backend unhealthy - wait for recovery
                     android.util.Log.w("WebSocketService", "Backend unhealthy - waiting for recovery")
+                    logActivity("Backend Unhealthy - Waiting for Recovery", currentNetworkType.name)
                     clearWebSocket("3 consecutive ping failures - backend unhealthy")
                     
                     // Poll backend health and reconnect when healthy
@@ -1256,6 +1271,7 @@ class WebSocketService : Service() {
                         val recovered = checkBackendHealth()
                         if (recovered) {
                             android.util.Log.i("WebSocketService", "Backend healthy again - triggering reconnection")
+                            logActivity("Backend Recovered - Reconnecting", currentNetworkType.name)
                             reconnectionCallback?.invoke("Backend recovered after ping failures")
                             return@launch
                         }
@@ -1386,15 +1402,18 @@ class WebSocketService : Service() {
                 if (callback != null) {
                     // AppViewModel is available - trigger reconnection through it
                     android.util.Log.w("WebSocketService", "Service restarted but WebSocket disconnected - triggering reconnection via AppViewModel")
+                    logActivity("Service Restarted - Reconnecting", currentNetworkType.name)
                     try {
                         callback("Service restarted - reconnecting")
                     } catch (e: Exception) {
                         android.util.Log.e("WebSocketService", "Reconnection callback failed", e)
+                        logActivity("Reconnection Failed - ${e.message}", currentNetworkType.name)
                     }
                 } else {
                     // AppViewModel not available - DO NOT create ad-hoc WebSocket
                     // Wait for AppViewModel to connect the WebSocket properly when app starts
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restarted but AppViewModel not available - waiting for app to connect WebSocket properly")
+                    logActivity("Service Restarted - Waiting for AppViewModel", currentNetworkType.name)
                 }
             } else if (isConnected) {
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restarted and WebSocket already connected")
@@ -1492,6 +1511,12 @@ class WebSocketService : Service() {
      * @param lastSyncTimestamp Timestamp of last sync_complete message
      */
     fun updateNotificationText(lagMs: Long, lastSyncTimestamp: Long) {
+        // Only update detailed notification in debug builds
+        // In release builds, use updateConnectionStatus which only updates on state changes
+        if (!BuildConfig.DEBUG) {
+            return
+        }
+        
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
@@ -1554,88 +1579,111 @@ class WebSocketService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         
-        val notificationText = when {
-            !isConnected -> "Connecting... • ${getNetworkTypeDisplayName(currentNetworkType)}"
-            connectionState == ConnectionState.DEGRADED -> {
-                // Format lag
-                val lagText = if (lagMs != null && lagMs > 0) {
-                    when {
-                        lagMs < 100 -> "${lagMs}ms"
-                        lagMs < 1000 -> "${lagMs}ms"
-                        else -> "${lagMs / 1000}s"
+        val notificationText = if (BuildConfig.DEBUG) {
+            // DEBUG BUILD: Show detailed stats with lag, sync time, etc.
+            when {
+                !isConnected -> "Connecting... • ${getNetworkTypeDisplayName(currentNetworkType)}"
+                connectionState == ConnectionState.DEGRADED -> {
+                    // Format lag
+                    val lagText = if (lagMs != null && lagMs > 0) {
+                        when {
+                            lagMs < 100 -> "${lagMs}ms"
+                            lagMs < 1000 -> "${lagMs}ms"
+                            else -> "${lagMs / 1000}s"
+                        }
+                    } else {
+                        "no ping yet"
                     }
+                    
+                    // Format time since last sync
+                    val lastSyncText = if (lastSyncTimestamp != null && lastSyncTimestamp > 0) {
+                        val timeSinceSync = System.currentTimeMillis() - lastSyncTimestamp
+                        when {
+                            timeSinceSync < 1000 -> "now"
+                            timeSinceSync < 60_000 -> "${timeSinceSync / 1000}s ago"
+                            timeSinceSync < 3600_000 -> "${timeSinceSync / 60_000}m ago"
+                            else -> "${timeSinceSync / 3600_000}h ago"
+                        }
+                    } else {
+                        "no sync yet"
+                    }
+                    
+                    // Calculate and format connection duration
+                    val durationText = if (connectionStartTime > 0) {
+                        val durationSeconds = (System.currentTimeMillis() - connectionStartTime) / 1000
+                        when {
+                            durationSeconds < 60 -> "${durationSeconds}s"
+                            durationSeconds < 3600 -> "${durationSeconds / 60}m"
+                            else -> "${durationSeconds / 3600}h"
+                        }
+                    } else {
+                        "0s"
+                    }
+                    
+                    "⚠️ Degraded • ${getNetworkTypeDisplayName(currentNetworkType)} • Lag: $lagText • Last: $lastSyncText • Up: $durationText"
+                }
+                else -> {
+                    // Format lag
+                    val lagText = if (lagMs != null && lagMs > 0) {
+                        when {
+                            lagMs < 100 -> "${lagMs}ms"
+                            lagMs < 1000 -> "${lagMs}ms"
+                            else -> "${lagMs / 1000}s"
+                        }
+                    } else {
+                        "no ping yet"
+                    }
+                    
+                    // Format time since last sync
+                    val lastSyncText = if (lastSyncTimestamp != null && lastSyncTimestamp > 0) {
+                        val timeSinceSync = System.currentTimeMillis() - lastSyncTimestamp
+                        when {
+                            timeSinceSync < 1000 -> "now"
+                            timeSinceSync < 60_000 -> "${timeSinceSync / 1000}s ago"
+                            timeSinceSync < 3600_000 -> "${timeSinceSync / 60_000}m ago"
+                            else -> "${timeSinceSync / 3600_000}h ago"
+                        }
+                    } else {
+                        "no sync yet"
+                    }
+                    
+                    // Get connection health indicator
+                    val healthIndicator = getConnectionHealthIndicator(lagMs, lastSyncTimestamp)
+                    
+                    // Calculate and format connection duration
+                    val durationText = if (connectionStartTime > 0) {
+                        val durationSeconds = (System.currentTimeMillis() - connectionStartTime) / 1000
+                        when {
+                            durationSeconds < 60 -> "${durationSeconds}s"
+                            durationSeconds < 3600 -> "${durationSeconds / 60}m"
+                            else -> "${durationSeconds / 3600}h"
+                        }
+                    } else {
+                        "0s"
+                    }
+                    
+                    "$healthIndicator • ${getNetworkTypeDisplayName(currentNetworkType)} • Lag: $lagText • Last: $lastSyncText • Up: $durationText"
+                }
+            }
         } else {
-                    "no ping yet"
-                }
-                
-                // Format time since last sync
-                val lastSyncText = if (lastSyncTimestamp != null && lastSyncTimestamp > 0) {
-                    val timeSinceSync = System.currentTimeMillis() - lastSyncTimestamp
-                    when {
-                        timeSinceSync < 1000 -> "now"
-                        timeSinceSync < 60_000 -> "${timeSinceSync / 1000}s ago"
-                        timeSinceSync < 3600_000 -> "${timeSinceSync / 60_000}m ago"
-                        else -> "${timeSinceSync / 3600_000}h ago"
-                    }
-                } else {
-                    "no sync yet"
-                }
-                
-                // Calculate and format connection duration
-                val durationText = if (connectionStartTime > 0) {
-                    val durationSeconds = (System.currentTimeMillis() - connectionStartTime) / 1000
-                    when {
-                        durationSeconds < 60 -> "${durationSeconds}s"
-                        durationSeconds < 3600 -> "${durationSeconds / 60}m"
-                        else -> "${durationSeconds / 3600}h"
-                    }
-                } else {
-                    "0s"
-                }
-                
-                "⚠️ Degraded • ${getNetworkTypeDisplayName(currentNetworkType)} • Lag: $lagText • Last: $lastSyncText • Up: $durationText"
-            }
-            else -> {
-            // Format lag
-            val lagText = if (lagMs != null && lagMs > 0) {
-                when {
-                    lagMs < 100 -> "${lagMs}ms"
-                    lagMs < 1000 -> "${lagMs}ms"
-                    else -> "${lagMs / 1000}s"
-                }
-            } else {
-                "no ping yet"
+            // RELEASE BUILD: Only show simple status messages when connection state changes
+            val currentState = connectionState
+            val stateChanged = lastConnectionStateForNotification != currentState
+            
+            // Only update if state changed
+            if (!stateChanged && lastNotificationText != null) {
+                if (BuildConfig.DEBUG) Log.d("WebSocketService", "Skipping notification update - state unchanged: $currentState")
+                return
             }
             
-            // Format time since last sync
-            val lastSyncText = if (lastSyncTimestamp != null && lastSyncTimestamp > 0) {
-                val timeSinceSync = System.currentTimeMillis() - lastSyncTimestamp
-                when {
-                    timeSinceSync < 1000 -> "now"
-                    timeSinceSync < 60_000 -> "${timeSinceSync / 1000}s ago"
-                    timeSinceSync < 3600_000 -> "${timeSinceSync / 60_000}m ago"
-                    else -> "${timeSinceSync / 3600_000}h ago"
-                }
-            } else {
-                "no sync yet"
-            }
+            lastConnectionStateForNotification = currentState
             
-            // Get connection health indicator
-            val healthIndicator = getConnectionHealthIndicator(lagMs, lastSyncTimestamp)
-            
-            // Calculate and format connection duration
-            val durationText = if (connectionStartTime > 0) {
-                val durationSeconds = (System.currentTimeMillis() - connectionStartTime) / 1000
-                when {
-                    durationSeconds < 60 -> "${durationSeconds}s"
-                    durationSeconds < 3600 -> "${durationSeconds / 60}m"
-                    else -> "${durationSeconds / 3600}h"
-                }
-            } else {
-                "0s"
-            }
-            
-            "$healthIndicator • ${getNetworkTypeDisplayName(currentNetworkType)} • Lag: $lagText • Last: $lastSyncText • Up: $durationText"
+            when (currentState) {
+                ConnectionState.DISCONNECTED -> "Connecting..."
+                ConnectionState.CONNECTING -> "Connecting..."
+                ConnectionState.CONNECTED -> "Connected."
+                ConnectionState.DEGRADED -> "Reconnecting..."
+                ConnectionState.RECONNECTING -> "Reconnecting..."
             }
         }
         
@@ -1645,47 +1693,49 @@ class WebSocketService : Service() {
             return
         }
         
-        // THROTTLE: Prevent rapid notification updates (UI smoothing)
-        val currentTime = System.currentTimeMillis()
-        val timeSinceLastUpdate = currentTime - lastNotificationUpdateTime
-        
-        if (timeSinceLastUpdate < MIN_NOTIFICATION_UPDATE_INTERVAL_MS) {
-            // Too soon - skip this update to avoid flicker
-            if (BuildConfig.DEBUG) Log.d("WebSocketService", "Throttling notification update (${timeSinceLastUpdate}ms < ${MIN_NOTIFICATION_UPDATE_INTERVAL_MS}ms)")
+        // THROTTLE: Prevent rapid notification updates (UI smoothing) - only in debug builds
+        if (BuildConfig.DEBUG) {
+            val currentTime = System.currentTimeMillis()
+            val timeSinceLastUpdate = currentTime - lastNotificationUpdateTime
             
-            // Schedule a delayed update to ensure we eventually update
-            serviceScope.launch {
-                val delayNeeded = MIN_NOTIFICATION_UPDATE_INTERVAL_MS - timeSinceLastUpdate
-                delay(delayNeeded)
+            if (timeSinceLastUpdate < MIN_NOTIFICATION_UPDATE_INTERVAL_MS) {
+                // Too soon - skip this update to avoid flicker
+                if (BuildConfig.DEBUG) Log.d("WebSocketService", "Throttling notification update (${timeSinceLastUpdate}ms < ${MIN_NOTIFICATION_UPDATE_INTERVAL_MS}ms)")
                 
-                // Check again after delay (text might have changed again)
-                if (lastNotificationText != notificationText) {
-                    lastNotificationText = notificationText
-                    lastNotificationUpdateTime = System.currentTimeMillis()
+                // Schedule a delayed update to ensure we eventually update
+                serviceScope.launch {
+                    val delayNeeded = MIN_NOTIFICATION_UPDATE_INTERVAL_MS - timeSinceLastUpdate
+                    delay(delayNeeded)
                     
-                    // Create and show notification
-                    val delayedNotification = NotificationCompat.Builder(this@WebSocketService, CHANNEL_ID)
-                        .setContentTitle("Andromuks")
-                        .setContentText(notificationText)
-                        .setSmallIcon(R.mipmap.ic_launcher)
-                        .setContentIntent(pendingIntent)
-                        .setOngoing(true)
-                        .setSilent(true)
-                        .setPriority(NotificationCompat.PRIORITY_MIN)
-                        .setVisibility(NotificationCompat.VISIBILITY_SECRET)
-                        .build()
-                    
-                    val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                    notificationManager.notify(NOTIFICATION_ID, delayedNotification)
-                    
-                    if (BuildConfig.DEBUG) Log.d("WebSocketService", "Delayed notification update: $notificationText")
+                    // Check again after delay (text might have changed again)
+                    if (lastNotificationText != notificationText) {
+                        lastNotificationText = notificationText
+                        lastNotificationUpdateTime = System.currentTimeMillis()
+                        
+                        // Create and show notification
+                        val delayedNotification = NotificationCompat.Builder(this@WebSocketService, CHANNEL_ID)
+                            .setContentTitle("Andromuks")
+                            .setContentText(notificationText)
+                            .setSmallIcon(R.mipmap.ic_launcher)
+                            .setContentIntent(pendingIntent)
+                            .setOngoing(true)
+                            .setSilent(true)
+                            .setPriority(NotificationCompat.PRIORITY_MIN)
+                            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+                            .build()
+                        
+                        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                        notificationManager.notify(NOTIFICATION_ID, delayedNotification)
+                        
+                        if (BuildConfig.DEBUG) Log.d("WebSocketService", "Delayed notification update: $notificationText")
+                    }
                 }
+                return
             }
-            return
         }
         
         lastNotificationText = notificationText
-        lastNotificationUpdateTime = currentTime
+        lastNotificationUpdateTime = System.currentTimeMillis()
         
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Andromuks")

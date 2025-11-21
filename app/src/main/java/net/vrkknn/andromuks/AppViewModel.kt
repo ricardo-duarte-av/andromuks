@@ -791,6 +791,7 @@ class AppViewModel : ViewModel() {
     
     fun restartWebSocketConnection(reason: String = "Manual reconnection") {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket connection - Reason: $reason")
+        logActivity("Manual Reconnection - $reason", null)
         restartWebSocket(reason)
     }
     /**
@@ -808,6 +809,7 @@ class AppViewModel : ViewModel() {
      */
     fun performFullRefresh() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Performing full refresh - resetting state")
+        logActivity("Full Refresh - Resetting State", null)
         
         // 1. Drop WebSocket connection
         clearWebSocket("Full refresh")
@@ -4202,6 +4204,7 @@ class AppViewModel : ViewModel() {
         val existingWebSocket = WebSocketService.getWebSocket()
         if (existingWebSocket != null) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Attaching $viewModelId to existing WebSocket")
+            logActivity("Attached to Existing WebSocket", null)
             webSocket = existingWebSocket
             WebSocketService.registerReceiveCallback(viewModelId, this)
             
@@ -4714,10 +4717,12 @@ class AppViewModel : ViewModel() {
         WebSocketService.setOfflineModeCallback { isOffline ->
             if (isOffline) {
                 android.util.Log.w("Andromuks", "AppViewModel: Entering offline mode")
+                logActivity("Entering Offline Mode", null)
                 isOfflineMode = true
                 lastNetworkState = false
             } else {
                 android.util.Log.i("Andromuks", "AppViewModel: Exiting offline mode")
+                logActivity("Exiting Offline Mode", null)
                 isOfflineMode = false
                 lastNetworkState = true
                 // Reset reconnection state on network restoration
@@ -5446,6 +5451,7 @@ class AppViewModel : ViewModel() {
      */
     fun handleUnauthorizedError() {
         android.util.Log.e("Andromuks", "AppViewModel: Handling 401 Unauthorized error - clearing credentials and navigating to login")
+        logActivity("401 Unauthorized - Clearing Credentials", null)
         
         val context = appContext ?: run {
             android.util.Log.e("Andromuks", "AppViewModel: Cannot handle 401 error - appContext is null")
@@ -5489,12 +5495,14 @@ class AppViewModel : ViewModel() {
             android.util.Log.i("Andromuks", "AppViewModel: Credentials cleared due to 401 Unauthorized - app will navigate to login on next AuthCheck")
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to clear credentials on 401 error", e)
+            logActivity("401 Error Handling Failed - ${e.message}", null)
         }
     }
 
     
     private fun restartWebSocket(reason: String = "Unknown reason") {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: restartWebSocket invoked - reason: $reason")
+        logActivity("Restarting WebSocket - $reason", null)
         
         // Only show toast for important reconnection reasons, not every attempt
         val shouldShowToast = when {
@@ -5503,7 +5511,7 @@ class AppViewModel : ViewModel() {
             reason.contains("attempt #1") && reason.contains("Network type changed") -> true // Only first network change attempt
             else -> false // Hide "Network restored" and other spam
         }
-        
+
         if (shouldShowToast) {
             appContext?.let { context ->
                 viewModelScope.launch(Dispatchers.Main) {
@@ -11687,6 +11695,7 @@ class AppViewModel : ViewModel() {
         
         // Restart WebSocket with new compression setting
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket due to compression setting change")
+        logActivity("Compression Setting Changed - Restarting", null)
         restartWebSocket("Compression setting changed")
     }
     
@@ -11728,6 +11737,7 @@ class AppViewModel : ViewModel() {
     fun startWebSocketService() {
         appContext?.let { context ->
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Starting WebSocket foreground service")
+            logActivity("Starting WebSocket Service", null)
             val intent = android.content.Intent(context, WebSocketService::class.java)
             context.startForegroundService(intent)
             
@@ -11740,6 +11750,7 @@ class AppViewModel : ViewModel() {
      */
     fun stopWebSocketService() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Stopping WebSocket service")
+        logActivity("Stopping WebSocket Service", null)
         
         appContext?.let { context ->
             // Use intent-based stop to ensure proper cleanup within Android timeout
