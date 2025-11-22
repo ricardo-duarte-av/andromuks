@@ -391,22 +391,32 @@ class AppViewModel : ViewModel() {
      * Update bridge information for a room
      */
     fun updateBridgeInfo(roomId: String, bridgeInfo: BridgeInfo) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: updateBridgeInfo() called for room $roomId: ${bridgeInfo.protocol.displayname} (protocol: ${bridgeInfo.protocol.id})")
+        
         bridgeInfoCache = bridgeInfoCache + (roomId to bridgeInfo)
         bridgeCacheCheckedRooms = bridgeCacheCheckedRooms + roomId
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated bridge info for room $roomId: ${bridgeInfo.protocol.displayname}")
         
-        // CRITICAL: Persist bridge info to database immediately (fire-and-forget but with error logging)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated in-memory bridge info cache for room $roomId (cache now has ${bridgeInfoCache.size} entries)")
+        
+        // CRITICAL: Persist bridge info to database immediately using blocking call to prevent race conditions
+        // We use runBlocking on IO dispatcher to ensure persistence completes before returning
+        // This prevents sync processing from seeing stale state without bridge info
         appContext?.let { context ->
             if (syncIngestor == null) {
                 syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Created new SyncIngestor instance for bridge info persistence")
             }
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
+            try {
+                // Block until persistence completes (prevents race with sync processing)
+                // This is safe because persistence is fast (single DB transaction)
+                runBlocking(Dispatchers.IO) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Calling persistBridgeInfo() for room $roomId (protocol: ${bridgeInfo.protocol.id})")
                     syncIngestor?.persistBridgeInfo(roomId, bridgeInfo)
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Successfully persisted bridge info for room $roomId to database")
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error persisting bridge info for room $roomId: ${e.message}", e)
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Error persisting bridge info for room $roomId: ${e.message}", e)
+                e.printStackTrace()
             }
         } ?: run {
             android.util.Log.e("Andromuks", "AppViewModel: Cannot persist bridge info for room $roomId - appContext is null")
@@ -1366,6 +1376,7 @@ class AppViewModel : ViewModel() {
             
             // PERFORMANCE: Lazy load bridges when Bridges tab is first accessed
             if (selectedSection == RoomSectionType.BRIDGES) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Bridges tab accessed - calling loadBridgesIfNeeded()")
                 loadBridgesIfNeeded()
             }
             
@@ -9623,10 +9634,9 @@ class AppViewModel : ViewModel() {
             parseBridgeStateFromEvents(roomId, bridgeEvents)
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No m.bridge events found for room: $roomId")
+            // Mark as checked only if no bridge events were found
+            markRoomAsBridgeChecked(roomId)
         }
-        
-        // Always mark room as checked, even if no bridge was found
-        markRoomAsBridgeChecked(roomId)
     }
     
     /**
@@ -9646,25 +9656,50 @@ class AppViewModel : ViewModel() {
     private fun parseBridgeStateFromEvents(roomId: String, events: JSONArray) {
         try {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsing ${events.length()} events for room: $roomId")
+            var bridgeEventFound = false
+            var bridgeInfoParsed = false
             for (i in 0 until events.length()) {
                 val event = events.optJSONObject(i)
                 if (event != null && event.optString("type") == "m.bridge") {
+                    bridgeEventFound = true
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found m.bridge event for room: $roomId")
                     val content = event.optJSONObject("content")
                     if (content != null) {
                         val bridgeInfo = parseBridgeInfo(content)
                         if (bridgeInfo != null) {
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsed bridge info for room $roomId: ${bridgeInfo.protocol.displayname} (protocol: ${bridgeInfo.protocol.id})")
+                            
+                            // Check if bridge info already exists in cache
+                            val existingBridgeInfo = bridgeInfoCache[roomId]
+                            if (existingBridgeInfo != null && existingBridgeInfo.protocol.id == bridgeInfo.protocol.id) {
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Bridge info for room $roomId already exists in cache with same protocol - skipping update")
+                                bridgeInfoParsed = true // Already have bridge info, don't mark as checked with empty
+                                return
+                            }
+                            
+                            // CRITICAL: updateBridgeInfo now blocks until persistence completes
                             updateBridgeInfo(roomId, bridgeInfo)
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated bridge info for room $roomId - will be persisted to database")
+                            bridgeInfoParsed = true // Bridge info was successfully parsed and persisted
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Called updateBridgeInfo for room $roomId - persistence completed synchronously")
                             
                             // Create bridge pseudo-spaces when we have bridge info
                             createBridgePseudoSpaces()
                         } else {
                             if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Failed to parse bridge info for room $roomId (parseBridgeInfo returned null)")
                         }
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: m.bridge event for room $roomId has no content")
                     }
                 }
+            }
+            if (!bridgeEventFound && BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: No m.bridge event found in ${events.length()} events for room: $roomId")
+            }
+            
+            // CRITICAL: Only mark as checked if no bridge info was found/parsed
+            // If bridge info was parsed, updateBridgeInfo already marked it as checked
+            if (!bridgeInfoParsed) {
+                markRoomAsBridgeChecked(roomId)
             }
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Error parsing bridge state for room $roomId", e)

@@ -304,17 +304,29 @@ class SyncIngestor(private val context: Context) {
             // Only update bridgeInfoJson if it's explicitly provided in sync data (which it never is)
             var bridgeInfoJson: String? = currentExistingState?.bridgeInfoJson
             
-            // CRITICAL FIX: Re-check database inside transaction to catch bridge info that was persisted
-            // after the pre-loaded states map was created. This handles race conditions where bridge info
-            // is persisted while sync data is being processed.
-            if (bridgeInfoJson == null || bridgeInfoJson.isBlank()) {
-                // Re-check database to see if bridge info was persisted after pre-loading
-                val recheckedState = roomStateDao.get(roomId)
-                val recheckedBridgeInfo = recheckedState?.bridgeInfoJson
-                if (recheckedBridgeInfo != null && recheckedBridgeInfo.isNotBlank()) {
-                    bridgeInfoJson = recheckedBridgeInfo
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId: Found bridge info on re-check (was persisted after pre-load)")
+            // CRITICAL FIX: ALWAYS re-check database inside transaction to get the latest bridge info
+            // This handles race conditions where:
+            // 1. Bridge info was persisted after the pre-loaded states map was created
+            // 2. Bridge info exists in DB but wasn't in the pre-loaded map (e.g., loaded from DB after sync started)
+            // 3. Multiple sync_complete messages arrive and we need the latest state
+            // We ALWAYS re-check, not just when bridgeInfoJson is null, to ensure we have the most up-to-date value
+            val recheckedState = roomStateDao.get(roomId)
+            val recheckedBridgeInfo = recheckedState?.bridgeInfoJson
+            
+            // Use re-checked bridge info if it exists and is not empty
+            // This ensures we always have the latest bridge info from the database
+            if (recheckedBridgeInfo != null && recheckedBridgeInfo.isNotBlank()) {
+                bridgeInfoJson = recheckedBridgeInfo
+                if (BuildConfig.DEBUG && (currentExistingState?.bridgeInfoJson != recheckedBridgeInfo)) {
+                    Log.d(TAG, "Room $roomId: Updated bridge info from re-check (pre-loaded: ${currentExistingState?.bridgeInfoJson != null}, re-checked: $recheckedBridgeInfo)")
                 }
+            } else if (bridgeInfoJson != null && bridgeInfoJson.isNotBlank()) {
+                // Bridge info exists in pre-loaded state but not in re-check - preserve it
+                // This handles the case where re-check returns null but we had bridge info in pre-loaded map
+                if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId: Preserving bridge info from pre-loaded state (re-check returned null/empty)")
+            } else {
+                // No bridge info found - this is OK, room might not be bridged
+                if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId: No bridge info found (pre-loaded: ${currentExistingState?.bridgeInfoJson != null}, re-checked: ${recheckedBridgeInfo != null})")
             }
             
             // Note: Bridge info is loaded from room state events separately via persistBridgeInfo()
@@ -335,9 +347,14 @@ class SyncIngestor(private val context: Context) {
             )
             roomStateDao.upsert(roomState)
             
-            // Log if we're preserving bridge info (for debugging)
-            if (BuildConfig.DEBUG && bridgeInfoJson != null && bridgeInfoJson.isNotBlank()) {
-                Log.d(TAG, "Room $roomId: Preserved existing bridge info during sync processing")
+            // CRITICAL: Log bridge info preservation for debugging
+            if (BuildConfig.DEBUG) {
+                if (bridgeInfoJson != null && bridgeInfoJson.isNotBlank()) {
+                    Log.d(TAG, "Room $roomId: Preserved bridge info during sync processing (${bridgeInfoJson.length} chars)")
+                } else if (currentExistingState?.bridgeInfoJson != null && currentExistingState.bridgeInfoJson.isNotBlank()) {
+                    // WARNING: We had bridge info in pre-loaded state but lost it!
+                    Log.w(TAG, "Room $roomId: WARNING - Had bridge info in pre-loaded state but lost it during sync processing!")
+                }
             }
         }
         
@@ -1146,7 +1163,7 @@ class SyncIngestor(private val context: Context) {
                         updatedAt = System.currentTimeMillis()
                     )
                     roomStateDao.upsert(updatedState)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Persisted bridge info for room $roomId (updated existing state)")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Persisted bridge info for room $roomId (updated existing state) - bridgeInfoJson length: ${bridgeJson.toString().length}")
                 } else {
                     // Create new room state entry with bridge info
                     val newState = RoomStateEntity(
@@ -1162,7 +1179,15 @@ class SyncIngestor(private val context: Context) {
                         updatedAt = System.currentTimeMillis()
                     )
                     roomStateDao.upsert(newState)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Created new room state with bridge info for room $roomId")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Created new room state with bridge info for room $roomId - bridgeInfoJson length: ${bridgeJson.toString().length}")
+                }
+                
+                // CRITICAL: Verify persistence by reading back from database
+                val verifyState = roomStateDao.get(roomId)
+                if (verifyState?.bridgeInfoJson != null && verifyState.bridgeInfoJson.isNotBlank()) {
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Verified bridge info persistence for room $roomId - DB contains ${verifyState.bridgeInfoJson.length} chars")
+                } else {
+                    Log.e(TAG, "CRITICAL: Bridge info NOT found in DB after persistence for room $roomId!")
                 }
             }
         } catch (e: Exception) {
