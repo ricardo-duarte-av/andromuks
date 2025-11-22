@@ -1038,7 +1038,7 @@ class WebSocketService : Service() {
     // Notification state cache for idempotent updates
     private var lastNotificationText: String? = null
     private var lastNotificationUpdateTime: Long = 0
-    private var lastConnectionStateForNotification: ConnectionState? = null // Track state changes for release builds
+    private var lastConnectionStateForNotification: String? = null // Track state changes for release builds (format: "STATE-callbackMissing")
     
     // RUSH TO HEALTHY: Removed network optimization variables - ping/pong is the authority
     
@@ -1526,11 +1526,18 @@ class WebSocketService : Service() {
         
         // Update notification with current connection state after service starts
         // This ensures the notification shows the correct state even if no WebSocket is connected yet
+        // Also check if reconnection callback is available
+        val hasCallback = reconnectionCallback != null
         updateConnectionStatus(
             isConnected = connectionState == ConnectionState.CONNECTED,
             lagMs = lastKnownLagMs,
             lastSyncTimestamp = lastSyncTimestamp
         )
+        
+        // If callback is missing, log it for debugging
+        if (!hasCallback) {
+            android.util.Log.w("WebSocketService", "Service started but reconnection callback not set - notification will show 'Waiting for app...'")
+        }
         
         // RESILIENCE: Check connection state on service restart
         // If service was restarted by Android and WebSocket is disconnected, attempt reconnection
@@ -1742,6 +1749,10 @@ class WebSocketService : Service() {
         val notificationText = if (BuildConfig.DEBUG) {
             // DEBUG BUILD: Show detailed stats with lag, sync time, etc.
             when {
+                // Check if reconnection callback is missing (AppViewModel not available)
+                reconnectionCallback == null && connectionState != ConnectionState.CONNECTED -> {
+                    "Waiting for app... • ${getNetworkTypeDisplayName(currentNetworkType)}"
+                }
                 !isConnected -> "Connecting... • ${getNetworkTypeDisplayName(currentNetworkType)}"
                 connectionState == ConnectionState.DEGRADED -> {
                     // Format lag
@@ -1828,22 +1839,30 @@ class WebSocketService : Service() {
         } else {
             // RELEASE BUILD: Only show simple status messages when connection state changes
             val currentState = connectionState
-            val stateChanged = lastConnectionStateForNotification != currentState
+            
+            // Check if reconnection callback is missing (AppViewModel not available)
+            val callbackMissing = reconnectionCallback == null && currentState != ConnectionState.CONNECTED
+            
+            // Track both state and callback status for change detection
+            val stateKey = "$currentState-$callbackMissing"
+            val stateChanged = lastConnectionStateForNotification?.let { it != stateKey } ?: true
             
             // Only update if state changed
             if (!stateChanged && lastNotificationText != null) {
-                if (BuildConfig.DEBUG) Log.d("WebSocketService", "Skipping notification update - state unchanged: $currentState")
+                if (BuildConfig.DEBUG) Log.d("WebSocketService", "Skipping notification update - state unchanged: $currentState, callbackMissing: $callbackMissing")
                 return
             }
             
-            lastConnectionStateForNotification = currentState
+            lastConnectionStateForNotification = stateKey
             
-            when (currentState) {
-                ConnectionState.DISCONNECTED -> "Connecting..."
-                ConnectionState.CONNECTING -> "Connecting..."
-                ConnectionState.CONNECTED -> "Connected."
-                ConnectionState.DEGRADED -> "Reconnecting..."
-                ConnectionState.RECONNECTING -> "Reconnecting..."
+            when {
+                callbackMissing -> "Waiting for app..."
+                currentState == ConnectionState.DISCONNECTED -> "Connecting..."
+                currentState == ConnectionState.CONNECTING -> "Connecting..."
+                currentState == ConnectionState.CONNECTED -> "Connected."
+                currentState == ConnectionState.DEGRADED -> "Reconnecting..."
+                currentState == ConnectionState.RECONNECTING -> "Reconnecting..."
+                else -> "Connecting..."
             }
         }
         
