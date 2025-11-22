@@ -50,7 +50,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         private const val TAG = "ConversationsApi"
         private const val MAX_SHORTCUTS = 4
         private const val SHORTCUT_UPDATE_DEBOUNCE_MS = 30000L // 30 seconds debounce
-        private const val MIN_SHORTCUT_UPDATE_INTERVAL_MS = 360000000L // 3600s: cooldown after actual update to prevent spam
+        private const val MIN_SHORTCUT_UPDATE_INTERVAL_MS = 300000L // 5 minutes: cooldown after actual update to prevent spam (reduced from 1 hour to allow avatar updates)
     }
     
     // Debouncing mechanism to prevent excessive shortcut updates
@@ -392,13 +392,41 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     
     /**
      * Create shortcuts from room list
+     * Prioritizes rooms with recent activity (within last 30 days) or unread messages
      */
     private suspend fun createShortcutsFromRooms(rooms: List<RoomItem>): List<ConversationShortcut> {
-        // Get recent rooms with messages, sorted by timestamp
+        val now = System.currentTimeMillis()
+        val thirtyDaysAgo = now - (30L * 24 * 60 * 60 * 1000) // 30 days in milliseconds
+        
+        // Filter and prioritize rooms:
+        // 1. Must have a valid timestamp
+        // 2. Prioritize: unread > recent activity (last 30 days) > older activity
         val recentRooms = rooms
             .filter { it.sortingTimestamp != null && it.sortingTimestamp > 0 }
-            .sortedByDescending { it.sortingTimestamp }
+            .sortedWith(compareByDescending<RoomItem> { room ->
+                // Primary sort: unread count (rooms with unread come first)
+                room.unreadCount ?: 0
+            }.thenByDescending { room ->
+                // Secondary sort: recent activity (within 30 days gets priority)
+                val timestamp = room.sortingTimestamp ?: 0L
+                if (timestamp >= thirtyDaysAgo) {
+                    // Recent activity: use timestamp as-is
+                    timestamp
+                } else {
+                    // Old activity: reduce priority by subtracting a large offset
+                    // This ensures recent rooms always come before old ones
+                    timestamp - (365L * 24 * 60 * 60 * 1000) // Subtract 1 year to deprioritize
+                }
+            })
             .take(MAX_SHORTCUTS)
+        
+        if (BuildConfig.DEBUG && recentRooms.isNotEmpty()) {
+            Log.d(TAG, "Creating shortcuts for ${recentRooms.size} rooms:")
+            recentRooms.forEach { room ->
+                val daysAgo = (now - (room.sortingTimestamp ?: 0L)) / (24 * 60 * 60 * 1000)
+                Log.d(TAG, "  - ${room.name} (${room.id}): ${daysAgo} days ago, unread: ${room.unreadCount ?: 0}")
+            }
+        }
         
         return recentRooms.map { room ->
             ConversationShortcut(
@@ -416,7 +444,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
      * Check if shortcuts need updating by comparing with cached data
      * Returns: Pair(needsUpdate: Boolean, isOrderOnlyChange: Boolean)
      */
-    private fun shortcutsNeedUpdate(newShortcuts: List<ConversationShortcut>): Pair<Boolean, Boolean> {
+    private suspend fun shortcutsNeedUpdate(newShortcuts: List<ConversationShortcut>): Pair<Boolean, Boolean> {
         // Compare set of IDs (order-independent) to avoid churn from reordering
         val newIdsSet = newShortcuts.map { it.roomId }.toSet()
         val idsChanged = newIdsSet != lastShortcutStableIds
@@ -434,13 +462,30 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             }
         }
 
-        // If set/name/avatar unchanged, skip update (Android handles ordering automatically)
+        // Check if any shortcuts have avatars that need to be downloaded
+        // This forces an update even if IDs/URLs haven't changed, to refresh missing avatars
+        var avatarsNeedDownload = false
         if (!idsChanged && !nameAvatarChanged) {
+            for (s in newShortcuts) {
+                if (s.roomAvatarUrl != null) {
+                    val cachedFile = MediaCache.getCachedFile(context, s.roomAvatarUrl)
+                    if (cachedFile == null || !cachedFile.exists()) {
+                        // Avatar URL exists but not cached - need to download
+                        avatarsNeedDownload = true
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Shortcut ${s.roomId} has avatar URL but not cached - forcing update")
+                        break
+                    }
+                }
+            }
+        }
+
+        // If set/name/avatar unchanged AND avatars are all cached, skip update
+        if (!idsChanged && !nameAvatarChanged && !avatarsNeedDownload) {
             //Log.d(TAG, "Shortcuts stable (set unchanged, skipping update)")
             return false to false
         }
 
-        //Log.d(TAG, "Shortcuts will update (idsChanged=$idsChanged, nameAvatarChanged=$nameAvatarChanged)")
+        //Log.d(TAG, "Shortcuts will update (idsChanged=$idsChanged, nameAvatarChanged=$nameAvatarChanged, avatarsNeedDownload=$avatarsNeedDownload)")
         return true to false
     }
     
@@ -460,12 +505,23 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 return
             }
             
+            // Check if this update is needed for missing avatars (bypass rate limiting)
+            val hasMissingAvatars = shortcuts.any { shortcut ->
+                shortcut.roomAvatarUrl != null && 
+                MediaCache.getCachedFile(context, shortcut.roomAvatarUrl) == null
+            }
+            
             // Rate limiting: enforce cooldown after last completed update
+            // BUT: bypass rate limiting if avatars need to be downloaded
             val now = System.currentTimeMillis()
             val timeSinceLastCompleted = now - lastShortcutUpdateCompletedTime
-            if (timeSinceLastCompleted < MIN_SHORTCUT_UPDATE_INTERVAL_MS) {
+            if (!hasMissingAvatars && timeSinceLastCompleted < MIN_SHORTCUT_UPDATE_INTERVAL_MS) {
                 //Log.d(TAG, "Rate-limiting shortcut update (${timeSinceLastCompleted}ms since last completed, min=${MIN_SHORTCUT_UPDATE_INTERVAL_MS}ms)")
                 return
+            }
+            
+            if (hasMissingAvatars && BuildConfig.DEBUG) {
+                Log.d(TAG, "Bypassing rate limit to download missing avatars for shortcuts")
             }
 
             //Log.d(TAG, "Updating ${shortcuts.size} shortcuts using pushDynamicShortcut() (background thread)")
@@ -481,20 +537,24 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 try {
                     //Log.d(TAG, "Updating shortcut - roomId: '${shortcut.roomId}', roomName: '${shortcut.roomName}'")
                     
-                    // Check if avatar is in cache
+                    // Check if avatar was previously cached (before download attempt)
+                    val previouslyCached = lastAvatarCachePresence[shortcut.roomId] ?: false
+                    
+                    // Create ShortcutInfoCompat (AndroidX version)
+                    // This will now download and cache the avatar if not already cached
+                    val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
+                    
+                    // Check if avatar is in cache AFTER createShortcutInfoCompat (which may have downloaded it)
                     val avatarInCache = shortcut.roomAvatarUrl?.let { url ->
                         MediaCache.getCachedFile(context, url) != null
                     } ?: false
                     
-                    //Log.d(TAG, "  Avatar in cache: $avatarInCache")
-                    
-                    // Create ShortcutInfoCompat (AndroidX version)
-                    val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
+                    //Log.d(TAG, "  Avatar in cache (after download attempt): $avatarInCache, previously: $previouslyCached")
                     
                     // Only refresh icon when avatar transitions from not-cached -> cached
-                    val previouslyCached = lastAvatarCachePresence[shortcut.roomId] ?: false
+                    // This ensures shortcuts get updated with real avatars when they become available
                     if (avatarInCache && !previouslyCached) {
-                        //Log.d(TAG, "  Removing old shortcut to refresh icon (avatar cache became available)")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "  Removing old shortcut to refresh icon (avatar cache became available)")
                         ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(shortcut.roomId))
                     }
                     
@@ -546,10 +606,41 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         
         val icon = if (shortcut.roomAvatarUrl != null) {
             try {
+                // Check if we have a cached version first
+                var cachedFile = MediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
                 
-                // Only use cached avatar - don't download to avoid blocking
-                val cachedFile = MediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
+                // If not cached, download and cache it (similar to EnhancedNotificationDisplay)
+                if (cachedFile == null || !cachedFile.exists()) {
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Avatar not in MediaCache, downloading for shortcut: ${shortcut.roomId}")
+                    
+                    // Convert MXC URL to HTTP URL
+                    val httpUrl = when {
+                        shortcut.roomAvatarUrl.startsWith("mxc://") -> {
+                            AvatarUtils.mxcToHttpUrl(shortcut.roomAvatarUrl, homeserverUrl)
+                        }
+                        shortcut.roomAvatarUrl.startsWith("_gomuks/") -> {
+                            "$homeserverUrl/${shortcut.roomAvatarUrl}"
+                        }
+                        else -> {
+                            shortcut.roomAvatarUrl
+                        }
+                    }
+                    
+                    if (httpUrl != null) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Downloading avatar for shortcut ${shortcut.roomId} from: $httpUrl")
+                        // Download and cache using existing MediaCache infrastructure
+                        cachedFile = MediaCache.downloadAndCache(context, shortcut.roomAvatarUrl, httpUrl, authToken)
+                        if (cachedFile != null) {
+                            if (BuildConfig.DEBUG) Log.d(TAG, "✓ Successfully downloaded and cached avatar for shortcut: ${shortcut.roomId} (${cachedFile.length()} bytes)")
+                        } else {
+                            Log.w(TAG, "✗ Failed to download avatar for shortcut: ${shortcut.roomId} from: $httpUrl")
+                        }
+                    } else {
+                        Log.w(TAG, "Failed to convert avatar URL to HTTP URL: ${shortcut.roomAvatarUrl}")
+                    }
+                }
                 
+                // Load bitmap from cached file (or fallback if download failed)
                 if (cachedFile != null && cachedFile.exists()) {
                     val bitmap = BitmapFactory.decodeFile(cachedFile.absolutePath)
                     
@@ -557,6 +648,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                         val circularBitmap = getCircularBitmap(bitmap)
                         
                         if (circularBitmap != null) {
+                            if (BuildConfig.DEBUG) Log.d(TAG, "✓✓✓ SUCCESS: Created shortcut icon with avatar for: ${shortcut.roomId}")
                             IconCompat.createWithAdaptiveBitmap(circularBitmap)
                         } else {
                             Log.e(TAG, "  ✗✗✗ FAILED: getCircularBitmap returned null, creating fallback with initials")
@@ -567,7 +659,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                         createFallbackShortcutIconCompat(shortcut.roomName, shortcut.roomId)
                     }
                 } else {
-                    Log.w(TAG, "  ✗✗✗ FAILED: Avatar not in cache, creating fallback with initials")
+                    Log.w(TAG, "  ✗✗✗ FAILED: Avatar not in cache and download failed, creating fallback with initials")
                     createFallbackShortcutIconCompat(shortcut.roomName, shortcut.roomId)
                 }
             } catch (e: Exception) {
@@ -617,24 +709,50 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         
         val icon = if (shortcut.roomAvatarUrl != null) {
             try {
-
+                // Check if we have a cached version first
+                var cachedFile = MediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
                 
-                // Only use cached avatar - don't download to avoid blocking
-                val cachedFile = MediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
-
+                // If not cached, download and cache it (similar to EnhancedNotificationDisplay)
+                if (cachedFile == null || !cachedFile.exists()) {
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Avatar not in MediaCache, downloading for shortcut: ${shortcut.roomId}")
+                    
+                    // Convert MXC URL to HTTP URL
+                    val httpUrl = when {
+                        shortcut.roomAvatarUrl.startsWith("mxc://") -> {
+                            AvatarUtils.mxcToHttpUrl(shortcut.roomAvatarUrl, homeserverUrl)
+                        }
+                        shortcut.roomAvatarUrl.startsWith("_gomuks/") -> {
+                            "$homeserverUrl/${shortcut.roomAvatarUrl}"
+                        }
+                        else -> {
+                            shortcut.roomAvatarUrl
+                        }
+                    }
+                    
+                    if (httpUrl != null) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Downloading avatar for shortcut ${shortcut.roomId} from: $httpUrl")
+                        // Download and cache using existing MediaCache infrastructure
+                        cachedFile = MediaCache.downloadAndCache(context, shortcut.roomAvatarUrl, httpUrl, authToken)
+                        if (cachedFile != null) {
+                            if (BuildConfig.DEBUG) Log.d(TAG, "✓ Successfully downloaded and cached avatar for shortcut: ${shortcut.roomId} (${cachedFile.length()} bytes)")
+                        } else {
+                            Log.w(TAG, "✗ Failed to download avatar for shortcut: ${shortcut.roomId} from: $httpUrl")
+                        }
+                    } else {
+                        Log.w(TAG, "Failed to convert avatar URL to HTTP URL: ${shortcut.roomAvatarUrl}")
+                    }
+                }
                 
+                // Load bitmap from cached file (or fallback if download failed)
                 if (cachedFile != null && cachedFile.exists()) {
-
                     // Create circular bitmap from cached file
                     val bitmap = BitmapFactory.decodeFile(cachedFile.absolutePath)
-
                     
                     if (bitmap != null) {
                         val circularBitmap = getCircularBitmap(bitmap)
-
                         
                         if (circularBitmap != null) {
-
+                            if (BuildConfig.DEBUG) Log.d(TAG, "✓✓✓ SUCCESS: Created shortcut icon with avatar for: ${shortcut.roomId}")
                             Icon.createWithAdaptiveBitmap(circularBitmap)
                         } else {
                             Log.e(TAG, "  ✗✗✗ FAILED: getCircularBitmap returned null, creating fallback with initials")
@@ -645,7 +763,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                         createFallbackShortcutIcon(shortcut.roomName, shortcut.roomId)
                     }
                 } else {
-                    Log.w(TAG, "  ✗✗✗ FAILED: Avatar not in cache, creating fallback with initials")
+                    Log.w(TAG, "  ✗✗✗ FAILED: Avatar not in cache and download failed, creating fallback with initials")
                     createFallbackShortcutIcon(shortcut.roomName, shortcut.roomId)
                 }
             } catch (e: Exception) {

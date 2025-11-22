@@ -237,9 +237,41 @@ class PersonsApi(
                 return@withContext null
             }
 
-            val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+            // Check if we have a cached version first
+            var cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+            
+            // If not cached, download and cache it (similar to ConversationsApi)
             if (cachedFile == null || !cachedFile.exists()) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Avatar for ${target.userId} not cached, using fallback")
+                if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Avatar for ${target.userId} not cached, downloading...")
+                
+                // Convert MXC URL to HTTP URL
+                val httpUrl = when {
+                    avatarUrl.startsWith("mxc://") -> {
+                        AvatarUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
+                    }
+                    avatarUrl.startsWith("_gomuks/") -> {
+                        "$homeserverUrl/$avatarUrl"
+                    }
+                    else -> {
+                        avatarUrl
+                    }
+                }
+                
+                if (httpUrl != null) {
+                    // Download and cache using existing MediaCache infrastructure
+                    cachedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+                    if (cachedFile != null) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: ✓ Successfully downloaded and cached avatar for ${target.userId} (${cachedFile.length()} bytes)")
+                    } else {
+                        Log.w(TAG, "PersonsApi: ✗ Failed to download avatar for ${target.userId} from: $httpUrl")
+                    }
+                } else {
+                    Log.w(TAG, "PersonsApi: Failed to convert avatar URL to HTTP URL: $avatarUrl")
+                }
+            }
+
+            if (cachedFile == null || !cachedFile.exists()) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Avatar for ${target.userId} not available, using fallback")
                 return@withContext null
             }
 

@@ -1524,6 +1524,14 @@ class WebSocketService : Service() {
             // Don't crash - service will run in background
         }
         
+        // Update notification with current connection state after service starts
+        // This ensures the notification shows the correct state even if no WebSocket is connected yet
+        updateConnectionStatus(
+            isConnected = connectionState == ConnectionState.CONNECTED,
+            lagMs = lastKnownLagMs,
+            lastSyncTimestamp = lastSyncTimestamp
+        )
+        
         // RESILIENCE: Check connection state on service restart
         // If service was restarted by Android and WebSocket is disconnected, attempt reconnection
         // BUT: Only if AppViewModel is available (reconnectionCallback set)
@@ -1635,9 +1643,18 @@ class WebSocketService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // Use current connection state for initial notification text
+        val initialText = when (connectionState) {
+            ConnectionState.DISCONNECTED -> "Connecting..."
+            ConnectionState.CONNECTING -> "Connecting..."
+            ConnectionState.CONNECTED -> if (BuildConfig.DEBUG) "Connected." else "Connected."
+            ConnectionState.DEGRADED -> "Reconnecting..."
+            ConnectionState.RECONNECTING -> "Reconnecting..."
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Andromuks")
-            .setContentText("Maintaining connection...")
+            .setContentText(initialText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
