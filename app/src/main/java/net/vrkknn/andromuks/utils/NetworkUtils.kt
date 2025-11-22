@@ -245,10 +245,17 @@ fun connectToWebsocket(
     
     // RUSH TO HEALTHY: Build WebSocket URL with reconnection parameters
     // run_id is always read from SharedPreferences (via AppViewModel.getCurrentRunId())
-    // last_received_event is only included when reconnecting (lastReceivedId > 0)
+    // last_received_event is only included when reconnecting AND we have persisted sync
     val runId = appViewModel.getCurrentRunId() // Always from SharedPreferences
     val lastReceivedId = appViewModel.getLastReceivedId()
-    val isReconnecting = lastReceivedId > 0 // If we have lastReceivedId, we're reconnecting
+    val hasPersistedSync = appViewModel.shouldIncludeLastReceivedId()
+    val shouldIncludeLastReceived = hasPersistedSync && lastReceivedId != 0
+    val isReconnecting = shouldIncludeLastReceived // Only reconnecting if we have persisted sync and lastReceivedId
+    
+    // Debug logging to help diagnose reconnection issues
+    if (BuildConfig.DEBUG || shouldIncludeLastReceived) {
+        Log.i("NetworkUtils", "WebSocket URL params - runId: '$runId', lastReceivedId: $lastReceivedId, hasPersistedSync: $hasPersistedSync, shouldInclude: $shouldIncludeLastReceived, reason: $reason")
+    }
     
     // TEMPORARY FIX: If runId is JSON-encoded, extract the actual run_id
     val actualRunId = if (runId.startsWith("{")) {
@@ -277,12 +284,14 @@ fun connectToWebsocket(
     val queryParams = mutableListOf<String>()
     if (actualRunId.isNotEmpty()) {
         queryParams.add("run_id=$actualRunId")
-        // RUSH TO HEALTHY: Only include last_received_event when reconnecting
-        if (isReconnecting) {
+        // RUSH TO HEALTHY: Only include last_received_event when reconnecting (has persisted sync and lastReceivedId)
+        if (shouldIncludeLastReceived) {
             queryParams.add("last_received_event=$lastReceivedId")
-            if (BuildConfig.DEBUG) Log.d("NetworkUtils", "Reconnecting with run_id: $actualRunId, last_received_event: $lastReceivedId, compression: $compressionEnabled")
+            Log.i("NetworkUtils", "Reconnecting with run_id: $actualRunId, last_received_event: $lastReceivedId, compression: $compressionEnabled")
         } else {
-            if (BuildConfig.DEBUG) Log.d("NetworkUtils", "First connection with run_id: $actualRunId (no last_received_event), compression: $compressionEnabled")
+            if (BuildConfig.DEBUG) {
+                Log.d("NetworkUtils", "First connection with run_id: $actualRunId (no last_received_event - hasPersistedSync=${appViewModel.shouldIncludeLastReceivedId()}, lastReceivedId=$lastReceivedId), compression: $compressionEnabled")
+            }
         }
     } else {
         if (BuildConfig.DEBUG) Log.d("NetworkUtils", "First connection to websocket (no run_id yet), compression: $compressionEnabled")
@@ -326,8 +335,9 @@ fun connectToWebsocket(
             appViewModel.setWebSocket(webSocket)
             if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: connectToWebsocket using AppViewModel instance: $appViewModel")
             
-            // Reset reconnection tracking on successful connection
-            appViewModel.resetReconnectionState()
+            // DO NOT reset reconnection state here - wait for init_complete
+            // resetReconnectionState() will be called after init_complete arrives
+            // This preserves lastReceivedSyncId for future reconnections
         }
         
         override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
@@ -400,6 +410,9 @@ fun connectToWebsocket(
                         }
                     }
                     "init_complete" -> {
+                        // Mark connection as healthy in WebSocketService
+                        WebSocketService.onInitCompleteReceived()
+                        
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                             for (viewModel in WebSocketService.getRegisteredViewModels()) {
@@ -541,6 +554,9 @@ fun connectToWebsocket(
                                     }
                                 }
                                 "init_complete" -> {
+                                    // Mark connection as healthy in WebSocketService
+                                    WebSocketService.onInitCompleteReceived()
+                                    
                                     // PHASE 4: Distribute to all registered ViewModels
                                     WebSocketService.getServiceScope().launch(Dispatchers.Main) {
                                         if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: Calling onInitComplete on main thread")

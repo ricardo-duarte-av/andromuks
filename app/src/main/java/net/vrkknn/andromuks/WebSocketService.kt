@@ -52,6 +52,9 @@ class WebSocketService : Service() {
         private const val PONG_TIMEOUT_MS = 1_000L // 1 second - "rush to healthy"
         private const val PING_INTERVAL_MS = 15_000L // 15 seconds normal interval
         private const val CONSECUTIVE_FAILURES_TO_DROP = 3 // Drop WebSocket after 3 consecutive ping failures
+        private const val INIT_COMPLETE_TIMEOUT_MS = 15_000L // 15 seconds to wait for init_complete
+        private const val INIT_COMPLETE_RETRY_BASE_MS = 2_000L // 2 seconds initial retry delay
+        private const val INIT_COMPLETE_RETRY_MAX_MS = 64_000L // 64 seconds max retry delay
         private val TOGGLE_STACK_DEPTH = 6
         private val toggleCounter = AtomicLong(0)
         
@@ -522,10 +525,10 @@ class WebSocketService : Service() {
             
             serviceInstance.connectionState = ConnectionState.CONNECTING
             serviceInstance.webSocket = webSocket
-            serviceInstance.connectionState = ConnectionState.CONNECTED
+            // DO NOT mark as CONNECTED yet - wait for init_complete
             // Track connection start time for duration display
             serviceInstance.connectionStartTime = System.currentTimeMillis()
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Connection state set to CONNECTED")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Connection state set to CONNECTING (waiting for init_complete)")
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket reference set: ${webSocket != null}")
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Connection start time recorded: ${serviceInstance.connectionStartTime}")
             serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
@@ -539,16 +542,17 @@ class WebSocketService : Service() {
             serviceInstance.currentNetworkType = actualNetworkType
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network type set to: $actualNetworkType")
             
-            // Don't start ping loop yet - wait for first sync_complete to get lastReceivedSyncId
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket connected, waiting for sync_complete before starting ping loop")
+            // Start timeout for init_complete - connection is only healthy after init_complete arrives
+            serviceInstance.waitingForInitComplete = true
+            serviceInstance.startInitCompleteTimeout()
             
-            // Log activity: WebSocket connected
-            logActivity("WebSocket Connected", actualNetworkType.name)
+            // Log activity: WebSocket connecting (not connected yet)
+            logActivity("WebSocket Connecting - Waiting for init_complete", actualNetworkType.name)
             
-            // Update notification with connection status
-            updateConnectionStatus(true, null, serviceInstance.lastSyncTimestamp)
+            // Update notification with connection status (still connecting)
+            updateConnectionStatus(false, null, serviceInstance.lastSyncTimestamp)
             
-            android.util.Log.i("WebSocketService", "WebSocket connection established in service")
+            android.util.Log.i("WebSocketService", "WebSocket connection opened - waiting for init_complete")
             logPingStatus()
         }
         
@@ -585,6 +589,11 @@ class WebSocketService : Service() {
             // Cancel any pending pong timeouts (ping loop keeps running)
             serviceInstance.pongTimeoutJob?.cancel()
             serviceInstance.pongTimeoutJob = null
+            
+            // Cancel init_complete timeout if active
+            serviceInstance.initCompleteTimeoutJob?.cancel()
+            serviceInstance.initCompleteTimeoutJob = null
+            serviceInstance.waitingForInitComplete = false
             
             // Reset connection health tracking
             serviceInstance.lastKnownLagMs = null
@@ -706,6 +715,7 @@ class WebSocketService : Service() {
             // Cancel all jobs
             serviceInstance.pingJob?.cancel()
             serviceInstance.pongTimeoutJob?.cancel()
+            serviceInstance.initCompleteTimeoutJob?.cancel()
             serviceInstance.reconnectionJob?.cancel()
             serviceInstance.stateCorruptionJob?.cancel()
             
@@ -844,8 +854,42 @@ class WebSocketService : Service() {
             serviceInstance.reconnectionJob?.cancel()
             serviceInstance.reconnectionJob = null
             serviceInstance.isReconnecting = false
+            // DO NOT reset connectionState here - it's set when init_complete arrives
+            // DO NOT clear lastReceivedSyncId - it's needed for future reconnections
+            serviceInstance.initCompleteRetryCount = 0 // Reset retry count on successful connection
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Reset reconnection state (reconnection job cancelled, retry count reset)")
+        }
+        
+        /**
+         * Handle init_complete received - mark connection as healthy
+         */
+        fun onInitCompleteReceived() {
+            val serviceInstance = instance ?: return
+            
+            // Cancel timeout if still waiting
+            serviceInstance.initCompleteTimeoutJob?.cancel()
+            serviceInstance.initCompleteTimeoutJob = null
+            
+            if (!serviceInstance.waitingForInitComplete) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Init complete received but not waiting - ignoring")
+                return
+            }
+            
+            serviceInstance.waitingForInitComplete = false
+            
+            // Reset retry count on successful init_complete
+            serviceInstance.initCompleteRetryCount = 0
+            
+            // Now mark as CONNECTED - connection is healthy
             serviceInstance.connectionState = ConnectionState.CONNECTED
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Reset reconnection state (successful connection)")
+            android.util.Log.i("WebSocketService", "Init complete received - connection marked as CONNECTED")
+            logActivity("Init Complete Received - Connection Healthy", serviceInstance.currentNetworkType.name)
+            
+            // Update notification
+            updateConnectionStatus(true, null, serviceInstance.lastSyncTimestamp)
+            
+            // Clear any failure notifications
+            serviceInstance.clearInitCompleteFailureNotification()
         }
         
         /**
@@ -984,9 +1028,12 @@ class WebSocketService : Service() {
     // Instance variables for WebSocket state management
     private var pingJob: Job? = null
     private var pongTimeoutJob: Job? = null
+    private var initCompleteTimeoutJob: Job? = null // Timeout waiting for init_complete
     private var lastPingRequestId: Int = 0
     private var lastPingTimestamp: Long = 0
     private var isAppVisible = false
+    private var initCompleteRetryCount: Int = 0 // Track retry count for exponential backoff
+    private var waitingForInitComplete: Boolean = false // Track if we're waiting for init_complete
     
     // Notification state cache for idempotent updates
     private var lastNotificationText: String? = null
@@ -1286,6 +1333,101 @@ class WebSocketService : Service() {
     }
     
     // RUSH TO HEALTHY: Removed network metrics - ping/pong failures are the only metric we need
+    
+    /**
+     * Start timeout for init_complete after WebSocket opens
+     * If init_complete doesn't arrive within timeout, drop connection and retry with exponential backoff
+     */
+    private fun startInitCompleteTimeout() {
+        initCompleteTimeoutJob?.cancel()
+        initCompleteTimeoutJob = serviceScope.launch {
+            delay(INIT_COMPLETE_TIMEOUT_MS)
+            
+            // Check if we're still waiting for init_complete
+            if (!waitingForInitComplete) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Init complete timeout expired but already received - ignoring")
+                return@launch
+            }
+            
+            // Check if connection is still active
+            if (connectionState != ConnectionState.CONNECTING && connectionState != ConnectionState.CONNECTED) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Init complete timeout expired but connection not active - ignoring")
+                return@launch
+            }
+            
+            android.util.Log.w("WebSocketService", "Init complete timeout expired after ${INIT_COMPLETE_TIMEOUT_MS}ms - connection failed")
+            logActivity("Init Complete Timeout - Connection Failed", currentNetworkType.name)
+            
+            // Show notification about connection failure
+            showInitCompleteFailureNotification()
+            
+            // Drop the connection
+            clearWebSocket("Init complete timeout - connection failed")
+            
+            // Calculate exponential backoff delay (2s, 4s, 8s, 16s, 32s, 64s max)
+            val delayMs = minOf(
+                INIT_COMPLETE_RETRY_BASE_MS * (1 shl initCompleteRetryCount),
+                INIT_COMPLETE_RETRY_MAX_MS
+            )
+            initCompleteRetryCount++
+            
+            android.util.Log.w("WebSocketService", "Retrying connection after ${delayMs}ms (retry count: $initCompleteRetryCount)")
+            logActivity("Retrying Connection - Wait ${delayMs}ms (Retry $initCompleteRetryCount)", currentNetworkType.name)
+            
+            // Wait for backoff delay
+            delay(delayMs)
+            
+            // Retry connection
+            if (isActive) {
+                reconnectionCallback?.invoke("Init complete timeout - retrying")
+            }
+        }
+    }
+    
+    
+    /**
+     * Show notification when init_complete fails
+     */
+    private fun showInitCompleteFailureNotification() {
+        val serviceInstance = instance ?: return
+        try {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            
+            val intent = Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+            
+            val pendingIntent = PendingIntent.getActivity(
+                this, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+                .setContentTitle("WebSocket Connection Issue")
+                .setContentText("Retrying connection...")
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentIntent(pendingIntent)
+                .setAutoCancel(true)
+                .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .build()
+            
+            notificationManager.notify(NOTIFICATION_ID + 1, notification)
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to show init_complete failure notification", e)
+        }
+    }
+    
+    /**
+     * Clear init_complete failure notification
+     */
+    private fun clearInitCompleteFailureNotification() {
+        try {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.cancel(NOTIFICATION_ID + 1)
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to clear init_complete failure notification", e)
+        }
+    }
         
 
     
@@ -1437,6 +1579,7 @@ class WebSocketService : Service() {
             // Cancel all coroutine jobs
             pingJob?.cancel()
             pongTimeoutJob?.cancel()
+            initCompleteTimeoutJob?.cancel()
             reconnectionJob?.cancel()
             stateCorruptionJob?.cancel()
             

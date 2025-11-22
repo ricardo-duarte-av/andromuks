@@ -3950,6 +3950,11 @@ class AppViewModel : ViewModel() {
     
     fun onInitComplete() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onInitComplete called - setting spacesLoaded = true")
+        
+        // Reset reconnection state now that init_complete has arrived
+        // This is safe to call now because connection is confirmed healthy
+        resetReconnectionState()
+        
         spacesLoaded = true
         
         // Now that all rooms are loaded, populate space edges
