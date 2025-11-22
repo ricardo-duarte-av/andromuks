@@ -4856,10 +4856,93 @@ class AppViewModel : ViewModel() {
         val timestamp: Long,
         val event: String,
         val networkType: String? = null
-    )
+    ) {
+        fun toJson(): org.json.JSONObject {
+            val json = org.json.JSONObject()
+            json.put("timestamp", timestamp)
+            json.put("event", event)
+            networkType?.let { json.put("networkType", it) }
+            return json
+        }
+        
+        companion object {
+            fun fromJson(json: org.json.JSONObject): ActivityLogEntry {
+                return ActivityLogEntry(
+                    timestamp = json.getLong("timestamp"),
+                    event = json.getString("event"),
+                    networkType = json.optString("networkType").takeIf { it.isNotEmpty() }
+                )
+            }
+        }
+    }
     
     private val activityLog = mutableListOf<ActivityLogEntry>()
     private val maxLogEntries = 100 // Keep last 100 entries
+    
+    /**
+     * Load activity log from SharedPreferences
+     */
+    private fun loadActivityLogFromStorage(context: android.content.Context? = null) {
+        val ctx = context ?: appContext
+        ctx?.let { ctx ->
+            try {
+                val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                val logJson = prefs.getString("activity_log", null)
+                
+                if (logJson != null) {
+                    val logArray = org.json.JSONArray(logJson)
+                    activityLog.clear()
+                    
+                    for (i in 0 until logArray.length()) {
+                        val entryJson = logArray.getJSONObject(i)
+                        activityLog.add(ActivityLogEntry.fromJson(entryJson))
+                    }
+                    
+                    // Keep only the last maxLogEntries entries
+                    if (activityLog.size > maxLogEntries) {
+                        val entriesToKeep = activityLog.takeLast(maxLogEntries)
+                        activityLog.clear()
+                        activityLog.addAll(entriesToKeep)
+                    }
+                    
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${activityLog.size} activity log entries from storage")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to load activity log from storage", e)
+            }
+        }
+    }
+    
+    /**
+     * Save activity log to SharedPreferences
+     */
+    private fun saveActivityLogToStorage() {
+        appContext?.let { context ->
+            try {
+                val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+                val logArray = org.json.JSONArray()
+                
+                // Keep only the last maxLogEntries entries
+                val entriesToSave = if (activityLog.size > maxLogEntries) {
+                    activityLog.takeLast(maxLogEntries)
+                } else {
+                    activityLog
+                }
+                
+                entriesToSave.forEach { entry ->
+                    logArray.put(entry.toJson())
+                }
+                
+                prefs.edit()
+                    .putString("activity_log", logArray.toString())
+                    .apply()
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved ${entriesToSave.size} activity log entries to storage")
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to save activity log to storage", e)
+            }
+        }
+    }
     
     /**
      * Log an activity event (app started, websocket connected, disconnected, etc.)
@@ -4876,6 +4959,9 @@ class AppViewModel : ViewModel() {
         if (activityLog.size > maxLogEntries) {
             activityLog.removeAt(0)
         }
+        
+        // Persist to storage
+        saveActivityLogToStorage()
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Logged activity - $event")
     }
@@ -5330,6 +5416,9 @@ class AppViewModel : ViewModel() {
      */
     fun loadStateFromStorage(context: android.content.Context): Boolean {
         try {
+            // Load activity log from storage first
+            loadActivityLogFromStorage(context)
+            
             // Initialize bootstrap loader
             if (bootstrapLoader == null) {
                 bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
@@ -12538,7 +12627,8 @@ class AppViewModel : ViewModel() {
      * MEMORY MANAGEMENT: Initialize periodic cleanup to prevent memory leaks
      */
     init {
-        // Log app start
+        // Log app start (will be persisted when appContext is available)
+        // Note: Activity log will be loaded when loadStateFromStorage is called from AuthCheck
         logActivity("App Started")
         
         // Start periodic cleanup job
