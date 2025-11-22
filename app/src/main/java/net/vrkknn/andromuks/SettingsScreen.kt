@@ -695,6 +695,16 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
                     description = "Coil disk cache",
                     onClick = { navController.navigate("cached_media/disk") }
                 )
+                
+                HorizontalDivider()
+                
+                // Bridged Rooms
+                CacheStatItem(
+                    label = "Bridged Rooms",
+                    value = cacheStats!!["bridged_rooms_count"] ?: "0 bridged rooms",
+                    description = "Rooms with bridge information stored in database",
+                    onClick = { navController.navigate("bridged_rooms") }
+                )
             }
         }
     }

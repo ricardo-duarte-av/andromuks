@@ -270,14 +270,27 @@ class BootstrapLoader(private val context: Context) {
         try {
             val allStates = roomStateDao.getAllRoomStates()
             val bridgeInfoMap = mutableMapOf<String, String>()
+            var emptyStringCount = 0
+            var nullCount = 0
+            
             for (state in allStates) {
                 // BUG FIX #3: Empty string means "checked, no bridge" - still include it but as checked
                 // null means "not checked yet"
-                if (state.bridgeInfoJson != null && state.bridgeInfoJson.isNotBlank()) {
-                    bridgeInfoMap[state.roomId] = state.bridgeInfoJson
+                when {
+                    state.bridgeInfoJson == null -> nullCount++
+                    state.bridgeInfoJson.isBlank() -> {
+                        emptyStringCount++
+                    }
+                    else -> {
+                        bridgeInfoMap[state.roomId] = state.bridgeInfoJson
+                    }
                 }
             }
-            if (BuildConfig.DEBUG) Log.d(TAG, "Loaded ${bridgeInfoMap.size} bridge info entries from database (${allStates.count { it.bridgeInfoJson != null }} total checked)")
+            val totalChecked = allStates.count { it.bridgeInfoJson != null }
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "BootstrapLoader: Loaded ${bridgeInfoMap.size} bridge info entries from database")
+                Log.d(TAG, "BootstrapLoader: Bridge info breakdown - ${bridgeInfoMap.size} with JSON, $emptyStringCount empty (checked/no bridge), $nullCount null (not checked), $totalChecked total checked")
+            }
             bridgeInfoMap
         } catch (e: Exception) {
             Log.e(TAG, "Error loading bridge info from database: ${e.message}", e)
