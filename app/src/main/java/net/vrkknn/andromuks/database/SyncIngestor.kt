@@ -154,13 +154,17 @@ class SyncIngestor(private val context: Context) {
      * @param requestId The request_id from the sync_complete (used as last_received_id)
      * @param runId The current run_id (must match stored run_id or data will be cleared)
      * @param isAppVisible Whether the app is currently visible (affects processing optimizations)
+     * @return Set of room IDs that had events persisted (for notifying timeline screens)
      */
     suspend fun ingestSyncComplete(
         syncJson: JSONObject,
         requestId: Int,
         runId: String,
         isAppVisible: Boolean = true
-    ) = withContext(Dispatchers.IO) {
+    ): Set<String> = withContext(Dispatchers.IO) {
+        // Track which rooms had events persisted (for notifying timeline screens)
+        val roomsWithEvents = mutableSetOf<String>()
+        
         // Check run_id first - this is critical!
         val runIdChanged = checkAndHandleRunIdChange(runId)
         if (runIdChanged) {
@@ -169,7 +173,7 @@ class SyncIngestor(private val context: Context) {
         
         val data = syncJson.optJSONObject("data") ?: run {
             Log.w(TAG, "No 'data' field in sync_complete")
-            return@withContext
+            return@withContext emptySet<String>()
         }
         
         // Extract "since" token (sync token from server)
@@ -321,7 +325,10 @@ class SyncIngestor(private val context: Context) {
                     for (pendingRoom in pendingRoomsToProcess) {
                         try {
                             val roomObj = JSONObject(pendingRoom.roomJson)
-                            processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
+                            val hadEvents = processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
+                            if (hadEvents) {
+                                roomsWithEvents.add(pendingRoom.roomId)
+                            }
                         } catch (e: Exception) {
                             Log.e(TAG, "SyncIngestor: Error processing pending room ${pendingRoom.roomId}: ${e.message}", e)
                         }
@@ -394,7 +401,10 @@ class SyncIngestor(private val context: Context) {
                         for (pendingRoom in pendingRooms) {
                             try {
                                 val roomObj = JSONObject(pendingRoom.roomJson)
-                                processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
+                                val hadEvents = processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
+                                if (hadEvents) {
+                                    roomsWithEvents.add(pendingRoom.roomId)
+                                }
                             } catch (e: Exception) {
                                 Log.e(TAG, "SyncIngestor: Error processing pending room ${pendingRoom.roomId}: ${e.message}", e)
                             }
@@ -404,7 +414,10 @@ class SyncIngestor(private val context: Context) {
                         for (roomId in roomsToProcess) {
                             if (roomId !in pendingRoomIds) { // Skip if already processed as pending
                                 val roomObj = roomsJson.optJSONObject(roomId) ?: continue
-                                processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible)
+                                val hadEvents = processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible)
+                                if (hadEvents) {
+                                    roomsWithEvents.add(roomId)
+                                }
                             }
                         }
                         
@@ -484,15 +497,21 @@ class SyncIngestor(private val context: Context) {
                     // It does NOT process all 588 rooms - only incremental changes from sync_complete
                     for (roomId in roomsToProcessNow) {
                         val roomObj = roomsJson.optJSONObject(roomId) ?: continue
-                        processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible)
+                        val hadEvents = processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible)
+                        if (hadEvents) {
+                            roomsWithEvents.add(roomId)
+                        }
                     }
                 }
             }
             
-            if (BuildConfig.DEBUG) Log.d(TAG, "Ingested sync_complete: $requestId, ${roomsToProcess.size} rooms, since=$since")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Ingested sync_complete: $requestId, ${roomsToProcess.size} rooms, since=$since, ${roomsWithEvents.size} rooms with events")
         } else {
             if (BuildConfig.DEBUG) Log.d(TAG, "Ingested sync_complete: $requestId, 0 rooms (no rooms object)")
         }
+        
+        // Return set of room IDs that had events persisted (for notifying timeline screens)
+        roomsWithEvents
     }
     
     /**
@@ -502,9 +521,11 @@ class SyncIngestor(private val context: Context) {
      * @param roomObj The room JSON object from sync
      * @param existingState Pre-loaded existing room state (null if new room)
      * @param isAppVisible Whether app is visible (affects summary processing optimization)
+     * @return true if events were persisted for this room, false otherwise
      */
-    private suspend fun processRoom(roomId: String, roomObj: JSONObject, existingState: RoomStateEntity? = null, isAppVisible: Boolean = true) {
+    private suspend fun processRoom(roomId: String, roomObj: JSONObject, existingState: RoomStateEntity? = null, isAppVisible: Boolean = true): Boolean {
         val existingTimelineRowCache = mutableMapOf<String, Long?>()
+        var hasPersistedEvents = false
         
         // 1. Process room state (meta)
         val meta = roomObj.optJSONObject("meta")
@@ -591,6 +612,7 @@ class SyncIngestor(private val context: Context) {
             
             if (events.isNotEmpty()) {
                 eventDao.upsertAll(events.map { it.entity })
+                hasPersistedEvents = true
                 events.forEach { candidate ->
                     logEventPersisted(
                         roomId = roomId,
@@ -641,6 +663,7 @@ class SyncIngestor(private val context: Context) {
             if (events.isNotEmpty()) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Persisting ${events.size} events from 'events' array for room $roomId (skipped $skippedCount)")
                 eventDao.upsertAll(events.map { it.entity })
+                hasPersistedEvents = true
                 events.forEach { candidate ->
                     logEventPersisted(
                         roomId = roomId,
@@ -823,6 +846,8 @@ class SyncIngestor(private val context: Context) {
             // Unread counts are still updated from meta (needed for notifications)
             if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping room summary update for $roomId (app backgrounded)")
         }
+        
+        return hasPersistedEvents
     }
     
     /**

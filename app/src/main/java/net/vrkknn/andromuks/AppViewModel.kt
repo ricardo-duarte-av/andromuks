@@ -3122,7 +3122,24 @@ class AppViewModel : ViewModel() {
 
                 try {
                     // Pass isAppVisible to SyncIngestor for battery optimizations
-                    syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId, isAppVisible)
+                    // Returns set of room IDs that had events persisted (for notifying timeline screens)
+                    val roomsWithEvents = syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId, isAppVisible) ?: emptySet()
+                    
+                    // CRITICAL: Refresh timeline from DB for current room if events were persisted
+                    // This ensures new events appear even if they weren't processed via processSyncEventsArray()
+                    // (which can happen if events are filtered during parsing or not in the sync JSON structure)
+                    // We only refresh for the current room to avoid unnecessary work
+                    if (currentRoomId.isNotEmpty() && currentRoomId in roomsWithEvents) {
+                        withContext(Dispatchers.Main) {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current room $currentRoomId had events persisted - refreshing timeline from DB to ensure they appear")
+                            // Use a slight delay to allow processParsedSyncResult() to complete first
+                            // This prevents race conditions where both try to update the timeline
+                            viewModelScope.launch {
+                                kotlinx.coroutines.delay(50) // Small delay to let processParsedSyncResult() finish
+                                refreshTimelineFromDatabase(currentRoomId)
+                            }
+                        }
+                    }
                     
                     if (requestId < 0) {
                         withContext(Dispatchers.Main) {
@@ -3525,23 +3542,11 @@ class AppViewModel : ViewModel() {
             // SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
             checkAndUpdateCurrentRoomTimelineOptimized(syncJson)
             
-            // FAILSAFE: Ensure currently open room timeline matches cached data
-            val openRoomId = currentRoomId
-            if (openRoomId.isNotEmpty()) {
-                val cachedEvents = RoomTimelineCache.getCachedEvents(openRoomId)
-                    ?: RoomTimelineCache.getCachedEventsForNotification(openRoomId)
-                if (cachedEvents != null && cachedEvents.isNotEmpty()) {
-                    val cachedLatest = cachedEvents.maxByOrNull { it.timestamp }?.eventId
-                    val timelineLatest = timelineEvents.maxByOrNull { it.timestamp }?.eventId
-                    if (cachedLatest != null && cachedLatest != timelineLatest) {
-                        android.util.Log.w("Andromuks", "AppViewModel: Timeline desync detected for $openRoomId (cached latest=$cachedLatest, timeline latest=$timelineLatest) - rebuilding from cache")
-                        processCachedEvents(openRoomId, cachedEvents, openingFromNotification = false, skipNetworkRequests = true)
-                        lastTimelineStateHash = generateTimelineStateHash(timelineEvents)
-                        needsTimelineUpdate = true
-                        scheduleUIUpdate("timeline")
-                    }
-                }
-            }
+            // DISABLED: Timeline desync check removed - we now use DB as source of truth
+            // The cache is no longer updated from sync_complete (to save battery), so it's often stale.
+            // Rebuilding from stale cache was overwriting newer events that were just added.
+            // Instead, we rely on refreshTimelineFromDatabase() to load fresh events from DB when needed.
+            // This ensures we always show the latest events without conflicts from stale cache.
             
             // SYNC OPTIMIZATION: Schedule member update if member cache actually changed
             if (memberStateChanged) {
@@ -6222,6 +6227,100 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    /**
+     * Refresh timeline from database when new events arrive via sync_complete
+     * This ensures timeline screens see new events even when room is already open
+     * 
+     * @param roomId The room ID to refresh
+     */
+    private fun refreshTimelineFromDatabase(roomId: String) {
+        // Only refresh if this is the current room and we have bootstrap loader
+        if (currentRoomId != roomId || appContext == null || bootstrapLoader == null) {
+            return
+        }
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshing timeline from database for open room: $roomId")
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Load latest events from database (events were just persisted by SyncIngestor)
+                // CRITICAL: Load more events (up to MAX_TIMELINE_EVENTS_PER_ROOM) to ensure we capture all recent events
+                // The previous limit of 200 was too restrictive and could miss newer events in active rooms
+                val dbEvents = bootstrapLoader!!.loadRoomEvents(roomId, MAX_TIMELINE_EVENTS_PER_ROOM)
+                
+                if (dbEvents.isNotEmpty()) {
+                    val dbLatest = dbEvents.maxByOrNull { it.timestamp }
+                    val currentLatest = timelineEvents.maxByOrNull { it.timestamp }
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshing ${dbEvents.size} events from database for $roomId (DB latest: ${dbLatest?.eventId}@${dbLatest?.timestamp}, current latest: ${currentLatest?.eventId}@${currentLatest?.timestamp})")
+                    
+                    // CRITICAL FIX: Merge new events into existing eventChainMap instead of clearing
+                    // This prevents race conditions where background paginate responses overwrite newer events
+                    val eventsBeforeMerge = eventChainMap.size
+                    var newEventsAdded = 0
+                    var existingEventsUpdated = 0
+                    
+                    for (event in dbEvents) {
+                        val isEditEvent = isEditEvent(event)
+                        
+                        if (isEditEvent) {
+                            // Update edit events map (will overwrite if exists)
+                            editEventsMap[event.eventId] = event
+                        } else {
+                            // Merge into eventChainMap - only add if not already present or if newer
+                            val existingEntry = eventChainMap[event.eventId]
+                            if (existingEntry == null) {
+                                eventChainMap[event.eventId] = EventChainEntry(
+                                    eventId = event.eventId,
+                                    ourBubble = event,
+                                    replacedBy = null,
+                                    originalTimestamp = event.timestamp
+                                )
+                                newEventsAdded++
+                            } else {
+                                // Event already exists - check if this is a newer version
+                                if (event.timestamp > existingEntry.originalTimestamp) {
+                                    // Update with newer event data, preserving edit chain
+                                    eventChainMap[event.eventId] = EventChainEntry(
+                                        eventId = event.eventId,
+                                        ourBubble = event,
+                                        replacedBy = existingEntry.replacedBy, // Preserve edit chain
+                                        originalTimestamp = event.timestamp
+                                    )
+                                    existingEventsUpdated++
+                                }
+                            }
+                        }
+                    }
+                    
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Merged DB events - before: $eventsBeforeMerge, new: $newEventsAdded, updated: $existingEventsUpdated, after: ${eventChainMap.size}")
+                    
+                    // Only rebuild timeline if we actually added new events
+                    // This prevents unnecessary rebuilds that cause flickering
+                    if (newEventsAdded > 0 || existingEventsUpdated > 0) {
+                        // Process edit relationships to ensure chains are up to date
+                        processEditRelationships()
+                        
+                        // Process versioned messages
+                        processVersionedMessages(dbEvents)
+                        
+                        // Rebuild timeline from chain (includes all events, both existing and newly merged)
+                        val timelineSizeBefore = timelineEvents.size
+                        buildTimelineFromChain()
+                        val timelineSizeAfter = timelineEvents.size
+                        
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Timeline rebuilt after merge - before: $timelineSizeBefore, after: $timelineSizeAfter (latest: ${timelineEvents.maxByOrNull { it.timestamp }?.eventId}@${timelineEvents.maxByOrNull { it.timestamp }?.timestamp})")
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No new events to add, skipping timeline rebuild (all ${dbEvents.size} events already in timeline)")
+                    }
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in database for $roomId during refresh")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Error refreshing timeline from database for $roomId: ${e.message}", e)
+            }
+        }
+    }
+    
     fun requestRoomTimeline(roomId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId")
         
@@ -8804,12 +8903,14 @@ class AppViewModel : ViewModel() {
                 }
                 
                 // Populate edit chain mapping for clean edit handling using helper function
-                buildEditChainsFromEvents(timelineList)
+                // CRITICAL FIX: For pagination, merge events instead of clearing to preserve newer events
+                val isPaginationRequest = paginateRequests.containsKey(requestId)
+                buildEditChainsFromEvents(timelineList, clearExisting = !isPaginationRequest)
                 
                 // Process edit relationships
                 processEditRelationships()
                 
-                if (paginateRequests.containsKey(requestId)) {
+                if (isPaginationRequest) {
                     // This is a pagination request - merge with existing timeline
                     handlePaginationMerge(roomId, timelineList, requestId)
                     paginateRequests.remove(requestId)
@@ -9863,7 +9964,10 @@ class AppViewModel : ViewModel() {
         val unhandled = events.size - addedToTimeline - memberStateUpdates - reactions
         
         // Update room state from new timeline events (name/avatar) if present
-        updateRoomStateFromTimelineEvents(currentRoomId, events)
+        // CRITICAL: Only update room state if this is the currently open room
+        if (roomId == currentRoomId) {
+            updateRoomStateFromTimelineEvents(currentRoomId, events)
+        }
         
         // Only process edit relationships for new edit events
         val newEditEvents = events.filter { event ->
@@ -9879,29 +9983,24 @@ class AppViewModel : ViewModel() {
             processNewEditRelationships(newEditEvents)
         }
         
-        // Build timeline from chain
-        val timelineCountBefore = timelineEvents.size
-        buildTimelineFromChain()
-        val timelineCountAfter = timelineEvents.size
-
-        // FAILSAFE: If the rebuilt timeline is significantly smaller than the cached snapshot,
-        // fall back to rebuilding entirely from the cache to prevent data loss.
-        val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
-        if (cachedEventCount >= 50 && timelineEvents.size + 5 < cachedEventCount) {
-            android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: Timeline/cache mismatch detected for $roomId (timeline=${timelineEvents.size}, cache=$cachedEventCount) - rebuilding from cache"
-            )
-            val cachedSnapshot = RoomTimelineCache.getCachedEvents(roomId)
-                ?: RoomTimelineCache.getCachedEventsForNotification(roomId)
-            if (cachedSnapshot != null && cachedSnapshot.size > timelineEvents.size) {
-                processCachedEvents(
-                    roomId = roomId,
-                    cachedEvents = cachedSnapshot,
-                    openingFromNotification = false,
-                    skipNetworkRequests = true
-                )
-            } 
+        // CRITICAL FIX: Only rebuild timeline if this is the currently open room
+        // Otherwise we're rebuilding the timeline for the wrong room, causing flickering
+        if (roomId == currentRoomId) {
+            // Build timeline from chain
+            val timelineCountBefore = timelineEvents.size
+            buildTimelineFromChain()
+            val timelineCountAfter = timelineEvents.size
+            
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Rebuilt timeline after processing sync events for current room $roomId: before=$timelineCountBefore, after=$timelineCountAfter")
+            
+            // DISABLED: Cache mismatch check removed - we now use DB as source of truth
+            // The cache is no longer updated from sync_complete (to save battery), so it's often stale.
+            // Rebuilding from stale cache was overwriting newer events that were just added via processSyncEventsArray().
+            // The cache mismatch check would incorrectly think the timeline is missing events and rebuild from stale cache,
+            // causing events to disappear. Instead, we rely on refreshTimelineFromDatabase() to load fresh events from DB.
+            // This ensures we always show the latest events without conflicts from stale cache.
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping timeline rebuild for room $roomId (not currently open, currentRoomId=$currentRoomId)")
         }
         
         // Mark room as read for the newest event only if room is actually visible (not just a minimized bubble)
@@ -11998,23 +12097,38 @@ class AppViewModel : ViewModel() {
     
     /**
      * Build edit chains from events
+     * @param clearExisting If true, clears existing eventChainMap before adding new events.
+     *                      If false, merges new events with existing ones (for pagination).
      */
-    private fun buildEditChainsFromEvents(timelineList: List<TimelineEvent>) {
-        eventChainMap.clear()
-        editEventsMap.clear()
+    private fun buildEditChainsFromEvents(timelineList: List<TimelineEvent>, clearExisting: Boolean = true) {
+        if (clearExisting) {
+            eventChainMap.clear()
+            editEventsMap.clear()
+        }
         
         for (event in timelineList) {
-            if (isEditEvent(event)) {
+            val isEditEvt = isEditEvent(event)
+            
+            if (isEditEvt) {
+                // Always update edit events map (edits can replace older edits)
                 editEventsMap[event.eventId] = event
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added edit event ${event.eventId} to edit events map")
             } else {
-                eventChainMap[event.eventId] = EventChainEntry(
-                    eventId = event.eventId,
-                    ourBubble = event,
-                    replacedBy = null,
-                    originalTimestamp = event.timestamp
-                )
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added regular event ${event.eventId} to chain mapping")
+                // Merge: only add if not present, or if this is a newer version
+                val existingEntry = eventChainMap[event.eventId]
+                if (existingEntry == null || event.timestamp > existingEntry.originalTimestamp) {
+                    eventChainMap[event.eventId] = EventChainEntry(
+                        eventId = event.eventId,
+                        ourBubble = event,
+                        replacedBy = existingEntry?.replacedBy, // Preserve edit chain if merging
+                        originalTimestamp = event.timestamp
+                    )
+                    if (BuildConfig.DEBUG && existingEntry != null) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Updated existing event ${event.eventId} in chain mapping (newer timestamp)")
+                    } else if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Added regular event ${event.eventId} to chain mapping")
+                    }
+                }
             }
         }
     }
