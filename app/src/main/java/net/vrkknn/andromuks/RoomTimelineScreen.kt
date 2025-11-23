@@ -923,7 +923,7 @@ fun RoomTimelineScreen(
 
     // Monitor scroll position to detect if user is at bottom or has detached
     // Also trigger automatic pagination when near the top
-    LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) {
+    LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size, timelineItems.size) {
         // Don't trigger pagination until initial scroll to bottom is complete
         if (!hasInitialSnapCompleted || !hasLoadedInitialBatch) {
             return@LaunchedEffect
@@ -952,6 +952,17 @@ fun RoomTimelineScreen(
                 // User scrolled up from bottom, detach
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: User scrolled up, detaching from bottom")
                 isAttachedToBottom = false
+            }
+            
+            // CRITICAL FIX: If we're attached to bottom but new items appeared below viewport, auto-scroll
+            if (isAttachedToBottom && !isAtBottom && lastTimelineItemIndex >= 0) {
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Attached to bottom but not at bottom (lastVisible=$lastVisibleIndex, lastItem=$lastTimelineItemIndex). Auto-scrolling to show new items."
+                )
+                coroutineScope.launch {
+                    listState.animateScrollToItem(lastTimelineItemIndex)
+                }
             }
             
             val firstVisibleIndex = listState.firstVisibleItemIndex
