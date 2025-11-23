@@ -140,6 +140,86 @@ fun RoomListScreen(
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     
+    // CRITICAL FIX #1: Check if profile is loaded before showing UI
+    val me = appViewModel.currentUserProfile
+    val profileLoaded = me != null || appViewModel.currentUserId.isBlank()
+    
+    // CRITICAL FIX #2: Wait for pending items to be processed before showing RoomListScreen
+    // This ensures database has the latest messages when we query for room summaries
+    // Use a local state that tracks both the flag and a timeout override
+    var shouldBlockForPending by remember { mutableStateOf(appViewModel.isProcessingPendingItems) }
+    var processingStartTime by remember { mutableStateOf<Long?>(null) }
+    
+    // Observe changes to isProcessingPendingItems from AppViewModel
+    LaunchedEffect(appViewModel.isProcessingPendingItems) {
+        val currentlyProcessing = appViewModel.isProcessingPendingItems
+        shouldBlockForPending = currentlyProcessing
+        if (currentlyProcessing) {
+            processingStartTime = System.currentTimeMillis()
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "RoomListScreen: Pending processing started")
+            }
+        } else {
+            processingStartTime = null
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "RoomListScreen: Pending processing completed")
+            }
+        }
+    }
+    
+    // CRITICAL: Add timeout fallback - don't block forever if something goes wrong
+    // If processing takes more than 3 seconds, allow UI to show anyway (safety mechanism)
+    LaunchedEffect(shouldBlockForPending, processingStartTime) {
+        if (shouldBlockForPending && processingStartTime != null) {
+            kotlinx.coroutines.delay(3000) // 3 second timeout
+            val elapsed = System.currentTimeMillis() - (processingStartTime ?: 0L)
+            if (appViewModel.isProcessingPendingItems && elapsed >= 3000) {
+                android.util.Log.w("Andromuks", "RoomListScreen: Pending items processing timeout (3s) - allowing UI to show anyway")
+                shouldBlockForPending = false // Override to allow UI to show
+            }
+        }
+    }
+    
+    // Show loading screen if profile is missing or pending items are being processed (unless timeout expired)
+    if (!profileLoaded || shouldBlockForPending) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                if (!profileLoaded) {
+                    Text(
+                        text = "Loading profile...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                if (shouldBlockForPending) {
+                    if (profileLoaded) {
+                        Text(
+                            text = "Catching up on messages...",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    } else {
+                        Text(
+                            text = "Loading profile...",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
+    
     // PERFORMANCE: Only recompose when room list actually changes
     // Use derivedStateOf to prevent recomposition when counter increments but rooms are identical
     val roomListUpdateCounter = appViewModel.roomListUpdateCounter
@@ -225,7 +305,7 @@ fun RoomListScreen(
     
     // Always show the interface, even if rooms/spaces are empty
     var searchQuery by remember { mutableStateOf("") }
-    val me = appViewModel.currentUserProfile
+    // Note: me is already declared above in the loading check
     
     // State for showing RoomJoinerScreen for invites
     var showRoomJoiner by remember { mutableStateOf(false) }

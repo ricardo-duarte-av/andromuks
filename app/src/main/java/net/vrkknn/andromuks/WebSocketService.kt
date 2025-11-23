@@ -163,10 +163,10 @@ class WebSocketService : Service() {
                 while (isActive) {
                     val serviceInstance = instance ?: break
                     
-                    // RUSH TO HEALTHY: If we have consecutive failures, send ping immediately (don't wait)
+                    // RUSH TO HEALTHY: If we have consecutive failures, send ping with minimal delay (prevent storm)
                     val interval = if (serviceInstance.consecutivePingTimeouts > 0) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "RUSH TO HEALTHY: Sending ping immediately after failure (consecutive: ${serviceInstance.consecutivePingTimeouts})")
-                        0L // Send immediately
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "RUSH TO HEALTHY: Sending ping after failure (consecutive: ${serviceInstance.consecutivePingTimeouts})")
+                        100L // Small delay to prevent ping storm (100ms minimum)
                     } else {
                         PING_INTERVAL_MS // Normal interval
                     }
@@ -175,11 +175,13 @@ class WebSocketService : Service() {
                         delay(interval)
                     }
                     
-                    // Only send ping if connected and network is available
-                    if (serviceInstance.connectionState == ConnectionState.CONNECTED && serviceInstance.isCurrentlyConnected) {
+                    // Only send ping if connected, network is available, and no ping is already in flight
+                    if (serviceInstance.connectionState == ConnectionState.CONNECTED && 
+                        serviceInstance.isCurrentlyConnected && 
+                        !serviceInstance.pingInFlight) {
                         serviceInstance.sendPing()
                     } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop: skipping ping - connected: ${serviceInstance.connectionState == ConnectionState.CONNECTED}, network: ${serviceInstance.isCurrentlyConnected}")
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop: skipping ping - connected: ${serviceInstance.connectionState == ConnectionState.CONNECTED}, network: ${serviceInstance.isCurrentlyConnected}, pingInFlight: ${serviceInstance.pingInFlight}")
                     }
                 }
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Ping loop coroutine ended - isActive=$isActive")
@@ -459,9 +461,13 @@ class WebSocketService : Service() {
          */
         fun handlePong(requestId: Int) {
             val serviceInstance = instance ?: return
+            
+            // Accept pong if it matches the last ping request ID (most recent ping)
+            // This prevents processing stale pongs from previous connections
             if (requestId == serviceInstance.lastPingRequestId) {
                 serviceInstance.pongTimeoutJob?.cancel()
                 serviceInstance.pongTimeoutJob = null
+                serviceInstance.pingInFlight = false // Clear ping-in-flight flag
                 
                 val lagMs = System.currentTimeMillis() - serviceInstance.lastPingTimestamp
                 serviceInstance.lastKnownLagMs = lagMs
@@ -477,6 +483,15 @@ class WebSocketService : Service() {
                 
                 // Update notification with lag and last sync timestamp
                 updateConnectionStatus(true, lagMs, serviceInstance.lastSyncTimestamp)
+            } else {
+                // Pong for a different request ID - might be a stale pong, but still indicates connection is alive
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Pong received for non-matching requestId: $requestId (expected: ${serviceInstance.lastPingRequestId}) - connection is alive but pong is stale")
+                // Don't reset pingInFlight or update lag, but connection is clearly working
+                // Reset consecutive failures since we got a pong (connection is alive)
+                if (serviceInstance.consecutivePingTimeouts > 0) {
+                    android.util.Log.i("WebSocketService", "Stale pong received - connection is alive, resetting consecutive failures (was: ${serviceInstance.consecutivePingTimeouts})")
+                    serviceInstance.consecutivePingTimeouts = 0
+                }
             }
         }
         
@@ -562,6 +577,7 @@ class WebSocketService : Service() {
         fun clearWebSocket(reason: String = "Unknown") {
             traceToggle("clearWebSocket")
             val serviceInstance = instance ?: return
+            serviceInstance.pingInFlight = false // Reset ping-in-flight flag
             
             // Only log disconnection if we actually had a connection
             val wasConnected = serviceInstance.connectionState == ConnectionState.CONNECTED || serviceInstance.webSocket != null
@@ -1031,6 +1047,7 @@ class WebSocketService : Service() {
     private var initCompleteTimeoutJob: Job? = null // Timeout waiting for init_complete
     private var lastPingRequestId: Int = 0
     private var lastPingTimestamp: Long = 0
+    private var pingInFlight: Boolean = false // Guard to prevent concurrent pings
     private var isAppVisible = false
     private var initCompleteRetryCount: Int = 0 // Track retry count for exponential backoff
     private var waitingForInitComplete: Boolean = false // Track if we're waiting for init_complete
@@ -1230,9 +1247,16 @@ class WebSocketService : Service() {
             return
         }
         
+        // Guard: Don't send if ping is already in flight
+        if (pingInFlight) {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Skipping ping - ping already in flight")
+            return
+        }
+        
         val reqId = lastPingRequestId + 1
         lastPingRequestId = reqId
         lastPingTimestamp = System.currentTimeMillis()
+        pingInFlight = true // Mark ping as in flight
         
         val data = mapOf("last_received_id" to lastReceivedSyncId)
         
@@ -1259,9 +1283,11 @@ class WebSocketService : Service() {
                 startPongTimeout(reqId)
             } else {
                 android.util.Log.w("WebSocketService", "Failed to send ping - WebSocket send returned false")
+                pingInFlight = false // Reset flag on failure
             }
         } catch (e: Exception) {
             android.util.Log.e("WebSocketService", "Failed to send ping", e)
+            pingInFlight = false // Reset flag on exception
         }
     }
     
@@ -1281,6 +1307,9 @@ class WebSocketService : Service() {
             }
             
             android.util.Log.w("WebSocketService", "Pong timeout for ping $pingRequestId (${PONG_TIMEOUT_MS}ms)")
+            
+            // Clear ping-in-flight flag since we timed out
+            pingInFlight = false
             
             // Increment consecutive failure counter
             consecutivePingTimeouts++

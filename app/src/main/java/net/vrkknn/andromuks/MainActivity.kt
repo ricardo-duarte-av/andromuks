@@ -110,6 +110,14 @@ class MainActivity : ComponentActivity() {
                             // Load app settings from SharedPreferences
                             appViewModel.loadSettings(this)
                             
+                            // CRITICAL FIX #2: Check for pending items on app startup and process them
+                            // NOTE: This is called AFTER loadSettings to ensure syncIngestor can be initialized
+                            // This ensures RoomListScreen shows up-to-date data when app opens
+                            // Use a small delay to ensure initialization is complete
+                            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                                appViewModel.checkAndProcessPendingItemsOnStartup(this)
+                            }, 500)
+                            
                             // Schedule database maintenance (daily at 2 AM)
                             net.vrkknn.andromuks.database.DatabaseMaintenanceWorker.schedule(this)
                             

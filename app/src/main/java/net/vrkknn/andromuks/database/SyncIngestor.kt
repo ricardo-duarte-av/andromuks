@@ -1562,5 +1562,19 @@ class SyncIngestor(private val context: Context) {
             pendingReceipts.values.sumOf { it.size }
         }
     }
+    
+    /**
+     * Check if there are any pending rooms or receipts to process
+     * This is used to determine if RoomListScreen should wait before displaying
+     */
+    suspend fun hasPendingItems(): Boolean = withContext(Dispatchers.IO) {
+        val pendingRoomCount = pendingRoomDao.getPendingCount()
+        val pendingReceiptCount = getPendingReceiptsCount()
+        val hasPending = pendingRoomCount > 0 || pendingReceiptCount > 0
+        if (BuildConfig.DEBUG && hasPending) {
+            Log.d(TAG, "SyncIngestor: hasPendingItems = true (rooms: $pendingRoomCount, receipts: $pendingReceiptCount)")
+        }
+        hasPending
+    }
 }
 

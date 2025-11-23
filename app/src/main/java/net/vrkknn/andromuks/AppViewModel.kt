@@ -155,6 +155,10 @@ class AppViewModel : ViewModel() {
         private set
     var currentUserProfile by mutableStateOf<UserProfile?>(null)
         private set
+    
+    // State to track if pending items are being processed (prevents showing stale data in RoomListScreen)
+    var isProcessingPendingItems by mutableStateOf(false)
+        private set
 
     // Settings
     var showUnprocessedEvents by mutableStateOf(true)
@@ -3881,19 +3885,89 @@ class AppViewModel : ViewModel() {
         appInvisibleJob = null
         
         // BATTERY OPTIMIZATION: Rush process pending rooms and receipts that were deferred when backgrounded
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                syncIngestor?.rushProcessPendingItems()
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Error rushing pending items: ${e.message}", e)
-            }
-        }
+        // CRITICAL: Set processing flag to prevent RoomListScreen from showing stale data
+        processPendingItemsIfNeeded()
         
         // Refresh UI with current state (in case updates happened while app was invisible)
         refreshUIState()
         
         // CRITICAL FIX: Ensure current user profile is loaded when app becomes visible
         // This fixes issues when app starts from notification/shortcut and profile wasn't loaded yet
+        ensureCurrentUserProfileLoaded()
+        
+        // If a room is currently open, trigger timeline refresh to show new events from cache
+        if (currentRoomId.isNotEmpty()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room is open ($currentRoomId), triggering timeline refresh")
+            timelineRefreshTrigger++
+        }
+        
+        // WebSocket service maintains connection
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: App visible, refreshing UI with current state")
+    }
+    
+    /**
+     * Process pending items if any exist. This ensures RoomListScreen shows up-to-date data.
+     * Called when app becomes visible or on startup.
+     */
+    private fun processPendingItemsIfNeeded() {
+        // CRITICAL: Only process if syncIngestor is initialized
+        // Don't set flag to true if syncIngestor doesn't exist - no need to block UI
+        val syncIngestorInstance = syncIngestor ?: run {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: syncIngestor not initialized, skipping pending items check")
+            // Ensure flag is false if syncIngestor doesn't exist
+            isProcessingPendingItems = false
+            return
+        }
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // CRITICAL: Check if there are pending items FIRST before setting flag
+                // This prevents blocking UI when there are no pending items
+                // Add timeout to prevent hanging
+                val hasPending = try {
+                    withTimeout(2000) { // 2 second timeout for the check itself
+                        syncIngestorInstance.hasPendingItems()
+                    }
+                } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                    android.util.Log.w("Andromuks", "AppViewModel: hasPendingItems check timed out after 2s - assuming no pending items")
+                    false
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Error checking pending items: ${e.message}", e)
+                    false
+                }
+                
+                if (hasPending) {
+                    // Only set flag to true if there are actually pending items to process
+                    isProcessingPendingItems = true
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing pending items before showing RoomListScreen")
+                    
+                    try {
+                        syncIngestorInstance.rushProcessPendingItems()
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Finished processing pending items")
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Error processing pending items: ${e.message}", e)
+                    }
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending items to process - not blocking UI")
+                    // Don't set flag to true if no pending items - UI can show immediately
+                    isProcessingPendingItems = false
+                    return@launch
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Error rushing pending items: ${e.message}", e)
+            } finally {
+                // Clear processing flag after completion (or error) - CRITICAL: Always clear!
+                isProcessingPendingItems = false
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared isProcessingPendingItems flag (finally block)")
+            }
+        }
+    }
+    
+    /**
+     * Ensure current user profile is loaded. Tries cache first, then requests from server.
+     * Called when app becomes visible or on startup.
+     */
+    private fun ensureCurrentUserProfileLoaded() {
         if (currentUserProfile == null && currentUserId.isNotBlank() && appContext != null) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current user profile missing on visibility, attempting to load - userId: $currentUserId")
             // Try loading from cache first
@@ -3918,15 +3992,6 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requested current user profile from server on visibility")
             }
         }
-        
-        // If a room is currently open, trigger timeline refresh to show new events from cache
-        if (currentRoomId.isNotEmpty()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room is open ($currentRoomId), triggering timeline refresh")
-            timelineRefreshTrigger++
-        }
-        
-        // WebSocket service maintains connection
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: App visible, refreshing UI with current state")
     }
     
     /**
@@ -3982,6 +4047,19 @@ class AppViewModel : ViewModel() {
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No existing WebSocket to attach for $viewModelId")
         }
+    }
+    
+    /**
+     * Check for pending items on app startup and process them.
+     * Called from MainActivity.onCreate to ensure fresh data before showing RoomListScreen.
+     */
+    fun checkAndProcessPendingItemsOnStartup(context: Context) {
+        // Initialize syncIngestor if not already initialized
+        if (syncIngestor == null) {
+            syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
+        }
+        // Process pending items if any exist (async - won't block)
+        processPendingItemsIfNeeded()
     }
     
     /**
