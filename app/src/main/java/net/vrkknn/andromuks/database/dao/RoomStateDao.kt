@@ -17,6 +17,9 @@ interface RoomStateDao {
     @Query("SELECT * FROM room_state WHERE roomId = :roomId")
     suspend fun get(roomId: String): RoomStateEntity?
     
+    @Query("SELECT * FROM room_state WHERE roomId IN (:roomIds)")
+    suspend fun getRoomStatesByIds(roomIds: List<String>): List<RoomStateEntity>
+    
     @Query("SELECT * FROM room_state")
     suspend fun getAllRoomStates(): List<RoomStateEntity>
     

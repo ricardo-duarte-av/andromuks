@@ -141,8 +141,19 @@ object SpaceRoomParser {
     /**
      * Parses incremental sync updates and returns what changed.
      * Handles room updates, new rooms, and removed rooms.
+     * 
+     * @param syncJson The sync_complete JSON object
+     * @param memberCache Cache of room member profiles
+     * @param appViewModel AppViewModel instance (for accessing existing rooms and visibility state)
+     * @param existingRooms Map of existing room IDs to RoomItems (for change detection)
      */
-    fun parseSyncUpdate(syncJson: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): SyncUpdateResult {
+    fun parseSyncUpdate(
+        syncJson: JSONObject, 
+        memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, 
+        appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
+        existingRooms: Map<String, net.vrkknn.andromuks.RoomItem>? = null,
+        isAppVisible: Boolean = true
+    ): SyncUpdateResult {
         val data = syncJson.optJSONObject("data") ?: return SyncUpdateResult(emptyList(), emptyList(), emptyList())
         
         // Parse spaces from sync data (only if top_level_spaces is present)
@@ -174,29 +185,93 @@ object SpaceRoomParser {
         // Process updated/new rooms
         val roomsJson = data.optJSONObject("rooms")
         if (roomsJson != null) {
-            val roomKeys = roomsJson.keys()
-            while (roomKeys.hasNext()) {
-                val roomId = roomKeys.next()
+            // BATTERY OPTIMIZATION: When backgrounded, track which rooms actually changed
+            // Only parse rooms with meaningful changes (not just receipt updates)
+            val roomsToParse = if (isAppVisible) {
+                // Foreground: Parse all rooms in sync_complete (for UI updates)
+                roomsJson.keys().asSequence().toList()
+            } else {
+                // Background: Filter to only rooms with meaningful changes
+                val changedRoomIds = mutableListOf<String>()
+                val roomKeys = roomsJson.keys()
+                
+                while (roomKeys.hasNext()) {
+                    val roomId = roomKeys.next()
+                    val roomObj = roomsJson.optJSONObject(roomId) ?: continue
+                    val meta = roomObj.optJSONObject("meta") ?: continue
+                    
+                    // Check if this is a space (skip spaces)
+                    val type = meta.optJSONObject("creation_content")?.optString("type")?.takeIf { it.isNotBlank() }
+                    if (type == "m.space") {
+                        continue
+                    }
+                    
+                    // Check if room actually changed (quick metadata check without full parsing)
+                    val existingRoom = existingRooms?.get(roomId)
+                    if (existingRoom != null) {
+                        // Quick check: Extract key metadata fields without full parsing
+                        val newUnreadCount = meta.optInt("unread_messages", 0)
+                        val newHighlightCount = meta.optInt("unread_highlights", 0)
+                        val newSortingTimestamp = meta.optLong("sorting_timestamp", 0L).takeIf { it != 0L }
+                        val newName = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
+                        
+                        // Check if there are new events (not just receipts)
+                        val events = roomObj.optJSONArray("events")
+                        val hasNewEvents = events != null && events.length() > 0
+                        
+                        // Compare key fields that matter for UI
+                        val unreadChanged = (existingRoom.unreadCount ?: 0) != newUnreadCount
+                        val highlightChanged = (existingRoom.highlightCount ?: 0) != newHighlightCount
+                        val timestampChanged = existingRoom.sortingTimestamp != newSortingTimestamp
+                        val nameChanged = existingRoom.name != newName
+                        
+                        // Only include if there are meaningful changes
+                        if (unreadChanged || highlightChanged || timestampChanged || nameChanged || hasNewEvents) {
+                            changedRoomIds.add(roomId)
+                        } else {
+                            // Room in sync_complete but no meaningful changes (only receipts) - skip parsing
+                            if (BuildConfig.DEBUG) {
+                                Log.d("Andromuks", "SpaceRoomParser: Skipping unchanged room $roomId (backgrounded, only receipt changes)")
+                            }
+                        }
+                    } else {
+                        // New room - always parse
+                        changedRoomIds.add(roomId)
+                    }
+                }
+                
+                changedRoomIds
+            }
+            
+            // Parse only the rooms that need parsing
+            for (roomId in roomsToParse) {
                 val roomObj = roomsJson.optJSONObject(roomId) ?: continue
                 val meta = roomObj.optJSONObject("meta") ?: continue
                 
                 // Check if this is a space (skip spaces for now)
                 val type = meta.optJSONObject("creation_content")?.optString("type")?.takeIf { it.isNotBlank() }
                 if (type == "m.space") {
-                    //Log.d("Andromuks", "SpaceRoomParser: Skipping space: $roomId")
                     continue
                 }
                 
                 // Parse the room
                 val room = parseRoomFromJson(roomId, roomObj, meta, memberCache, appViewModel)
                 if (room != null) {
-                    // Include all rooms, regardless of message content
-                    updatedRooms.add(room)
-                    //if (room.messagePreview != null && room.messagePreview.isNotBlank()) {
-                        //Log.d("Andromuks", "SpaceRoomParser: Including room with message: ${room.name}")
-                    //} else {
-                        //Log.d("Andromuks", "SpaceRoomParser: Including room without message content: ${room.name} (ID: ${room.id})")
-                    //}
+                    // Determine if this is a new room or updated room
+                    val existingRoom = existingRooms?.get(roomId)
+                    if (existingRoom == null) {
+                        newRooms.add(room)
+                    } else {
+                        updatedRooms.add(room)
+                    }
+                }
+            }
+            
+            if (BuildConfig.DEBUG && !isAppVisible) {
+                val totalRoomsInSync = roomsJson.length()
+                val parsedCount = roomsToParse.size
+                if (totalRoomsInSync > parsedCount) {
+                    Log.d("Andromuks", "SpaceRoomParser: Background optimization - parsed $parsedCount of $totalRoomsInSync rooms (skipped ${totalRoomsInSync - parsedCount} unchanged rooms)")
                 }
             }
         }
@@ -251,82 +326,12 @@ object SpaceRoomParser {
             // Detect if this is a Direct Message room
             val isDirectMessage = detectDirectMessage(roomId, roomObj, meta, appViewModel)
             
-            // Extract last message preview and sender from events if available
-            val events = roomObj.optJSONArray("events")
+            // BATTERY OPTIMIZATION: Skip parsing events JSON - query database for last message instead
+            // This eliminates heavy JSON parsing loops (lines 254-329 removed)
+            // Last message will be populated from database summaries after parsing
             var messagePreview: String? = null
             var messageSender: String? = null
-            if (events != null && events.length() > 0) {
-                // Look through all events to find the last actual message
-                // Skip non-message events like typing, member changes, state events, etc.
-                for (i in events.length() - 1 downTo 0) {
-                    val event = events.optJSONObject(i)
-                    if (event != null) {
-                        val eventType = event.optString("type")
-                        when (eventType) {
-                            "m.room.message" -> {
-                                val content = event.optJSONObject("content")
-                                val body = content?.optString("body")?.takeIf { it.isNotBlank() }
-                                if (body != null) {
-                                    messagePreview = body
-                                    // Extract sender - this should ALWAYS be available in Matrix events
-                                    val sender = event.optString("sender")
-                                    //Log.d("Andromuks", "SpaceRoomParser: Processing m.room.message event for room $roomId")
-                                    //Log.d("Andromuks", "SpaceRoomParser: Event JSON: ${event.toString()}")
-                                    if (sender.isNotBlank()) {
-                                        // Try to get display name from member cache using full Matrix ID
-                                        val roomMembers = memberCache?.get(roomId)
-                                        val memberProfile = roomMembers?.get(sender)
-                                        //Log.d("Andromuks", "SpaceRoomParser: Looking up sender '$sender' in room '$roomId', found profile: $memberProfile")
-                                        messageSender = sender // Always use Matrix ID for profile lookup
-                                        //Log.d("Andromuks", "SpaceRoomParser: Using Matrix ID for messageSender: $sender")
-                                    } else {
-                                        Log.w("Andromuks", "SpaceRoomParser: WARNING - No sender found in message event!")
-                                        Log.w("Andromuks", "SpaceRoomParser: Event that caused the issue: ${event.toString()}")
-                                        messageSender = "Unknown"
-                                    }
-                                    break // Found the last message, stop looking
-                                }
-                            }
-                            "m.room.encrypted" -> {
-                                // Check if it's a decrypted message
-                                val decryptedType = event.optString("decrypted_type")
-                                if (decryptedType == "m.room.message") {
-                                    val decrypted = event.optJSONObject("decrypted")
-                                    val body = decrypted?.optString("body")?.takeIf { it.isNotBlank() }
-                                    if (body != null) {
-                                        messagePreview = body
-                                        // Extract sender - this should ALWAYS be available in Matrix events
-                                        val sender = event.optString("sender")
-                                        //Log.d("Andromuks", "SpaceRoomParser: Processing encrypted m.room.message event for room $roomId")
-                                        //Log.d("Andromuks", "SpaceRoomParser: Encrypted event JSON: ${event.toString()}")
-                                        if (sender.isNotBlank()) {
-                                            // Try to get display name from member cache using full Matrix ID
-                                            val roomMembers = memberCache?.get(roomId)
-                                            val memberProfile = roomMembers?.get(sender)
-                                            //Log.d("Andromuks", "SpaceRoomParser: Looking up encrypted sender '$sender' in room '$roomId', found profile: $memberProfile")
-                                            messageSender = sender // Always use Matrix ID for profile lookup
-                                            //Log.d("Andromuks", "SpaceRoomParser: Using Matrix ID for encrypted messageSender: $sender")
-                                        } else {
-                                            Log.w("Andromuks", "SpaceRoomParser: WARNING - No sender found in encrypted message event!")
-                                            Log.w("Andromuks", "SpaceRoomParser: Encrypted event that caused the issue: ${event.toString()}")
-                                            messageSender = "Unknown"
-                                        }
-                                        break // Found the last message, stop looking
-                                    }
-                                }
-                            }
-                            // Skip other event types like:
-                            // - "typing" (typing indicators)
-                            // - "m.room.member" (joins/leaves)
-                            // - "m.room.name" (room name changes)
-                            // - "m.room.topic" (room topic changes)
-                            // - "m.room.avatar" (room avatar changes)
-                            // - state events
-                            // - etc.
-                        }
-                    }
-                }
-            }
+            // Note: messagePreview and messageSender will be populated from database in AppViewModel
             
             // Extract sorting_timestamp from meta
             val sortingTimestamp = meta.optLong("sorting_timestamp", 0L).takeIf { it != 0L }

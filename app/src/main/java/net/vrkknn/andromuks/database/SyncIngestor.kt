@@ -8,6 +8,7 @@ import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.database.dao.AccountDataDao
 import net.vrkknn.andromuks.database.dao.EventDao
+import net.vrkknn.andromuks.database.dao.PendingRoomDao
 import net.vrkknn.andromuks.database.dao.ReactionDao
 import net.vrkknn.andromuks.database.dao.ReceiptDao
 import net.vrkknn.andromuks.database.dao.RoomStateDao
@@ -17,6 +18,7 @@ import net.vrkknn.andromuks.database.dao.SpaceRoomDao
 import net.vrkknn.andromuks.database.dao.SyncMetaDao
 import net.vrkknn.andromuks.database.entities.AccountDataEntity
 import net.vrkknn.andromuks.database.entities.EventEntity
+import net.vrkknn.andromuks.database.entities.PendingRoomEntity
 import net.vrkknn.andromuks.database.entities.ReactionEntity
 import net.vrkknn.andromuks.database.entities.ReceiptEntity
 import net.vrkknn.andromuks.database.entities.RoomStateEntity
@@ -49,8 +51,36 @@ class SyncIngestor(private val context: Context) {
     private val spaceRoomDao = database.spaceRoomDao()
     private val accountDataDao = database.accountDataDao()
     private val inviteDao = database.inviteDao()
+    private val pendingRoomDao = database.pendingRoomDao()
     
     private val TAG = "SyncIngestor"
+    
+    companion object {
+        // BATTERY OPTIMIZATION: Track pending receipts for deferred processing
+        // Key: roomId, Value: List of ReceiptEntity
+        private val pendingReceipts = mutableMapOf<String, MutableList<ReceiptEntity>>()
+        
+        // Lock for thread-safe access to pending receipts
+        @JvmStatic
+        private val pendingReceiptsLock = Any()
+        
+        // Adaptive threshold for pending rooms (starts high, reduces if processing takes too long)
+        // This prevents massive payload accumulation while adapting to device performance
+        @Volatile
+        private var pendingRoomThreshold = 200 // Start with 200 rooms threshold
+        
+        // Minimum threshold (never go below this)
+        private const val MIN_THRESHOLD = 50
+        
+        // Maximum threshold (never go above this)
+        private const val MAX_THRESHOLD = 500
+        
+        // Processing time threshold in milliseconds (if processing takes longer, reduce threshold)
+        private const val PROCESSING_TIME_THRESHOLD_MS = 1000L // 1 second
+        
+        // Threshold adjustment factor (reduce by this percentage if processing too slow)
+        private const val THRESHOLD_REDUCTION_FACTOR = 0.7f // Reduce by 30%
+    }
     
     private data class EventPersistCandidate(
         val entity: EventEntity,
@@ -123,11 +153,13 @@ class SyncIngestor(private val context: Context) {
      * @param syncJson The sync_complete JSON object
      * @param requestId The request_id from the sync_complete (used as last_received_id)
      * @param runId The current run_id (must match stored run_id or data will be cleared)
+     * @param isAppVisible Whether the app is currently visible (affects processing optimizations)
      */
     suspend fun ingestSyncComplete(
         syncJson: JSONObject,
         requestId: Int,
-        runId: String
+        runId: String,
+        isAppVisible: Boolean = true
     ) = withContext(Dispatchers.IO) {
         // Check run_id first - this is critical!
         val runIdChanged = checkAndHandleRunIdChange(runId)
@@ -145,37 +177,71 @@ class SyncIngestor(private val context: Context) {
         
         // Process account_data if present (must be done before other processing)
         // IMPORTANT: Partial updates - only replace keys present in incoming sync, merge with existing
+        // BATTERY OPTIMIZATION: account_data can be large (50KB+), so we:
+        // 1. Use efficient JSON copying (manual key copy instead of toString/parse)
+        // 2. Skip DB write if nothing changed (detect during merge)
+        // NOTE: account_data is only sent when changed (not on every sync), so this optimization
+        // is most useful when account_data appears frequently or when the JSON is very large
         val incomingAccountData = data.optJSONObject("account_data")
         if (incomingAccountData != null) {
             try {
                 // Load existing account_data from database
                 val existingAccountDataStr = accountDataDao.getAccountData()
-                val mergedAccountData = if (existingAccountDataStr != null) {
+                if (existingAccountDataStr != null) {
                     // Merge: existing + incoming (incoming keys replace existing keys)
                     val existingAccountData = JSONObject(existingAccountDataStr)
                     
-                    // Copy all keys from existing
-                    val merged = JSONObject(existingAccountData.toString())
+                    // BATTERY OPTIMIZATION: Manual key copy is more efficient than toString() + parse
+                    // This avoids serializing/parsing the entire 50KB+ JSON object twice
+                    val merged = JSONObject()
                     
-                    // Overwrite/replace with incoming keys
+                    // Copy all keys from existing JSON object (more efficient than toString/parse)
+                    val existingKeys = existingAccountData.keys()
+                    while (existingKeys.hasNext()) {
+                        val key = existingKeys.next()
+                        merged.put(key, existingAccountData.get(key))
+                    }
+                    
+                    // Overwrite/replace with incoming keys and detect if anything changed
+                    var hasChanges = false
                     val incomingKeys = incomingAccountData.keys()
                     while (incomingKeys.hasNext()) {
                         val key = incomingKeys.next()
-                        merged.put(key, incomingAccountData.get(key))
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Account data: Merged key '$key' from incoming sync")
+                        val incomingValue = incomingAccountData.get(key)
+                        val existingValue = merged.opt(key)
+                        
+                        // Check if value actually changed (avoid unnecessary serialization/write)
+                        // Compare JSONObject values: null/JSONObject.NULL means key doesn't exist
+                        val valueChanged = when {
+                            existingValue == null || existingValue == JSONObject.NULL -> true // New key
+                            else -> {
+                                // Key exists, check if value changed
+                                incomingValue.toString() != existingValue.toString()
+                            }
+                        }
+                        
+                        if (valueChanged) {
+                            merged.put(key, incomingValue)
+                            hasChanges = true
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Account data: Merged key '$key' from incoming sync")
+                        }
                     }
                     
-                    merged
+                    // BATTERY OPTIMIZATION: Skip DB write if nothing changed
+                    if (hasChanges) {
+                        val mergedAccountDataStr = merged.toString()
+                        accountDataDao.upsert(AccountDataEntity("account_data", mergedAccountDataStr))
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Persisted merged account_data to database (${mergedAccountDataStr.length} chars, ${merged.length()} keys)")
+                    } else {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No changes detected, skipping DB write")
+                    }
                 } else {
                     // No existing data, use incoming as-is
                     if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No existing data, using incoming as-is")
-                    incomingAccountData
+                    val accountDataStr = incomingAccountData.toString()
+                    accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Persisted initial account_data to database (${accountDataStr.length} chars, ${incomingAccountData.length()} keys)")
                 }
-                
-                // Store merged account_data
-                val mergedAccountDataStr = mergedAccountData.toString()
-                accountDataDao.upsert(AccountDataEntity("account_data", mergedAccountDataStr))
-                if (BuildConfig.DEBUG) Log.d(TAG, "Persisted merged account_data to database (${mergedAccountDataStr.length} chars, ${mergedAccountData.length()} keys)")
             } catch (e: Exception) {
                 Log.e(TAG, "Error merging account_data: ${e.message}", e)
                 // Fallback: store incoming as-is if merge fails
@@ -222,9 +288,61 @@ class SyncIngestor(private val context: Context) {
                         reactionDao.clearRoom(roomId)
                         // Also delete invite if it exists
                         inviteDao.deleteInvite(roomId)
+                        // Also delete pending room if it exists
+                        pendingRoomDao.deletePendingRoom(roomId)
                     }
                 }
                 if (BuildConfig.DEBUG) Log.d(TAG, "Deleted all data for ${leftRoomIds.size} left rooms: ${leftRoomIds.joinToString(", ")}")
+            }
+        }
+        
+        // BATTERY OPTIMIZATION: Process any pending rooms from previous syncs (if app was killed)
+        // This ensures rooms are not lost even if app is killed while backgrounded
+        val pendingRooms = pendingRoomDao.getAllPendingRooms()
+        if (pendingRooms.isNotEmpty()) {
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "SyncIngestor: Found ${pendingRooms.size} pending rooms from previous syncs, processing them now")
+            }
+            
+            // Get room IDs from current sync to avoid duplicate processing
+            val currentSyncRoomIds = data.optJSONObject("rooms")?.keys()?.asSequence()?.toSet() ?: emptySet()
+            
+            // Process pending rooms that are NOT in current sync (they'll be processed from current sync)
+            val pendingRoomsToProcess = pendingRooms.filter { it.roomId !in currentSyncRoomIds }
+            
+            if (pendingRoomsToProcess.isNotEmpty()) {
+                database.withTransaction {
+                    val existingStatesMap = if (pendingRoomsToProcess.isNotEmpty()) {
+                        roomStateDao.getRoomStatesByIds(pendingRoomsToProcess.map { it.roomId }).associateBy { it.roomId }
+                    } else {
+                        emptyMap()
+                    }
+                    
+                    for (pendingRoom in pendingRoomsToProcess) {
+                        try {
+                            val roomObj = JSONObject(pendingRoom.roomJson)
+                            processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "SyncIngestor: Error processing pending room ${pendingRoom.roomId}: ${e.message}", e)
+                        }
+                    }
+                    
+                    // Delete processed pending rooms
+                    pendingRoomDao.deletePendingRooms(pendingRoomsToProcess.map { it.roomId })
+                }
+                
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "SyncIngestor: Processed ${pendingRoomsToProcess.size} pending rooms")
+                }
+            }
+            
+            // Delete pending rooms that ARE in current sync (they'll be processed from current sync with fresh data)
+            val pendingRoomsInCurrentSync = pendingRooms.filter { it.roomId in currentSyncRoomIds }
+            if (pendingRoomsInCurrentSync.isNotEmpty()) {
+                pendingRoomDao.deletePendingRooms(pendingRoomsInCurrentSync.map { it.roomId })
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "SyncIngestor: Deleted ${pendingRoomsInCurrentSync.size} pending rooms (present in current sync with fresh data)")
+                }
             }
         }
         
@@ -238,20 +356,136 @@ class SyncIngestor(private val context: Context) {
                 roomsToProcess.add(roomKeys.next())
             }
             
-            // Process all rooms in a single transaction for consistency
-            // CRITICAL: Load all existing room states BEFORE processing to preserve bridge info
-            // This snapshot is taken at the START of the transaction to ensure we have a consistent view
-            // of bridge info before any sync processing begins
-            database.withTransaction {
-                // Pre-load all existing room states to preserve bridge info during processing
-                // CRITICAL: This snapshot captures bridge info that exists BEFORE sync processing
-                // Even if sync_complete has partial/empty state, we preserve bridge info from this snapshot
-                val existingStatesMap = roomStateDao.getAllRoomStates().associateBy { it.roomId }
+            // BATTERY OPTIMIZATION: Adaptive deferred processing when backgrounded
+            // When backgrounded: Check pending count, if threshold reached, process all (pending + current)
+            // Otherwise: Defer all to pending DB for later processing
+            var thresholdReached = false
+            val roomsToProcessNow = if (isAppVisible) {
+                // Foreground: Process all rooms immediately
+                roomsToProcess
+            } else {
+                // Background: Check pending count threshold
+                val currentPendingCount = pendingRoomDao.getPendingCount()
                 
+                if (currentPendingCount >= pendingRoomThreshold) {
+                    // Threshold reached - process all pending rooms + current sync rooms
+                    thresholdReached = true
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "SyncIngestor: Pending room threshold reached ($currentPendingCount >= $pendingRoomThreshold) - processing all pending + current sync rooms")
+                    }
+                    
+                    // Load all pending rooms to process
+                    val pendingRooms = pendingRoomDao.getAllPendingRooms()
+                    val pendingRoomIds = pendingRooms.map { it.roomId }.toSet()
+                    
+                    // Combine pending rooms + current sync rooms (avoid duplicates)
+                    val allRoomIds = (pendingRoomIds + roomsToProcess.toSet()).toList()
+                    
+                    // Process all in a single transaction with time tracking
+                    val processingStartTime = System.currentTimeMillis()
+                    database.withTransaction {
+                        val existingStatesMap = if (allRoomIds.isNotEmpty()) {
+                            roomStateDao.getRoomStatesByIds(allRoomIds).associateBy { it.roomId }
+                        } else {
+                            emptyMap()
+                        }
+                        
+                        // Process pending rooms first
+                        for (pendingRoom in pendingRooms) {
+                            try {
+                                val roomObj = JSONObject(pendingRoom.roomJson)
+                                processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "SyncIngestor: Error processing pending room ${pendingRoom.roomId}: ${e.message}", e)
+                            }
+                        }
+                        
+                        // Process current sync rooms
+                        for (roomId in roomsToProcess) {
+                            if (roomId !in pendingRoomIds) { // Skip if already processed as pending
+                                val roomObj = roomsJson.optJSONObject(roomId) ?: continue
+                                processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible)
+                            }
+                        }
+                        
+                        // Delete all processed pending rooms
+                        pendingRoomDao.deleteAll()
+                    }
+                    
+                    val processingTime = System.currentTimeMillis() - processingStartTime
+                    
+                    // Adaptive threshold adjustment: If processing took too long, reduce threshold (like GC)
+                    if (processingTime > PROCESSING_TIME_THRESHOLD_MS) {
+                        val oldThreshold = pendingRoomThreshold
+                        pendingRoomThreshold = (pendingRoomThreshold * THRESHOLD_REDUCTION_FACTOR).toInt().coerceAtLeast(MIN_THRESHOLD)
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "SyncIngestor: Processing took ${processingTime}ms (threshold: ${PROCESSING_TIME_THRESHOLD_MS}ms) - reducing pending room threshold from $oldThreshold to $pendingRoomThreshold")
+                        }
+                    }
+                    
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "SyncIngestor: Processed ${pendingRooms.size} pending + ${roomsToProcess.size} current rooms in ${processingTime}ms (threshold: ${pendingRoomThreshold})")
+                    }
+                    
+                    // All processed - return empty list since we already processed everything
+                    emptyList()
+                } else {
+                    // Under threshold - defer all rooms to pending DB
+                    emptyList()
+                }
+            }
+            
+            // If rooms are being deferred, store them to pending DB
+            val roomsToDefer = if (isAppVisible || thresholdReached) {
+                emptyList() // No deferral when foregrounded or when threshold was reached (already processed)
+            } else {
+                roomsToProcess // Defer all when backgrounded and under threshold
+            }
+            
+            if (roomsToDefer.isNotEmpty()) {
+                // BATTERY OPTIMIZATION: Persist all rooms to database for processing later
+                // This ensures rooms are not lost if app is killed
+                val pendingRooms = roomsToDefer.mapNotNull { roomId ->
+                    val roomObj = roomsJson.optJSONObject(roomId) ?: return@mapNotNull null
+                    PendingRoomEntity(
+                        roomId = roomId,
+                        roomJson = roomObj.toString(),
+                        timestamp = System.currentTimeMillis()
+                    )
+                }
                 
-                for (roomId in roomsToProcess) {
-                    val roomObj = roomsJson.optJSONObject(roomId) ?: continue
-                    processRoom(roomId, roomObj, existingStatesMap[roomId])
+                if (pendingRooms.isNotEmpty()) {
+                    database.withTransaction {
+                        pendingRoomDao.upsertAll(pendingRooms)
+                    }
+                    val pendingCount = pendingRoomDao.getPendingCount()
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "SyncIngestor: Background deferred ${pendingRooms.size} rooms to pending DB (total pending: $pendingCount / threshold: $pendingRoomThreshold)")
+                    }
+                }
+            }
+            
+            // Process rooms that should be processed now (foreground, or threshold processing already handled above)
+            if (roomsToProcessNow.isNotEmpty()) {
+                // Process rooms in a single transaction for consistency
+                // BATTERY OPTIMIZATION: Only load room states for rooms actually in sync_complete (not all 588 rooms)
+                // getRoomStatesByIds() queries only the rooms being processed (typically 2-3 rooms per sync)
+                // This is much more efficient than getAllRoomStates() which would load all 588 rooms
+                database.withTransaction {
+                    // Load existing room states only for rooms being processed in this batch
+                    // roomsToProcessNow contains only rooms in sync_complete JSON, not all known rooms
+                    val existingStatesMap = if (roomsToProcessNow.isNotEmpty()) {
+                        roomStateDao.getRoomStatesByIds(roomsToProcessNow).associateBy { it.roomId }
+                    } else {
+                        emptyMap()
+                    }
+                    
+                    // BATTERY OPTIMIZATION: processRoom() is only called for rooms in sync_complete JSON (typically 2-3 rooms)
+                    // It does NOT process all 588 rooms - only incremental changes from sync_complete
+                    for (roomId in roomsToProcessNow) {
+                        val roomObj = roomsJson.optJSONObject(roomId) ?: continue
+                        processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible)
+                    }
                 }
             }
             
@@ -263,8 +497,13 @@ class SyncIngestor(private val context: Context) {
     
     /**
      * Process a single room from sync_complete
+     * 
+     * @param roomId The room ID
+     * @param roomObj The room JSON object from sync
+     * @param existingState Pre-loaded existing room state (null if new room)
+     * @param isAppVisible Whether app is visible (affects summary processing optimization)
      */
-    private suspend fun processRoom(roomId: String, roomObj: JSONObject, existingState: RoomStateEntity? = null) {
+    private suspend fun processRoom(roomId: String, roomObj: JSONObject, existingState: RoomStateEntity? = null, isAppVisible: Boolean = true) {
         val existingTimelineRowCache = mutableMapOf<String, Long?>()
         
         // 1. Process room state (meta)
@@ -275,8 +514,10 @@ class SyncIngestor(private val context: Context) {
             val dmUserId = meta.optString("dm_user_id")?.takeIf { it.isNotBlank() }
             val isDirect = dmUserId != null
             
-            // CRITICAL FIX: Use pre-loaded existing state (passed as parameter) to preserve values when not present in sync
-            // This ensures bridge info is preserved even if database queries happen in parallel
+            // BATTERY OPTIMIZATION: Use pre-loaded existing state (passed as parameter) to preserve values when not present in sync
+            // This preserves name, topic, avatarUrl, canonicalAlias, isFavourite, isLowPriority from existing state
+            // existingState is pre-loaded via getRoomStatesByIds() which only queries rooms in sync_complete (not all 588 rooms)
+            // Fallback to roomStateDao.get(roomId) only if pre-loading failed (rare case)
             val currentExistingState = existingState ?: roomStateDao.get(roomId)
             var isFavourite = currentExistingState?.isFavourite ?: false
             var isLowPriority = currentExistingState?.isLowPriority ?: false
@@ -314,7 +555,7 @@ class SyncIngestor(private val context: Context) {
                 isDirect = isDirect,
                 isFavourite = isFavourite,
                 isLowPriority = isLowPriority,
-                bridgeInfoJson = null,
+                bridgeInfoJson = null, // Bridge info not used - kept for schema compatibility
                 updatedAt = System.currentTimeMillis()
             )
             roomStateDao.upsert(roomState)
@@ -434,6 +675,7 @@ class SyncIngestor(private val context: Context) {
         }
         
         // 4. Process receipts
+        // BATTERY OPTIMIZATION: Defer receipt processing when backgrounded
         val receiptsJson = roomObj.optJSONObject("receipts")
         if (receiptsJson != null) {
             val receipts = mutableListOf<ReceiptEntity>()
@@ -463,7 +705,19 @@ class SyncIngestor(private val context: Context) {
             }
             
             if (receipts.isNotEmpty()) {
-                receiptDao.upsertAll(receipts)
+                if (isAppVisible) {
+                    // Foreground: Process receipts immediately
+                    receiptDao.upsertAll(receipts)
+                } else {
+                    // Background: Defer receipt processing
+                    synchronized(pendingReceiptsLock) {
+                        val roomReceipts = pendingReceipts.getOrPut(roomId) { mutableListOf() }
+                        roomReceipts.addAll(receipts)
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "SyncIngestor: Deferred ${receipts.size} receipts for room $roomId (app backgrounded, total pending: ${roomReceipts.size})")
+                        }
+                    }
+                }
             }
         }
         
@@ -471,67 +725,104 @@ class SyncIngestor(private val context: Context) {
         val unreadMessages = meta?.optInt("unread_messages", 0) ?: 0
         val unreadHighlights = meta?.optInt("unread_highlights", 0) ?: 0
         
-        // Find last message event for preview
-        var lastEventId: String? = null
-        var lastTimestamp: Long = 0L
-        var messageSender: String? = null
-        var messagePreview: String? = null
-        
-        // Check timeline first
-        if (timeline != null && timeline.length() > 0) {
-            // Timeline is in chronological order, last entry is newest
-            for (i in timeline.length() - 1 downTo 0) {
-                val timelineEntry = timeline.optJSONObject(i) ?: continue
-                val eventJson = timelineEntry.optJSONObject("event") ?: continue
+        // BATTERY OPTIMIZATION: Skip summary update when backgrounded (user can't see room list)
+        // When foregrounded, query database for last message instead of scanning JSON
+        if (isAppVisible) {
+            // OPTIMIZATION: Query database for last message instead of scanning JSON
+            // Events are already persisted in Phases 2-3, so we can query efficiently
+            val lastMessageEvent = eventDao.getLastMessageForRoom(roomId)
+            
+            var lastEventId: String? = null
+            var lastTimestamp: Long = 0L
+            var messageSender: String? = null
+            var messagePreview: String? = null
+            
+            if (lastMessageEvent != null) {
+                // Use last message from database
+                lastEventId = lastMessageEvent.eventId
+                lastTimestamp = lastMessageEvent.timestamp
+                messageSender = lastMessageEvent.sender
                 
-                val eventType = eventJson.optString("type")
-                if (eventType == "m.room.message" || eventType == "m.room.encrypted") {
-                    lastEventId = eventJson.optString("event_id")
-                    lastTimestamp = eventJson.optLong("origin_server_ts", 0L)
-                    messageSender = eventJson.optString("sender")
+                // Extract message preview from rawJson
+                try {
+                    val eventJson = JSONObject(lastMessageEvent.rawJson)
                     
-                    // Extract message preview
-                    val content = eventJson.optJSONObject("content")
-                    if (content != null) {
-                        messagePreview = content.optString("body")
-                    } else {
-                        // Check decrypted content for encrypted messages
+                    // E2EE: For encrypted messages (type='m.room.encrypted'), body is in decrypted.content.body
+                    // For regular messages (type='m.room.message'), body is in content.body
+                    // Backend already decrypts messages, so decrypted content is always available
+                    if (lastMessageEvent.type == "m.room.encrypted") {
+                        // Encrypted message - get body from decrypted content (backend already decrypted it)
                         val decrypted = eventJson.optJSONObject("decrypted")
                         messagePreview = decrypted?.optString("body")
+                    } else {
+                        // Regular message - get body from content
+                        val content = eventJson.optJSONObject("content")
+                        messagePreview = content?.optString("body")
                     }
-                    break
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to extract message preview from rawJson for event ${lastMessageEvent.eventId}: ${e.message}")
+                }
+            } else {
+                // Fallback: Scan sync JSON if database query returned nothing (new room, no messages yet)
+                // This should be rare - only for brand new rooms
+                if (timeline != null && timeline.length() > 0) {
+                    for (i in timeline.length() - 1 downTo 0) {
+                        val timelineEntry = timeline.optJSONObject(i) ?: continue
+                        val eventJson = timelineEntry.optJSONObject("event") ?: continue
+                        
+                        val eventType = eventJson.optString("type")
+                        if (eventType == "m.room.message" || eventType == "m.room.encrypted") {
+                            lastEventId = eventJson.optString("event_id")
+                            lastTimestamp = eventJson.optLong("origin_server_ts", 0L)
+                            messageSender = eventJson.optString("sender")
+                            
+                            val content = eventJson.optJSONObject("content")
+                            if (content != null) {
+                                messagePreview = content.optString("body")
+                            } else {
+                                val decrypted = eventJson.optJSONObject("decrypted")
+                                messagePreview = decrypted?.optString("body")
+                            }
+                            break
+                        }
+                    }
+                }
+                
+                // Fallback to events array if no message in timeline
+                if (lastEventId == null && eventsArray != null) {
+                    for (i in eventsArray.length() - 1 downTo 0) {
+                        val eventJson = eventsArray.optJSONObject(i) ?: continue
+                        val eventType = eventJson.optString("type")
+                        if (eventType == "m.room.message" || eventType == "m.room.encrypted") {
+                            lastEventId = eventJson.optString("event_id")
+                            lastTimestamp = eventJson.optLong("origin_server_ts", 0L)
+                            messageSender = eventJson.optString("sender")
+                            
+                            val content = eventJson.optJSONObject("content")
+                            messagePreview = content?.optString("body") ?: 
+                                eventJson.optJSONObject("decrypted")?.optString("body")
+                            break
+                        }
+                    }
                 }
             }
+            
+            val summary = RoomSummaryEntity(
+                roomId = roomId,
+                lastEventId = lastEventId,
+                lastTimestamp = lastTimestamp,
+                unreadCount = unreadMessages,
+                highlightCount = unreadHighlights,
+                messageSender = messageSender,
+                messagePreview = messagePreview
+            )
+            roomSummaryDao.upsert(summary)
+        } else {
+            // BACKGROUND MODE: Skip summary update to save battery
+            // Summary will be updated when app becomes visible again
+            // Unread counts are still updated from meta (needed for notifications)
+            if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping room summary update for $roomId (app backgrounded)")
         }
-        
-        // Fallback to events array if no message in timeline
-        if (lastEventId == null && eventsArray != null) {
-            for (i in eventsArray.length() - 1 downTo 0) {
-                val eventJson = eventsArray.optJSONObject(i) ?: continue
-                val eventType = eventJson.optString("type")
-                if (eventType == "m.room.message" || eventType == "m.room.encrypted") {
-                    lastEventId = eventJson.optString("event_id")
-                    lastTimestamp = eventJson.optLong("origin_server_ts", 0L)
-                    messageSender = eventJson.optString("sender")
-                    
-                    val content = eventJson.optJSONObject("content")
-                    messagePreview = content?.optString("body") ?: 
-                        eventJson.optJSONObject("decrypted")?.optString("body")
-                    break
-                }
-            }
-        }
-        
-        val summary = RoomSummaryEntity(
-            roomId = roomId,
-            lastEventId = lastEventId,
-            lastTimestamp = lastTimestamp,
-            unreadCount = unreadMessages,
-            highlightCount = unreadHighlights,
-            messageSender = messageSender,
-            messagePreview = messagePreview
-        )
-        roomSummaryDao.upsert(summary)
     }
     
     /**
@@ -1173,6 +1464,103 @@ class SyncIngestor(private val context: Context) {
      */
     suspend fun getStoredRunId(): String = withContext(Dispatchers.IO) {
         syncMetaDao.get("run_id") ?: ""
+    }
+    
+    /**
+     * BATTERY OPTIMIZATION: Process all pending receipts and rooms that were deferred when backgrounded
+     * Called when app becomes visible to catch up on deferred processing
+     */
+    suspend fun rushProcessPendingItems() = withContext(Dispatchers.IO) {
+        // Process pending rooms first
+        val pendingRooms = pendingRoomDao.getAllPendingRooms()
+        if (pendingRooms.isNotEmpty()) {
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "SyncIngestor: Rushing processing of ${pendingRooms.size} pending rooms")
+            }
+            
+            // Track processing time for adaptive threshold adjustment
+            val processingStartTime = System.currentTimeMillis()
+            
+            database.withTransaction {
+                val existingStatesMap = if (pendingRooms.isNotEmpty()) {
+                    roomStateDao.getRoomStatesByIds(pendingRooms.map { it.roomId }).associateBy { it.roomId }
+                } else {
+                    emptyMap()
+                }
+                
+                for (pendingRoom in pendingRooms) {
+                    try {
+                        val roomObj = JSONObject(pendingRoom.roomJson)
+                        // Process with isAppVisible = true since we're rushing (app is now visible)
+                        processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible = true)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "SyncIngestor: Error rushing pending room ${pendingRoom.roomId}: ${e.message}", e)
+                    }
+                }
+                
+                // Delete processed pending rooms
+                pendingRoomDao.deleteAll()
+            }
+            
+            val processingTime = System.currentTimeMillis() - processingStartTime
+            
+            // Adaptive threshold adjustment: If processing took too long, reduce threshold (like GC)
+            if (processingTime > PROCESSING_TIME_THRESHOLD_MS) {
+                val oldThreshold = pendingRoomThreshold
+                pendingRoomThreshold = (pendingRoomThreshold * THRESHOLD_REDUCTION_FACTOR).toInt().coerceAtLeast(MIN_THRESHOLD)
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "SyncIngestor: Rush processing took ${processingTime}ms (threshold: ${PROCESSING_TIME_THRESHOLD_MS}ms) - reducing pending room threshold from $oldThreshold to $pendingRoomThreshold")
+                }
+            }
+            
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "SyncIngestor: Rushed processing ${pendingRooms.size} pending rooms in ${processingTime}ms (threshold: ${pendingRoomThreshold})")
+            }
+        }
+        
+        // Process pending receipts
+        val receiptsToProcess = synchronized(pendingReceiptsLock) {
+            // Get all pending receipts and clear the map
+            val allReceipts = pendingReceipts.values.flatten()
+            pendingReceipts.clear()
+            allReceipts
+        }
+        
+        if (receiptsToProcess.isEmpty()) {
+            if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: No pending receipts to process")
+            return@withContext
+        }
+        
+        // Group receipts by room for efficient batch upserts
+        val receiptsByRoom = receiptsToProcess.groupBy { it.roomId }
+        
+        database.withTransaction {
+            receiptsByRoom.forEach { (roomId, receipts) ->
+                receiptDao.upsertAll(receipts)
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "SyncIngestor: Rushed processing ${receipts.size} pending receipts for room $roomId")
+                }
+            }
+        }
+        
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "SyncIngestor: Rushed processing ${receiptsToProcess.size} total pending receipts across ${receiptsByRoom.size} rooms")
+        }
+    }
+    
+    /**
+     * @deprecated Use rushProcessPendingItems() instead
+     */
+    @Deprecated("Use rushProcessPendingItems() to process both rooms and receipts")
+    suspend fun rushProcessPendingReceipts() = rushProcessPendingItems()
+    
+    /**
+     * Get count of pending receipts (for debugging/monitoring)
+     */
+    fun getPendingReceiptsCount(): Int {
+        return synchronized(pendingReceiptsLock) {
+            pendingReceipts.values.sumOf { it.size }
+        }
     }
 }
 

@@ -97,6 +97,31 @@ interface EventDao {
         LIMIT 1
     """)
     suspend fun getMostRecentEventForRoom(roomId: String): EventEntity?
+    
+    /**
+     * Get the last message event (m.room.message or m.room.encrypted) for a room.
+     * Used for room summary/preview instead of scanning JSON.
+     * 
+     * E2EE: In encrypted rooms, messages have type='m.room.encrypted' with decryptedType='m.room.message'.
+     * The backend already decrypts messages for us, so decrypted content is always available.
+     * We must query for both:
+     * - Regular messages: type = 'm.room.message'
+     * - Encrypted messages: type = 'm.room.encrypted' AND decryptedType = 'm.room.message'
+     * 
+     * Note: If we only query for 'm.room.message' in E2EE rooms, we won't find any messages
+     * because all messages have type='m.room.encrypted' in those rooms.
+     */
+    @Query("""
+        SELECT * FROM events 
+        WHERE roomId = :roomId 
+            AND (
+              type = 'm.room.message' 
+              OR (type = 'm.room.encrypted' AND (decryptedType = 'm.room.message' OR decryptedType = 'm.text'))
+            )
+        ORDER BY timestamp DESC, timelineRowId DESC, eventId DESC 
+        LIMIT 1
+    """)
+    suspend fun getLastMessageForRoom(roomId: String): EventEntity?
 }
 
 

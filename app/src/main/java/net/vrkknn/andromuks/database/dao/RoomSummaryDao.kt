@@ -28,6 +28,13 @@ interface RoomSummaryDao {
     
     @Query("DELETE FROM room_summary")
     suspend fun deleteAll()
+    
+    /**
+     * Get room summaries for specific room IDs (batch query)
+     * Used by SpaceRoomParser to get last messages without parsing JSON
+     */
+    @Query("SELECT * FROM room_summary WHERE roomId IN (:roomIds)")
+    suspend fun getRoomSummariesByIds(roomIds: List<String>): List<RoomSummaryEntity>
 }
 
 

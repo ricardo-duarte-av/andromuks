@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import net.vrkknn.andromuks.database.dao.AccountDataDao
 import net.vrkknn.andromuks.database.dao.EventDao
 import net.vrkknn.andromuks.database.dao.InviteDao
+import net.vrkknn.andromuks.database.dao.PendingRoomDao
 import net.vrkknn.andromuks.database.dao.ReactionDao
 import net.vrkknn.andromuks.database.dao.ReceiptDao
 import net.vrkknn.andromuks.database.dao.RoomStateDao
@@ -17,6 +18,7 @@ import net.vrkknn.andromuks.database.dao.SyncMetaDao
 import net.vrkknn.andromuks.database.entities.AccountDataEntity
 import net.vrkknn.andromuks.database.entities.EventEntity
 import net.vrkknn.andromuks.database.entities.InviteEntity
+import net.vrkknn.andromuks.database.entities.PendingRoomEntity
 import net.vrkknn.andromuks.database.entities.ReactionEntity
 import net.vrkknn.andromuks.database.entities.ReceiptEntity
 import net.vrkknn.andromuks.database.entities.RoomStateEntity
@@ -36,9 +38,10 @@ import net.vrkknn.andromuks.database.entities.SyncMetaEntity
         SpaceRoomEntity::class,
         AccountDataEntity::class,
         InviteEntity::class,
-        ReactionEntity::class
+        ReactionEntity::class,
+        PendingRoomEntity::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
 abstract class AndromuksDatabase : RoomDatabase() {
@@ -52,6 +55,7 @@ abstract class AndromuksDatabase : RoomDatabase() {
     abstract fun accountDataDao(): AccountDataDao
     abstract fun inviteDao(): InviteDao
     abstract fun reactionDao(): ReactionDao
+    abstract fun pendingRoomDao(): PendingRoomDao
 
     companion object {
         @Volatile private var instance: AndromuksDatabase? = null

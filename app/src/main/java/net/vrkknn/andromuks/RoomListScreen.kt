@@ -123,6 +123,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import net.vrkknn.andromuks.utils.RoomJoinerScreen
 import net.vrkknn.andromuks.utils.RoomLink
+import net.vrkknn.andromuks.database.AndromuksDatabase
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
@@ -143,6 +146,24 @@ fun RoomListScreen(
     var stableSection by remember { mutableStateOf(appViewModel.getCurrentRoomSection()) }
     var previousSectionType by remember { mutableStateOf(stableSection.type) }
     var sectionAnimationDirection by remember { mutableStateOf(0) }
+    
+    // BATTERY OPTIMIZATION: Query database for last messages directly in RoomListScreen
+    // This ensures fresh data and removes dependency on sync parsing
+    var roomsWithSummaries by remember { mutableStateOf<Map<String, Pair<String?, String?>>>(emptyMap()) } // roomId -> (messagePreview, messageSender)
+    val coroutineScope = rememberCoroutineScope()
+    
+    // Enrich stableSection with database summaries
+    val enrichedSection = remember(stableSection, roomsWithSummaries) {
+        stableSection.copy(
+            rooms = stableSection.rooms.map { room ->
+                val (messagePreview, messageSender) = roomsWithSummaries[room.id] ?: (null to null)
+                room.copy(
+                    messagePreview = messagePreview ?: room.messagePreview,
+                    messageSender = messageSender ?: room.messageSender
+                )
+            }
+        )
+    }
 
     // PERFORMANCE: Only update section if data actually changed
     LaunchedEffect(roomListUpdateCounter) {
@@ -173,6 +194,31 @@ fun RoomListScreen(
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section data changed - rooms:$roomsChanged spaces:$spacesChanged")
         }
         // If nothing changed, skip update - prevents unnecessary recomposition and avatar flashing
+    }
+    
+    // BATTERY OPTIMIZATION: Query database for last messages when section updates
+    // This ensures RoomListScreen always shows fresh data from database (source of truth)
+    LaunchedEffect(stableSection.rooms.map { it.id }.sorted()) {
+        val roomIds = stableSection.rooms.map { it.id }
+        if (roomIds.isNotEmpty()) {
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val database = AndromuksDatabase.getInstance(context)
+                    val summaries = database.roomSummaryDao().getRoomSummariesByIds(roomIds)
+                    val summaryMap = summaries.associate { 
+                        it.roomId to (it.messagePreview to it.messageSender) 
+                    }
+                    roomsWithSummaries = summaryMap
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "RoomListScreen: Queried ${summaries.size} room summaries from database for display")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "RoomListScreen: Error querying room summaries: ${e.message}", e)
+                }
+            }
+        } else {
+            roomsWithSummaries = emptyMap()
+        }
     }
     
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: stableSection = ${stableSection.type}, roomListUpdateCounter = $roomListUpdateCounter, rooms.size = ${stableSection.rooms.size}")
@@ -445,7 +491,7 @@ fun RoomListScreen(
                     .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             ) {
                 AnimatedContent(
-                    targetState = sectionAnimationDirection to stableSection,
+                    targetState = sectionAnimationDirection to enrichedSection,
                     transitionSpec = {
                         val direction = targetState.first
                         val enter = if (direction > 0) {
@@ -570,7 +616,7 @@ fun RoomListScreen(
             
             // Tab bar at the bottom (outside the Surface)
             TabBar(
-                currentSection = stableSection,
+                currentSection = enrichedSection,
                 onSectionSelected = { section ->
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     appViewModel.changeSelectedSection(section)
@@ -897,6 +943,18 @@ fun RoomListItem(
                     android.util.Log.w("Andromuks", "RoomListScreen: Room details - ID: ${room.id}, Preview: '${room.messagePreview}', Sender: '${room.messageSender}'")
                     Text(
                         text = room.messagePreview,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                } else if (room.messageSender != null) {
+                    // Fallback: Sender available but no message preview (shouldn't happen normally since backend decrypts)
+                    // This is a safety fallback in case of edge cases
+                    val displayNameToUse = senderDisplayName ?: room.messageSender
+                    Text(
+                        text = "$displayNameToUse: (message preview unavailable)",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,

@@ -391,8 +391,193 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     }
     
     /**
+     * BATTERY OPTIMIZATION: Update shortcuts incrementally from sync_complete rooms only
+     * Implements lightweight workflow: only processes rooms that changed in sync_complete (typically 2-3 rooms)
+     * Never sorts all 588 rooms - much more efficient than the old approach
+     * 
+     * Workflow:
+     * 1. Extract rooms from sync_complete
+     * 2. For each room:
+     *    - If already in shortcuts: update and move to top (pushDynamicShortcut handles this)
+     *    - If not in shortcuts: remove oldest if full, then add new
+     * 
+     * @param syncRooms List of rooms from sync_complete (only changed rooms, typically 2-3)
+     */
+    fun updateShortcutsFromSyncRooms(syncRooms: List<RoomItem>) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) {
+            return
+        }
+        
+        if (syncRooms.isEmpty()) {
+            return // Nothing to process
+        }
+        
+        // Cancel any pending debounced update
+        pendingShortcutUpdate?.cancel()
+        
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                // Get current shortcut count from our cache
+                val currentShortcutCount = lastShortcutStableIds.size
+                
+                // Process each room from sync_complete
+                for (room in syncRooms) {
+                    // Skip rooms without valid timestamp (they're not active)
+                    if (room.sortingTimestamp == null || room.sortingTimestamp <= 0) {
+                        continue
+                    }
+                    
+                    val isInShortcuts = lastShortcutStableIds.contains(room.id)
+                    
+                    if (isInShortcuts) {
+                        // Room already in shortcuts - update and move to top
+                        // pushDynamicShortcut() automatically moves to top when called
+                        updateSingleShortcut(room)
+                    } else {
+                        // Room not in shortcuts
+                        if (currentShortcutCount < MAX_SHORTCUTS) {
+                            // Not full yet - just add
+                            addShortcut(room)
+                        } else {
+                            // Full - remove oldest, then add new
+                            removeOldestShortcut()
+                            addShortcut(room)
+                        }
+                    }
+                }
+                
+                lastShortcutUpdateTime = System.currentTimeMillis()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating shortcuts from sync rooms", e)
+            }
+        }
+    }
+    
+    /**
+     * Update a single shortcut if it needs updating (name/avatar changed)
+     */
+    private suspend fun updateSingleShortcut(room: RoomItem) {
+        val existingShortcut = lastShortcutData[room.id]
+        
+        // Check if shortcut needs update (name/avatar changed)
+        val needsUpdate = if (existingShortcut != null) {
+            val nameChanged = existingShortcut.roomName != room.name
+            val avatarChanged = existingShortcut.roomAvatarUrl != room.avatarUrl
+            val avatarNeedsDownload = room.avatarUrl?.let { url ->
+                MediaCache.getCachedFile(context, url) == null
+            } ?: false
+            
+            nameChanged || avatarChanged || avatarNeedsDownload
+        } else {
+            true // No existing shortcut data, update it
+        }
+        
+        if (needsUpdate) {
+            val shortcut = roomToShortcut(room)
+            val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
+            
+            // Check if avatar is in cache AFTER createShortcutInfoCompat (which may have downloaded it)
+            val avatarInCache = room.avatarUrl?.let { url ->
+                MediaCache.getCachedFile(context, url) != null
+            } ?: false
+            
+            val previouslyCached = lastAvatarCachePresence[room.id] ?: false
+            
+            // Only refresh icon when avatar transitions from not-cached -> cached
+            if (avatarInCache && !previouslyCached) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Removing old shortcut to refresh icon (avatar cache became available)")
+                ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(room.id))
+            }
+            
+            // pushDynamicShortcut() automatically moves shortcut to top
+            ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
+            
+            // Update cache
+            lastShortcutData = lastShortcutData + (room.id to shortcut)
+            lastShortcutStableIds = lastShortcutStableIds + room.id
+            lastNameAvatar = lastNameAvatar + (room.id to (room.name to room.avatarUrl))
+            lastAvatarCachePresence[room.id] = avatarInCache
+            
+            lastShortcutUpdateCompletedTime = System.currentTimeMillis()
+            
+            if (BuildConfig.DEBUG) Log.d(TAG, "Updated shortcut for room: ${room.name} (moved to top)")
+        } else {
+            // Still move to top even if no update needed (just push again)
+            val shortcut = roomToShortcut(room)
+            val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
+            ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
+            
+            if (BuildConfig.DEBUG) Log.d(TAG, "Moved shortcut to top for room: ${room.name} (no update needed)")
+        }
+    }
+    
+    /**
+     * Add a new shortcut (assumes we have space or oldest was already removed)
+     */
+    private suspend fun addShortcut(room: RoomItem) {
+        val shortcut = roomToShortcut(room)
+        val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
+        
+        // pushDynamicShortcut() automatically adds to top
+        ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
+        
+        // Update cache
+        lastShortcutData = lastShortcutData + (room.id to shortcut)
+        lastShortcutStableIds = lastShortcutStableIds + room.id
+        lastNameAvatar = lastNameAvatar + (room.id to (room.name to room.avatarUrl))
+        
+        val avatarInCache = room.avatarUrl?.let { url ->
+            MediaCache.getCachedFile(context, url) != null
+        } ?: false
+        lastAvatarCachePresence[room.id] = avatarInCache
+        
+        lastShortcutUpdateCompletedTime = System.currentTimeMillis()
+        
+        if (BuildConfig.DEBUG) Log.d(TAG, "Added shortcut for room: ${room.name}")
+    }
+    
+    /**
+     * Remove the oldest shortcut (by timestamp)
+     */
+    private suspend fun removeOldestShortcut() {
+        if (lastShortcutData.isEmpty()) {
+            return
+        }
+        
+        // Find shortcut with oldest timestamp
+        val oldestShortcut = lastShortcutData.values.minByOrNull { it.timestamp }
+        
+        if (oldestShortcut != null) {
+            ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(oldestShortcut.roomId))
+            
+            // Update cache
+            lastShortcutData = lastShortcutData - oldestShortcut.roomId
+            lastShortcutStableIds = lastShortcutStableIds - oldestShortcut.roomId
+            lastNameAvatar = lastNameAvatar - oldestShortcut.roomId
+            lastAvatarCachePresence.remove(oldestShortcut.roomId)
+            
+            if (BuildConfig.DEBUG) Log.d(TAG, "Removed oldest shortcut: ${oldestShortcut.roomName}")
+        }
+    }
+    
+    /**
+     * Convert RoomItem to ConversationShortcut
+     */
+    private fun roomToShortcut(room: RoomItem): ConversationShortcut {
+        return ConversationShortcut(
+            roomId = room.id,
+            roomName = room.name,
+            roomAvatarUrl = room.avatarUrl,
+            lastMessage = room.messagePreview,
+            unreadCount = room.unreadCount ?: 0,
+            timestamp = room.sortingTimestamp ?: System.currentTimeMillis()
+        )
+    }
+    
+    /**
      * Create shortcuts from room list
      * Prioritizes rooms with recent activity (within last 30 days) or unread messages
+     * NOTE: This is the OLD approach that sorts all rooms. Use updateShortcutsFromSyncRooms() for better performance.
      */
     private suspend fun createShortcutsFromRooms(rooms: List<RoomItem>): List<ConversationShortcut> {
         val now = System.currentTimeMillis()
