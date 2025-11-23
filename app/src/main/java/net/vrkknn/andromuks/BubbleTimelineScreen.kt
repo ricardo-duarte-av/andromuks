@@ -1285,7 +1285,6 @@ fun BubbleTimelineScreen(
                         homeserverUrl = appViewModel.homeserverUrl,
                         authToken = appViewModel.authToken,
                         roomId = roomId,
-                        bridgeInfo = appViewModel.getBridgeInfo(roomId),
                         onHeaderClick = {
                             navController.navigate("room_info/$roomId")
                         },
@@ -2291,7 +2290,6 @@ fun BubbleRoomHeader(
     homeserverUrl: String,
     authToken: String,
     roomId: String? = null,
-    bridgeInfo: BridgeInfo? = null,
     onHeaderClick: () -> Unit = {},
     onOpenInApp: () -> Unit = {},
     onCloseBubble: () -> Unit = {},
@@ -2367,23 +2365,11 @@ fun BubbleRoomHeader(
                     )
                 }
                 IconButton(onClick = onRefreshClick) {
-                    if (bridgeInfo != null && bridgeInfo.protocol.avatarUrl != null) {
-                        AvatarImage(
-                            mxcUrl = bridgeInfo.protocol.avatarUrl,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            fallbackText = bridgeInfo.protocol.displayname.take(1),
-                            size = 24.dp,
-                            userId = bridgeInfo.protocol.id,
-                            displayName = bridgeInfo.protocol.displayname
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.Refresh,
-                            contentDescription = "Refresh timeline",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = "Refresh timeline",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
                 IconButton(onClick = onCloseBubble) {
                     Icon(

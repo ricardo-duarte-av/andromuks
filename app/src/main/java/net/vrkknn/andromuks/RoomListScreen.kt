@@ -148,13 +148,11 @@ fun RoomListScreen(
     LaunchedEffect(roomListUpdateCounter) {
         val newSection = appViewModel.getCurrentRoomSection()
         
-        // PERFORMANCE: Deep comparison - only update if rooms/spaces/bridges actually changed
+        // PERFORMANCE: Deep comparison - only update if rooms/spaces actually changed
         val roomsChanged = stableSection.rooms.map { "${it.id}:${it.unreadCount}:${it.sortingTimestamp}" } != 
                           newSection.rooms.map { "${it.id}:${it.unreadCount}:${it.sortingTimestamp}" }
         val spacesChanged = stableSection.spaces.map { "${it.id}:${it.name}" } != 
                            newSection.spaces.map { "${it.id}:${it.name}" }
-        val bridgesChanged = stableSection.bridges.map { "${it.id}:${it.name}" } != 
-                            newSection.bridges.map { "${it.id}:${it.name}" }
         
         if (newSection.type != stableSection.type) {
             // Section type changed - update with animation
@@ -168,11 +166,11 @@ fun RoomListScreen(
             previousSectionType = stableSection.type
             stableSection = newSection
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section type changed from ${previousSectionType} to ${newSection.type}")
-        } else if (roomsChanged || spacesChanged || bridgesChanged) {
+        } else if (roomsChanged || spacesChanged) {
             // Same section type but data changed - update without animation
             sectionAnimationDirection = 0
             stableSection = newSection
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section data changed - rooms:$roomsChanged spaces:$spacesChanged bridges:$bridgesChanged")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section data changed - rooms:$roomsChanged spaces:$spacesChanged")
         }
         // If nothing changed, skip update - prevents unnecessary recomposition and avatar flashing
     }
@@ -285,7 +283,7 @@ fun RoomListScreen(
     
     // OPPORTUNISTIC PROFILE LOADING: Request missing profiles for message senders in visible rooms
     // This ensures proper display names and avatars are loaded for room list message previews
-    LaunchedEffect(stableSection.rooms, stableSection.spaces, stableSection.bridges) {
+    LaunchedEffect(stableSection.rooms, stableSection.spaces) {
         // Process rooms
         if (stableSection.rooms.isNotEmpty()) {
             // Get unique message senders from visible rooms (limit to first 50 rooms to avoid overwhelming)
@@ -329,25 +327,6 @@ fun RoomListScreen(
             }
         }
         
-        // Process bridges (if we're viewing bridge rooms)
-        if (appViewModel.currentBridgeId != null && stableSection.rooms.isNotEmpty()) {
-            val bridgeMessageSenders = stableSection.rooms.take(50)
-                .mapNotNull { room -> room.messageSender }
-                .distinct()
-                .filter { sender -> sender != appViewModel.currentUserId }
-            
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${bridgeMessageSenders.size} message senders from bridge rooms"
-            )
-            
-            bridgeMessageSenders.forEach { sender ->
-                val roomWithSender = stableSection.rooms.find { it.messageSender == sender }
-                if (roomWithSender != null) {
-                    appViewModel.requestUserProfileOnDemand(sender, roomWithSender.id)
-                }
-            }
-        }
     }
     
     Box(
@@ -585,31 +564,6 @@ fun RoomListScreen(
                                 }
                             )
                         }
-                        RoomSectionType.BRIDGES -> {
-                            if (appViewModel.currentBridgeId != null) {
-                                RoomListContent(
-                                    rooms = targetSection.rooms,
-                                    searchQuery = searchQuery,
-                                    appViewModel = appViewModel,
-                                    authToken = authToken,
-                                    navController = navController,
-                                    timestampUpdateTrigger = timestampUpdateTrigger,
-                                    hapticFeedback = hapticFeedback,
-                                    onInviteClick = { invite ->
-                                        inviteToJoin = invite
-                                        showRoomJoiner = true
-                                    }
-                                )
-                            } else {
-                                BridgesListContent(
-                                    bridges = targetSection.bridges,
-                                    searchQuery = searchQuery,
-                                    appViewModel = appViewModel,
-                                    authToken = authToken,
-                                    navController = navController
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -659,108 +613,6 @@ fun RoomListScreen(
                 },
                 inviteId = invite.roomId // Pass invite ID so RoomJoinerScreen uses acceptRoomInvite/refuseRoomInvite
             )
-        }
-    }
-}
-
-@Composable
-fun BridgeListItem(
-    bridge: BridgeItem, 
-    isSelected: Boolean, 
-    onClick: () -> Unit,
-    homeserverUrl: String,
-    authToken: String
-) {
-    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BridgeListItem: Called for bridge: ${bridge.name}")
-    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BridgeListItem: Using homeserver URL: $homeserverUrl")
-    
-    // Calculate unread counts and highlights outside the Row
-    val totalRooms = bridge.rooms.size
-    val unreadRooms = bridge.rooms.count { it.unreadCount != null && it.unreadCount > 0 }
-    val highlightRooms = bridge.rooms.count { it.highlightCount != null && it.highlightCount > 0 }
-    val totalUnreadMessages = bridge.rooms.sumOf { it.unreadCount ?: 0 }
-    val totalHighlights = bridge.rooms.sumOf { it.highlightCount ?: 0 }
-    
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(vertical = 12.dp, horizontal = 16.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Bridge protocol avatar
-        AvatarImage(
-            mxcUrl = bridge.avatarUrl,
-            homeserverUrl = homeserverUrl,
-            authToken = authToken,
-            fallbackText = bridge.name,
-            size = 48.dp,
-            userId = bridge.id,
-            displayName = bridge.name
-        )
-        
-        Spacer(modifier = Modifier.width(12.dp))
-        
-        Column(
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(
-                text = bridge.name,
-                style = when {
-                    isSelected -> MaterialTheme.typography.titleMedium.copy(color = MaterialTheme.colorScheme.primary)
-                    highlightRooms > 0 -> MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    unreadRooms > 0 -> MaterialTheme.typography.titleMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
-                    else -> MaterialTheme.typography.titleMedium
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            
-            if (totalRooms > 0) {
-                Text(
-                    text = "$totalRooms bridged rooms",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 2.dp)
-                )
-            }
-        }
-        
-        // Unread/highlight badge - shows number of rooms with highlights or unreads
-        if (highlightRooms > 0) {
-            // Highlight badge - more prominent color (error/attention)
-            Box(
-                modifier = Modifier
-                    .background(
-                        MaterialTheme.colorScheme.error,
-                        CircleShape
-                    )
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = if (highlightRooms > 99) "99+" else "$highlightRooms",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onError
-                )
-            }
-        } else if (unreadRooms > 0) {
-            // Regular unread badge - primary color
-            Box(
-                modifier = Modifier
-                    .background(
-                        MaterialTheme.colorScheme.primary,
-                        CircleShape
-                    )
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    text = if (unreadRooms > 99) "99+" else "$unreadRooms",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onPrimary
-                )
-            }
         }
     }
 }
@@ -1272,20 +1124,6 @@ fun TabBar(
                 hasHighlights = appViewModel.hasFavouritesHighlights()
             )
             
-            TabButton(
-                icon = Icons.Filled.Place,
-                label = "Bridges",
-                isSelected = currentSection.type == RoomSectionType.BRIDGES,
-                onClick = {
-                    // Always ensure we're at the root bridges view when pressing the Bridges tab
-                    if (appViewModel.currentBridgeId != null) {
-                        appViewModel.exitBridge()
-                    }
-                    onSectionSelected(RoomSectionType.BRIDGES)
-                },
-                badgeCount = appViewModel.getBridgesUnreadCount(),
-                hasHighlights = appViewModel.hasBridgesHighlights()
-            )
         }
     }
 }
@@ -1365,12 +1203,10 @@ fun RoomListContent(
     hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
     onInviteClick: (RoomInvite) -> Unit
 ) {
-    // Handle Android back key when inside a space or bridge
-    androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null || appViewModel.currentBridgeId != null) {
+    // Handle Android back key when inside a space
+    androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null) {
         if (appViewModel.currentSpaceId != null) {
             appViewModel.exitSpace()
-        } else if (appViewModel.currentBridgeId != null) {
-            appViewModel.exitBridge()
         }
     }
     
@@ -1554,47 +1390,6 @@ fun SpacesListContent(
                 isSelected = false,
                 onClick = { 
                     appViewModel.enterSpace(space.id)
-                },
-                homeserverUrl = appViewModel.homeserverUrl,
-                authToken = authToken
-            )
-        }
-    }
-}
-
-@Composable
-fun BridgesListContent(
-    bridges: List<BridgeItem>,
-    searchQuery: String,
-    appViewModel: AppViewModel,
-    authToken: String,
-    navController: NavController
-) {
-    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "BridgesListContent: Displaying ${bridges.size} bridges")
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Top,
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            top = 8.dp,
-            bottom = 8.dp
-        )
-    ) {
-        val filteredBridges = if (searchQuery.isBlank()) {
-            bridges
-        } else {
-            bridges.filter { bridge ->
-                bridge.name.contains(searchQuery, ignoreCase = true) ||
-                bridge.protocol.contains(searchQuery, ignoreCase = true)
-            }
-        }
-        
-        items(filteredBridges.size) { idx ->
-            val bridge = filteredBridges[idx]
-            BridgeListItem(
-                bridge = bridge,
-                isSelected = false,
-                onClick = { 
-                    appViewModel.enterBridge(bridge.id)
                 },
                 homeserverUrl = appViewModel.homeserverUrl,
                 authToken = authToken

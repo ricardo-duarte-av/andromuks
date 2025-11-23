@@ -25,9 +25,6 @@ interface RoomStateDao {
     
     @Query("DELETE FROM room_state")
     suspend fun deleteAll()
-    
-    @Query("UPDATE room_state SET bridgeInfoJson = NULL")
-    suspend fun clearAllBridgeInfo()
 }
 
 

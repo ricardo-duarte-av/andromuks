@@ -272,10 +272,6 @@ class AppViewModel : ViewModel() {
         private set
     private var cachedFavouritesHasHighlights by mutableStateOf(false)
         private set
-    private var cachedBridgesUnreadCount by mutableStateOf(0)
-        private set
-    private var cachedBridgesHasHighlights by mutableStateOf(false)
-        private set
     
     // PERFORMANCE: Track which sections have been loaded (for lazy loading)
     private val loadedSections = mutableSetOf<RoomSectionType>()
@@ -284,8 +280,6 @@ class AppViewModel : ViewModel() {
     private var lastAllRoomsSize: Int = 0
     private var lastAllRoomsContentHash: String = ""
     
-    // Bridge recreation tracking - only recreate bridges when room list hash changes
-    private var lastBridgeCreationHash: String = ""
     
     /**
      * Invalidate room section cache when allRooms data changes
@@ -344,17 +338,6 @@ class AppViewModel : ViewModel() {
     private var directMessageUserMap: Map<String, Set<String>> = emptyMap()
         private set
     
-    // Bridge-related properties
-    var allBridges by mutableStateOf(listOf<BridgeItem>())
-        private set
-    var currentBridgeId by mutableStateOf<String?>(null)
-        private set
-    private var bridgeInfoCache by mutableStateOf(mapOf<String, BridgeInfo>())
-        private set
-    
-    // Bridge cache persistence - tracks which rooms have been checked for bridge state
-    private var bridgeCacheCheckedRooms by mutableStateOf(setOf<String>())
-        private set
     
     // Room state storage for future use
     private var roomStatesCache by mutableStateOf(mapOf<String, JSONArray>())
@@ -366,315 +349,6 @@ class AppViewModel : ViewModel() {
      */
     fun isDirectMessageFromAccountData(roomId: String): Boolean {
         return directMessageRoomIds.contains(roomId)
-    }
-    
-    /**
-     * Enter a bridge (similar to entering a space)
-     */
-    fun enterBridge(bridgeId: String) {
-        currentBridgeId = bridgeId
-        currentSpaceId = null // Clear space selection when entering bridge
-        roomListUpdateCounter++
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Entered bridge: $bridgeId")
-    }
-    
-    /**
-     * Exit the current bridge
-     */
-    fun exitBridge() {
-        currentBridgeId = null
-        roomListUpdateCounter++
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Exited bridge")
-    }
-    
-    /**
-     * Update bridge information for a room
-     */
-    fun updateBridgeInfo(roomId: String, bridgeInfo: BridgeInfo) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: updateBridgeInfo() called for room $roomId: ${bridgeInfo.protocol.displayname} (protocol: ${bridgeInfo.protocol.id})")
-        
-        bridgeInfoCache = bridgeInfoCache + (roomId to bridgeInfo)
-        bridgeCacheCheckedRooms = bridgeCacheCheckedRooms + roomId
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated in-memory bridge info cache for room $roomId (cache now has ${bridgeInfoCache.size} entries)")
-        
-        // CRITICAL: Persist bridge info to database immediately using blocking call to prevent race conditions
-        // We use runBlocking on IO dispatcher to ensure persistence completes before returning
-        // This prevents sync processing from seeing stale state without bridge info
-        appContext?.let { context ->
-            if (syncIngestor == null) {
-                syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Created new SyncIngestor instance for bridge info persistence")
-            }
-            try {
-                // Block until persistence completes (prevents race with sync processing)
-                // This is safe because persistence is fast (single DB transaction)
-                runBlocking(Dispatchers.IO) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Calling persistBridgeInfo() for room $roomId (protocol: ${bridgeInfo.protocol.id})")
-                    syncIngestor?.persistBridgeInfo(roomId, bridgeInfo)
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Successfully persisted bridge info for room $roomId to database")
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Error persisting bridge info for room $roomId: ${e.message}", e)
-                e.printStackTrace()
-            }
-        } ?: run {
-            android.util.Log.e("Andromuks", "AppViewModel: Cannot persist bridge info for room $roomId - appContext is null")
-        }
-    }
-    
-    /**
-     * Clear all bridge information from database and memory cache
-     * This forces bridge state to be re-requested for all rooms on next bridge load
-     */
-    fun clearBridgeInfo() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing all bridge info from DB and memory")
-        
-        // Clear memory caches
-        bridgeInfoCache = emptyMap()
-        bridgeCacheCheckedRooms = emptySet()
-        allBridges = emptyList()
-        lastBridgeCreationHash = "" // Reset hash to force recreation
-        
-        // Clear bridge info from database
-        appContext?.let { context ->
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                    database.roomStateDao().clearAllBridgeInfo()
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared bridge info from database")
-                    
-                    // Trigger UI update
-                    withContext(Dispatchers.Main) {
-                        roomListUpdateCounter++
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error clearing bridge info from database: ${e.message}", e)
-                }
-            }
-        }
-    }
-    
-    /**
-     * Mark a room as checked for bridge state (even if no bridge was found)
-     * BUG FIX #3: Also persist "no bridge" status to DB so we don't request again
-     */
-    fun markRoomAsBridgeChecked(roomId: String) {
-        bridgeCacheCheckedRooms = bridgeCacheCheckedRooms + roomId
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked room $roomId as bridge checked")
-        
-        // BUG FIX #3: Persist "no bridge" status to DB (empty bridgeInfoJson means "checked, no bridge")
-        appContext?.let { context ->
-            if (syncIngestor == null) {
-                syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
-            }
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    // Update RoomStateEntity to mark as checked (even if no bridge)
-                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                    // CRITICAL: Re-check database to handle race conditions where bridge info might have been stored
-                    val roomState = database.roomStateDao().get(roomId)
-                    if (roomState != null) {
-                        // CRITICAL: Only update if bridgeInfoJson is NULL (not checked yet)
-                        // If bridgeInfoJson is not null (has bridge info or empty string), preserve it
-                        if (roomState.bridgeInfoJson == null) {
-                            // Mark as checked by setting an empty JSON string (different from null)
-                            // CRITICAL: Preserve all existing fields, only update bridgeInfoJson to empty string
-                            database.roomStateDao().upsert(
-                                net.vrkknn.andromuks.database.entities.RoomStateEntity(
-                                    roomId = roomState.roomId,
-                                    name = roomState.name,
-                                    avatarUrl = roomState.avatarUrl,
-                                    canonicalAlias = roomState.canonicalAlias,
-                                    topic = roomState.topic,
-                                    isDirect = roomState.isDirect,
-                                    isFavourite = roomState.isFavourite,
-                                    isLowPriority = roomState.isLowPriority,
-                                    bridgeInfoJson = "", // Empty string means "checked, no bridge" (CRITICAL: preserves null -> empty transition)
-                                    updatedAt = System.currentTimeMillis()
-                                )
-                            )
-                        } else {
-                            // Bridge info already exists (either actual bridge JSON or empty string for "checked, no bridge")
-                            // DO NOT OVERWRITE - just mark as checked in memory
-                            if (BuildConfig.DEBUG && roomState.bridgeInfoJson.isNotBlank()) {
-                                android.util.Log.d("Andromuks", "AppViewModel: Room $roomId already has bridge info - preserving it")
-                            }
-                        }
-                    } else {
-                        // No existing state - but CRITICAL: Re-check one more time to handle race conditions
-                        // where bridge info might have been persisted between our first check and now
-                        val recheckedState = database.roomStateDao().get(roomId)
-                        if (recheckedState == null) {
-                            // Still no state - safe to create one with empty bridgeInfoJson
-                            // This prevents re-requesting bridge state for this room
-                            database.roomStateDao().upsert(
-                                net.vrkknn.andromuks.database.entities.RoomStateEntity(
-                                    roomId = roomId,
-                                    name = null,
-                                    avatarUrl = null,
-                                    canonicalAlias = null,
-                                    topic = null,
-                                    isDirect = false,
-                                    isFavourite = false,
-                                    isLowPriority = false,
-                                    bridgeInfoJson = "", // Empty string means "checked, no bridge"
-                                    updatedAt = System.currentTimeMillis()
-                                )
-                            )
-                        } else {
-                            // State was created between checks - preserve any existing bridge info
-                            if (recheckedState.bridgeInfoJson != null && recheckedState.bridgeInfoJson.isNotBlank()) {
-                                if (BuildConfig.DEBUG) {
-                                    android.util.Log.d("Andromuks", "AppViewModel: Room $roomId state created with bridge info - preserving it")
-                                }
-                            }
-                        }
-                    }
-                    // CRITICAL: If bridgeInfoJson is not null and not empty, it means bridge info exists - DO NOT OVERWRITE
-                } catch (e: Exception) {
-                    // Silently fail - not critical
-                }
-            }
-        }
-    }
-    
-    /**
-     * Check if a room has been checked for bridge state
-     */
-    fun isRoomBridgeChecked(roomId: String): Boolean {
-        return bridgeCacheCheckedRooms.contains(roomId)
-    }
-    
-    /**
-     * Get rooms that haven't been checked for bridge state yet
-     */
-    fun getUncheckedRoomsForBridge(): List<String> {
-        return allRooms.map { it.id }.filter { !isRoomBridgeChecked(it) }
-    }
-    
-    /**
-     * Get bridge information for a room
-     */
-    fun getBridgeInfo(roomId: String): BridgeInfo? {
-        return bridgeInfoCache[roomId]
-    }
-    
-    /**
-     * Update all bridges (called when bridge data changes)
-     * BUG FIX: Only update if bridges actually changed to prevent recreation loop
-     */
-    fun updateAllBridges(bridges: List<BridgeItem>) {
-        // Check if bridges actually changed (compare by ID and room count)
-        val currentBridgeIds = allBridges.map { "${it.id}:${it.rooms.size}" }.sorted().joinToString("|")
-        val newBridgeIds = bridges.map { "${it.id}:${it.rooms.size}" }.sorted().joinToString("|")
-        
-        if (currentBridgeIds == newBridgeIds && allBridges.isNotEmpty()) {
-            // Bridges haven't changed, skip update to prevent recreation loop
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping bridge update - bridges unchanged (${bridges.size} bridges)")
-            return
-        }
-        
-        allBridges = bridges
-        roomListUpdateCounter++
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated ${bridges.size} bridges")
-    }
-    
-    /**
-     * Create bridge pseudo-spaces from collected bridge information
-     * This groups rooms by their bridge protocol
-     */
-    fun createBridgePseudoSpaces() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Creating bridge pseudo-spaces for ${allRooms.size} rooms")
-        val bridgeGroups = mutableMapOf<String, MutableList<RoomItem>>()
-        
-        // Group rooms by bridge protocol (reduced logging - only log summary)
-        var bridgedRoomCount = 0
-        allRooms.forEach { room ->
-            val bridgeInfo = getBridgeInfo(room.id)
-            if (bridgeInfo != null) {
-                val protocolId = bridgeInfo.protocol.id
-                if (protocolId.isNotBlank()) {
-                    bridgeGroups.getOrPut(protocolId) { mutableListOf() }.add(room)
-                    bridgedRoomCount++
-                }
-            }
-        }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found ${bridgeGroups.size} bridge groups: ${bridgeGroups.keys} (${bridgedRoomCount} bridged rooms)")
-        
-        // Create bridge items from groups
-        val bridges = bridgeGroups.map { (protocolId, rooms) ->
-            val firstRoom = rooms.first()
-            val bridgeInfo = getBridgeInfo(firstRoom.id)
-            val protocolName = bridgeInfo?.protocol?.displayname ?: protocolId
-            val protocolAvatar = bridgeInfo?.protocol?.avatarUrl
-            val externalUrl = bridgeInfo?.protocol?.externalUrl
-            
-            BridgeItem(
-                id = protocolId,
-                name = protocolName,
-                avatarUrl = protocolAvatar,
-                protocol = protocolId,
-                externalUrl = externalUrl,
-                rooms = rooms
-            )
-        }
-        
-        updateAllBridges(bridges)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Created ${bridges.size} bridge pseudo-spaces")
-    }
-    
-    /**
-     * Request bridge state events for all rooms
-     * This will make websocket calls to fetch m.bridge state events
-     */
-    fun requestBridgeStateEvents() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting room states for ${allRooms.size} rooms")
-        
-        // Request room state for each room individually
-        allRooms.forEach { room ->
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting room state for room: ${room.id}")
-            requestRoomStateForBridgeDetection(room.id)
-        }
-    }
-    
-    /**
-     * Request room state for bridge detection and storage
-     */
-    fun requestRoomStateForBridgeDetection(roomId: String) {
-        val requestId = getAndIncrementRequestId()
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting room state for bridge detection - room: $roomId (requestId: $requestId)")
-        
-        // Store the request for response handling
-        bridgeStateRequests[requestId] = roomId
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Stored bridge state request for room $roomId with requestId $requestId")
-        
-        // Use get_room_state to get all room state events
-        sendWebSocketCommand("get_room_state", requestId, mapOf(
-            "room_id" to roomId
-        ))
-    }
-    
-    /**
-     * Request bridge state for a specific room (kept for individual requests if needed)
-     */
-    private fun requestBridgeStateForRoom(roomId: String) {
-        val requestId = getAndIncrementRequestId()
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting bridge state for room $roomId (requestId: $requestId)")
-        
-        // Store the request for response handling
-        bridgeStateRequests[requestId] = roomId
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Stored bridge state request for room $roomId with requestId $requestId")
-        // THREAD SAFETY: Create safe copy to avoid ConcurrentModificationException during logging
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current bridge state requests: ${bridgeStateRequests.keys.toList()}")
-        
-        // Use the same format as other WebSocket commands
-        sendWebSocketCommand("get_room_state", requestId, mapOf(
-            "room_id" to roomId
-        ))
     }
     
     // Force recomposition counter - DEPRECATED: Use specific counters below instead
@@ -1042,38 +716,6 @@ class AppViewModel : ViewModel() {
         return cachedFavouritesHasHighlights
     }
     
-    /**
-     * Get the count of unread rooms for Bridges tab
-     */
-    fun getBridgesUnreadCount(): Int {
-        val roomsToCount = if (currentBridgeId != null) {
-            // Count unread rooms in the selected bridge
-            val bridge = allBridges.find { it.id == currentBridgeId }
-            bridge?.rooms ?: emptyList()
-        } else {
-            // Count unread rooms across all bridges
-            allBridges.flatMap { it.rooms }
-        }
-        return roomsToCount.count { 
-            (it.unreadCount != null && it.unreadCount > 0) || 
-            (it.highlightCount != null && it.highlightCount > 0) 
-        }
-    }
-    
-    /**
-     * Check if Bridges has any room with highlights
-     */
-    fun hasBridgesHighlights(): Boolean {
-        val roomsToCheck = if (currentBridgeId != null) {
-            // Check highlights in the selected bridge
-            val bridge = allBridges.find { it.id == currentBridgeId }
-            bridge?.rooms ?: emptyList()
-        } else {
-            // Check highlights across all bridges
-            allBridges.flatMap { it.rooms }
-        }
-        return roomsToCheck.any { it.highlightCount != null && it.highlightCount > 0 }
-    }
     
     fun getPendingInvites(): List<RoomInvite> {
         return pendingInvites.values.toList()
@@ -1230,18 +872,6 @@ class AppViewModel : ViewModel() {
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated cached sections - allRooms: ${roomsToUse.size}, DMs: ${cachedDirectChatRooms.size}, Unread: ${cachedUnreadRooms.size}, Favourites: ${cachedFavouriteRooms.size}")
         
-        // BUG FIX: Recreate bridges only when room list actually changes (prevent recreation loop)
-        // Only recreate if bridges section has been loaded or if bridges are currently empty
-        // Track hash to prevent recreation on every recomposition
-        if (loadedSections.contains(RoomSectionType.BRIDGES) || allBridges.isEmpty()) {
-            // Only recreate if the room list hash changed since last bridge creation
-            if (currentContentHash != lastBridgeCreationHash || allBridges.isEmpty()) {
-                lastBridgeCreationHash = currentContentHash
-                createBridgePseudoSpaces()
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping bridge recreation - room list hash unchanged")
-            }
-        }
     }
     
     /**
@@ -1254,8 +884,6 @@ class AppViewModel : ViewModel() {
         var unreadCount = 0
         var favouritesUnread = 0
         var favouritesHighlights = false
-        var bridgesUnread = 0
-        var bridgesHighlights = false
         
         for (room in rooms) {
             val hasUnread = (room.unreadCount != null && room.unreadCount > 0) || 
@@ -1294,8 +922,6 @@ class AppViewModel : ViewModel() {
         cachedUnreadCount = unreadCount
         cachedFavouritesUnreadCount = favouritesUnread
         cachedFavouritesHasHighlights = favouritesHighlights
-        cachedBridgesUnreadCount = bridgesUnread
-        cachedBridgesHasHighlights = bridgesHighlights
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Badge counts - DMs: $directChatsUnread, Unread: $unreadCount, Favs: $favouritesUnread")
     }
@@ -1374,11 +1000,6 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Auto-loading HOME section for badge counts")
             }
             
-            // PERFORMANCE: Lazy load bridges when Bridges tab is first accessed
-            if (selectedSection == RoomSectionType.BRIDGES) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Bridges tab accessed - calling loadBridgesIfNeeded()")
-                loadBridgesIfNeeded()
-            }
             
             // Trigger cache update to filter this section
             invalidateRoomSectionCache()
@@ -1452,36 +1073,6 @@ class AppViewModel : ViewModel() {
                     rooms = cachedFavouriteRooms,
                     unreadCount = unreadFavouriteCount
                 )
-            }
-            RoomSectionType.BRIDGES -> {
-                if (currentBridgeId != null) {
-                    // Show rooms for the selected bridge
-                    val bridge = allBridges.find { it.id == currentBridgeId }
-                    val bridgeRooms = bridge?.rooms ?: emptyList()
-                    val unreadBridgeCount = bridgeRooms.count { 
-                        (it.unreadCount != null && it.unreadCount > 0) || 
-                        (it.highlightCount != null && it.highlightCount > 0) 
-                    }
-                    RoomSection(
-                        type = RoomSectionType.BRIDGES,
-                        rooms = bridgeRooms,
-                        unreadCount = unreadBridgeCount
-                    )
-                } else {
-                    // Show all bridges
-                    val unreadBridgeCount = allBridges.sumOf { bridge ->
-                        bridge.rooms.count { 
-                            (it.unreadCount != null && it.unreadCount > 0) || 
-                            (it.highlightCount != null && it.highlightCount > 0) 
-                        }
-                    }
-                    RoomSection(
-                        type = RoomSectionType.BRIDGES,
-                        rooms = emptyList(),
-                        bridges = allBridges,
-                        unreadCount = unreadBridgeCount
-                    )
-                }
             }
         }
     }
@@ -2408,56 +1999,6 @@ class AppViewModel : ViewModel() {
             profileRepository.getAllProfiles()
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to get disk cached profiles", e)
-            emptyList()
-        }
-    }
-    
-    /**
-     * Gets all bridged rooms from the database with their bridge information
-     */
-    suspend fun getAllBridgedRooms(context: Context): List<Pair<String, BridgeInfo>> = withContext(Dispatchers.IO) {
-        try {
-            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-            val roomStateDao = database.roomStateDao()
-            val allStates = roomStateDao.getAllRoomStates()
-            
-            // Diagnostic: Log total states and bridge info breakdown
-            val totalStates = allStates.size
-            val withBridgeJson = allStates.count { it.bridgeInfoJson != null && it.bridgeInfoJson.isNotBlank() }
-            val withEmptyString = allStates.count { it.bridgeInfoJson != null && it.bridgeInfoJson.isBlank() }
-            val withNull = allStates.count { it.bridgeInfoJson == null }
-            
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: getAllBridgedRooms - Total states: $totalStates, With bridge JSON: $withBridgeJson, With empty string: $withEmptyString, With null: $withNull")
-                android.util.Log.d("Andromuks", "AppViewModel: getAllBridgedRooms - In-memory cache has ${bridgeInfoCache.size} entries")
-            }
-            
-            // Filter to only rooms with actual bridge JSON (non-null, non-empty)
-            val bridgedRooms = allStates
-                .filter { it.bridgeInfoJson != null && it.bridgeInfoJson.isNotBlank() }
-                .mapNotNull { state ->
-                    try {
-                        val jsonContent = org.json.JSONObject(state.bridgeInfoJson!!)
-                        val bridgeInfo = parseBridgeInfo(jsonContent)
-                        if (bridgeInfo != null) {
-                            Pair(state.roomId, bridgeInfo)
-                        } else {
-                            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Failed to parse bridge info for room ${state.roomId} (parseBridgeInfo returned null)")
-                            null
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Error parsing bridge info for room ${state.roomId}: ${e.message}", e)
-                        null
-                    }
-                }
-            
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: getAllBridgedRooms - Returning ${bridgedRooms.size} bridged rooms from database")
-            }
-            
-            bridgedRooms
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Error getting bridged rooms from database", e)
             emptyList()
         }
     }
@@ -3686,9 +3227,6 @@ class AppViewModel : ViewModel() {
                 updateRoomAnimationState(room.id, isAnimating = true)
             }
             
-            // Bridge cache invalidation: New rooms need to be checked for bridge state
-            // Remove from checked rooms set so it gets checked on next bridge load
-            bridgeCacheCheckedRooms = bridgeCacheCheckedRooms - room.id
         }
         
         // CRITICAL: If we have newly joined rooms, force immediate sort to show them at the top
@@ -3712,9 +3250,6 @@ class AppViewModel : ViewModel() {
                     roomAnimationStates = roomAnimationStates - roomId
                 }
                 
-                // Bridge cache invalidation: Remove bridge info and checked status for removed rooms
-                bridgeInfoCache = bridgeInfoCache - roomId
-                bridgeCacheCheckedRooms = bridgeCacheCheckedRooms - roomId
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed room: ${removedRoom.name}")
             }
         }
@@ -3960,10 +3495,6 @@ class AppViewModel : ViewModel() {
         // Now that all rooms are loaded, populate space edges
         populateSpaceEdges()
         
-        // PERFORMANCE OPTIMIZATION: Defer bridge detection until Bridges tab is accessed
-        // This prevents 500-1000ms blocking on init_complete with many rooms
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Init complete - bridge detection deferred until Bridges tab is accessed")
-        
         // Update ConversationsApi with the real homeserver URL and refresh shortcuts
         // This happens after init_complete when we have all the data we need
         if (realMatrixHomeserverUrl.isNotEmpty() && appContext != null) {
@@ -4044,118 +3575,6 @@ class AppViewModel : ViewModel() {
         storedSpaceEdges = spaceEdges
     }
     
-    /**
-     * PERFORMANCE OPTIMIZATION: Lazy loads bridges on first access to Bridges tab
-     * This prevents 500-1000ms blocking on app initialization with many rooms
-     * 
-     * CRITICAL FIX: Also loads bridge info from database when Bridges tab is first accessed
-     * This ensures rooms are ready before bridge info is loaded, preventing sync data
-     * from overwriting bridge info during app startup.
-     * 
-     * Process:
-     * 1. Load bridge info from database FIRST (if not already loaded)
-     * 2. Load checked rooms from database
-     * 3. Create bridges from loaded DB data
-     * 4. THEN request room states only for unchecked rooms
-     */
-    private fun loadBridgesIfNeeded() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loading/refreshing bridges from ${allRooms.size} rooms")
-        
-        appContext?.let { context ->
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
-                    
-                    // CRITICAL FIX: Load bridge info from database FIRST when Bridges tab is first accessed
-                    // This ensures we use cached DB data before requesting from server
-                    if (bridgeInfoCache.isEmpty()) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loading bridge info from database FIRST (first access to Bridges tab)")
-                        
-                        // STEP 1: Load checked rooms from database first
-                        val checkedRooms = bootstrapLoader.getBridgeCheckedRooms()
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${checkedRooms.size} checked rooms from database")
-                        
-                        // STEP 2: Load bridge info from database
-                        val bridgeInfoMap = bootstrapLoader.loadBridgeInfoFromDb()
-                        
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loading ${bridgeInfoMap.size} bridge info entries from database")
-                        
-                        var loadedCount = 0
-                        var parseFailCount = 0
-                        
-                        for ((roomId, bridgeJson) in bridgeInfoMap) {
-                            try {
-                                val bridgeObj = org.json.JSONObject(bridgeJson)
-                                val bridgeInfo = parseBridgeInfo(bridgeObj)
-                                if (bridgeInfo != null) {
-                                    // Update in-memory cache without triggering persistence (already in DB)
-                                    withContext(Dispatchers.Main) {
-                                        bridgeInfoCache = bridgeInfoCache + (roomId to bridgeInfo)
-                                    }
-                                    loadedCount++
-                                    if (BuildConfig.DEBUG && loadedCount <= 10) {
-                                        // Only log first 10 to avoid spam
-                                        android.util.Log.d("Andromuks", "AppViewModel: Loaded bridge info from DB for room $roomId (protocol: ${bridgeInfo.protocol.id})")
-                                    }
-                                } else {
-                                    parseFailCount++
-                                    if (BuildConfig.DEBUG && parseFailCount <= 5) {
-                                        android.util.Log.w("Andromuks", "AppViewModel: Failed to parse bridge info for room $roomId (parseBridgeInfo returned null)")
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                parseFailCount++
-                                if (BuildConfig.DEBUG && parseFailCount <= 5) {
-                                    android.util.Log.e("Andromuks", "AppViewModel: Error loading bridge info from DB for room $roomId: ${e.message}", e)
-                                }
-                            }
-                        }
-                        
-                        // STEP 3: Mark all checked rooms (including those with no bridge) as checked in memory
-                        withContext(Dispatchers.Main) {
-                            bridgeCacheCheckedRooms = bridgeCacheCheckedRooms + checkedRooms
-                            
-                            if (BuildConfig.DEBUG) {
-                                android.util.Log.d("Andromuks", "AppViewModel: Loaded $loadedCount bridge info entries into cache (${parseFailCount} failed to parse, ${checkedRooms.size} checked rooms total)")
-                                android.util.Log.d("Andromuks", "AppViewModel: bridgeInfoCache now has ${bridgeInfoCache.size} entries")
-                            }
-                            
-                            // STEP 4: Create bridge pseudo-spaces from loaded DB data BEFORE requesting from server
-                            createBridgePseudoSpaces()
-                        }
-                    } else {
-                        // Bridge info already loaded, just load checked rooms
-                        val checkedRooms = bootstrapLoader.getBridgeCheckedRooms()
-                        withContext(Dispatchers.Main) {
-                            bridgeCacheCheckedRooms = bridgeCacheCheckedRooms + checkedRooms
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked ${checkedRooms.size} rooms as bridge-checked from DB")
-                            
-                            // Recreate bridges from existing cache
-                            createBridgePseudoSpaces()
-                        }
-                    }
-                    
-                    // STEP 5: Only AFTER loading from DB, request room states for rooms that haven't been checked yet
-                    // This prevents requesting from server for rooms we already know about from DB
-                    withContext(Dispatchers.Main) {
-                        val uncheckedRooms = getUncheckedRoomsForBridge()
-                        if (uncheckedRooms.isNotEmpty()) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting room states for ${uncheckedRooms.size} unchecked rooms from server (${allRooms.size - uncheckedRooms.size} already checked/loaded from DB)")
-                            
-                            // Request room states only for unchecked rooms
-                            uncheckedRooms.forEach { roomId ->
-                                requestRoomStateForBridgeDetection(roomId)
-                            }
-                        } else {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: All rooms already checked for bridges - using DB data only, no server requests needed")
-                        }
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error loading bridge info from DB: ${e.message}", e)
-                }
-            }
-        }
-    }
     /**
      * PERFORMANCE OPTIMIZATION: Populates space edges in background after init_complete
      * This prevents 50-100ms blocking during app initialization with nested spaces
@@ -4747,7 +4166,6 @@ class AppViewModel : ViewModel() {
     private val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
     private val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
-    private val bridgeStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     
     // PERFORMANCE: Track pending room state requests to prevent duplicate WebSocket commands
     private val pendingRoomStateRequests = mutableSetOf<String>() // roomId that have pending state requests
@@ -5371,40 +4789,6 @@ class AppViewModel : ViewModel() {
             }
             editor.putString("cached_rooms", roomsArray.toString())
             
-            // Save bridge cache data
-            val bridgeInfoArray = JSONArray()
-            for ((roomId, bridgeInfo) in bridgeInfoCache) {
-                val bridgeJson = JSONObject()
-                bridgeJson.put("roomId", roomId)
-                bridgeJson.put("bridgebot", bridgeInfo.bridgebot)
-                bridgeJson.put("creator", bridgeInfo.creator)
-                
-                // Channel data
-                val channelJson = JSONObject()
-                channelJson.put("avatarUrl", bridgeInfo.channel.avatarUrl ?: "")
-                channelJson.put("displayname", bridgeInfo.channel.displayname)
-                channelJson.put("id", bridgeInfo.channel.id)
-                bridgeJson.put("channel", channelJson)
-                
-                // Protocol data
-                val protocolJson = JSONObject()
-                protocolJson.put("avatarUrl", bridgeInfo.protocol.avatarUrl ?: "")
-                protocolJson.put("displayname", bridgeInfo.protocol.displayname)
-                protocolJson.put("externalUrl", bridgeInfo.protocol.externalUrl ?: "")
-                protocolJson.put("id", bridgeInfo.protocol.id)
-                bridgeJson.put("protocol", protocolJson)
-                
-                bridgeInfoArray.put(bridgeJson)
-            }
-            editor.putString("cached_bridge_info", bridgeInfoArray.toString())
-            
-            // Save checked rooms set
-            val checkedRoomsArray = JSONArray()
-            for (roomId in bridgeCacheCheckedRooms) {
-                checkedRoomsArray.put(roomId)
-            }
-            editor.putString("cached_bridge_checked_rooms", checkedRoomsArray.toString())
-            
             // Save timestamp of when state was saved
             editor.putLong("state_saved_timestamp", System.currentTimeMillis())
             
@@ -5472,13 +4856,6 @@ class AppViewModel : ViewModel() {
                             // Convert roomMap to sorted list for allRooms
                             allRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated allRooms with ${allRooms.size} rooms from database")
-                            
-                            // CRITICAL FIX: Defer bridge info loading until Bridges tab is accessed
-                            // This prevents race conditions where sync data arrives before rooms are ready
-                            // and overwrites bridge info. Bridge info will be loaded in loadBridgesIfNeeded()
-                            // when the user first navigates to the Bridges tab.
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Bridge info loading deferred until Bridges tab is accessed")
-                            
                             // Load spaces from database
                             kotlinx.coroutines.runBlocking(Dispatchers.IO) {
                                 val loadedSpaces = bootstrapLoader!!.loadSpacesFromDb(roomMap)
@@ -5643,59 +5020,6 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored ${cachedRooms.size} rooms from cache")
             }
             
-            // Restore bridge cache data
-            val cachedBridgeInfoJson = prefs.getString("cached_bridge_info", null)
-            if (cachedBridgeInfoJson != null) {
-                val bridgeInfoArray = JSONArray(cachedBridgeInfoJson)
-                val cachedBridgeInfo = mutableMapOf<String, BridgeInfo>()
-                
-                for (i in 0 until bridgeInfoArray.length()) {
-                    val bridgeJson = bridgeInfoArray.getJSONObject(i)
-                    val roomId = bridgeJson.getString("roomId")
-                    
-                    val channelObj = bridgeJson.getJSONObject("channel")
-                    val channel = BridgeChannel(
-                        avatarUrl = channelObj.getString("avatarUrl").takeIf { it.isNotBlank() },
-                        displayname = channelObj.getString("displayname"),
-                        id = channelObj.getString("id")
-                    )
-                    
-                    val protocolObj = bridgeJson.getJSONObject("protocol")
-                    val protocol = BridgeProtocol(
-                        avatarUrl = protocolObj.getString("avatarUrl").takeIf { it.isNotBlank() },
-                        displayname = protocolObj.getString("displayname"),
-                        externalUrl = protocolObj.getString("externalUrl").takeIf { it.isNotBlank() },
-                        id = protocolObj.getString("id")
-                    )
-                    
-                    val bridgeInfo = BridgeInfo(
-                        bridgebot = bridgeJson.getString("bridgebot"),
-                        channel = channel,
-                        creator = bridgeJson.getString("creator"),
-                        protocol = protocol
-                    )
-                    
-                    cachedBridgeInfo[roomId] = bridgeInfo
-                }
-                
-                bridgeInfoCache = cachedBridgeInfo
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored ${cachedBridgeInfo.size} bridge info entries from cache")
-            }
-            
-            // Restore checked rooms set
-            val cachedCheckedRoomsJson = prefs.getString("cached_bridge_checked_rooms", null)
-            if (cachedCheckedRoomsJson != null) {
-                val checkedRoomsArray = JSONArray(cachedCheckedRoomsJson)
-                val cachedCheckedRooms = mutableSetOf<String>()
-                
-                for (i in 0 until checkedRoomsArray.length()) {
-                    cachedCheckedRooms.add(checkedRoomsArray.getString(i))
-                }
-                
-                bridgeCacheCheckedRooms = cachedCheckedRooms
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored ${cachedCheckedRooms.size} checked rooms from cache")
-            }
-            
             // Mark spaces as loaded so UI can show cached data
             spacesLoaded = true
             
@@ -5718,8 +5042,6 @@ class AppViewModel : ViewModel() {
             editor.remove("ws_run_id")
             editor.remove("ws_vapid_key")
             editor.remove("cached_rooms")
-            editor.remove("cached_bridge_info")
-            editor.remove("cached_bridge_checked_rooms")
             editor.remove("state_saved_timestamp")
             
             editor.apply()
@@ -5766,8 +5088,6 @@ class AppViewModel : ViewModel() {
             editor.remove("ws_run_id")
             editor.remove("ws_vapid_key")
             editor.remove("cached_rooms")
-            editor.remove("cached_bridge_info")
-            editor.remove("cached_bridge_checked_rooms")
             editor.remove("state_saved_timestamp")
             
             editor.apply()
@@ -6327,7 +5647,6 @@ class AppViewModel : ViewModel() {
                 }
                 
                 // Update database if needed
-                // CRITICAL: Always preserve bridge info - it can only be cleared via Settings button
                 if (needsUpdate && existingState != null) {
                     val updatedState = net.vrkknn.andromuks.database.entities.RoomStateEntity(
                         roomId = existingState.roomId,
@@ -6338,16 +5657,14 @@ class AppViewModel : ViewModel() {
                         isDirect = existingState.isDirect,
                         isFavourite = existingState.isFavourite,
                         isLowPriority = existingState.isLowPriority,
-                        bridgeInfoJson = existingState.bridgeInfoJson, // CRITICAL: Always preserve bridge info
+                        bridgeInfoJson = null,
                         updatedAt = System.currentTimeMillis()
                     )
                     roomStateDao.upsert(updatedState)
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated RoomStateEntity for $roomId from timeline events (name=${newName != null}, avatar=${newAvatarUrl != null})")
                 } else if (needsUpdate) {
-                    // No existing state found, but CRITICAL: Re-check database to ensure we don't overwrite bridge info
-                    // This handles race conditions where bridge info might have been stored between our initial get() and now
+                    // No existing state found, create new one
                     val recheckedState = roomStateDao.get(roomId)
-                    val preservedBridgeInfo = recheckedState?.bridgeInfoJson // Preserve if it exists
                     
                     val newState = net.vrkknn.andromuks.database.entities.RoomStateEntity(
                         roomId = roomId,
@@ -6358,16 +5675,12 @@ class AppViewModel : ViewModel() {
                         isDirect = recheckedState?.isDirect ?: false,
                         isFavourite = recheckedState?.isFavourite ?: false,
                         isLowPriority = recheckedState?.isLowPriority ?: false,
-                        bridgeInfoJson = preservedBridgeInfo, // CRITICAL: Preserve bridge info even when creating new state
+                        bridgeInfoJson = null,
                         updatedAt = System.currentTimeMillis()
                     )
                     roomStateDao.upsert(newState)
                     if (BuildConfig.DEBUG) {
-                        if (preservedBridgeInfo != null && preservedBridgeInfo.isNotBlank()) {
-                            android.util.Log.d("Andromuks", "AppViewModel: Created RoomStateEntity for $roomId from timeline events - PRESERVED bridge info")
-                        } else {
-                            android.util.Log.d("Andromuks", "AppViewModel: Created RoomStateEntity for $roomId from timeline events (name=${newName != null}, avatar=${newAvatarUrl != null})")
-                        }
+                        android.util.Log.d("Andromuks", "AppViewModel: Created RoomStateEntity for $roomId from timeline events (name=${newName != null}, avatar=${newAvatarUrl != null})")
                     }
                 }
             } catch (e: Exception) {
@@ -8675,7 +7988,6 @@ class AppViewModel : ViewModel() {
     }
     fun handleResponse(requestId: Int, data: Any) {
         // THREAD SAFETY: Create safe copies to avoid ConcurrentModificationException during logging
-        val bridgeStateKeysSnapshot = synchronized(bridgeStateRequests) { bridgeStateRequests.keys.toList() }
         val roomStateKeysSnapshot = synchronized(roomStateRequests) { roomStateRequests.keys.toList() }
 
         
@@ -8685,9 +7997,6 @@ class AppViewModel : ViewModel() {
             handleTimelineResponse(requestId, data)
         } else if (roomStateRequests.containsKey(requestId)) {
             handleRoomStateResponse(requestId, data)
-        } else if (bridgeStateRequests.containsKey(requestId)) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Routing bridge state response for requestId: $requestId")
-            handleBridgeStateResponse(requestId, data)
         } else if (messageRequests.containsKey(requestId)) {
             handleMessageResponse(requestId, data)
         } else if (reactionRequests.containsKey(requestId)) {
@@ -9669,36 +8978,6 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    private fun handleBridgeStateResponse(requestId: Int, data: Any) {
-        val roomId = bridgeStateRequests.remove(requestId) ?: return
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling room state response for room: $roomId (requestId: $requestId)")
-        
-        when (data) {
-            is JSONArray -> {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Received JSONArray with ${data.length()} events for room: $roomId")
-                // Store the complete room state for future use
-                storeRoomState(roomId, data)
-                // Extract and process m.bridge events
-                processRoomStateForBridges(roomId, data)
-            }
-            is JSONObject -> {
-                val events = data.optJSONArray("events")
-                if (events != null) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Received JSONObject with ${events.length()} events for room: $roomId")
-                    // Store the complete room state for future use
-                    storeRoomState(roomId, events)
-                    // Extract and process m.bridge events
-                    processRoomStateForBridges(roomId, events)
-                } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events array in room state response for room: $roomId")
-                }
-            }
-            else -> {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleBridgeStateResponse: ${data::class.java.simpleName}")
-            }
-        }
-    }
-    
     /**
      * Store complete room state for future use
      */
@@ -9706,31 +8985,6 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Storing room state for room: $roomId with ${events.length()} events")
         roomStatesCache = roomStatesCache + (roomId to events)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room state cache now contains ${roomStatesCache.size} rooms")
-    }
-    
-    /**
-     * Process room state events to extract m.bridge events for bridge detection
-     */
-    private fun processRoomStateForBridges(roomId: String, events: JSONArray) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing room state for bridges - room: $roomId with ${events.length()} events")
-        
-        // Filter for m.bridge events from all room state events
-        val bridgeEvents = JSONArray()
-        for (i in 0 until events.length()) {
-            val event = events.optJSONObject(i)
-            if (event != null && event.optString("type") == "m.bridge") {
-                bridgeEvents.put(event)
-            }
-        }
-        
-        if (bridgeEvents.length() > 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found ${bridgeEvents.length()} m.bridge events for room: $roomId")
-            parseBridgeStateFromEvents(roomId, bridgeEvents)
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No m.bridge events found for room: $roomId")
-            // Mark as checked only if no bridge events were found
-            markRoomAsBridgeChecked(roomId)
-        }
     }
     
     /**
@@ -9745,101 +8999,6 @@ class AppViewModel : ViewModel() {
      */
     fun getAllRoomStates(): Map<String, JSONArray> {
         return roomStatesCache
-    }
-    
-    private fun parseBridgeStateFromEvents(roomId: String, events: JSONArray) {
-        try {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsing ${events.length()} events for room: $roomId")
-            var bridgeEventFound = false
-            var bridgeInfoParsed = false
-            for (i in 0 until events.length()) {
-                val event = events.optJSONObject(i)
-                if (event != null && event.optString("type") == "m.bridge") {
-                    bridgeEventFound = true
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found m.bridge event for room: $roomId")
-                    val content = event.optJSONObject("content")
-                    if (content != null) {
-                        val bridgeInfo = parseBridgeInfo(content)
-                        if (bridgeInfo != null) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsed bridge info for room $roomId: ${bridgeInfo.protocol.displayname} (protocol: ${bridgeInfo.protocol.id})")
-                            
-                            // Check if bridge info already exists in cache
-                            val existingBridgeInfo = bridgeInfoCache[roomId]
-                            if (existingBridgeInfo != null && existingBridgeInfo.protocol.id == bridgeInfo.protocol.id) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Bridge info for room $roomId already exists in cache with same protocol - skipping update")
-                                bridgeInfoParsed = true // Already have bridge info, don't mark as checked with empty
-                                return
-                            }
-                            
-                            // CRITICAL: updateBridgeInfo now blocks until persistence completes
-                            updateBridgeInfo(roomId, bridgeInfo)
-                            bridgeInfoParsed = true // Bridge info was successfully parsed and persisted
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Called updateBridgeInfo for room $roomId - persistence completed synchronously")
-                            
-                            // Create bridge pseudo-spaces when we have bridge info
-                            createBridgePseudoSpaces()
-                        } else {
-                            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Failed to parse bridge info for room $roomId (parseBridgeInfo returned null)")
-                        }
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: m.bridge event for room $roomId has no content")
-                    }
-                }
-            }
-            if (!bridgeEventFound && BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "AppViewModel: No m.bridge event found in ${events.length()} events for room: $roomId")
-            }
-            
-            // CRITICAL: Only mark as checked if no bridge info was found/parsed
-            // If bridge info was parsed, updateBridgeInfo already marked it as checked
-            if (!bridgeInfoParsed) {
-                markRoomAsBridgeChecked(roomId)
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Error parsing bridge state for room $roomId", e)
-        }
-    }
-    private fun parseBridgeInfo(content: JSONObject): BridgeInfo? {
-        return try {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsing bridge info from content: ${content.toString()}")
-            val bridgebot = content.optString("bridgebot")
-            val creator = content.optString("creator")
-            
-            val channelObj = content.optJSONObject("channel")
-            val channel = if (channelObj != null) {
-                BridgeChannel(
-                    avatarUrl = channelObj.optString("avatar_url")?.takeIf { it.isNotBlank() },
-                    displayname = channelObj.optString("displayname") ?: "",
-                    id = channelObj.optString("id") ?: ""
-                )
-            } else {
-                BridgeChannel(null, "", "")
-            }
-            
-            val protocolObj = content.optJSONObject("protocol")
-            val protocol = if (protocolObj != null) {
-                BridgeProtocol(
-                    avatarUrl = protocolObj.optString("avatar_url")?.takeIf { it.isNotBlank() },
-                    displayname = protocolObj.optString("displayname") ?: "",
-                    externalUrl = protocolObj.optString("external_url")?.takeIf { it.isNotBlank() },
-                    id = protocolObj.optString("id") ?: ""
-                )
-            } else {
-                BridgeProtocol(null, "", null, "")
-            }
-            
-            val bridgeInfo = BridgeInfo(
-                bridgebot = bridgebot,
-                channel = channel,
-                creator = creator,
-                protocol = protocol
-            )
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Created BridgeInfo: bridgebot=$bridgebot, creator=$creator, protocol=${protocol.displayname} (${protocol.id})")
-            bridgeInfo
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Error parsing bridge info", e)
-            null
-        }
     }
     
     /**
@@ -13063,12 +12222,6 @@ class AppViewModel : ViewModel() {
             0L
         }
         stats["media_disk_cache"] = formatBytes(mediaDiskCacheSize)
-        
-        // 7. Bridged rooms count (rooms with bridge info stored in database)
-        // Use in-memory bridgeInfoCache count since we can't easily query DB from non-suspend context
-        val bridgedRoomsCount = bridgeInfoCache.size
-        stats["bridged_rooms_count"] = "$bridgedRoomsCount bridged rooms"
-        stats["bridged_rooms_total"] = bridgedRoomsCount.toString()
         
         return stats
     }

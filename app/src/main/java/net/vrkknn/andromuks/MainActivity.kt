@@ -802,12 +802,6 @@ fun AppNavigation(
                 navController = navController
             )
         }
-        composable(route = "bridged_rooms") {
-            BridgedRoomsScreen(
-                appViewModel = appViewModel,
-                navController = navController
-            )
-        }
         composable(
             route = "room_info/{roomId}",
             arguments = listOf(navArgument("roomId") { type = NavType.StringType }),

@@ -1410,7 +1410,6 @@ fun RoomTimelineScreen(
                         homeserverUrl = appViewModel.homeserverUrl,
                         authToken = appViewModel.authToken,
                         roomId = roomId,
-                        bridgeInfo = appViewModel.getBridgeInfo(roomId),
                         onHeaderClick = {
                             // Navigate to room info screen
                             navController.navigate("room_info/$roomId")
@@ -2451,7 +2450,6 @@ fun RoomHeader(
     homeserverUrl: String,
     authToken: String,
     roomId: String? = null,
-    bridgeInfo: BridgeInfo? = null,
     onHeaderClick: () -> Unit = {},
     onRefreshClick: () -> Unit = {}
 ) {
@@ -2516,27 +2514,13 @@ fun RoomHeader(
                 )
             }
             
-            // Refresh button on the far right - use bridge icon if room is bridged
+            // Refresh button on the far right
             IconButton(onClick = onRefreshClick) {
-                if (bridgeInfo != null && bridgeInfo.protocol.avatarUrl != null) {
-                    // Use bridge protocol icon
-                    AvatarImage(
-                        mxcUrl = bridgeInfo.protocol.avatarUrl,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        fallbackText = bridgeInfo.protocol.displayname.take(1),
-                        size = 24.dp,
-                        userId = bridgeInfo.protocol.id,
-                        displayName = bridgeInfo.protocol.displayname
-                    )
-                } else {
-                    // Use default refresh icon
-                    Icon(
-                        imageVector = androidx.compose.material.icons.Icons.Filled.Refresh,
-                        contentDescription = "Refresh timeline",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Filled.Refresh,
+                    contentDescription = "Refresh timeline",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         }
     }

@@ -263,61 +263,6 @@ class BootstrapLoader(private val context: Context) {
     }
     
     /**
-     * Load bridge info from database for all rooms
-     * BUG FIX #3: Also returns set of rooms that were checked (even if no bridge found)
-     */
-    suspend fun loadBridgeInfoFromDb(): Map<String, String> = withContext(Dispatchers.IO) {
-        try {
-            val allStates = roomStateDao.getAllRoomStates()
-            val bridgeInfoMap = mutableMapOf<String, String>()
-            var emptyStringCount = 0
-            var nullCount = 0
-            
-            for (state in allStates) {
-                // BUG FIX #3: Empty string means "checked, no bridge" - still include it but as checked
-                // null means "not checked yet"
-                when {
-                    state.bridgeInfoJson == null -> nullCount++
-                    state.bridgeInfoJson.isBlank() -> {
-                        emptyStringCount++
-                    }
-                    else -> {
-                        bridgeInfoMap[state.roomId] = state.bridgeInfoJson
-                    }
-                }
-            }
-            val totalChecked = allStates.count { it.bridgeInfoJson != null }
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "BootstrapLoader: Loaded ${bridgeInfoMap.size} bridge info entries from database")
-                Log.d(TAG, "BootstrapLoader: Bridge info breakdown - ${bridgeInfoMap.size} with JSON, $emptyStringCount empty (checked/no bridge), $nullCount null (not checked), $totalChecked total checked")
-            }
-            bridgeInfoMap
-        } catch (e: Exception) {
-            Log.e(TAG, "Error loading bridge info from database: ${e.message}", e)
-            emptyMap()
-        }
-    }
-    
-    /**
-     * Get list of rooms that have been checked for bridge info (even if no bridge found)
-     * BUG FIX #3: This helps avoid requesting m.bridge for rooms already checked
-     */
-    suspend fun getBridgeCheckedRooms(): Set<String> = withContext(Dispatchers.IO) {
-        try {
-            val allStates = roomStateDao.getAllRoomStates()
-            val checkedRooms = allStates
-                .filter { it.bridgeInfoJson != null } // null = not checked, empty string or JSON = checked
-                .map { it.roomId }
-                .toSet()
-            if (BuildConfig.DEBUG) Log.d(TAG, "Found ${checkedRooms.size} rooms already checked for bridge info")
-            checkedRooms
-        } catch (e: Exception) {
-            Log.e(TAG, "Error getting bridge checked rooms: ${e.message}", e)
-            emptySet()
-        }
-    }
-    
-    /**
      * Load spaces from database and reconstruct SpaceItem objects
      */
     suspend fun loadSpacesFromDb(roomMap: Map<String, RoomItem>): List<net.vrkknn.andromuks.SpaceItem> = withContext(Dispatchers.IO) {

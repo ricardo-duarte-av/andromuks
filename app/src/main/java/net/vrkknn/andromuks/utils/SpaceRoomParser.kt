@@ -629,24 +629,4 @@ object SpaceRoomParser {
         }
     }
     
-    /**
-     * Request room states for all rooms to detect bridges and store for future use
-     * This will make WebSocket calls to fetch complete room state for each room
-     * DEPRECATED: Use AppViewModel.loadBridgesIfNeeded() instead for better caching
-     */
-    fun requestRoomStatesForBridgeDetection(appViewModel: net.vrkknn.andromuks.AppViewModel?) {
-        if (appViewModel == null) {
-            android.util.Log.w("Andromuks", "SpaceRoomParser: Cannot request room states - AppViewModel is null")
-            return
-        }
-        
-        val allRooms = appViewModel.allRooms
-        //android.util.Log.d("Andromuks", "SpaceRoomParser: Requesting room states for ${allRooms.size} rooms for bridge detection")
-        
-        // Request room state for each room individually
-        allRooms.forEach { room ->
-            //android.util.Log.d("Andromuks", "SpaceRoomParser: Requesting room state for room: ${room.id}")
-            appViewModel.requestRoomStateForBridgeDetection(room.id)
-        }
-    }
 }

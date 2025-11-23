@@ -240,9 +240,14 @@ class SyncIngestor(private val context: Context) {
             
             // Process all rooms in a single transaction for consistency
             // CRITICAL: Load all existing room states BEFORE processing to preserve bridge info
+            // This snapshot is taken at the START of the transaction to ensure we have a consistent view
+            // of bridge info before any sync processing begins
             database.withTransaction {
                 // Pre-load all existing room states to preserve bridge info during processing
+                // CRITICAL: This snapshot captures bridge info that exists BEFORE sync processing
+                // Even if sync_complete has partial/empty state, we preserve bridge info from this snapshot
                 val existingStatesMap = roomStateDao.getAllRoomStates().associateBy { it.roomId }
+                
                 
                 for (roomId in roomsToProcess) {
                     val roomObj = roomsJson.optJSONObject(roomId) ?: continue
@@ -299,39 +304,6 @@ class SyncIngestor(private val context: Context) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId: No account_data in sync, preserving existing tags - isFavourite=$isFavourite, isLowPriority=$isLowPriority")
             }
             
-            // CRITICAL: Preserve bridge info from existing state
-            // Bridge info is loaded separately from room state events and should NEVER be overwritten by sync data
-            // Only update bridgeInfoJson if it's explicitly provided in sync data (which it never is)
-            var bridgeInfoJson: String? = currentExistingState?.bridgeInfoJson
-            
-            // CRITICAL FIX: ALWAYS re-check database inside transaction to get the latest bridge info
-            // This handles race conditions where:
-            // 1. Bridge info was persisted after the pre-loaded states map was created
-            // 2. Bridge info exists in DB but wasn't in the pre-loaded map (e.g., loaded from DB after sync started)
-            // 3. Multiple sync_complete messages arrive and we need the latest state
-            // We ALWAYS re-check, not just when bridgeInfoJson is null, to ensure we have the most up-to-date value
-            val recheckedState = roomStateDao.get(roomId)
-            val recheckedBridgeInfo = recheckedState?.bridgeInfoJson
-            
-            // Use re-checked bridge info if it exists and is not empty
-            // This ensures we always have the latest bridge info from the database
-            if (recheckedBridgeInfo != null && recheckedBridgeInfo.isNotBlank()) {
-                bridgeInfoJson = recheckedBridgeInfo
-                if (BuildConfig.DEBUG && (currentExistingState?.bridgeInfoJson != recheckedBridgeInfo)) {
-                    Log.d(TAG, "Room $roomId: Updated bridge info from re-check (pre-loaded: ${currentExistingState?.bridgeInfoJson != null}, re-checked: $recheckedBridgeInfo)")
-                }
-            } else if (bridgeInfoJson != null && bridgeInfoJson.isNotBlank()) {
-                // Bridge info exists in pre-loaded state but not in re-check - preserve it
-                // This handles the case where re-check returns null but we had bridge info in pre-loaded map
-                if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId: Preserving bridge info from pre-loaded state (re-check returned null/empty)")
-            } else {
-                // No bridge info found - this is OK, room might not be bridged
-                if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId: No bridge info found (pre-loaded: ${currentExistingState?.bridgeInfoJson != null}, re-checked: ${recheckedBridgeInfo != null})")
-            }
-            
-            // Note: Bridge info is loaded from room state events separately via persistBridgeInfo()
-            // Sync data should NEVER overwrite existing bridge info - always preserve it
-            
             // Preserve existing values if not present in meta (for nullable fields)
             val roomState = RoomStateEntity(
                 roomId = roomId,
@@ -342,20 +314,11 @@ class SyncIngestor(private val context: Context) {
                 isDirect = isDirect,
                 isFavourite = isFavourite,
                 isLowPriority = isLowPriority,
-                bridgeInfoJson = bridgeInfoJson, // CRITICAL: Always preserve existing bridge info (including from re-check)
+                bridgeInfoJson = null,
                 updatedAt = System.currentTimeMillis()
             )
             roomStateDao.upsert(roomState)
             
-            // CRITICAL: Log bridge info preservation for debugging
-            if (BuildConfig.DEBUG) {
-                if (bridgeInfoJson != null && bridgeInfoJson.isNotBlank()) {
-                    Log.d(TAG, "Room $roomId: Preserved bridge info during sync processing (${bridgeInfoJson.length} chars)")
-                } else if (currentExistingState?.bridgeInfoJson != null && currentExistingState.bridgeInfoJson.isNotBlank()) {
-                    // WARNING: We had bridge info in pre-loaded state but lost it!
-                    Log.w(TAG, "Room $roomId: WARNING - Had bridge info in pre-loaded state but lost it during sync processing!")
-                }
-            }
         }
         
         val reactionUpserts = mutableMapOf<String, ReactionEntity>()
@@ -1104,95 +1067,6 @@ class SyncIngestor(private val context: Context) {
             rawJson = rawJson,
             aggregatedReactionsJson = aggregatedReactionsJson
         )
-    }
-    
-    /**
-     * Persist bridge info for a room
-     */
-    suspend fun persistBridgeInfo(roomId: String, bridgeInfo: net.vrkknn.andromuks.BridgeInfo) = withContext(Dispatchers.IO) {
-        try {
-            // Serialize bridge info to JSON
-            val bridgeJson = JSONObject().apply {
-                put("bridgebot", bridgeInfo.bridgebot)
-                put("creator", bridgeInfo.creator)
-                put("channel", JSONObject().apply {
-                    put("avatar_url", bridgeInfo.channel.avatarUrl ?: "")
-                    put("displayname", bridgeInfo.channel.displayname)
-                    put("id", bridgeInfo.channel.id)
-                })
-                put("protocol", JSONObject().apply {
-                    put("avatar_url", bridgeInfo.protocol.avatarUrl ?: "")
-                    put("displayname", bridgeInfo.protocol.displayname)
-                    put("external_url", bridgeInfo.protocol.externalUrl ?: "")
-                    put("id", bridgeInfo.protocol.id)
-                })
-            }
-            
-            // Use transaction to ensure atomicity and prevent race conditions with sync data
-            database.withTransaction {
-                // Get existing room state and update bridge info
-                // CRITICAL: Re-read state inside transaction to get latest value (prevents race with sync data)
-                val existingState = roomStateDao.get(roomId)
-                if (existingState != null) {
-                    // CRITICAL: Check if bridge info already exists - if it does, verify it matches
-                    // This prevents overwriting bridge info that was just persisted
-                    if (existingState.bridgeInfoJson != null && existingState.bridgeInfoJson.isNotBlank()) {
-                        // Bridge info already exists - verify it's the same or update if different
-                        try {
-                            val existingBridgeObj = JSONObject(existingState.bridgeInfoJson)
-                            val existingProtocolId = existingBridgeObj.optJSONObject("protocol")?.optString("id")
-                            val newProtocolId = bridgeInfo.protocol.id
-                            
-                            if (existingProtocolId == newProtocolId) {
-                                // Same bridge info - no need to update
-                                if (BuildConfig.DEBUG) Log.d(TAG, "Bridge info for room $roomId already exists with same protocol ($newProtocolId) - skipping update")
-                                return@withTransaction
-                            } else {
-                                // Different bridge info - update it
-                                if (BuildConfig.DEBUG) Log.d(TAG, "Bridge info for room $roomId changed from $existingProtocolId to $newProtocolId - updating")
-                            }
-                        } catch (e: Exception) {
-                            // Existing bridge info is invalid JSON - update it
-                            if (BuildConfig.DEBUG) Log.w(TAG, "Existing bridge info for room $roomId is invalid JSON - updating")
-                        }
-                    }
-                    
-                    // Preserve all existing fields, only update bridgeInfoJson
-                    val updatedState = existingState.copy(
-                        bridgeInfoJson = bridgeJson.toString(),
-                        updatedAt = System.currentTimeMillis()
-                    )
-                    roomStateDao.upsert(updatedState)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Persisted bridge info for room $roomId (updated existing state) - bridgeInfoJson length: ${bridgeJson.toString().length}")
-                } else {
-                    // Create new room state entry with bridge info
-                    val newState = RoomStateEntity(
-                        roomId = roomId,
-                        name = null,
-                        topic = null,
-                        avatarUrl = null,
-                        canonicalAlias = null,
-                        isDirect = false,
-                        isFavourite = false,
-                        isLowPriority = false,
-                        bridgeInfoJson = bridgeJson.toString(),
-                        updatedAt = System.currentTimeMillis()
-                    )
-                    roomStateDao.upsert(newState)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Created new room state with bridge info for room $roomId - bridgeInfoJson length: ${bridgeJson.toString().length}")
-                }
-                
-                // CRITICAL: Verify persistence by reading back from database
-                val verifyState = roomStateDao.get(roomId)
-                if (verifyState?.bridgeInfoJson != null && verifyState.bridgeInfoJson.isNotBlank()) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Verified bridge info persistence for room $roomId - DB contains ${verifyState.bridgeInfoJson.length} chars")
-                } else {
-                    Log.e(TAG, "CRITICAL: Bridge info NOT found in DB after persistence for room $roomId!")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error persisting bridge info for room $roomId: ${e.message}", e)
-        }
     }
     
     /**

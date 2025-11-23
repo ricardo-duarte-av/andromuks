@@ -123,48 +123,6 @@ fun SettingsScreen(
                 }
             }
             
-            // Bridge Settings Section
-            Text(
-                text = "Bridge Settings",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 16.dp)
-            )
-            
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "Clear Bridge Info",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "Clear all bridge information from the database. This will force the app to re-request bridge state events for all rooms on next bridge tab load.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    
-                    Button(
-                        onClick = { appViewModel.clearBridgeInfo() },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.errorContainer,
-                            contentColor = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    ) {
-                        Text("Clear Bridge Info")
-                    }
-                }
-            }
-            
             // FCM Information Section
             Text(
                 text = "Push Notifications",
@@ -696,15 +654,6 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
                     onClick = { navController.navigate("cached_media/disk") }
                 )
                 
-                HorizontalDivider()
-                
-                // Bridged Rooms
-                CacheStatItem(
-                    label = "Bridged Rooms",
-                    value = cacheStats!!["bridged_rooms_count"] ?: "0 bridged rooms",
-                    description = "Rooms with bridge information stored in database",
-                    onClick = { navController.navigate("bridged_rooms") }
-                )
             }
         }
     }
