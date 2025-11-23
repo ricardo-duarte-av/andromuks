@@ -1234,12 +1234,57 @@ fun RoomTimelineScreen(
         appViewModel.requestRoomTimeline(roomId)
     }
     
+    // Track last known refresh trigger to detect when app resumes
+    var lastKnownRefreshTrigger by remember { mutableStateOf(appViewModel.timelineRefreshTrigger) }
+    
     // Refresh timeline when app resumes (to show new events received while suspended)
     LaunchedEffect(appViewModel.timelineRefreshTrigger) {
         if (appViewModel.timelineRefreshTrigger > 0 && appViewModel.currentRoomId == roomId) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: App resumed, refreshing timeline for room: $roomId")
             // Don't reset state flags - this is just a refresh, not a new room load
             appViewModel.requestRoomTimeline(roomId)
+            lastKnownRefreshTrigger = appViewModel.timelineRefreshTrigger
+        }
+    }
+    
+    // When timeline updates after app resume or when items change, verify scroll position if attached to bottom
+    // This ensures we stay at bottom even if new messages arrived while device was in standby
+    LaunchedEffect(timelineItems.size, appViewModel.timelineRefreshTrigger, hasInitialSnapCompleted, isAttachedToBottom) {
+        // Only check if initial snap is complete and we're attached to bottom
+        if (!hasInitialSnapCompleted || !isAttachedToBottom || isLoading || pendingScrollRestoration) {
+            return@LaunchedEffect
+        }
+        
+        if (timelineItems.isEmpty() || listState.layoutInfo.totalItemsCount == 0) {
+            return@LaunchedEffect
+        }
+        
+        // Wait a moment for layout to settle (especially after resume)
+        kotlinx.coroutines.delay(150)
+        
+        // Re-check conditions after delay
+        if (listState.layoutInfo.totalItemsCount > 0 && timelineItems.isNotEmpty() && isAttachedToBottom) {
+            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            val lastTimelineItemIndex = timelineItems.lastIndex
+            val isAtBottom = lastVisibleIndex >= lastTimelineItemIndex - 1
+            
+            // If we're attached to bottom but not actually at bottom, scroll to restore position
+            // This handles both: new items appearing below viewport AND app resume scenarios
+            if (!isAtBottom && lastTimelineItemIndex >= 0) {
+                val refreshTriggerChanged = appViewModel.timelineRefreshTrigger != lastKnownRefreshTrigger
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Attached to bottom but not at bottom (lastVisible=$lastVisibleIndex, lastItem=$lastTimelineItemIndex, refreshTriggerChanged=$refreshTriggerChanged). Restoring scroll position."
+                )
+                coroutineScope.launch {
+                    listState.animateScrollToItem(lastTimelineItemIndex)
+                }
+            }
+        }
+        
+        // Update last known refresh trigger if it changed
+        if (appViewModel.timelineRefreshTrigger != lastKnownRefreshTrigger) {
+            lastKnownRefreshTrigger = appViewModel.timelineRefreshTrigger
         }
     }
 
