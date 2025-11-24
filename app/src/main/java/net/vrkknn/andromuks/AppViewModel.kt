@@ -337,6 +337,26 @@ class AppViewModel : ViewModel() {
     // Internal storage for emoji frequencies: list of [emoji, count] pairs
     private var recentEmojiFrequencies = mutableListOf<Pair<String, Int>>()
     
+    // Custom emoji packs from im.ponies.emote_rooms
+    data class CustomEmoji(
+        val name: String,
+        val mxcUrl: String,
+        val info: org.json.JSONObject?
+    )
+    
+    data class EmojiPack(
+        val packName: String,
+        val displayName: String,
+        val roomId: String,
+        val emojis: List<CustomEmoji>
+    )
+    
+    var customEmojiPacks by mutableStateOf(listOf<EmojiPack>())
+        private set
+    
+    // Track pending emoji pack requests: requestId -> (roomId, packName)
+    private val emojiPackRequests = mutableMapOf<Int, Pair<String, String>>()
+    
     // Cache for DM room IDs from m.direct account data
     private var directMessageRoomIds by mutableStateOf(setOf<String>())
         private set
@@ -2804,6 +2824,32 @@ class AppViewModel : ViewModel() {
                 // PERFORMANCE: Update existing rooms in roomMap with correct DM status from account_data
                 // This ensures rooms loaded from database have correct isDirectMessage flag
                 updateRoomsDirectMessageStatus(dmRoomIds)
+            }
+        }
+        
+        // Process im.ponies.emote_rooms for custom emoji packs
+        val emoteRoomsData = accountDataJson.optJSONObject("im.ponies.emote_rooms")
+        if (emoteRoomsData != null) {
+            val content = emoteRoomsData.optJSONObject("content")
+            val rooms = content?.optJSONObject("rooms")
+            if (rooms != null) {
+                // Request emoji pack data for each room/pack combination
+                val keys = rooms.names()
+                if (keys != null) {
+                    for (i in 0 until keys.length()) {
+                        val roomId = keys.optString(i)
+                        val packsObj = rooms.optJSONObject(roomId)
+                        if (packsObj != null) {
+                            val packNames = packsObj.names()
+                            if (packNames != null) {
+                                for (j in 0 until packNames.length()) {
+                                    val packName = packNames.optString(j)
+                                    requestEmojiPackData(roomId, packName)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -7441,6 +7487,45 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Request emoji pack data from a room using get_specific_room_state
+     */
+    private fun requestEmojiPackData(roomId: String, packName: String) {
+        if (webSocket == null) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not connected, skipping emoji pack request for $packName in $roomId")
+            return
+        }
+        
+        val requestId = requestIdCounter++
+        emojiPackRequests[requestId] = Pair(roomId, packName)
+        roomSpecificStateRequests[requestId] = roomId
+        
+        val ws = webSocket
+        if (ws != null) {
+            val json = org.json.JSONObject()
+            json.put("command", "get_specific_room_state")
+            json.put("request_id", requestId)
+            
+            val data = org.json.JSONObject()
+            val keysArray = org.json.JSONArray()
+            
+            val keyObj = org.json.JSONObject()
+            keyObj.put("room_id", roomId)
+            keyObj.put("type", "im.ponies.room_emotes")
+            keyObj.put("state_key", packName)
+            keysArray.put(keyObj)
+            
+            data.put("keys", keysArray)
+            json.put("data", data)
+            
+            val jsonString = json.toString()
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting emoji pack: $jsonString")
+            ws.send(jsonString)
+        }
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent emoji pack request with ID $requestId for pack $packName in room $roomId")
+    }
+    
+    /**
      * Requests the full member list for a room using get_room_state with include_members=true.
      * This populates the complete room member cache, ensuring we have accurate member information.
      * Should be called when opening a room if the member cache is empty or incomplete.
@@ -7732,7 +7817,24 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket command sent with request_id: $reactionRequestId")
         
         // Update recent emojis
-        updateRecentEmojis(emoji)
+        // For custom emojis, extract MXC URL from formatted string
+        val emojiForRecent = if (emoji.startsWith("![:") && emoji.contains("mxc://")) {
+            // Extract MXC URL from format: ![:name:](mxc://url "Emoji: :name:")
+            val mxcStart = emoji.indexOf("mxc://")
+            if (mxcStart >= 0) {
+                val mxcEnd = emoji.indexOf("\"", mxcStart)
+                if (mxcEnd > mxcStart) {
+                    emoji.substring(mxcStart, mxcEnd)
+                } else {
+                    emoji.substring(mxcStart)
+                }
+            } else {
+                emoji
+            }
+        } else {
+            emoji
+        }
+        updateRecentEmojis(emojiForRecent)
     }
     
     fun updateRecentEmojis(emoji: String) {
@@ -9430,6 +9532,15 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling room specific state response for room: $roomId, requestId: $requestId")
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room specific state response data type: ${data::class.java.simpleName}")
         
+        // Check if this is an emoji pack request
+        val emojiPackInfo = emojiPackRequests.remove(requestId)
+        if (emojiPackInfo != null) {
+            val (packRoomId, packName) = emojiPackInfo
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing emoji pack response for pack $packName in room $packRoomId")
+            handleEmojiPackResponse(packRoomId, packName, data)
+            return
+        }
+        
         // Clean up profile request tracking - we need to find the user ID from the response data
         // This will be cleaned up properly when we process the member events
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Will clean up pendingProfileRequests after processing member events")
@@ -9446,6 +9557,97 @@ class AppViewModel : ViewModel() {
             }
             else -> {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unhandled data type in handleRoomSpecificStateResponse: ${data::class.java.simpleName}")
+            }
+        }
+    }
+    
+    /**
+     * Handle emoji pack response from get_specific_room_state
+     */
+    private fun handleEmojiPackResponse(roomId: String, packName: String, data: Any) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling emoji pack response for $packName in $roomId")
+        
+        when (data) {
+            is JSONArray -> {
+                if (data.length() > 0) {
+                    val event = data.getJSONObject(0)
+                    val content = event.optJSONObject("content")
+                    if (content != null) {
+                        val images = content.optJSONObject("images")
+                        val packInfo = content.optJSONObject("pack")
+                        val displayName = packInfo?.optString("display_name") ?: packName
+                        
+                        if (images != null) {
+                            val emojis = mutableListOf<CustomEmoji>()
+                            val imageKeys = images.names()
+                            if (imageKeys != null) {
+                                for (i in 0 until imageKeys.length()) {
+                                    val emojiName = imageKeys.optString(i)
+                                    val emojiData = images.optJSONObject(emojiName)
+                                    if (emojiData != null) {
+                                        val usage = emojiData.optJSONArray("usage")
+                                        // Filter: include if no usage key, or if usage contains "emoticon"
+                                        // Exclude if usage only contains "sticker" (and not "emoticon")
+                                        val shouldInclude = if (usage == null || usage.length() == 0) {
+                                            true // No usage key means it can be used as emoji
+                                        } else {
+                                            var hasEmoticon = false
+                                            var hasSticker = false
+                                            for (j in 0 until usage.length()) {
+                                                val usageItem = usage.optString(j)
+                                                if (usageItem == "emoticon") {
+                                                    hasEmoticon = true
+                                                } else if (usageItem == "sticker") {
+                                                    hasSticker = true
+                                                }
+                                            }
+                                            // Include if has emoticon, or if no usage specified (but we already checked for null/empty)
+                                            // Exclude if only has sticker (and no emoticon)
+                                            hasEmoticon || (!hasSticker)
+                                        }
+                                        
+                                        if (shouldInclude) {
+                                            val mxcUrl = emojiData.optString("url")
+                                            if (mxcUrl.isNotBlank() && mxcUrl.startsWith("mxc://")) {
+                                                val info = emojiData.optJSONObject("info")
+                                                emojis.add(CustomEmoji(
+                                                    name = emojiName,
+                                                    mxcUrl = mxcUrl,
+                                                    info = info
+                                                ))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            
+                            if (emojis.isNotEmpty()) {
+                                // Update or add emoji pack
+                                val existingPacks = customEmojiPacks.toMutableList()
+                                val existingIndex = existingPacks.indexOfFirst { it.roomId == roomId && it.packName == packName }
+                                
+                                val newPack = EmojiPack(
+                                    packName = packName,
+                                    displayName = displayName,
+                                    roomId = roomId,
+                                    emojis = emojis
+                                )
+                                
+                                if (existingIndex >= 0) {
+                                    existingPacks[existingIndex] = newPack
+                                } else {
+                                    existingPacks.add(newPack)
+                                }
+                                
+                                customEmojiPacks = existingPacks
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated emoji pack $packName with ${emojis.size} emojis")
+                            }
+                        }
+                    }
+                }
+            }
+            else -> {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Emoji pack response is not JSONArray: ${data::class.java.simpleName}")
             }
         }
     }

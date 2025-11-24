@@ -2284,7 +2284,8 @@ fun RoomTimelineScreen(
                         onDismiss = {
                             showEmojiSelection = false
                             reactingToEvent = null
-                        }
+                        },
+                        customEmojiPacks = appViewModel.customEmojiPacks
                     )
                 }
                 
@@ -2312,13 +2313,31 @@ fun RoomTimelineScreen(
                             
                             // Update recent emojis (updates in-memory state and sends to backend)
                             // This will persist via account_data and update the recent emoji tab
-                            appViewModel.updateRecentEmojis(emoji)
+                            // For custom emojis, extract MXC URL from formatted string
+                            val emojiForRecent = if (emoji.startsWith("![:") && emoji.contains("mxc://")) {
+                                // Extract MXC URL from format: ![:name:](mxc://url "Emoji: :name:")
+                                val mxcStart = emoji.indexOf("mxc://")
+                                if (mxcStart >= 0) {
+                                    val mxcEnd = emoji.indexOf("\"", mxcStart)
+                                    if (mxcEnd > mxcStart) {
+                                        emoji.substring(mxcStart, mxcEnd)
+                                    } else {
+                                        emoji.substring(mxcStart)
+                                    }
+                                } else {
+                                    emoji
+                                }
+                            } else {
+                                emoji
+                            }
+                            appViewModel.updateRecentEmojis(emojiForRecent)
                             
                             // Don't close the picker - user might want to add more emojis
                         },
                         onDismiss = {
                             showEmojiPickerForText = false
-                        }
+                        },
+                        customEmojiPacks = appViewModel.customEmojiPacks
                     )
                 }
                 

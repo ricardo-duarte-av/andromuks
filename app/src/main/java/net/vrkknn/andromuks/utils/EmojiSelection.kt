@@ -114,8 +114,11 @@ fun EmojiSelectionDialog(
     homeserverUrl: String,
     authToken: String,
     onEmojiSelected: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    customEmojiPacks: List<net.vrkknn.andromuks.AppViewModel.EmojiPack> = emptyList()
 ) {
+    // Calculate total categories: 1 (recent) + emojiCategories.size + customEmojiPacks.size
+    val totalCategories = 1 + emojiCategories.size + customEmojiPacks.size
     var selectedCategory by remember { mutableStateOf(0) }
     var searchText by remember { mutableStateOf("") }
     
@@ -146,13 +149,38 @@ fun EmojiSelectionDialog(
                         .padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    items(emojiCategories.size) { index ->
-                        val category = emojiCategories[index]
+                    // Recent tab (index 0)
+                    item {
                         Surface(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
-                                .clickable { selectedCategory = index },
-                            color = if (selectedCategory == index) 
+                                .clickable { selectedCategory = 0 },
+                            color = if (selectedCategory == 0) 
+                                MaterialTheme.colorScheme.primary 
+                            else 
+                                MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Text(
+                                text = "🕒",
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.titleMedium,
+                                color = if (selectedCategory == 0) 
+                                    MaterialTheme.colorScheme.onPrimary 
+                                else 
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
+                    // Standard emoji category tabs (index 1 to emojiCategories.size)
+                    items(emojiCategories.size) { index ->
+                        val category = emojiCategories[index]
+                        val categoryIndex = index + 1 // Offset by 1 for recent tab
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { selectedCategory = categoryIndex },
+                            color = if (selectedCategory == categoryIndex) 
                                 MaterialTheme.colorScheme.primary 
                             else 
                                 MaterialTheme.colorScheme.surfaceVariant
@@ -161,7 +189,32 @@ fun EmojiSelectionDialog(
                                 text = category.icon,
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                 style = MaterialTheme.typography.titleMedium,
-                                color = if (selectedCategory == index) 
+                                color = if (selectedCategory == categoryIndex) 
+                                    MaterialTheme.colorScheme.onPrimary 
+                                else 
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    
+                    // Custom emoji pack tabs
+                    items(customEmojiPacks.size) { index ->
+                        val pack = customEmojiPacks[index]
+                        val packIndex = 1 + emojiCategories.size + index // Offset by recent + standard categories
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable { selectedCategory = packIndex },
+                            color = if (selectedCategory == packIndex) 
+                                MaterialTheme.colorScheme.primary 
+                            else 
+                                MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Text(
+                                text = pack.displayName,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = if (selectedCategory == packIndex) 
                                     MaterialTheme.colorScheme.onPrimary 
                                 else 
                                     MaterialTheme.colorScheme.onSurfaceVariant
@@ -197,10 +250,22 @@ fun EmojiSelectionDialog(
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    val baseEmojis = if (selectedCategory == 0) {
-                        recentEmojis
-                    } else {
-                        emojiCategories[selectedCategory].emojis
+                    // Determine which emojis to show based on selected category
+                    val baseEmojis: List<Any> = when {
+                        selectedCategory == 0 -> recentEmojis // Recent tab
+                        selectedCategory <= emojiCategories.size -> {
+                            // Standard emoji category (offset by 1 for recent tab)
+                            emojiCategories[selectedCategory - 1].emojis
+                        }
+                        else -> {
+                            // Custom emoji pack (offset by 1 + emojiCategories.size)
+                            val packIndex = selectedCategory - 1 - emojiCategories.size
+                            if (packIndex >= 0 && packIndex < customEmojiPacks.size) {
+                                customEmojiPacks[packIndex].emojis
+                            } else {
+                                emptyList()
+                            }
+                        }
                     }
                     
                     // Filter emojis based on search text
@@ -208,17 +273,41 @@ fun EmojiSelectionDialog(
                     val filteredEmojis = if (searchText.isBlank()) {
                         baseEmojis
                     } else {
-                        // Search across all emojis when user types, not just current category
-                        EmojiData.getAllEmojis().filter { it.contains(searchText, ignoreCase = true) }
+                        when {
+                            selectedCategory == 0 -> {
+                                // Search recent emojis
+                                baseEmojis.filter { (it as? String)?.contains(searchText, ignoreCase = true) == true }
+                            }
+                            selectedCategory <= emojiCategories.size -> {
+                                // Search across all standard emojis
+                                EmojiData.getAllEmojis().filter { it.contains(searchText, ignoreCase = true) }
+                            }
+                            else -> {
+                                // Search custom emojis in current pack
+                                baseEmojis.filter { 
+                                    (it as? net.vrkknn.andromuks.AppViewModel.CustomEmoji)?.name?.contains(searchText, ignoreCase = true) == true 
+                                }
+                            }
+                        }
                     }
                     
-                    items(filteredEmojis) { emoji ->
+                    items(filteredEmojis.size) { index ->
+                        val emoji = filteredEmojis[index]
                         Surface(
                             modifier = Modifier
                                 .size(40.dp)
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable { 
-                                    onEmojiSelected(emoji)
+                                    when (emoji) {
+                                        is String -> {
+                                            onEmojiSelected(emoji)
+                                        }
+                                        is net.vrkknn.andromuks.AppViewModel.CustomEmoji -> {
+                                            // Format custom emoji as ![:name:](mxc://url "Emoji: :name:")
+                                            val formatted = "![:${emoji.name}:](${emoji.mxcUrl} \"Emoji: :${emoji.name}:\")"
+                                            onEmojiSelected(formatted)
+                                        }
+                                    }
                                     onDismiss()
                                 },
                             color = Color.Transparent
@@ -227,22 +316,37 @@ fun EmojiSelectionDialog(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (emoji.startsWith("mxc://")) {
-                                    // Handle image reactions in recent tab
-                                    ImageEmoji(emoji, homeserverUrl, authToken)
-                                } else {
-                                    // Handle regular emojis
-                                    Text(
-                                        text = emoji,
-                                        style = MaterialTheme.typography.headlineSmall
-                                    )
+                                when (emoji) {
+                                    is String -> {
+                                        if (emoji.startsWith("mxc://")) {
+                                            // Handle image reactions in recent tab
+                                            ImageEmoji(emoji, homeserverUrl, authToken)
+                                        } else {
+                                            // Handle regular emojis
+                                            Text(
+                                                text = emoji,
+                                                style = MaterialTheme.typography.headlineSmall
+                                            )
+                                        }
+                                    }
+                                    is net.vrkknn.andromuks.AppViewModel.CustomEmoji -> {
+                                        // Handle custom emojis
+                                        ImageEmoji(emoji.mxcUrl, homeserverUrl, authToken)
+                                    }
                                 }
                             }
                         }
                     }
                     
                     // Custom reaction button if search text is not empty and not found in emojis
-                    if (searchText.isNotBlank() && !baseEmojis.any { it.contains(searchText, ignoreCase = true) }) {
+                    val searchFound = baseEmojis.any { emoji ->
+                        when (emoji) {
+                            is String -> emoji.contains(searchText, ignoreCase = true)
+                            is net.vrkknn.andromuks.AppViewModel.CustomEmoji -> emoji.name.contains(searchText, ignoreCase = true)
+                            else -> false
+                        }
+                    }
+                    if (searchText.isNotBlank() && !searchFound) {
                         item(span = { GridItemSpan(8) }) {
                             Button(
                                 onClick = { 

@@ -855,7 +855,8 @@ fun ThreadViewerScreen(
                         onDismiss = {
                             showEmojiSelection = false
                             reactingToEvent = null
-                        }
+                        },
+                        customEmojiPacks = appViewModel.customEmojiPacks
                     )
                 }
             }
