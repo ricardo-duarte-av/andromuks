@@ -467,6 +467,9 @@ class AppViewModel : ViewModel() {
 
     var spacesLoaded by mutableStateOf(false)
         private set
+    
+    // Track if init_complete has been received (distinguishes initialization from real-time updates)
+    private var initializationComplete = false
 
     fun setSpaces(spaces: List<SpaceItem>, skipCounterUpdate: Boolean = false) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setSpaces called with ${spaces.size} spaces")
@@ -2642,10 +2645,15 @@ class AppViewModel : ViewModel() {
                                 // Use storeMemberProfile to ensure optimization (only store room-specific if differs from global)
                                 storeMemberProfile(roomId, userId, profile)
                                 
-                                // BATTERY OPTIMIZATION: Only trigger UI updates when foregrounded
-                                // Cache is still updated (for accuracy), but no recompositions when backgrounded
-                                if (isAppVisible) {
-                                    if (isNewJoin) {
+                                // COLD START FIX: Only trigger UI updates for actual real-time changes, not historical data
+                                // During initialization (before init_complete), all member events are historical and shouldn't trigger UI updates
+                                // After init_complete, only actual state transitions (invite→join, leave→join) should trigger updates
+                                val isActualNewJoin = isNewJoin && (prevMembership == null || prevMembership == "invite" || prevMembership == "leave")
+                                
+                                // BATTERY OPTIMIZATION: Only trigger UI updates when foregrounded AND initialization is complete
+                                // Cache is still updated (for accuracy), but no recompositions during initialization or when backgrounded
+                                if (isAppVisible && initializationComplete) {
+                                    if (isActualNewJoin) {
                                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: New member joined: $userId in room $roomId - triggering immediate UI update")
                                         // New joins are critical - trigger member update immediately
                                         memberUpdateCounter++
@@ -2656,7 +2664,12 @@ class AppViewModel : ViewModel() {
                                     }
                                 } else {
                                     if (BuildConfig.DEBUG && (isNewJoin || isProfileChange)) {
-                                        android.util.Log.d("Andromuks", "AppViewModel: Member change cached (app backgrounded) - $userId in room $roomId [newJoin=$isNewJoin, profileChange=$isProfileChange]")
+                                        val reason = when {
+                                            !initializationComplete -> "initialization"
+                                            !isAppVisible -> "app backgrounded"
+                                            else -> "unknown"
+                                        }
+                                        android.util.Log.d("Andromuks", "AppViewModel: Member change cached ($reason) - $userId in room $roomId [newJoin=$isNewJoin, profileChange=$isProfileChange]")
                                     }
                                 }
                                 //android.util.Log.d("Andromuks", "AppViewModel: Cached joined member '$userId' in room '$roomId' -> displayName: '$displayName'")
@@ -2680,14 +2693,20 @@ class AppViewModel : ViewModel() {
                                 // OPTIMIZED: Remove from indexed cache
                                 roomMemberIndex[roomId]?.remove(userId)
                                 
-                                // BATTERY OPTIMIZATION: Only trigger UI updates when foregrounded
-                                // Cache is still updated (for accuracy), but no recompositions when backgrounded
-                                if (isAppVisible) {
+                                // COLD START FIX: Only trigger UI updates for actual real-time changes, not historical data
+                                // BATTERY OPTIMIZATION: Only trigger UI updates when foregrounded AND initialization is complete
+                                // Cache is still updated (for accuracy), but no recompositions during initialization or when backgrounded
+                                if (isAppVisible && initializationComplete) {
                                     // Trigger member update for leaves (critical change)
                                     memberUpdateCounter++
                                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Member left/banned: $userId in room $roomId - triggering immediate UI update")
                                 } else {
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Member left/banned cached (app backgrounded) - $userId in room $roomId")
+                                    val reason = when {
+                                        !initializationComplete -> "initialization"
+                                        !isAppVisible -> "app backgrounded"
+                                        else -> "unknown"
+                                    }
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Member left/banned cached ($reason) - $userId in room $roomId")
                                 }
                                 // Note: Don't remove from global cache as they might be in other rooms
                                 // Note: Keep disk cache for potential future re-joining
@@ -3607,6 +3626,10 @@ class AppViewModel : ViewModel() {
     fun onInitComplete() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onInitComplete called - setting spacesLoaded = true")
         
+        // Mark initialization as complete - from now on, all sync_complete messages are real-time updates
+        initializationComplete = true
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initialization complete - future sync_complete messages will trigger UI updates")
+        
         // Reset reconnection state now that init_complete has arrived
         // This is safe to call now because connection is confirmed healthy
         resetReconnectionState()
@@ -3623,11 +3646,10 @@ class AppViewModel : ViewModel() {
             // Create new ConversationsApi instance with real homeserver URL
             conversationsApi = ConversationsApi(appContext!!, homeserverUrl, authToken, realMatrixHomeserverUrl)
             personsApi = PersonsApi(appContext!!, homeserverUrl, authToken, realMatrixHomeserverUrl)
-            // Refresh shortcuts with the new homeserver URL and populated rooms
-            if (roomMap.isNotEmpty()) {
-                conversationsApi?.updateConversationShortcuts(roomMap.values.toList())
-                personsApi?.updatePersons(buildDirectPersonTargets(roomMap.values.toList()))
-            }
+            // COLD START FIX: Don't update shortcuts here - initialization is complete, but we should let
+            // incremental updates from sync_complete handle shortcuts. This prevents processing all 588 rooms
+            // on startup. Shortcuts will be updated incrementally as sync_complete messages arrive with changes.
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping shortcut update on init_complete - will use incremental updates from sync_complete")
         }
         
         // FCM registration with Gomuks Backend will be triggered via callback when token is ready
@@ -4094,9 +4116,15 @@ class AppViewModel : ViewModel() {
         allRooms = sortedRooms
         invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
         
-        // Update conversation shortcuts
-        conversationsApi?.updateConversationShortcuts(sortedRooms)
-        personsApi?.updatePersons(buildDirectPersonTargets(sortedRooms))
+        // COLD START FIX: Only update shortcuts if initialization is complete
+        // During initialization, shortcuts will be updated incrementally from sync_complete messages
+        if (initializationComplete) {
+            // Update conversation shortcuts
+            conversationsApi?.updateConversationShortcuts(sortedRooms)
+            personsApi?.updatePersons(buildDirectPersonTargets(sortedRooms))
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping shortcut update in refreshUIState - initialization not complete yet")
+        }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: UI refreshed, roomListUpdateCounter: $roomListUpdateCounter")
     }
@@ -4720,6 +4748,12 @@ class AppViewModel : ViewModel() {
 
     fun clearWebSocket(reason: String = "Unknown") {
         this.webSocket = null
+        
+        // Reset initialization flag on disconnect - will be set again when init_complete arrives
+        if (initializationComplete) {
+            initializationComplete = false
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket cleared - resetting initializationComplete flag (reason: $reason)")
+        }
         
         // Delegate WebSocket clearing to service
         WebSocketService.clearWebSocket(reason)

@@ -24,6 +24,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
@@ -53,12 +54,14 @@ class PersonsApi(
         private const val MAX_PEOPLE = 8
         private const val SHORTCUT_PREFIX = "person_"
         private const val CATEGORY_CONVERSATION = "android.shortcut.conversation"
+        private const val DEBOUNCE_MS = 500L // Debounce rapid updates to prevent cancellation errors
         const val EXTRA_ROOM_ID = "net.vrkknn.andromuks.extra.PERSON_ROOM_ID"
         const val EXTRA_USER_ID = "net.vrkknn.andromuks.extra.PERSON_USER_ID"
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pendingJob: Job? = null
+    private var lastUpdateTime = 0L
 
     private var lastPublished = emptyMap<String, PersonTarget>()
     private var lastShortcutIds = emptySet<String>()
@@ -75,9 +78,28 @@ class PersonsApi(
             return
         }
 
+        // COLD START FIX: Debounce rapid updates to prevent JobCancellationException
+        // When multiple updatePersons() calls happen in quick succession (e.g., on startup),
+        // we debounce them to prevent cancelling jobs mid-execution
+        val currentTime = System.currentTimeMillis()
+        val timeSinceLastUpdate = currentTime - lastUpdateTime
+        
         pendingJob?.cancel()
         pendingJob = scope.launch {
-            publishPeople(trimmed)
+            // Wait if update came too soon after previous one
+            if (timeSinceLastUpdate < DEBOUNCE_MS) {
+                delay(DEBOUNCE_MS - timeSinceLastUpdate)
+            }
+            try {
+                publishPeople(trimmed)
+                lastUpdateTime = System.currentTimeMillis()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Job was cancelled - this is expected if a newer update arrived
+                if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Update job cancelled (newer update arrived)")
+                throw e // Re-throw to properly handle cancellation
+            } catch (e: Exception) {
+                Log.e(TAG, "PersonsApi: Error publishing people", e)
+            }
         }
     }
 
