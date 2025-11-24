@@ -118,7 +118,8 @@ interface EventDao {
               type = 'm.room.message' 
               OR (type = 'm.room.encrypted' AND (decryptedType = 'm.room.message' OR decryptedType = 'm.text'))
             )
-        ORDER BY timestamp DESC, timelineRowId DESC, eventId DESC 
+            AND timelineRowId > 0
+        ORDER BY timelineRowId DESC, timestamp DESC, eventId DESC 
         LIMIT 1
     """)
     suspend fun getLastMessageForRoom(roomId: String): EventEntity?

@@ -63,9 +63,6 @@ class MainActivity : ComponentActivity() {
         // Initialize crash handler
         CrashHandler.initialize(this)
         
-        // PHASE 1: Initialize RoomRepository (single source of truth for room/timeline data)
-        RoomRepository.initialize(this)
-        
         enableEdgeToEdge()
 
         pendingShareIntent = intent.takeIf { isShareIntent(it) }

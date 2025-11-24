@@ -375,6 +375,10 @@ class AppViewModel : ViewModel() {
     var roomStateUpdateCounter by mutableStateOf(0)
         private set
     
+    // Room summary update counter - triggers RoomListScreen to refresh message previews/senders
+    var roomSummaryUpdateCounter by mutableStateOf(0)
+        private set
+    
     // SYNC OPTIMIZATION: Batched update mechanism
     private var pendingUIUpdates = mutableSetOf<String>() // Track which UI sections need updates
     private var batchUpdateJob: Job? = null // Job for batching UI updates
@@ -3125,6 +3129,16 @@ class AppViewModel : ViewModel() {
                     // Returns set of room IDs that had events persisted (for notifying timeline screens)
                     val roomsWithEvents = syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId, isAppVisible) ?: emptySet()
                     
+                    // CRITICAL: Notify RoomListScreen that room summaries may have been updated
+                    // SyncIngestor updates summaries when isAppVisible == true, so we need to refresh the summary display
+                    // This ensures room list shows new message previews/senders immediately
+                    if (roomsWithEvents.isNotEmpty() && isAppVisible) {
+                        withContext(Dispatchers.Main) {
+                            roomSummaryUpdateCounter++
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room summaries updated for ${roomsWithEvents.size} rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: $roomSummaryUpdateCounter)")
+                        }
+                    }
+                    
                     // CRITICAL: Refresh timeline from DB for current room if events were persisted
                     // This ensures new events appear even if they weren't processed via processSyncEventsArray()
                     // (which can happen if events are filtered during parsing or not in the sync JSON structure)
@@ -3248,7 +3262,6 @@ class AppViewModel : ViewModel() {
         
         // BATTERY OPTIMIZATION: This loop only processes rooms that actually changed in this sync (not all 588 rooms)
         // syncResult.updatedRooms typically contains 1-10 rooms per sync, not all rooms
-        // RoomRepository.updateRoom() is lightweight (just updates a StateFlow map) - ~0.01ms per room
         // Total cost: ~0.01-0.1ms per sync (much better than processing all 588 rooms)
         // Update existing rooms
         syncResult.updatedRooms.forEach { room ->
@@ -3280,16 +3293,12 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Preserved isFavourite=true for room ${room.id} (sync didn't include account_data.m.tag)")
                 }
                 roomMap[room.id] = updatedRoom
-                // PHASE 1: Update Repository in parallel with AppViewModel
-                RoomRepository.updateRoom(updatedRoom)
                 // Update animation state only if app is visible (battery optimization)
                 if (isAppVisible) {
                     updateRoomAnimationState(room.id, isAnimating = true)
                 }
             } else {
                 roomMap[room.id] = room
-                // PHASE 1: Update Repository in parallel with AppViewModel
-                RoomRepository.updateRoom(room)
                 // Update animation state only if app is visible (battery optimization)
                 if (isAppVisible) {
                     updateRoomAnimationState(room.id, isAnimating = true)
@@ -3300,12 +3309,9 @@ class AppViewModel : ViewModel() {
         
         // BATTERY OPTIMIZATION: This loop only processes newly joined rooms (typically 0-1 per sync)
         // Not all 588 rooms - only rooms that were just added
-        // RoomRepository.updateRoom() is lightweight (just updates a StateFlow map) - ~0.01ms per room
         // Add new rooms
         syncResult.newRooms.forEach { room ->
             roomMap[room.id] = room
-            // PHASE 1: Update Repository in parallel with AppViewModel
-            RoomRepository.updateRoom(room)
             // Mark as newly joined - will be sorted to the top
             newlyJoinedRoomIds.add(room.id)
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (marked as newly joined)")
@@ -3351,9 +3357,6 @@ class AppViewModel : ViewModel() {
             val filteredRooms = allRooms.filter { it.id !in removedRoomIdsSet }
             allRooms = filteredRooms
             invalidateRoomSectionCache()
-            
-            // PHASE 1: Update Repository in parallel with AppViewModel
-            RoomRepository.updateRooms(roomMap)
             
             // Also update spaces list
             setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = filteredRooms)), skipCounterUpdate = true)
@@ -3437,9 +3440,6 @@ class AppViewModel : ViewModel() {
                     val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
                     allRooms = sortedRooms
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initializing allRooms with ${sortedRooms.size} sorted rooms")
-                    
-                    // PHASE 1: Update Repository in parallel with AppViewModel
-                    RoomRepository.updateRooms(roomMap)
                 } else {
                     // Update existing rooms in current order, add new rooms at end
                     // PERFORMANCE: Only create new RoomItem instances when data actually changes
@@ -3464,9 +3464,6 @@ class AppViewModel : ViewModel() {
                         // Combine existing (in current order) with new rooms (will be sorted on next reorder)
                         allRooms = updatedExistingRooms + newRooms
                         invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
-                        
-                        // PHASE 1: Update Repository in parallel with AppViewModel
-                        RoomRepository.updateRooms(roomMap)
                         
                         // Mark for batched UI update (for badges/timestamps - no sorting)
                         needsRoomListUpdate = true
@@ -3948,7 +3945,10 @@ class AppViewModel : ViewModel() {
                     
                     try {
                         syncIngestorInstance.rushProcessPendingItems()
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Finished processing pending items")
+                        // CRITICAL: Notify RoomListScreen that summaries may have been updated
+                        // rushProcessPendingItems() processes rooms with isAppVisible=true, so summaries are updated
+                        roomSummaryUpdateCounter++
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Finished processing pending items - room summaries updated (roomSummaryUpdateCounter: $roomSummaryUpdateCounter)")
                     } catch (e: Exception) {
                         android.util.Log.e("Andromuks", "AppViewModel: Error processing pending items: ${e.message}", e)
                     }
@@ -4211,8 +4211,6 @@ class AppViewModel : ViewModel() {
             pendingRoomToRestore = null
         }
         currentRoomId = roomId
-        // PHASE 1: Update Repository in parallel with AppViewModel
-        RoomRepository.setCurrentRoom(roomId)
 
         val shouldPersistForNotifications = instanceRole != InstanceRole.BUBBLE
         if (!shouldPersistForNotifications) {
@@ -6454,10 +6452,6 @@ class AppViewModel : ViewModel() {
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing timeline - opening new room or timeline empty")
             timelineEvents = emptyList()
-            // PHASE 1: Update Repository in parallel with AppViewModel
-            if (currentRoomId.isNotEmpty()) {
-                RoomRepository.clearTimeline(currentRoomId)
-            }
             isTimelineLoading = true
             
             // Reset pagination state for new room
@@ -6538,9 +6532,6 @@ class AppViewModel : ViewModel() {
         
         timelineEvents = emptyList()
         // DISABLED: DB wipe - keeping database entries to preserve timeline data
-        // if (currentRoomId.isNotEmpty()) {
-        //     RoomRepository.clearTimeline(currentRoomId)
-        // }
         isTimelineLoading = true
         
         // 3. Reset pagination flags and bookkeeping
@@ -6756,10 +6747,6 @@ class AppViewModel : ViewModel() {
         
         // 2. Clear current timeline state
         timelineEvents = emptyList()
-        // PHASE 1: Update Repository in parallel with AppViewModel
-        if (currentRoomId.isNotEmpty()) {
-            RoomRepository.clearTimeline(currentRoomId)
-        }
         isTimelineLoading = true
         
         // 3. Reset pagination state
@@ -8658,8 +8645,6 @@ class AppViewModel : ViewModel() {
             val currentEvents = timelineEvents.toMutableList()
             currentEvents.add(event)
             timelineEvents = currentEvents.sortedBy { it.timestamp }
-            // PHASE 1: Update Repository in parallel with AppViewModel
-            RoomRepository.updateTimeline(currentRoomId, timelineEvents)
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added event to timeline, total events: ${timelineEvents.size}")
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Event roomId (${event.roomId}) doesn't match currentRoomId ($currentRoomId), not adding to timeline")
@@ -9854,11 +9839,6 @@ class AppViewModel : ViewModel() {
                         currentEvents[originalIndex] = redactedEvent
                         timelineEvents = currentEvents
                         
-                        // PHASE 1: Update Repository in parallel with AppViewModel
-                        if (roomId.isNotEmpty()) {
-                            RoomRepository.updateTimeline(roomId, currentEvents)
-                        }
-                        
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: [LIVE SYNC] Marked event $redactsEventId as redacted by ${event.eventId}")
                     } else {
                         android.util.Log.w("Andromuks", "AppViewModel: [LIVE SYNC] Could not find event $redactsEventId to mark as redacted (might be in paginated history)")
@@ -10451,11 +10431,6 @@ class AppViewModel : ViewModel() {
             this.timelineEvents = limitedTimelineEvents
             timelineUpdateCounter++
             updateCounter++ // Keep for backward compatibility temporarily
-            
-            // PHASE 1: Update Repository in parallel with AppViewModel
-            if (currentRoomId.isNotEmpty()) {
-                RoomRepository.updateTimeline(currentRoomId, limitedTimelineEvents)
-            }
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Error in buildTimelineFromChain", e)
             // If building timeline fails, try to preserve existing timeline if possible

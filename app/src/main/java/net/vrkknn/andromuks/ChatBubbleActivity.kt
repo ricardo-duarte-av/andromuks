@@ -33,8 +33,6 @@ class ChatBubbleActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Ensure repository is initialized when launching directly into a bubble
-        RoomRepository.initialize(this)
         enableEdgeToEdge()
 
         if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCreate called")

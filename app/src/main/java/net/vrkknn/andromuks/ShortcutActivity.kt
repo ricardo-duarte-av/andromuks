@@ -41,10 +41,6 @@ class ShortcutActivity : ComponentActivity() {
         // Initialize crash handler
         net.vrkknn.andromuks.utils.CrashHandler.initialize(this)
         
-        // PHASE 1: Initialize RoomRepository (single source of truth for room/timeline data)
-        // This is critical for loading events from database when RAM cache is empty
-        RoomRepository.initialize(this)
-        
         // Extract room ID from intent
         val roomId = extractRoomIdFromIntent(intent)
         if (roomId == null) {
