@@ -2,6 +2,7 @@ package net.vrkknn.andromuks.utils
 
 import net.vrkknn.andromuks.BuildConfig
 import android.content.SharedPreferences
+import android.os.Build
 import android.util.Log
 import androidx.core.content.edit
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,25 @@ import java.util.concurrent.TimeUnit
 import net.vrkknn.andromuks.TimelineEvent
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.*
+
+/**
+ * Get the device identifier string (manufacturer and model)
+ * @return Device identifier in format "Manufacturer Model" (e.g., "Samsung SM-G950F", "Google Pixel 5")
+ */
+fun getDeviceIdentifier(): String {
+    val manufacturer = Build.MANUFACTURER.trim()
+    val model = Build.MODEL.trim()
+    return "$manufacturer $model"
+}
+
+/**
+ * Get the custom user agent string for Andromuks
+ * @return User agent string in format "Andromuks/1.0 - $device-id"
+ */
+fun getUserAgent(): String {
+    val deviceId = getDeviceIdentifier()
+    return "Andromuks/1.0 - $deviceId"
+}
 
 /**
  * Streaming DEFLATE decompressor that maintains state across multiple frames
@@ -310,7 +330,7 @@ fun connectToWebsocket(
     val request = Request.Builder()
         .url(finalWebSocketUrl)
         .addHeader("Cookie", "gomuks_auth=$token")
-        .addHeader("User-Agent", "Andromuks/1.0 (Android)")
+        .addHeader("User-Agent", getUserAgent())
         .build()
     
     // Set up websocket restart callback

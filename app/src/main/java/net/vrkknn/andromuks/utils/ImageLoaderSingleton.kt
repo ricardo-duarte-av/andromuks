@@ -2,6 +2,7 @@ package net.vrkknn.andromuks.utils
 
 import android.content.Context
 import android.os.Build
+import net.vrkknn.andromuks.utils.getUserAgent
 import coil.ImageLoader
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
@@ -37,7 +38,7 @@ object ImageLoaderSingleton {
             .addInterceptor { chain ->
                 val originalRequest = chain.request()
                 val requestWithUserAgent = originalRequest.newBuilder()
-                    .header("User-Agent", "Andromuks/1.0-alpha (Android; Coil)")
+                    .header("User-Agent", getUserAgent())
                     .build()
                 chain.proceed(requestWithUserAgent)
             }

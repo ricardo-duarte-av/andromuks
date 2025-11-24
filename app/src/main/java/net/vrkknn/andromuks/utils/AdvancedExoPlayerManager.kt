@@ -3,6 +3,7 @@ package net.vrkknn.andromuks.utils
 
 
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.utils.getUserAgent
 import android.content.Context
 import android.util.Log
 import androidx.media3.exoplayer.ExoPlayer
@@ -129,7 +130,7 @@ object AdvancedExoPlayerManager {
      */
     private fun createOptimizedMediaSourceFactory(): DefaultMediaSourceFactory {
         val dataSourceFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent("Andromuks/1.0")
+            .setUserAgent(getUserAgent())
             .setConnectTimeoutMs(10000)
             .setReadTimeoutMs(10000)
         

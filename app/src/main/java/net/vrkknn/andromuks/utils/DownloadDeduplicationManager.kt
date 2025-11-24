@@ -3,6 +3,7 @@ package net.vrkknn.andromuks.utils
 
 
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.utils.getUserAgent
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.*
@@ -157,7 +158,7 @@ object DownloadDeduplicationManager {
                 
                 val connection = URL(httpUrl).openConnection().apply {
                     setRequestProperty("Cookie", "gomuks_auth=$authToken")
-                    setRequestProperty("User-Agent", "Andromuks/1.0")
+                    setRequestProperty("User-Agent", getUserAgent())
                     setRequestProperty("Accept", "*/*")
                     connectTimeout = 10000
                     readTimeout = 30000
