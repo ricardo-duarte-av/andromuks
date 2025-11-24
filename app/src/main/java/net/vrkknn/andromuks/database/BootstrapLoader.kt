@@ -235,20 +235,45 @@ class BootstrapLoader(private val context: Context) {
      */
     suspend fun loadRoomEvents(roomId: String, limit: Int = 200): List<TimelineEvent> = withContext(Dispatchers.IO) {
         try {
+            // CRITICAL: Query gets events ordered by timestamp DESC (newest first)
+            // This ensures we get the most recent events, not old ones
             val events = eventDao.getEventsForRoomDesc(roomId, limit)
-            events
+            
+            // Convert to TimelineEvent and sort in chronological order (oldest first) for timeline display
+            val timelineEvents = events
                 .mapNotNull { entity -> entityToTimelineEvent(entity) }
                 .sortedWith { a, b ->
                     when {
+                        // Both have timelineRowid - sort by timelineRowid (ascending = chronological)
                         a.timelineRowid > 0 && b.timelineRowid > 0 -> a.timelineRowid.compareTo(b.timelineRowid)
-                        a.timelineRowid > 0 -> -1
-                        b.timelineRowid > 0 -> 1
+                        // Events with timelineRowid come after those without (they're newer)
+                        a.timelineRowid > 0 -> 1
+                        b.timelineRowid > 0 -> -1
+                        // Neither has timelineRowid - sort by timestamp (ascending = chronological)
                         else -> {
                             val tsCompare = a.timestamp.compareTo(b.timestamp)
                             if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
                         }
                     }
                 }
+            
+            // CRITICAL FIX: Verify we got the newest events by checking the latest timestamp
+            // If the latest event is very old, something went wrong with the query
+            val latestTimestamp = timelineEvents.maxByOrNull { it.timestamp }?.timestamp ?: 0L
+            val currentTime = System.currentTimeMillis()
+            val timeDiff = currentTime - latestTimestamp
+            
+            // If the latest event is more than 24 hours old, log a warning
+            // (This might indicate we're loading old events instead of new ones)
+            if (latestTimestamp > 0 && timeDiff > 24 * 60 * 60 * 1000L) {
+                Log.w(TAG, "loadRoomEvents: Latest event for room $roomId is ${timeDiff / (60 * 60 * 1000)} hours old - might be loading old events instead of new ones")
+            }
+            
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "loadRoomEvents: Loaded ${timelineEvents.size} events for room $roomId (latest timestamp: $latestTimestamp, ${if (latestTimestamp > 0) "${timeDiff / 1000}s ago" else "unknown"})")
+            }
+            
+            timelineEvents
         } catch (e: Exception) {
             Log.e(TAG, "Error loading events for room $roomId: ${e.message}", e)
             emptyList()

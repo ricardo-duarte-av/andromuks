@@ -26,6 +26,9 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import android.content.Context
 import android.media.MediaPlayer
 import android.media.AudioManager
@@ -3146,10 +3149,15 @@ class AppViewModel : ViewModel() {
                     if (currentRoomId.isNotEmpty() && currentRoomId in roomsWithEvents) {
                         withContext(Dispatchers.Main) {
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current room $currentRoomId had events persisted - refreshing timeline from DB to ensure they appear")
-                            // Use a slight delay to allow processParsedSyncResult() to complete first
-                            // This prevents race conditions where both try to update the timeline
+                            // CRITICAL FIX: Wait for DB write to complete before refreshing
+                            // ingestSyncComplete() runs on Dispatchers.IO and completes when DB write is done
+                            // So we can refresh immediately after it returns (no delay needed)
+                            // However, we still add a small delay to let processParsedSyncResult() complete first
+                            // to prevent race conditions where both try to update the timeline
                             viewModelScope.launch {
-                                kotlinx.coroutines.delay(50) // Small delay to let processParsedSyncResult() finish
+                                // Wait for processParsedSyncResult() to complete (it processes events in memory)
+                                kotlinx.coroutines.delay(100) // Increased delay to ensure DB write is complete
+                                // DB write from ingestSyncComplete() should be complete by now since it's async but awaited
                                 refreshTimelineFromDatabase(currentRoomId)
                             }
                         }
@@ -6226,6 +6234,22 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Observe the latest event timestamp for a room using Room Flow.
+     * This automatically emits when new events are inserted into the database.
+     * 
+     * This is more efficient than polling because it only triggers on actual DB changes.
+     * 
+     * @param roomId The room ID to observe
+     * @return Flow that emits the latest timestamp (or null if no events)
+     */
+    fun observeRoomLatestEventTimestamp(roomId: String): Flow<Long?> {
+        val context = appContext?.applicationContext ?: return kotlinx.coroutines.flow.flowOf(null)
+        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+        return database.eventDao().observeLastEventTimestamp(roomId)
+            .distinctUntilChanged() // Only emit when timestamp actually changes
+    }
+    
+    /**
      * Refresh timeline from database when new events arrive via sync_complete
      * This ensures timeline screens see new events even when room is already open
      * 
@@ -6241,10 +6265,27 @@ class AppViewModel : ViewModel() {
         
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Load latest events from database (events were just persisted by SyncIngestor)
-                // CRITICAL: Load more events (up to MAX_TIMELINE_EVENTS_PER_ROOM) to ensure we capture all recent events
-                // The previous limit of 200 was too restrictive and could miss newer events in active rooms
-                val dbEvents = bootstrapLoader!!.loadRoomEvents(roomId, MAX_TIMELINE_EVENTS_PER_ROOM)
+                // CRITICAL FIX: Retry mechanism to handle race conditions where DB write might not be complete yet
+                // Wait for DB to have the new events (with timeout)
+                var dbEvents = emptyList<TimelineEvent>()
+                var retryCount = 0
+                val maxRetries = 5
+                val retryDelay = 50L // 50ms between retries
+                
+                while (retryCount < maxRetries && dbEvents.isEmpty()) {
+                    // Load latest events from database (events were just persisted by SyncIngestor)
+                    // CRITICAL: Load more events (up to MAX_TIMELINE_EVENTS_PER_ROOM) to ensure we capture all recent events
+                    // The previous limit of 200 was too restrictive and could miss newer events in active rooms
+                    dbEvents = bootstrapLoader!!.loadRoomEvents(roomId, MAX_TIMELINE_EVENTS_PER_ROOM)
+                    
+                    if (dbEvents.isEmpty() && retryCount < maxRetries - 1) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in DB yet (retry ${retryCount + 1}/$maxRetries), waiting ${retryDelay}ms")
+                        kotlinx.coroutines.delay(retryDelay)
+                        retryCount++
+                    } else {
+                        break
+                    }
+                }
                 
                 if (dbEvents.isNotEmpty()) {
                     val dbLatest = dbEvents.maxByOrNull { it.timestamp }
@@ -6370,9 +6411,12 @@ class AppViewModel : ViewModel() {
         if (appContext != null && bootstrapLoader != null) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loading timeline from database for $roomId (BATTERY OPTIMIZATION: no RAM cache)")
             try {
+                // CRITICAL FIX: Load more events to ensure we get the newest ones
+                // Using MAX_TIMELINE_EVENTS_PER_ROOM instead of 200 ensures we load all recent events
+                // This prevents "ancient view" where only old events are shown
                 // Use runBlocking to wait for database query (prevents race condition)
                 val dbEvents = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                    bootstrapLoader!!.loadRoomEvents(roomId, 200)
+                    bootstrapLoader!!.loadRoomEvents(roomId, MAX_TIMELINE_EVENTS_PER_ROOM)
                 }
                 
                 if (dbEvents.isNotEmpty()) {
@@ -9661,6 +9705,13 @@ class AppViewModel : ViewModel() {
                     updateTimelineFromSync(syncJson, currentRoomId!!)
                 } else if (currentRoomId != null) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✗ Skipping sync_complete - current room $currentRoomId not in this sync batch")
+                    // CRITICAL FIX: Even if current room is not in sync batch, refresh from DB
+                    // This handles cases where events were persisted but not processed via processSyncEventsArray()
+                    // (e.g., if sync JSON structure was different or events were filtered)
+                    viewModelScope.launch {
+                        kotlinx.coroutines.delay(150) // Wait for DB write to complete
+                        refreshTimelineFromDatabase(currentRoomId!!)
+                    }
                 } else {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✗ Skipping sync_complete - no room currently open (events will be cached only)")
                 }

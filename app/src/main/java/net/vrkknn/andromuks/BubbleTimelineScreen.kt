@@ -120,6 +120,8 @@ import java.util.Locale
 import kotlin.math.min
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.ui.components.AvatarImage
@@ -1258,6 +1260,45 @@ fun BubbleTimelineScreen(
             // Force recomposition when timeline events change
             // This ensures the UI updates even when battery optimization might skip updates
         }
+    }
+    
+    // CRITICAL FIX: Observe database changes reactively using Room Flow
+    // This detects new events that were persisted to DB but might not have triggered timeline updates
+    // (e.g., due to race conditions, timing issues, or if events weren't in sync batch)
+    // This is event-driven (no polling) and only triggers when DB actually changes
+    LaunchedEffect(roomId, appViewModel.currentRoomId) {
+        // Only observe when this room is open and not loading
+        if (appViewModel.currentRoomId != roomId || isLoading) {
+            return@LaunchedEffect
+        }
+        
+        // Track the latest timestamp we've seen to detect new events
+        var lastKnownTimestamp = timelineItems.lastOrNull()?.let { 
+            (it as? BubbleTimelineItem.Event)?.event?.timestamp 
+        } ?: 0L
+        
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Starting DB timestamp observation for room $roomId (initial timestamp: $lastKnownTimestamp)")
+        
+        // Observe the latest event timestamp from database
+        // This Flow automatically emits when new events are inserted
+        appViewModel.observeRoomLatestEventTimestamp(roomId)
+            .filterNotNull() // Only process non-null timestamps
+            .collect { latestTimestamp ->
+                // Only refresh if we detect a newer timestamp
+                if (latestTimestamp > lastKnownTimestamp) {
+                    if (BuildConfig.DEBUG) Log.d(
+                        "Andromuks",
+                        "BubbleTimelineScreen: Detected new events in DB (timestamp: $latestTimestamp > $lastKnownTimestamp) - refreshing timeline"
+                    )
+                    
+                    // Update our tracked timestamp
+                    lastKnownTimestamp = latestTimestamp
+                    
+                    // Refresh timeline from database to show new events
+                    // This is safe to call multiple times - it only updates if there are actually new events
+                    appViewModel.refreshTimelineUI()
+                }
+            }
     }
 
     // Handle Android back key

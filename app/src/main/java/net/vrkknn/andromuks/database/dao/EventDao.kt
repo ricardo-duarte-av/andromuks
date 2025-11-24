@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 import net.vrkknn.andromuks.database.entities.EventEntity
 
 @Dao
@@ -83,6 +84,16 @@ interface EventDao {
     
     @Query("SELECT MAX(timestamp) FROM events WHERE roomId = :roomId AND timestamp > 0")
     suspend fun getLastEventTimestamp(roomId: String): Long?
+    
+    /**
+     * Observe the latest event timestamp for a room.
+     * This Flow automatically emits when new events are inserted into the database.
+     * Returns null if no events exist for the room.
+     * 
+     * This is more efficient than polling because it only triggers on actual DB changes.
+     */
+    @Query("SELECT MAX(timestamp) FROM events WHERE roomId = :roomId AND timestamp > 0")
+    fun observeLastEventTimestamp(roomId: String): Flow<Long?>
     
     @Query("SELECT * FROM events WHERE roomId = :roomId AND eventId = :eventId LIMIT 1")
     suspend fun getEventById(roomId: String, eventId: String): EventEntity?
