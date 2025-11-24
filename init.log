@@ -1,0 +1,774 @@
+11-24 22:09:59.236  1752  4062 I ActivityTaskManager: START u0 {act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 xflg=0x4 pkg=pt.aguiarvieira.andromuks cmp=pt.aguiarvieira.andromuks/net.vrkknn.andromuks.MainActivity bnds=[67,175][272,448]} with LAUNCH_MULTIPLE from uid 10558 (sr=113514386) (BAL_ALLOW_VISIBLE_WINDOW) result code=0
+11-24 22:09:59.236  2640  2672 V WindowManagerShell: Transition requested (#15076): android.os.BinderProxy@a1f3587 TransitionRequestInfo { type = OPEN, triggerTask = TaskInfo{userId=0 taskId=2636 effectiveUid=10783 displayId=0 isRunning=true baseIntent=Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 pkg=pt.aguiarvieira.andromuks cmp=pt.aguiarvieira.andromuks/net.vrkknn.andromuks.MainActivity } baseActivity=ComponentInfo{pt.aguiarvieira.andromuks/net.vrkknn.andromuks.MainActivity} topActivity=ComponentInfo{pt.aguiarvieira.andromuks/net.vrkknn.andromuks.MainActivity} origActivity=null realActivity=ComponentInfo{pt.aguiarvieira.andromuks/net.vrkknn.andromuks.MainActivity} numActivities=1 lastActiveTime=5787959389 supportsMultiWindow=true resizeMode=1 isResizeable=true minWidth=-1 minHeight=-1 defaultMinSize=220 token=WCT{android.window.IWindowContainerToken$Stub$Proxy@f031cb4} topActivityType=1 pictureInPictureParams=null shouldDockBigOverlays=false launchIntoPipHostTaskId=-1 lastParentTaskIdBeforePip=-1 displayCutoutSafeInsets=Rect(0, 79 - 0, 0) topActivityInfo=ActivityInfo{e4a40dd net.vrkknn.andromuks.MainActivity} launchCookies=[android.os.BinderProxy@d4f2452] positionInParent=Point(0, 0) parentTaskId=-1 isFocused=false isVisible=false isVisibleRequested=false isTopActivityNoDisplay=false isSleeping=false locusId=null displayAreaFeatureId=1 isTopActivityTransparent=false isActivityStackTransparent=false lastNonFullscreenBounds=Rect(267, 607 - 813, 1687) capturedLink=null capturedLinkTimestamp=0 requestedVisibleTypes=-9 topActivityRequestOpenInBrowserEducationTimestamp=0 appCompatTaskInfo=AppCompatTaskInfo { topActivityInSizeCompat=false eligibleForLetterboxEducation= false isLetterboxEducationEnabled= false isLetterboxDoubleTapEnabled= false eligibleForUserAspectRatioButton= false topActivityBoundsLetterboxed= false isFromLetterboxDoubleTap= false topActivityLetterboxVerticalPosition= -1 topActivityLetterboxHorizontalPosition= -1 topActivityLetterboxWidth=-1 topActivityLetterboxHeight=-1 topActivityAppBounds=Rect(0, 0 - 1080, 2340) isUserFullscreenOverrideEnabled=false isSystemFullscreenOverrideEnabled=false hasMinAspectRatioOverride=false topActivityLetterboxBounds=null cameraCompatTaskInfo=CameraCompatTaskInfo { freeformCameraCompatMode=inactive}} topActivityMainWindowFrame=null}, pipChange = null, remoteTransition = RemoteTransition { remoteTransition = android.window.IRemoteTransition$Stub$Proxy@12fa323, appThread = android.app.IApplicationThread$Stub$Proxy@50f5020, debugName = QuickstepLaunch }, displayChange = null, flags = 0, debugId = 15076 }
+11-24 22:09:59.249  1752  4516 D ProcessFreezerManager: Already triggered freeze for pt.aguiarvieira.andromuks
+11-24 22:09:59.250  1752  4516 D ProcessFreezerManager: Already triggered freeze for pt.aguiarvieira.andromuks
+11-24 22:09:59.250  1752  1834 I ActivityManager: Start proc 25263:pt.aguiarvieira.andromuks/u0a783 for next-top-activity {pt.aguiarvieira.andromuks/net.vrkknn.andromuks.MainActivity}
+11-24 22:09:59.260 25263 25263 I ieira.andromuks: Late-enabling -Xcheck:jni
+11-24 22:09:59.266  1752  1822 V WindowManager: Sent Transition (#15076) createdAt=11-24 22:09:59.228 via request=TransitionRequestInfo { type = OPEN, triggerTask = TaskInfo{userId=0 taskId=2636 effectiveUid=10783 displayId=0 isRunning=true baseIntent=Intent { act=android.intent.action.MAIN cat=[android.intent.category.LAUNCHER] flg=0x10200000 pkg=pt.aguiarvieira.andromuks cmp=pt.aguiarvieira.andromuks/net.vrkknn.andromuks.MainActivity } baseActivity=ComponentInfo{pt.aguiarvieira.andromuks/net.vrkknn.andromuks.MainActivity} topActivity=ComponentInfo{pt.aguiarvieira.andromuks/net.vrkknn.andromuks.MainActivity} origActivity=null realActivity=ComponentInfo{pt.aguiarvieira.andromuks/net.vrkknn.andromuks.MainActivity} numActivities=1 lastActiveTime=5787959389 supportsMultiWindow=true resizeMode=1 isResizeable=true minWidth=-1 minHeight=-1 defaultMinSize=220 token=WCT{RemoteToken{8ef88c4 Task{34d1fe8 #2636 type=standard A=10783:pt.aguiarvieira.andromuks}}} topActivityType=1 pictureInPictureParams=null shouldDockBigOverlays=false launchIntoPipHostTaskId=-1 lastParentTaskIdBeforePip=-1 displayCutoutSafeInsets=Rect(0, 79 - 0, 0) topActivityInfo=ActivityInfo{54123ad net.vrkknn.andromuks.MainActivity} launchCookies=[android.os.BinderProxy@a6916e2] positionInParent=Point(0, 0) parentTaskId=-1 isFocused=false isVisible=false isVisibleRequested=false isTopActivityNoDisplay=false isSleeping=false locusId=null displayAreaFeatureId=1 isTopActivityTransparent=false isActivityStackTransparent=false lastNonFullscreenBounds=Rect(267, 607 - 813, 1687) capturedLink=null capturedLinkTimestamp=0 requestedVisibleTypes=-9 topActivityRequestOpenInBrowserEducationTimestamp=0 appCompatTaskInfo=AppCompatTaskInfo { topActivityInSizeCompat=false eligibleForLetterboxEducation= false isLetterboxEducationEnabled= false isLetterboxDoubleTapEnabled= false eligibleForUserAspectRatioButton= false topActivityBoundsLetterboxed= false isFromLetterboxDoubleTap= false topActivityLetterboxVerticalPosition= -1 topActivityLetterboxHorizontalPosition= -1 topActivityLetterboxWidth=-1 topActivityLetterboxHeight=-1 topActivityAppBounds=Rect(0, 0 - 1080, 2340) isUserFullscreenOverrideEnabled=false isSystemFullscreenOverrideEnabled=false hasMinAspectRatioOverride=false topActivityLetterboxBounds=null cameraCompatTaskInfo=CameraCompatTaskInfo { freeformCameraCompatMode=inactive}} topActivityMainWindowFrame=null}, pipChange = null, remoteTransition = RemoteTransition { remoteTransition = android.window.IRemoteTransition$Stub$Proxy@883ca73, appThread = android.app.IApplicationThread$Stub$Proxy@fbe6d30, debugName = QuickstepLaunch }, displayChange = null, flags = 0, debugId = 15076 }
+11-24 22:09:59.266  1752  1822 V WindowManager:         {WCT{RemoteToken{8ef88c4 Task{34d1fe8 #2636 type=standard A=10783:pt.aguiarvieira.andromuks}}} m=OPEN f=NONE leash=Surface(name=Task=2636)/@0x2fc5318 sb=Rect(0, 0 - 1080, 2340) eb=Rect(0, 0 - 1080, 2340) epz=Point(1080, 2340) d=0 taskParent=-1},
+11-24 22:09:59.278 25263 25263 I ieira.andromuks: Using CollectorTypeCMC GC.
+11-24 22:09:59.823 25263 25263 D nativeloader: Configuring clns-9 for other apk /data/app/~~2gLtYRzcBZu5bgg7F1sk2g==/pt.aguiarvieira.andromuks-f-D08dibi9UGInI5HOWLAw==/base.apk. target_sdk_version=36, uses_libraries=, library_path=/data/app/~~2gLtYRzcBZu5bgg7F1sk2g==/pt.aguiarvieira.andromuks-f-D08dibi9UGInI5HOWLAw==/lib/arm64:/data/app/~~2gLtYRzcBZu5bgg7F1sk2g==/pt.aguiarvieira.andromuks-f-D08dibi9UGInI5HOWLAw==/base.apk!/lib/arm64-v8a, permitted_path=/data:/mnt/expand:/data/user/0/pt.aguiarvieira.andromuks
+11-24 22:09:59.827 25263 25263 I ieira.andromuks: AssetManager2(0xb400007ce5d448f8) locale list changing from [] to [pt-PT]
+11-24 22:09:59.829 25263 25263 V GraphicsEnvironment: pt.aguiarvieira.andromuks is not listed in per-application setting
+11-24 22:09:59.830 25263 25263 V GraphicsEnvironment: pt.aguiarvieira.andromuks is not listed in ANGLE allowlist or settings, returning default
+11-24 22:09:59.889 25263 25283 W ieira.andromuks: ClassLoaderContext classpath size mismatch. expected=1, found=0 (DLC[];PCL[base.apk*1653684527]{PCL[/system/framework/org.apache.http.legacy.jar*109050521]#PCL[/system/framework/com.android.media.remotedisplay.jar*2597751076]#PCL[/system/framework/com.android.location.provider.jar*1567259612]#PCL[/system_ext/framework/androidx.window.extensions.jar*4163322644]#PCL[/system_ext/framework/androidx.window.sidecar.jar*4222744159]} | DLC[];PCL[])
+11-24 22:09:59.903 25263 25283 I ieira.andromuks: AssetManager2(0xb400007ce5d43f98) locale list changing from [] to [pt-PT]
+11-24 22:09:59.907 25263 25283 W ieira.andromuks: ClassLoaderContext classpath element checksum mismatch. expected=1653684527, found=2737696054 (DLC[];PCL[base.apk*1653684527]{PCL[/system/framework/org.apache.http.legacy.jar*109050521]#PCL[/system/framework/com.android.media.remotedisplay.jar*2597751076]#PCL[/system/framework/com.android.location.provider.jar*1567259612]#PCL[/system_ext/framework/androidx.window.extensions.jar*4163322644]#PCL[/system_ext/framework/androidx.window.sidecar.jar*4222744159]} | DLC[];PCL[/data/app/~~2gLtYRzcBZu5bgg7F1sk2g==/pt.aguiarvieira.andromuks-f-D08dibi9UGInI5HOWLAw==/base.apk*2737696054])
+11-24 22:09:59.912 25263 25283 I ieira.andromuks: AssetManager2(0xb400007ce5d46b58) locale list changing from [] to [pt-PT]
+11-24 22:09:59.913 25263 25283 I ieira.andromuks: AssetManager2(0xb400007ce5d490d8) locale list changing from [] to [pt-PT]
+11-24 22:09:59.937 25263 25288 I ieira.andromuks: hiddenapi: Accessing hidden method Ldalvik/system/VMStack;->getStackClass2()Ljava/lang/Class; (runtime_flags=0, domain=core-platform, api=unsupported) from Lm7/aox; (domain=app) using reflection: allowed
+11-24 22:09:59.942 15197 24867 I PhenotypeResourceReader: unable to find any Phenotype resource metadata for pt.aguiarvieira.andromuks
+11-24 22:09:59.946  1752  7144 I AppsFilter: interaction: PackageSetting{d446c8e pt.aguiarvieira.andromuks/10783} -> PackageSetting{4abc4c9 com.google.android.apps.nexuslauncher/10558} BLOCKED
+11-24 22:09:59.953 25263 25263 I ieira.andromuks: AssetManager2(0xb400007ce5d45bb8) locale list changing from [] to [pt-PT]
+11-24 22:09:59.954 25263 25290 I AdrenoGLES-0: Process Name                     : pt.aguiarvieira.andromuks
+11-24 22:09:59.959 25263 25287 E ieira.andromuks: No package ID 6a found for resource ID 0x6a0b0013.
+11-24 22:09:59.961 25263 25287 I FA      :   adb shell setprop debug.firebase.analytics.app pt.aguiarvieira.andromuks
+11-24 22:09:59.973 25263 25263 E ieira.andromuks: Invalid resource ID 0x00000000.
+11-24 22:09:59.996 25263 25263 D Andromuks: MainActivity: onStart called
+11-24 22:10:00.003 25263 25263 D Andromuks: MainActivity: onResume called
+11-24 22:10:00.003 25263 25263 D Andromuks: MainActivity: Sent FOREGROUND_REFRESH broadcast
+11-24 22:10:00.159 25263 25263 I ieira.andromuks: hiddenapi: Accessing hidden method Landroid/os/SystemProperties;->addChangeCallback(Ljava/lang/Runnable;)V (runtime_flags=0, domain=platform, api=unsupported) from Landroidx/compose/ui/platform/AndroidComposeView$Companion; (domain=app) using reflection: allowed
+11-24 22:10:00.323 25263 25263 D Andromuks: AppViewModel: Logged activity - App Started
+11-24 22:10:00.324 25263 25263 D Andromuks: AppViewModel: Instance role set to PRIMARY for AppViewModel_0
+11-24 22:10:00.324 25263 25263 D Andromuks: AppViewModel: Clearing current open room ID from SharedPreferences
+11-24 22:10:00.324 25263 25263 D Andromuks: AppViewModel: SharedPreferences commit succeeded for room ID: 
+11-24 22:10:00.324 25263 25263 D Andromuks: AppViewModel: Cleared current room ID on app startup
+11-24 22:10:00.335 25263 25263 D Andromuks: AppViewModel: Restored currentUserId from SharedPreferences: @daedric:aguiarvieira.pt
+11-24 22:10:00.337 25263 25263 D Andromuks: AppViewModel: Loaded showUnprocessedEvents setting: true
+11-24 22:10:00.337 25263 25263 D Andromuks: AppViewModel: Loaded enableCompression setting: true
+11-24 22:10:00.337 25263 25263 D Andromuks: AppViewModel: Loaded enterKeySendsMessage setting: true
+11-24 22:10:00.341 25263 25263 D Andromuks: MainActivity: onCreate - roomId: null, directNavigation: false, fromNotification: false, matrixUri: null
+11-24 22:10:00.341 25263 25263 D Andromuks: MainActivity: extractRoomIdFromMatrixUri called with uri: null
+11-24 22:10:00.341 25263 25263 D Andromuks: MainActivity: URI is null
+11-24 22:10:00.341 25263 25263 D Andromuks: MainActivity: onCreate - Fallback URI parsing: null
+11-24 22:10:00.341 25263 25263 D Andromuks: MainActivity: Registering notification broadcast receiver
+11-24 22:10:00.342 25263 25263 D Andromuks: MainActivity: Notification broadcast receiver registered successfully
+11-24 22:10:00.345 25263 25263 D Andromuks: AppViewModel: No existing WebSocket to attach for AppViewModel_0
+11-24 22:10:00.345 25263 25263 D Andromuks: MainActivity: ViewModel created after onResume - forcing visible state
+11-24 22:10:00.345 25263 25263 D Andromuks: AppViewModel: App became visible
+11-24 22:10:00.362 25263 25305 D Andromuks: AppViewModel: Loaded 678 cached profiles from database
+11-24 22:10:00.428 25263 25263 D Andromuks: AppViewModel: SharedPreferences commit succeeded for app visibility: true (currentRoomId=)
+11-24 22:10:00.428 25263 25263 D Andromuks: AppViewModel: syncIngestor not initialized, skipping pending items check
+11-24 22:10:00.428 25263 25263 D Andromuks: AppViewModel: Refreshing UI with 0 rooms
+11-24 22:10:00.428 25263 25263 D Andromuks: AppViewModel: setSpaces called with 1 spaces
+11-24 22:10:00.429 25263 25263 D Andromuks: AppViewModel: PERFORMANCE - Debounced room reorder completed (0 rooms)
+11-24 22:10:00.429 25263 25263 D Andromuks: AppViewModel: Skipping shortcut update in refreshUIState - initialization not complete yet
+11-24 22:10:00.429 25263 25263 D Andromuks: AppViewModel: UI refreshed, roomListUpdateCounter: 0
+11-24 22:10:00.429 25263 25263 D Andromuks: AppViewModel: Current user profile missing on visibility, attempting to load - userId: @daedric:aguiarvieira.pt
+11-24 22:10:00.430 25263 25263 D Andromuks: AppViewModel: Requested current user profile from server on visibility
+11-24 22:10:00.430 25263 25263 D Andromuks: AppViewModel: App visible, refreshing UI with current state
+11-24 22:10:00.523  1752  1822 I ActivityTaskManager: Displayed pt.aguiarvieira.andromuks/net.vrkknn.andromuks.MainActivity for user 0: +1s296ms
+11-24 22:10:00.531 25263 25263 D Andromuks: AppViewModel: Loaded 100 activity log entries from storage
+11-24 22:10:00.543 25263 25263 D Andromuks: AppViewModel: Found run_id in database, loading bootstrap data
+11-24 22:10:00.864 25263 25304 D BootstrapLoader: Room !tbSlYaykKDtKZbCsVE:aguiarvieira.pt: Loaded message preview from DB events: '**[ricardo-duarte-av/andromuks]** ricardo-duarte-a...', sender: @github:aguiarvieira.pt
+11-24 22:10:01.359 25263 25306 D Andromuks: AppViewModel: Loaded 594 rooms from Room database
+11-24 22:10:01.359 25263 25306 D Andromuks: AppViewModel: Restored WebSocket state from DB - run_id: 1763730102505399890, last_received_id: -175240
+11-24 22:10:01.360 25263 25306 D Andromuks: AppViewModel: Restored 594 rooms from database into roomMap
+11-24 22:10:01.361 25263 25306 D Andromuks: AppViewModel: Updated allRooms with 594 rooms from database
+11-24 22:10:01.374 25263 25305 D Andromuks: AppViewModel: Loaded 36 spaces from database (spacesLoaded=true)
+11-24 22:10:01.379 25263 25306 D Andromuks: AppViewModel: Loaded 2 recent emojis from account_data with frequencies (sorted by count)
+11-24 22:10:01.380 25263 25306 D Andromuks: AppViewModel: Loaded 252 DM room IDs for 104 users from m.direct account data
+11-24 22:10:01.381 25263 25306 D Andromuks: AppViewModel: Updated 52 rooms with correct DM status from m.direct account data
+11-24 22:10:01.381 25263 25306 D Andromuks: AppViewModel: Processed account_data from database (m.direct, recent_emoji, etc.)
+11-24 22:10:01.382 25263 25305 D Andromuks: AppViewModel: No pending invites found in database
+11-24 22:10:01.386 25263 25306 D Andromuks: AppViewModel: Badge counts - DMs: 0, Unread: 120, Favs: 2
+11-24 22:10:01.386 25263 25306 D Andromuks: AppViewModel: Updated cached sections - allRooms: 594, DMs: 89, Unread: 120, Favourites: 18
+11-24 22:10:01.387 25263 25306 D Andromuks: AppViewModel: Badge counts - DMs: 0, Unread: 120, Favs: 2
+11-24 22:10:01.387 25263 25306 D Andromuks: AppViewModel: Updated cached room sections and badge counts (allRooms.size=594)
+11-24 22:10:01.387 25263 25306 D Andromuks: AppViewModel: Force sorting room list (tab change or screen return)
+11-24 22:10:01.388 25263 25306 D Andromuks: AppViewModel: setSpaces called with 1 spaces
+11-24 22:10:01.389 25263 25306 D Andromuks: AppViewModel: PERFORMANCE - Debounced room reorder completed (594 rooms)
+11-24 22:10:01.389 25263 25306 D Andromuks: AppViewModel: Triggered room list sort and UI update after loading from database
+11-24 22:10:01.389 25263 25263 D Andromuks: AppViewModel: Clearing current open room ID from SharedPreferences
+11-24 22:10:01.389 25263 25263 D Andromuks: AppViewModel: SharedPreferences commit succeeded for room ID: 
+11-24 22:10:01.389 25263 25263 D Andromuks: AppViewModel: Cleared current room ID on app startup
+11-24 22:10:01.390 25263 25263 D Andromuks: AppViewModel: Navigation callback set
+11-24 22:10:01.390 25263 25263 D Andromuks: AppViewModel: Spaces already loaded from cache, but waiting for WebSocket connection before navigating
+11-24 22:10:01.390 25263 25263 D Andromuks: AuthCheckScreen: appViewModel instance: net.vrkknn.andromuks.AppViewModel@6480024
+11-24 22:10:01.390 25263 25263 D Andromuks: AuthCheckScreen: Setting reconnection parameters in service - lastReceivedId: -175240 (run_id from SharedPreferences)
+11-24 22:10:01.390 25263 25263 D Andromuks: AuthCheckScreen: Starting WebSocket service before connection
+11-24 22:10:01.390 25263 25263 D Andromuks: AppViewModel: Starting WebSocket foreground service
+11-24 22:10:01.393 25263 25263 D Andromuks: AppViewModel: Saved 100 activity log entries to storage
+11-24 22:10:01.393 25263 25263 D Andromuks: AppViewModel: Logged activity - Starting WebSocket Service
+11-24 22:10:01.394  1752  7144 I ActivityManager: Background started FGS: Allowed [callingPackage: pt.aguiarvieira.andromuks; callingUid: 10783; uidState: TOP ; uidBFSL: [BFSL]; intent: Intent { xflg=0x4 cmp=pt.aguiarvieira.andromuks/net.vrkknn.andromuks.WebSocketService }; code:PROC_STATE_TOP; tempAllowListReason:<,reasonCode:SYSTEM_ALLOW_LISTED,duration:9223372036854775807,callingUid:-1>; allowWiu:12; targetSdkVersion:36; callerTargetSdkVersion:36; startForegroundCount:0; bindFromPackage:null: isBindService:false]
+11-24 22:10:01.395 25263 25263 D Andromuks: AuthCheckScreen: Setting app as visible
+11-24 22:10:01.395 25263 25263 D Andromuks: AuthCheckScreen: WebSocket connection check - isPrimary: true, isAlreadyConnected: false
+11-24 22:10:01.395 25263 25263 D Andromuks: AuthCheckScreen: Primary instance - creating WebSocket connection (will be maintained by Foreground service)
+11-24 22:10:01.395 25263 25263 D Andromuks: AuthCheckScreen: Verifying backend health before opening WebSocket
+11-24 22:10:01.400 25263 25263 D Andromuks: AppViewModel: No existing WebSocket to attach for AppViewModel_0
+11-24 22:10:01.422 25263 25305 D Andromuks: AppViewModel: Processing pending items before showing RoomListScreen
+11-24 22:10:01.425  1752  4516 I ActivityManager: Background started FGS: Allowed [callingPackage: pt.aguiarvieira.andromuks; callingUid: 10783; uidState: TOP ; uidBFSL: [BFSL]; intent: Intent { cmp=pt.aguiarvieira.andromuks/net.vrkknn.andromuks.WebSocketService }; code:PROC_STATE_TOP; tempAllowListReason:<,reasonCode:SYSTEM_ALLOW_LISTED,duration:9223372036854775807,callingUid:-1>; allowWiu:12; targetSdkVersion:36; callerTargetSdkVersion:36; startForegroundCount:0; bindFromPackage:null: isBindService:false]
+11-24 22:10:01.435 25263 25322 D Andromuks: AppViewModel: Finished processing pending items - room summaries updated (roomSummaryUpdateCounter: 1)
+11-24 22:10:01.435 25263 25322 D Andromuks: AppViewModel: Cleared isProcessingPendingItems flag (finally block)
+11-24 22:10:01.449  2970  2970 I GoogleInputMethodService: GoogleInputMethodService.onStartInput():1347 onStartInput(EditorInfo{EditorInfo{packageName=pt.aguiarvieira.andromuks, inputType=0, inputTypeString=NULL, enableLearning=false, autoCorrection=false, autoComplete=false, imeOptions=0, privateImeOptions=null, actionName=UNSPECIFIED, actionLabel=null, initialSelStart=-1, initialSelEnd=-1, initialCapsMode=0, label=null, fieldId=0, fieldName=null, extras=null, hintText=null, hintLocales=[]}}, false)
+11-24 22:10:01.641  5640  5640 I NotificationListener: received notification removed event - pt.aguiarvieira.andromuks#UserHandle{0},category=-1
+11-24 22:10:01.643  5640  5640 I NotificationListener: received notification removed event - pt.aguiarvieira.andromuks#UserHandle{0},category=-1
+11-24 22:10:02.001 25263 25335 D Andromuks: NetworkUtils: onOpen: ws opened on Switching Protocols
+11-24 22:10:02.001 25263 25335 D Andromuks: NetworkUtils: WebSocket response headers:
+11-24 22:10:02.001 25263 25335 D Andromuks: NetworkUtils: Header 'Connection': 'upgrade'
+11-24 22:10:02.001 25263 25335 D Andromuks: NetworkUtils: Header 'Date': 'Mon, 24 Nov 2025 22:10:02 GMT'
+11-24 22:10:02.001 25263 25335 D Andromuks: NetworkUtils: Header 'Request-Id': 'd4idfeje6ios73d16g10'
+11-24 22:10:02.001 25263 25335 D Andromuks: NetworkUtils: Header 'Sec-Websocket-Accept': 'Qg4mv33R0a7grjgC8k+Y1/Khrt4='
+11-24 22:10:02.002 25263 25335 D Andromuks: NetworkUtils: Header 'Server': 'openresty'
+11-24 22:10:02.002 25263 25335 D Andromuks: NetworkUtils: Header 'Upgrade': 'websocket'
+11-24 22:10:02.002 25263 25335 D Andromuks: NetworkUtils: Calling appViewModel.setWebSocket()
+11-24 22:10:02.002 25263 25335 D Andromuks: AppViewModel: setWebSocket() called for AppViewModel_0
+11-24 22:10:02.002 25263 25335 D Andromuks: AppViewModel: Registering AppViewModel_0 to receive WebSocket messages
+11-24 22:10:02.002 25263 25335 D Andromuks: AppViewModel: Setting up service callbacks
+11-24 22:10:02.002 25263 25335 D Andromuks: AppViewModel: Calling WebSocketService.setWebSocket()
+11-24 22:10:02.011 25263 25335 D Andromuks: AppViewModel: Saved 100 activity log entries to storage
+11-24 22:10:02.011 25263 25335 D Andromuks: AppViewModel: Logged activity - WebSocket Connecting - Waiting for init_complete
+11-24 22:10:02.015 25263 25335 D Andromuks: AppViewModel: setWebSocket - registering FCM to ensure backend has current token
+11-24 22:10:02.015 25263 25335 D Andromuks: AppViewModel: registerFCMWithGomuksBackend called
+11-24 22:10:02.015 25263 25335 D Andromuks: AppViewModel: shouldRegisterPush() called, result=false
+11-24 22:10:02.015 25263 25335 D Andromuks: AppViewModel: shouldRegisterPush() returned false
+11-24 22:10:02.015 25263 25335 D Andromuks: AppViewModel: hasRegisteredViaWebSocket=true, forceRegistration=false
+11-24 22:10:02.015 25263 25335 D Andromuks: AppViewModel: Always registering FCM on WebSocket connection to ensure backend has current token
+11-24 22:10:02.015 25263 25335 D Andromuks: AppViewModel: registerFCMWithGomuksBackend - token=ewQuYoBsRDeg11GpoV_j..., deviceId=NKVMXDXVQI, encryptionKey=ODdlZjc2OGNkZGQ0NGY4...
+11-24 22:10:02.015 25263 25335 D Andromuks: AppViewModel: webClientPushIntegration=true
+11-24 22:10:02.015 25263 25335 D Andromuks: AppViewModel: Registering FCM with request_id=1
+11-24 22:10:02.016 25263 25335 D Andromuks: AppViewModel: Sending WebSocket command: register_push with data: {type=fcm, device_id=NKVMXDXVQI, data=ewQuYoBsRDeg11GpoV_jkw:APA91bFBHf-kVLci8MicnM4yMjLiAlCyQI5EF-qUJGh7Qn4Lx9xA_VoQEgPAKJXluBRVajpFrsF7yp8jas1S0OunvJv00kYH7BCN4aCPVDzM620ORojqXdo, encryption={key=ODdlZjc2OGNkZGQ0NGY4OThiN2I2YzRkMjViODMxZTA=}, expiration=1764108602}
+11-24 22:10:02.016 25263 25335 D Andromuks: sendWebSocketCommand: command='register_push', requestId=1, data={"type":"fcm","device_id":"NKVMXDXVQI","data":"ewQuYoBsRDeg11GpoV_jkw:APA91bFBHf-kVLci8MicnM4yMjLiAlCyQI5EF-qUJGh7Qn4Lx9xA_VoQEgPAKJXluBRVajpFrsF7yp8jas1S0OunvJv00kYH7BCN4aCPVDzM620ORojqXdo","encrypti
+11-24 22:10:02.016 25263 25335 D Andromuks: AppViewModel: Sent FCM registration to Gomuks Backend with device_id=NKVMXDXVQI
+11-24 22:10:02.017 25263 25335 I Andromuks: AppViewModel: WebSocket connection established - retrying 0 pending operations
+11-24 22:10:02.017 25263 25335 D Andromuks: AppViewModel: No pending WebSocket operations to retry
+11-24 22:10:02.017 25263 25335 D Andromuks: NetworkUtils: connectToWebsocket using AppViewModel instance: net.vrkknn.andromuks.AppViewModel@6480024
+11-24 22:10:02.019 25263 25306 D Andromuks: AppViewModel: handleRunId called with runId='1763730102505399890'
+11-24 22:10:02.019 25263 25306 D Andromuks: AppViewModel: Run ID matches existing value: 1763730102505399890
+11-24 22:10:02.019 25263 25306 D Andromuks: AppViewModel: Run ID stored and service updated
+11-24 22:10:02.020 25263 25306 D Andromuks: AppViewModel: Set currentUserId: @daedric:aguiarvieira.pt
+11-24 22:10:02.021 25263 25306 D Andromuks: AppViewModel: Set realMatrixHomeserverUrl: https://aguiarvieira.pt/
+11-24 22:10:02.022 25263 25306 D Andromuks: AppViewModel: Sending get_profile for @daedric:aguiarvieira.pt (roomId=null): {"command":"get_profile","request_id":2,"data":{"user_id":"@daedric:aguiarvieira.pt"}}
+11-24 22:10:02.156 25263 25322 D Andromuks: AppViewModel: handleFCMRegistrationResponse called with requestId=1, dataType=Boolean
+11-24 22:10:02.156 25263 25322 D Andromuks: AppViewModel: FCM registration response data: true
+11-24 22:10:02.156 25263 25322 I Andromuks: AppViewModel: FCM registration successful (boolean true)
+11-24 22:10:02.156 25263 25322 D Andromuks: AppViewModel: Marked FCM as registered via WebSocket
+11-24 22:10:02.157 25263 25305 D Andromuks: AppViewModel: Saved 100 activity log entries to storage
+11-24 22:10:02.157 25263 25305 D Andromuks: AppViewModel: Logged activity - WebSocket Ready
+11-24 22:10:02.183 25263 25306 D Andromuks: AppViewModel: Profile response received but no full user info callback found (requestId: 2)
+11-24 22:10:02.191 25263 25304 D Andromuks: AppViewModel: allSpaces set to 36 spaces
+11-24 22:10:02.191 25263 25304 D Andromuks: AppViewModel: Storing space edges for later processing
+11-24 22:10:02.199 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - No rooms with member events in this sync
+11-24 22:10:02.199 25263 25263 D Andromuks: AppViewModel: Total rooms now: 594 (updated: 0, new: 0, removed: 0) - sync message #1 [App visible: true]
+11-24 22:10:02.200 25263 25263 D Andromuks: AppViewModel: Updated low priority rooms set: 19 rooms (changed)
+11-24 22:10:02.205 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room state changed, updating data without sorting
+11-24 22:10:02.207 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room data unchanged, skipping updates
+11-24 22:10:02.207 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room data updated (no sorting), debounced sort scheduled
+11-24 22:10:02.229  5640  5640 I NotificationListener: received notification removed event - pt.aguiarvieira.andromuks#UserHandle{0},category=-1
+11-24 22:10:02.237 25263 25304 D Andromuks: ProfileRepository: Batch saved 1 profiles in 2ms
+11-24 22:10:02.237 25263 25304 D Andromuks: AppViewModel: Batch saved 1 profiles to database in 2ms
+11-24 22:10:02.245 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - Processing 94 rooms with member events [App visible: true]
+11-24 22:10:02.245 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @jason:tuwunel.me in room !0KNSXYXB_2xtEUkQ9MGBRy5oNIOfAKoq2uIqPZCJbI8 [newJoin=true, profileChange=false]
+11-24 22:10:02.245 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !5rEAuuJ7dFQ7vVvIPU94bOoPhme75SYX18peBenN_GY [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @system:corellia.timedout.uk in room !79d6Qowfu2eD3MUVPJ:nexy7574.co.uk [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rss:aguiarvieira.pt in room !AauCRdpqhKOYuTrdDe:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sufficient:synapse.travelersrestelectric.com in room !AbdrObJtpUGjqqSwXw:pussthecat.org [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @michaelt:element.io in room !B11tPdunwDfh29jCp-t2PJIx5wDF3WTcyK2rW15BmHI [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @matrix-bridge:aguiarvieira.pt in room !BBRrrATGeXEfvKtLab:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @palchrb:vibb.me in room !BHvcNjOBRwncDQbGOk:codestorm.net [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @dabot:aguiarvieira.pt in room !CFexWTQGQgAlXWEBjW:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegram_266175609:matrixbridg.es in room !CMfgjKiXsYElHnUbJz:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegram_460374888:matrixbridg.es in room !EUjrehSnJqyAUKpHij:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @modmail:aguiarvieira.pt in room !FoXloqayjUBkWTbJEY:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @scenerush:aguiarvieira.pt in room !GaaInmDnkxfazhoAzt:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @funar:mgamers.com in room !Gc2NXFHK1tBk2ss9357AFXOQPNi1qkZd-4yxyR2F-uA [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !HKMjUNHEZTjndeDqhI:element.io [newJoin=true, profileChange=false]
+11-24 22:10:02.246 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @bkil:matrix.org in room !HwCGEVHuJTliMouVph:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rss:aguiarvieira.pt in room !IRanDOzCsVpSdddQnT:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:maunium.net in room !IaWNErZAgQUhGqJXjX:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:aguiarvieira.pt in room !IeWLVCQO4YviYfUxG-ca-eV5Vo__EcHXD-uD0CwVDLU [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @tulir:maunium.net in room !J24qqSs_MrchJWzuVhjH9JGHuMyQiWJO-HzxflwLhdI [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @_discord_708377014851338295:t2bot.io in room !KQaqifczWbCaidLETg:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @twijg:matrix.org in room !L58ME6ufiP49v97UIOBIpvWKEgj4912JmECPuDzlvCI [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @dabot:aguiarvieira.pt in room !LwxXpniicngJjKryhv:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegrambot:matrixbridg.es in room !NFubLylhkMHJHzGdZi:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @ejstacey:matrix.joyrex.net in room !NaLbfexyNIBQDbzGwB:bonifacelabs.ca [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @draupnir:aguiarvieira.pt in room !NeNsUzKQh3xLALCQDbXI6kpecM4iWtnK9-0pemB4Fcs [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @irc_Toddley:wetfish.chat in room !OwmlYgxhZxQwJJyQRi:wetfish.chat [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @ky:tilde.horse in room !P7tIaLMFHT55GuONJ7UQ87M0SkqfpjofluPqmu0wOeY [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @test:aguiarvieira.pt in room !PZKzglevylEehZONay:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.247 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rss:aguiarvieira.pt in room !QZvjGxxEOHURBggqzS:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @projm:unredacted.org in room !QiAkLlilPoSumAHcEZ:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @kompowiec2:matrix.org in room !SAwLbTTygRriVkdOVq:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rss:aguiarvieira.pt in room !SJQbCoSXJmTkmIedQB:lonenomad.net [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @dabot:aguiarvieira.pt in room !SMuhrYZsNcEYJlTrTy:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegram_789901454:matrixbridg.es in room !SfnqkkhQXdytacQzIl:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegrambot:matrixbridg.es in room !TIKPgQXfnTbVrSWfSb:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !TvTwyPwXFjRVYaEGMF:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @vrkknn:vrkknn.net in room !UdKLVYoj9Cb-VuNJHKgqHI37jvx2UUaeBv36DhjGVWo [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegram_7565918730:matrixbridg.es in room !VEfJvWKSpbfNIdTgnN:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegrambot:matrixbridg.es in room !WliWChUwTLFlzrwhOY:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rss:aguiarvieira.pt in room !XmThfTyjzQZeWpVedZ:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @matrix-bridge:aguiarvieira.pt in room !YFfDAgyUNSALYShotH:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @jfdiscord_1328440192155258961:im.jellyfin.org in room !YjAUNWwLVbCthyFrkz:bonifacelabs.ca [newJoin=true, profileChange=false]
+11-24 22:10:02.248 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !YqYnEoEIw3fGTESr6WGGiVuoGHhUD1UtEn1VJGQHp7I [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @matrix-bridge:aguiarvieira.pt in room !YxsINRggzGGxLATNWW:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @diunoracle:aguiarvieira.pt in room !ZHRiYZyqQLzKrqOCXX:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !aPQx8hPCm0vu6PiwsZbVSsVPlugBWOyanle4y5-8p7Q [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @ducklipsndeuces:matrix.org in room !aeqBaedszwyzKfuoIT:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !aiwVrNhPwbGBNjqlNu:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @interirc:matrix.org in room !bFjeGzjHAZhqKKtiBW:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegram_799393695:matrixbridg.es in room !boOSyZTIchNhkECdnu:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @hookshot:aguiarvieira.pt in room !dJHQaRcVLWIMxLivve:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @bot:continuwuity.org in room !dev-1:continuwuity.org [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @test:aguiarvieira.pt in room !erfjdPEYxkLrUqdLYS:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @mtrnord:mtrnord.blog in room !etHLGLRwSNzRx7e6iqvFYRbJpxB5lhsSN-VeTuhVfd8 [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @jfdiscord_1196389425324757055:im.jellyfin.org in room !fKHyYbtkvVKLhKFzkt:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rss:aguiarvieira.pt in room !fNBZEmymjPKFGFzAoK:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.249 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rss:aguiarvieira.pt in room !fvbspEOqNRFtyTSxFu:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @nachar:matrix.org in room !gddmvTF3NLooiLm6IV_i7sXGlD0Rj4Fm1lpCK9oyokU [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @tulir:maunium.net in room !gomuks2fjNJgXSZ-lZPoQWB_2za-KW_l2Hs6roxWKk4 [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351919100753:matrixbridg.es in room !gqftbZZrpdcvwOAjhB:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rss:aguiarvieira.pt in room !hvFPvWLsMAWJbWTsSt:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @reddit-monitor:aguiarvieira.pt in room !inacFpbZHIuSqUcSCl:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sypher1:matrix.org in room !iuyQXswfjgxQMZGrfQ:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @dabot:aguiarvieira.pt in room !kLFSQHszufKKXclzOh:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @kristoff:c2.krbonne.net in room !kiP76YI0AlDqXjcKj2nM_Bq30GCgGWehndSt3iyA85E [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @dabot:aguiarvieira.pt in room !lAuuOiDhvIXlTzKFka:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @hookshot:aguiarvieira.pt in room !lgkFqiWbOWlhdGGrNg:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @roms:aguiarvieira.pt in room !mMaJdKUByYOCaWcLJS:daedric.net [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:maunium.net in room !maudcarBFGzzh29d4ILqt-brFj-g8YlYQ10LarmkK5c [newJoin=true, profileChange=false]
+11-24 22:10:02.250 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @mdt:emdete.de in room !mausgp8oQVwgry4kjfKSxqNj-O9Nkez81Cl591w8jkI [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:maunium.net in room !mautg3nVVaWw3yY1TTSU7xdqwHypJHcRzIyxj4KDFbo [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @christian17:nope.chat in room !mauwaAmuICl7LX3zScirNC4eXkUJsD9iQiFLAIZPqw0 [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @mscbot:matrix.org in room !nD4Jy1hp0We0VmIM9ubjqWLBX_uV8YlTBBPa3a_v2uk [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !naAedOOzARDkWVFRXt:codestorm.net [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @test:aguiarvieira.pt in room !nmZrvcKkeQiFGRlJtE:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sfalken:opensuse.org in room !oXVtZGWmHbaJvGTerl:kde.org [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @xkcd:maunium.net in room !odwJFwanVTgIblSUtg:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @nex:nexy7574.co.uk in room !offtopic-2:continuwuity.org [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !ra1E0HFaPPTsYnpYqn_It2o66CY356Hh2r22S9Hb8fk [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rss:aguiarvieira.pt in room !ssIhMXGYzhjWIpLQSC:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:aguiarvieira.pt in room !tbSlYaykKDtKZbCsVE:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rss:aguiarvieira.pt in room !tjjuQfDIwSCAzJwWnU:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351916439903:matrixbridg.es in room !tvWgNGttbLMVprZZVA:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.251 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @timelessness:matrix.org in room !uBrytbryWIWivvlicl:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.252 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @_discord_493920054833053698:t2bot.io in room !umIcLcpfUCmYyOkpxC:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.252 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !vKsKNErebdRaQvsUkQ:half-shot.uk [newJoin=true, profileChange=false]
+11-24 22:10:02.252 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @93dragonfly:matrix.org in room !vMLhvOKUhgmYGpkwjX:matrix.debian.social [newJoin=true, profileChange=false]
+11-24 22:10:02.252 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !vlnjqGLpLJlFmBSkfQ:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.252 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:maunium.net in room !wmeowgB5YyCuz9I375Q4YOY7GHTCw0BHSpN86ebaKBw [newJoin=true, profileChange=false]
+11-24 22:10:02.252 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegram_609517172:matrixbridg.es in room !wrTYvJNOUSUAJKQHeO:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.252 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @_discord_1201083883190501379:t2bot.io in room !xHcpmMTfmMmEAaYiug:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.252 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @w34:matrix.org in room !xUW4PpAe1CmThA3r2wI8IrgwwsK006-zqWdJCljpd10 [newJoin=true, profileChange=false]
+11-24 22:10:02.252 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !zzGPdcyFqxIOJEijoI:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.252 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - Updated 94 rooms with member changes
+11-24 22:10:02.276 25263 25263 D Andromuks: AppViewModel: Total rooms now: 594 (updated: 99, new: 0, removed: 0) - sync message #2 [App visible: true]
+11-24 22:10:02.280 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room state changed, updating data without sorting
+11-24 22:10:02.287 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room data updated (no sorting), debounced sort scheduled
+11-24 22:10:02.287 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update
+11-24 22:10:02.341 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - Processing 95 rooms with member events [App visible: true]
+11-24 22:10:02.341 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @viktorstrate:qpqp.dk in room !2GTp0cl8dqhPideYm7pKNABc2m2VqBZz7pVX_UUlijE [newJoin=true, profileChange=false]
+11-24 22:10:02.341 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @bensonk:matrix.org in room !2fRVuWTCwD_6R3amq9xjORNONaaOVZeW3F8Z3ELMP-k [newJoin=true, profileChange=false]
+11-24 22:10:02.341 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !6uSLhpHQXN6GJzr34F:lofitrek.com [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !BmAgWlfcrgaRfViMVl:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !Bq8v-iPxhGid9iBlYhfZ4kW0tzDTgLEYtMcZjLHoqNU [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:aguiarvieira.pt in room !CWftAwJgoDbPuXCPgg:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @jesse:cpluspatch.dev in room !DDKXhyfYeRuhFqQNUg:cpluspatch.dev [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @fox:matrix.org in room !DYiYqxdfUkKaSHUDDN:nitro.chat [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !DeRvyHqkqkIBbBtwsO:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @tealk:rollenspiel.chat in room !EHp86jT1xltaYs4-1rbRJiu1zo9hDEgpYvbsPsrJDOY [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !ELeoNiDZVrbxOKZPAE:element.io [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !GNtoVOOjThPJVPZLiB:codestorm.net [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @mijutu:ellipsis.fi in room !HVoAt21AG2FXdZYVmtR-kew6hj7IbfhZpPqmrSXxzrc [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @_webhooks_jellyfin:aguiarvieira.pt in room !HVyUZDlALUxfNQpDPS:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !HYyymMEpEEADzyleNh:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @lunar:unredacted.org in room !IJ7cZBAGvDBxZ8M3b21HZY2W0Tu8Ltl6x45OqUdVaQo [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @faqbot:sspaeth.de in room !IemiTbwVankHTFiEoh:matrix.org
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @aine:etke.cc in room !IyxAXBqViWHZfUkWjh:etke.cc [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @andybalaam:matrix.org in room !JSB87V0Xvvqu8R1_arJAJNVffyZb1UgMeOSseDRTVTs [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @bkil:matrix.org in room !KMbEUhVQHLwZHmwzKX:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @banana:codestorm.net in room !KkOofIGkEVPtzUUVlJ:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.342 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rss:aguiarvieira.pt in room !KnJNZiLZGCpezHYZMw:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !KzgjYxOASBbBMrtCXC:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @bkil:matrix.org in room !LDmxrFrdpJfFqBmcfN:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @happy_hands:matrix.org in room !LHOvFixsEBIHgFctHa:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @aine:etke.cc in room !LpivaKUdewaGfawMoR:etke.cc [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @i27gie0ba31hfh4t:matrix.org in room !MBrxZRUoApYYjmyion:t2bot.io [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @gorgilazarev3:matrix.org in room !MXIMfhTMMRFPuXSKJZ:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @alex:strugee.net in room !Maunium8T0urKfSyLsL1AXOqmoRyyCTp47LO0_uvqSM [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @destinyg133:matrix.org in room !NOGZYBedfuPsideoi2PSA_ouduzbb2mKrhu3fbUIeWk [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @i27gie0ba31hfh4t:matrix.org in room !NhYYJsDjWnGSihypYQ:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @draupnir:aguiarvieira.pt in room !OAzHFoopMVDOungSCC:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @dabot:aguiarvieira.pt in room !OpobVaxySPBfZRUcKt:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @justin_notification_bot:matrix.org in room !PNzdyavxuTYqbQCWzC:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @ferretosan:matrix.org in room !PeOkQLnTUKVtuXZJeT:t2l.io
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !QNCMvmWellIlMLxcVJ:vector.modular.im [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @ginger:gingershaped.computer in room !QTkUxxpfM9xGYHr6KV:nexy7574.co.uk [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @planb:aguiarvieira.pt in room !QfkerityiQERRcbfTD:codestorm.net [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !RcWPWcZrMeBxOGaalX:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @goatwildernesscollective:librem.one in room !RgqlvVIWRGGizbDHTd:librem.one [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @fdroid:spiritcroc.de in room !SXiocDIOxPdvkplQYM:schildi.chat [newJoin=true, profileChange=false]
+11-24 22:10:02.343 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @thewhitetyger:matrix.org in room !Split_Flap_Conveys_Compass_Star:ponies.im [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:integrations.ems.host in room !TbrrNhNZAFqxEXMtAB:t2l.io [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @Half-Shot:half-shot.uk in room !TlZdPIYrhwNvXlBiEk:half-shot.uk [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @ninchuka:envs.net in room !TwS3fRA0v2JEwYmZRk7hZ4k3oWFDRlYzxhwhqJK-BaY [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @deepbluev7:neko.dev in room !UbCmIlGTHNIgIRZcpt:nheko.im [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:integrations.ems.host in room !WpbOWAblxueZXAAnjj:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @nex:nexy7574.co.uk in room !XC3LUK76r1D29NtwGg:nexy7574.co.uk [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !XXSJTvRPInupfUgQVb:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @travis:t2l.io in room !XnktFVraJdZXcy_wxBQYoDUGWFqgffmDYrK7m6sW90w [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !YQErrczcFwrcuZheEB:sw1v.org [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !YVtKYLGCArgQnHBoAt:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @maryjane:tchncs.de in room !YqyIDlYeOQCXAQDjAJ:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @t-800:matrix.org in room !ZaIwvFsWlBknvkSeWT:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rss:envs.net in room !aYqHMneYZdQrqyuYYB:unix.dog [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegrambot:matrixbridg.es in room !ahSdGsgpCafiqBVLdp:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @_webhooks_epicgames:aguiarvieira.pt in room !b7eFtMvV7p0P-haOxEQvoG0dOgF9onghDxR7Gnn0ys4 [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !bijaLdadorKgNGtHdA:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegram_609517172:matrixbridg.es in room !bvQGimglwfqUOtOUyW:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @slavi:devture.com in room !cNSQwPqhHKkIZdBnvt:devture.com [newJoin=true, profileChange=false]
+11-24 22:10:02.344 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @luczik:matrix.org in room !cZCRCLmQmHAGnBqmIE:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @gitea:extera.xyz in room !dfVBRKJqYiVyqQLOKN:officialdakari.ru [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @srgcdev:fedora.im in room !dlUJvnxTqziXgGwAaW:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @_webhooks_bazarr:aguiarvieira.pt in room !eolTFrNFYEyFjiumiP:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !ewdjhNcPcEmYNKzlWp:t2l.io [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @anultravioletaurora:matrix.org in room !flDUDlxzYhNVyLEcSA:bonifacelabs.ca [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @k:unredacted.org in room !fo2YUTHHGEPw7SfF0w_FDVIUKk6sAPVhcLbS5XW8OlY [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegram_1837460919:matrixbridg.es in room !gVLazrLSCOFmqBlnJM:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @lunar:unredacted.org in room !hGipICCKv9C_WByCl-jrm9BeEY1Zz3EtCFLPQd60brw [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @rustbot:grin.hu in room !hxOIEpiShLrxEpTDZN:grin.hu [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @tulir:maunium.net in room !i5D5LLct_DYG-4hQprLzrxdbZ580U9UB6AEgFnk6rZQ [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @jennny:unredacted.org in room !ilY68u_Ttud49ASzQ_gPVd3CCfdOa5P29Ainys7x4xc [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351917929624:matrixbridg.es in room !jQUnrrYmFWZuKudiET:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @marko.cupac:mimar.rs in room !jZUPVDWqESwCibUpnD:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !kgh831mEmTLwdXKY2ShyCoZE3kVoMinFUZMnv6I_Mqw [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @i27gie0ba31hfh4t:matrix.org in room !lCKPFDQCcNzeYHQUfd:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sojovec:matrix.org in room !lkmzzYxiCkiSzKTrRV:nheko.im [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @i27gie0ba31hfh4t:matrix.org in room !mUyEUun5Pr1cYeDwbz9A1byEPvRNy5Bzd1f-tp_jrKg [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @quadradical:federated.nexus in room !main-2.1:continuwuity.org [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @spaetz:sspaeth.de in room !meowlnhtwBE9OMcLF2BTLAk_VDBXXBXIvno5OfjzdrU [newJoin=true, profileChange=false]
+11-24 22:10:02.345 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @eliri:devhack.net in room !nqXEcZbBVWpiHLmQhVANyKwuRD3d672nXjd1iEKPuTU [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_lid-65180625039608:matrixbridg.es in room !oEMyPSuqzpbpZwRMYt:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351916232365:matrixbridg.es in room !oEuRDcDPshMYUohCHv:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @stacithekitten:beeper.com in room !pTQhvMAPRzjgLkuuQY:vern.cc [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !pVlMWCVgMILfLXlnJm:codestorm.net [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @dabot:aguiarvieira.pt in room !pWYyDSNyiRfhMajUpb:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @yougames:matrix.org in room !sTwHGfxggXKsBnWWSE:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @dabot:aguiarvieira.pt in room !umMZZVGLUxPCYUlUdh:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @zecakeh:private.coffee in room !veagCdDBjKrMsOCzrq:privacytools.io [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sim_g:matrix.org in room !vwmBiTqilorqNCbGab:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @ser:sergevictor.eu in room !wdRiVNUwgYDzvRkXlw:mssj.me [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !xALORqBdeiSfgdrmUb:bpulse.org [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @dabot:aguiarvieira.pt in room !xPkRKDapFFVrvIgiSY:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.346 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @florianduros:element.io in room !yvhoprZiKmhjxKfNHa:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.347 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @stacithekitten:beeper.com in room !ywzRJxJZrYwGYPXEbt:vern.cc [newJoin=true, profileChange=false]
+11-24 22:10:02.347 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - Updated 95 rooms with member changes
+11-24 22:10:02.360 25263 25304 I ieira.andromuks: Explicit concurrent mark compact GC freed 4848KB AllocSpace bytes, 36(8336KB) LOS objects, 75% free, 27MB/109MB, paused 2.462ms,3.035ms total 121.837ms
+11-24 22:10:02.367 25263 25263 D Andromuks: AppViewModel: Total rooms now: 594 (updated: 99, new: 0, removed: 0) - sync message #3 [App visible: true]
+11-24 22:10:02.378 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room state changed, updating data without sorting
+11-24 22:10:02.382 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room data updated (no sorting), debounced sort scheduled
+11-24 22:10:02.382 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update
+11-24 22:10:02.385 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - Processing 46 rooms with member events [App visible: true]
+11-24 22:10:02.385 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @brixoric:matrix.org in room !AFvaBbgJxwqaKBrRNf:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.385 25263 25263 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @bot:continuwuity.org in room !Anf0ydtY880PPyAPXYjNTUu5MGSAdkNjNZGWmrCX20k
+11-24 22:10:02.386 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @aquarist684:pleco.space in room !ApTSFhfEdqtycWkvse:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.386 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @testiclides:the-wired.org in room !CafQJxwbB2My7WcOuc:the-wired.org [newJoin=true, profileChange=false]
+11-24 22:10:02.386 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @hookshot:aguiarvieira.pt in room !DDpAPXkQoVUKvxFvhR:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.386 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351918957499:matrixbridg.es in room !GmlIOrXdgedFcuqEvQ:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.386 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric7:matrix.org in room !JmRCJQjIzhrYDQHBcl:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.386 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !LfswJllXduNGuPhzTV:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.386 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !MaMlYarVaPtNNOKUet:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.386 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:unredacted.org in room !NN6DEEyfJIfhl4QtxsgK1xWKoLG5lK8LhQwCkn7Z8MU [newJoin=true, profileChange=false]
+11-24 22:10:02.387 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @dabot:aguiarvieira.pt in room !NjbYoMPkgogJgatXtI:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.387 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @jjj333_p_1325:envs.net in room !QzNmKfDhzCQFDqmUhl:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.387 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @irc_bot:wetfish.chat in room !RToz3esBLHLNiuNlr0hKD8730CaZQCsM92L7uI6RtmE [newJoin=true, profileChange=false]
+11-24 22:10:02.387 25263 25263 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @corny:matrix.meisselba.ch in room !SDwMepdfgrmExhyxYZ:schildi.chat
+11-24 22:10:02.387 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @a_leph:matrix.org in room !SzoPnANsRYxITaDPaJ:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.387 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_lid-242966383837296:matrixbridg.es in room !UYrBPXARYgJilarfhr:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.387 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @_webhooks_matrix.org:aguiarvieira.pt in room !WQCvocYYrBpXoTBqCz:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.387 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @signalbot:aguiarvieira.pt in room !WWhcUVRmlVzFlxnqXD:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.387 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @test:aguiarvieira.pt in room !ZSZfMkrxQTJwuYCJiP:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.387 25263 25263 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @test:aguiarvieira.pt in room !bDYZaOWoWwefjYdoRz:aguiarvieira.pt
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @test:aguiarvieira.pt in room !dRnDyrRhXmrBoLyMWp:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !dzTanWyIUsXzuWxQzI:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @i27gie0ba31hfh4t:matrix.org in room !ekJXCOhsmAWQUMhDgn:riot.ovh [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @shuroii:matrix.org in room !evIZAywkmHxnhdhnBx:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:maunium.net in room !go-v11:maunium.net [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351918483882:matrixbridg.es in room !hjdgzNQaIliNtrTTUn:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !hyEraUMDnmDIMgrnpU:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !kMsyCaRxaAsfalSVfz:codestorm.net [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @nuwagaba.gift22:matrix.org in room !kSdlqCwPBWjjowMqbC:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @cel:mobilizon.us in room !ljcnlCE0tCkEnoreAt:mobilizon.us [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:maunium.net in room !manager-v11:maunium.net [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:maunium.net in room !maubot-v11:maunium.net [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:maunium.net in room !meowlnir-v11:maunium.net [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:maunium.net in room !meta-v11:maunium.net [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351919100753:matrixbridg.es in room !ooEiembJLLIsHnMeib:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @evalaiza:4d2.org in room !ppWIVhhqgxBReHcvfZ:intelfx.name [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351914985897:matrixbridg.es in room !rMJenuAgAMbVAFVmcV:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.388 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:maunium.net in room !rwJEulKnHLoffvXAof:nexy7574.co.uk [newJoin=true, profileChange=false]
+11-24 22:10:02.389 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:unredacted.org in room !txkLomBkeoGIbPwVPH:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.389 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:matrixbridg.es in room !uWaLquhyeGrSkeIyuv:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.389 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351933443846:matrixbridg.es in room !ufwYQexAanKtzbpNjT:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.389 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_447723442971:matrixbridg.es in room !wJKRKFmrpTyrQrlsZA:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.389 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:maunium.net in room !whatsmeow-v9:maunium.net [newJoin=true, profileChange=false]
+11-24 22:10:02.389 25263 25263 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @areskul:matrix.org in room !xBRJadUtxNCiIKdwZT:matrix.org
+11-24 22:10:02.389 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @bkil:grin.hu in room !ykbwcwqRyRJhteUiDp:bancino.net [newJoin=true, profileChange=false]
+11-24 22:10:02.389 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !zGFNgFAJSqJBtdvvNt:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.389 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - Updated 46 rooms with member changes
+11-24 22:10:02.404 25263 25263 D Andromuks: AppViewModel: Total rooms now: 594 (updated: 99, new: 0, removed: 0) - sync message #4 [App visible: true]
+11-24 22:10:02.406 25263 25335 D Andromuks: AppViewModel: Saved 100 activity log entries to storage
+11-24 22:10:02.406 25263 25335 D Andromuks: AppViewModel: Logged activity - Init Complete Received - Connection Healthy
+11-24 22:10:02.411 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room state changed, updating data without sorting
+11-24 22:10:02.414 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room data updated (no sorting), debounced sort scheduled
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - Processing 94 rooms with member events [App visible: true]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @gersonzao:mozilla.org in room !06vfizo6mz1zcDQ7:pain.agency [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @s7evink:dendrite.s3cr3t.me in room !3O0Wyy-4bRF6OmZ1WK6tD_al8FmJObHWBpGZ8v5_sWo [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351913352069:matrixbridg.es in room !AGVYhhDAzEfWeVQOHs:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351961897925:matrixbridg.es in room !AqYkFpxaKjwHtOOKzY:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !BIDAeUqYWNCjRLhRdj:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @adrianling:matrix.org in room !BWZCciBYzjjbmpROrZ:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegram_5950844816:matrixbridg.es in room !CefKBePgNoceCXaODY:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !DaVkDQxlxjxfwsCqkS:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sojovec:matrix.org in room !DamSgPwbINUhObNOhj:tchncs.de [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351910637876:matrixbridg.es in room !FeEoogwEkfpCpjWqON:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351917896900:matrixbridg.es in room !FsVTMfbPFfTewbDsZE:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !FtOkyFWPnTUoSvLxgS:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !GNPBRmjZKKEGszhMtB:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegrambot:matrixbridg.es in room !GZfmlgUoewMgFvICdF:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @ninchuka:envs.net in room !IlysflVuQZDIcVLkcg:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @+:tomfos.tr in room !LbzXMajXBVwdNyzDuC:fostered.uk [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_lid-110398007177229:matrixbridg.es in room !LoVPolszQJMWFxYVUo:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @thewhitetyger:matrix.org in room !NIHvLahlLyXTiyTVeq:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.415 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !NasysSDfxKxZBzJJoE:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @grin:grin.hu in room !NzVTorFYuLbRsPmffw:grin.hu [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !OJPPrTjPwkholApnCq:meow.codestorm.net [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !OkPBxWNTRMbXTaWbkN:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @nex:nexy7574.co.uk in room !OsgPt00PZet9BvF2v0:nexy7574.co.uk [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351934337668:matrixbridg.es in room !PCzGyhMbXWlcDNldyo:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @watcherbot:littlevortex.net in room !PIUSIqekAVPBAsQxNS:codestorm.net [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @aine:etke.cc in room !PLVtsSMHGSpXxoHAuE:grin.hu [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_6282296165591:matrixbridg.es in room !PZKbthdsdUZWBAkohk:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @fanchthesystem:libre.bzh in room !QuJxJguNxxgJvoQmus:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351936516974:matrixbridg.es in room !SVulWtdkzOILdJYpYa:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !TKQ0ZZT_yjz4A6r3CfeztAzO_ZGMqtmP2KS_Bgy2pL0 [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !TKrnbOEmITHxuTtrBm:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !TRFSlOYEBQAChfsSno:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_447876132385:matrixbridg.es in room !UlSUjWxWzTvhXCQEIF:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !VJwxdebqoQlhGSEncc:codestorm.net [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @lost_in_space99:matrix.org in room !VMUpuubSCTxMbZkuZa:cybre.space [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @ruka:agiadn.org in room !VOP894il2tP8tvyV1foSpMSs6FXBMQKqpV3CtsDDMzU
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @ssi8e:envs.net in room !WPZTYKl78yFl9u9kNmsACs0On5_wLdR4UPZ5MQIJJlA [newJoin=true, profileChange=false]
+11-24 22:10:02.416 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegrambot:matrixbridg.es in room !WiZPydQxqXkrvuYYaM:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @dabot:aguiarvieira.pt in room !XUquhuGEkpNErpBXrx:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @_discord_124947287477583875:t2bot.io in room !YiVedtxTnrdOEldoBy:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351912444191:matrixbridg.es in room !YktKyyJpTKMJNifYkF:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !YrPhogWvZDuAp5aw_DR1dKPMoSBZWohzcISWyry-sds [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351912444191:matrixbridg.es in room !ZbzUIqepwENKrzyctF:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351916551051:matrixbridg.es in room !ZniJDxApeGvixJQpDp:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !aCvOWKNDeXXpPgquKq:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !amwlFMejXQcoCxNYHH:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !bEWtlqtDwCLFIAKAcv:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351916052028:matrixbridg.es in room !bairttWvWiutIoGsIr:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @benedict:imbitbu.de in room !dAdMsQExaTsVzKcYhH:imbitbu.de [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @_ooye_hai2u:bienvenidoainternet.org in room !dBTXpBFPlNHOKhEWUy:bienvenidoainternet.org [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @callmenoodles:matrix.org in room !dCRiCiLaCCFVNlDnYs:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351966701587:matrixbridg.es in room !dEcHrKqSvMmFstUMYq:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_447974905007:matrixbridg.es in room !dEmrZMtbAGQHDEGZGE:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351965483458:matrixbridg.es in room !dGGCFcGrDpMcnaaqHx:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @crystallinefire:chat.solarpunk.moe in room !dKzhMyWKPUvraEvWGN:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !decSfHzLLhrNKJaZid:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351916418543:matrixbridg.es in room !dqtVBuNGeWXHcfobpE:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.417 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @crispycat:calitabby.net in room !fFrilqWEPBVfFTILzK:telepath.im [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @vbits:matrix.org in room !fOXULBcFK-wIAULCq77kt_isaRvqTzWOHdWVX_PT_Aw [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @jjj333_p_1325:envs.net in room !gNawtscetvAjQBcluQ:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !iYnZafYUoXkeVPOSQh:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !inizKDQzABisJASUQD:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !jehJNWITGQUENUPvKf:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !jxlRxnrZCsjpjDubDX:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_19025935149:matrixbridg.es in room !kzSVnRQWuzbHJwLPJw:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !lVeLtsDlCBYAjPvzBV:codestorm.net [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @jjj333_p_1325:envs.net in room !m4BH6eucVjtdh6Mo:pain.agency [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @jacksonchen666:jacksonchen666.com in room !mLATeUxylgHiofUzHJ:peek-a-boo.at [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @fdroid:spiritcroc.de in room !mgofOMeZYZBeKxGxiJ:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !nYtabqxLJGBwlbOobJ:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegrambot:matrixbridg.es in room !nemkBAxubvaKGLdlcx:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351915348271:matrixbridg.es in room !nzhMBYTCxhEXAaQoXW:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351962307744:matrixbridg.es in room !oNmoPXIGAysWsUgeeR:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @chris:settgast.org in room !pVWEjGVVlu2PUVgDiz3JLgZVp9CIIx2XuXykTqm-4ok [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !phzSHhsoTJIlBgAnTz:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351914647572:matrixbridg.es in room !qJgYMxCGuWzKAMmOwU:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !qcnzdamjbbMWpmIYdO:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !qgaYXnDTDLsEIiyChN:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.418 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_lid-197972289691703:matrixbridg.es in room !sRPzEVFMPzZMSouWPe:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !sWpnrYUMmaBrlqfRdn:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @deepbluev7:neko.dev in room !tlF8WBw4Eox_nwUcyDNzUSadGvMeRmZg810a_pQyciU [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @emma:rory.gay in room !tuiLEoMqNOQezxILzt:rory.gay [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !uFQPOZZJQbEljiffnY:librepush.net [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @github:integrations.ems.host in room !vVtVcVdzAdhGFLzFwm:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @abuse:matrix.org in room !vcyiEtMVHIhWXcJAfl:sw1v.org [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_447974905090:matrixbridg.es in room !vwynHgnFGcfHLMZErR:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @sky:codestorm.net in room !xMUygnrdApfBrSytDP:codestorm.net [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !xNTlFqEdRTsSnzdWHy:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351914697113:matrixbridg.es in room !xnMWgrgrGPcEmhceUz:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351932004029:matrixbridg.es in room !yHkmBNbAUFPGDMGFYJ:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @telegrambot:matrixbridg.es in room !yKhyxSXOEVzuWVFpil:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @gnu_ponut:matrix.org in room !yvVjpvDizjZrURyvZH:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_351932004029:matrixbridg.es in room !znxwnDgIuCPnJTJwIT:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !zwljjfZasOhmvyMXJa:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.419 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - Updated 94 rooms with member changes
+11-24 22:10:02.433 25263 25263 D Andromuks: AppViewModel: Total rooms now: 594 (updated: 99, new: 0, removed: 0) - sync message #5 [App visible: true]
+11-24 22:10:02.437 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room state changed, updating data without sorting
+11-24 22:10:02.440 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room data updated (no sorting), debounced sort scheduled
+11-24 22:10:02.441 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update
+11-24 22:10:02.444 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - Processing 39 rooms with member events [App visible: true]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @ity:itycodes.org in room !GsyUtplXvgZnprZvoS:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @zzsimonb:matrix.org in room !HGdTPKDdqFFtUNlVjl:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @notices:aguiarvieira.pt in room !HSHKRSQbUklvhIzTex:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whatsapp_447481295703:matrixbridg.es in room !HtLkeDNEwURrAmZNCC:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @osousa:matrix.org in room !IAeHiQfFaBVNKETCkM:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @jason_little:matrix.org in room !JRfDAmefiRCxvIktlT:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !LJQjYctmCEjLdIvrxC:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @diana.vieira:aguiarvieira.pt in room !OCOaHOmHMwzzOLokhJ:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !PLoBbiDBEoHAyWbmpn:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !PqFccyyaNItzElIknr:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !SFaVtbqXHxQOWCiR:pain.agency [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @arr:aguiarvieira.pt in room !SqYVCqqApQFJpFePxl:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !UwHGqWkLvyOHwpPpPF:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @telmu:matrix.org in room !UwkuZEQJMFUCZcHzru:matrix.org
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @matterbot:aguiarvieira.pt in room !VuPpBWIkIGPvjpvUDZ:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.445 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !VusDlcXqhDmvttPmHS:slatecave.net [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @diana.vieira:aguiarvieira.pt in room !ZIehHSLDjinoifEMHB:aguiarvieira.pt
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @thomcat:thomcat.rocks in room !ZLXjUCEixITAuPHZSt:thomcat.rocks [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @305546deathtrainmaster:matrix.org in room !aBdqfbvFmyPPOxniad:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !bjpPpbkzDYQgrpWExD:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @henrique-staging:staging.m1.8fa.in in room !bnJnoZORCuNxRqFJrg:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @ity:itycodes.org in room !cGJnebOsGcxfLVqXNC:itycodes.org [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member left/banned cached (initialization) - @ashleebby:ashleehee.com in room !ctThayFuMiDdapPKZP:aguiarvieira.pt
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @ity:itycodes.org in room !efUfpKqdrUymGGLUim:itycodes.org [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !fMfhmPoIqCuPIRFWGu:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @baibot:aguiarvieira.pt in room !iINXPjhZZgipsNkBRt:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whitepaperkat:katchat.ddns.net in room !kzNMtxwSQMHsikdBIZ:katchat.ddns.net [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !lFVmECpEYGEtgrNgqK:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !lqpSJbVKBUWlwlkcCN:club1.fr [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !nYCcoijSIZYPZunCWM:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @databoose3:matrix.org in room !qCdIDRyNpwzPzGnvEU:matrix.thefloatinglab.world [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !qJTNtsOdGvvQLWMRQX:matrix.org [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @whitepaperkat:katchat.ddns.net in room !rQdPImPoDYOifwAOuk:c-base.org [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @tulir:maunium.net in room !status-v6:maunium.net [newJoin=true, profileChange=false]
+11-24 22:10:02.446 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !vHDBvTJfOTtIztKTpa:aguiarvieira.pt [newJoin=true, profileChange=false]
+11-24 22:10:02.447 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !ykXOzxqfRdCCmkYExH:maltee.de [newJoin=true, profileChange=false]
+11-24 22:10:02.447 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !zEJnTWxrFnjqQOPiFd:fostered.uk [newJoin=true, profileChange=false]
+11-24 22:10:02.447 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @dyo:lonenomad.net in room !zaNaQaIjihqBCrOFxJ:lonenomad.net [newJoin=true, profileChange=false]
+11-24 22:10:02.447 25263 25263 D Andromuks: AppViewModel: Member change cached (initialization) - @daedric:aguiarvieira.pt in room !zlQpdEDJBghWrgSPwB:matrixbridg.es [newJoin=true, profileChange=false]
+11-24 22:10:02.447 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - Updated 39 rooms with member changes
+11-24 22:10:02.454 25263 25263 D Andromuks: AppViewModel: Total rooms now: 594 (updated: 39, new: 0, removed: 0) - sync message #6 [App visible: true]
+11-24 22:10:02.458 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room state changed, updating data without sorting
+11-24 22:10:02.460 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room data updated (no sorting), debounced sort scheduled
+11-24 22:10:02.461 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update
+11-24 22:10:02.461 25263 25263 D Andromuks: NetworkUtils: Calling onInitComplete on main thread
+11-24 22:10:02.461 25263 25263 D Andromuks: AppViewModel: onInitComplete called - setting spacesLoaded = true
+11-24 22:10:02.461 25263 25263 D Andromuks: AppViewModel: Initialization complete - future sync_complete messages will trigger UI updates
+11-24 22:10:02.461 25263 25263 D Andromuks: AppViewModel: Resetting reconnection state (successful connection)
+11-24 22:10:02.461 25263 25263 D Andromuks: AppViewModel: Starting background space edge processing for 36 spaces
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: Updating ConversationsApi with real homeserver URL after init_complete
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: Skipping shortcut update on init_complete - will use incremental updates from sync_complete
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: No pending notification actions to execute
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: onInitComplete - registering FCM to ensure backend has current token
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: registerFCMWithGomuksBackend called
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: shouldRegisterPush() called, result=false
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: shouldRegisterPush() returned false
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: hasRegisteredViaWebSocket=true, forceRegistration=false
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: Always registering FCM on WebSocket connection to ensure backend has current token
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: registerFCMWithGomuksBackend - token=ewQuYoBsRDeg11GpoV_j..., deviceId=NKVMXDXVQI, encryptionKey=ODdlZjc2OGNkZGQ0NGY4...
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: webClientPushIntegration=true
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: Registering FCM with request_id=3
+11-24 22:10:02.462 25263 25263 D Andromuks: AppViewModel: Sending WebSocket command: register_push with data: {type=fcm, device_id=NKVMXDXVQI, data=ewQuYoBsRDeg11GpoV_jkw:APA91bFBHf-kVLci8MicnM4yMjLiAlCyQI5EF-qUJGh7Qn4Lx9xA_VoQEgPAKJXluBRVajpFrsF7yp8jas1S0OunvJv00kYH7BCN4aCPVDzM620ORojqXdo, encryption={key=ODdlZjc2OGNkZGQ0NGY4OThiN2I2YzRkMjViODMxZTA=}, expiration=1764108602}
+11-24 22:10:02.462 25263 25263 D Andromuks: sendWebSocketCommand: command='register_push', requestId=3, data={"type":"fcm","device_id":"NKVMXDXVQI","data":"ewQuYoBsRDeg11GpoV_jkw:APA91bFBHf-kVLci8MicnM4yMjLiAlCyQI5EF-qUJGh7Qn4Lx9xA_VoQEgPAKJXluBRVajpFrsF7yp8jas1S0OunvJv00kYH7BCN4aCPVDzM620ORojqXdo","encrypti
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: Sent FCM registration to Gomuks Backend with device_id=NKVMXDXVQI
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: Calling navigation callback (callback is set)
+11-24 22:10:02.463 25263 25263 D Andromuks: AuthCheck: Navigation callback triggered - navigating to room_list
+11-24 22:10:02.463 25263 25263 D Andromuks: AuthCheck: Navigation callback - pendingRoomId: null
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: registerFCMNotifications called
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: fcmNotificationManager=true, homeserverUrl=https://webmuks.aguiarvieira.pt, authToken=eyJ1c2VybmFtZSI6ImRh..., currentUserId=@daedric:aguiarvieira.pt
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: Calling FCMNotificationManager.registerNotifications
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: FCM token ready callback triggered, registering with Gomuks Backend
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: registerFCMWithGomuksBackend called
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: shouldRegisterPush() called, result=false
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: shouldRegisterPush() returned false
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: hasRegisteredViaWebSocket=true, forceRegistration=false
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: Always registering FCM on WebSocket connection to ensure backend has current token
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: registerFCMWithGomuksBackend - token=ewQuYoBsRDeg11GpoV_j..., deviceId=NKVMXDXVQI, encryptionKey=ODdlZjc2OGNkZGQ0NGY4...
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: webClientPushIntegration=true
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: Registering FCM with request_id=4
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: Sending WebSocket command: register_push with data: {type=fcm, device_id=NKVMXDXVQI, data=ewQuYoBsRDeg11GpoV_jkw:APA91bFBHf-kVLci8MicnM4yMjLiAlCyQI5EF-qUJGh7Qn4Lx9xA_VoQEgPAKJXluBRVajpFrsF7yp8jas1S0OunvJv00kYH7BCN4aCPVDzM620ORojqXdo, encryption={key=ODdlZjc2OGNkZGQ0NGY4OThiN2I2YzRkMjViODMxZTA=}, expiration=1764108602}
+11-24 22:10:02.463 25263 25263 D Andromuks: sendWebSocketCommand: command='register_push', requestId=4, data={"type":"fcm","device_id":"NKVMXDXVQI","data":"ewQuYoBsRDeg11GpoV_jkw:APA91bFBHf-kVLci8MicnM4yMjLiAlCyQI5EF-qUJGh7Qn4Lx9xA_VoQEgPAKJXluBRVajpFrsF7yp8jas1S0OunvJv00kYH7BCN4aCPVDzM620ORojqXdo","encrypti
+11-24 22:10:02.463 25263 25263 D Andromuks: AppViewModel: Sent FCM registration to Gomuks Backend with device_id=NKVMXDXVQI
+11-24 22:10:02.463 25263 25326 D Andromuks: AppViewModel: Background space edge processing - Created mock data for 594 rooms
+11-24 22:10:02.464 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Garbage
+11-24 22:10:02.464 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Webhooks
+11-24 22:10:02.464 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Automated
+11-24 22:10:02.464 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Reports
+11-24 22:10:02.464 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Github
+11-24 22:10:02.464 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Clients
+11-24 22:10:02.464 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Bridges
+11-24 22:10:02.464 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Tools
+11-24 22:10:02.464 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Servers
+11-24 22:10:02.464 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Bots and Bridges
+11-24 22:10:02.464 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Chat
+11-24 22:10:02.464 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Dev
+11-24 22:10:02.465 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Games
+11-24 22:10:02.465 25263 25339 D Andromuks: AppViewModel: FCM token ready callback triggered, registering with Gomuks Backend
+11-24 22:10:02.465 25263 25339 D Andromuks: AppViewModel: registerFCMWithGomuksBackend called
+11-24 22:10:02.465 25263 25339 D Andromuks: AppViewModel: shouldRegisterPush() called, result=false
+11-24 22:10:02.465 25263 25339 D Andromuks: AppViewModel: shouldRegisterPush() returned false
+11-24 22:10:02.465 25263 25339 D Andromuks: AppViewModel: hasRegisteredViaWebSocket=true, forceRegistration=false
+11-24 22:10:02.465 25263 25339 D Andromuks: AppViewModel: Always registering FCM on WebSocket connection to ensure backend has current token
+11-24 22:10:02.465 25263 25339 D Andromuks: AppViewModel: registerFCMWithGomuksBackend - token=ewQuYoBsRDeg11GpoV_j..., deviceId=NKVMXDXVQI, encryptionKey=ODdlZjc2OGNkZGQ0NGY4...
+11-24 22:10:02.465 25263 25339 D Andromuks: AppViewModel: webClientPushIntegration=true
+11-24 22:10:02.465 25263 25339 D Andromuks: AppViewModel: Registering FCM with request_id=5
+11-24 22:10:02.465 25263 25339 D Andromuks: AppViewModel: Sending WebSocket command: register_push with data: {type=fcm, device_id=NKVMXDXVQI, data=ewQuYoBsRDeg11GpoV_jkw:APA91bFBHf-kVLci8MicnM4yMjLiAlCyQI5EF-qUJGh7Qn4Lx9xA_VoQEgPAKJXluBRVajpFrsF7yp8jas1S0OunvJv00kYH7BCN4aCPVDzM620ORojqXdo, encryption={key=ODdlZjc2OGNkZGQ0NGY4OThiN2I2YzRkMjViODMxZTA=}, expiration=1764108602}
+11-24 22:10:02.465 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Mjolnir banlists and report rooms
+11-24 22:10:02.465 25263 25339 D Andromuks: sendWebSocketCommand: command='register_push', requestId=5, data={"type":"fcm","device_id":"NKVMXDXVQI","data":"ewQuYoBsRDeg11GpoV_jkw:APA91bFBHf-kVLci8MicnM4yMjLiAlCyQI5EF-qUJGh7Qn4Lx9xA_VoQEgPAKJXluBRVajpFrsF7yp8jas1S0OunvJv00kYH7BCN4aCPVDzM620ORojqXdo","encrypti
+11-24 22:10:02.465 25263 25339 D Andromuks: AppViewModel: Sent FCM registration to Gomuks Backend with device_id=NKVMXDXVQI
+11-24 22:10:02.466 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Bots
+11-24 22:10:02.466 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Chat Clients
+11-24 22:10:02.466 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Servers/Hosting
+11-24 22:10:02.466 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Social
+11-24 22:10:02.466 25263 25326 D Andromuks: SpaceRoomParser: Skipping child space: Spec/Guides
+11-24 22:10:02.468 25263 25263 D Andromuks: AppViewModel: Loaded 2 recent emojis from account_data with frequencies (sorted by count)
+11-24 22:10:02.468 25263 25326 D Andromuks: AppViewModel: allSpaces set to 36 spaces
+11-24 22:10:02.468 25263 25326 D Andromuks: AppViewModel: Background space edge processing - Completed processing
+11-24 22:10:02.469 25263 25263 D Andromuks: AppViewModel: Loaded 252 DM room IDs for 104 users from m.direct account data
+11-24 22:10:02.474 25263 25263 D Andromuks: AppViewModel: Updated 9 rooms with correct DM status from m.direct account data
+11-24 22:10:02.474 25263 25263 D Andromuks: AppViewModel: Total rooms now: 594 (updated: 0, new: 0, removed: 0) - sync message #7 [App visible: true]
+11-24 22:10:02.481 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - No room changes detected, skipping all updates
+11-24 22:10:02.481 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - Processing 82 rooms with member events [App visible: true]
+11-24 22:10:02.481 25263 25263 D Andromuks: AppViewModel: New member joined: @funar:mgamers.com in room !7UsoT9DQvtiXJi2rhynnnRIUz29nFCXDVWwBj9pBSbQ - triggering immediate UI update
+11-24 22:10:02.481 25263 25263 D Andromuks: AppViewModel: New member joined: @mauropc:matrix.org in room !D8zFct0xajmtNrYWWKGiViQJ_lPDYFCCfiXvOltr114 - triggering immediate UI update
+11-24 22:10:02.481 25263 25263 D Andromuks: AppViewModel: New member joined: @tulir:maunium.net in room !EPtZfUXVnrALSprDMt:codestorm.net - triggering immediate UI update
+11-24 22:10:02.482 25263 25263 D Andromuks: AppViewModel: New member joined: @rss:aguiarvieira.pt in room !GtaeVfFXfiNqdQJiTI:aguiarvieira.pt - triggering immediate UI update
+11-24 22:10:02.482 25263 25263 D Andromuks: AppViewModel: New member joined: @hookshot:aguiarvieira.pt in room !IxjQrQrGOlmMqirDST:aguiarvieira.pt - triggering immediate UI update
+11-24 22:10:02.482 25263 25263 D Andromuks: AppViewModel: New member joined: @daedric:envs.net in room !LqIHYzJrefyAxpMDgw:daedric.net - triggering immediate UI update
+11-24 22:10:02.482 25263 25263 D Andromuks: AppViewModel: New member joined: @scronkfinkle:matrix.scronkfinkle.net in room !NqdjYiaiDZkHeyIBwZ:matrix.org - triggering immediate UI update
+11-24 22:10:02.482 25263 25263 D Andromuks: AppViewModel: New member joined: @baibot:aguiarvieira.pt in room !ORepDxkMAVWsKLdOPn:aguiarvieira.pt - triggering immediate UI update
+11-24 22:10:02.482 25263 25263 D Andromuks: AppViewModel: New member joined: @asodyora:matrix.org in room !OSSUfHhcduRmffvkQS:matrix.org - triggering immediate UI update
+11-24 22:10:02.483 25263 25263 D Andromuks: AppViewModel: New member joined: @funar:mgamers.com in room !RQCLPTPXgJbWGldVvU:mgamers.com - triggering immediate UI update
+11-24 22:10:02.483 25263 25263 D Andromuks: AppViewModel: New member joined: @vsajana:matrix.org in room !RxzgIkyFyEOzYMRAhN:matrix.org - triggering immediate UI update
+11-24 22:10:02.483 25263 25263 D Andromuks: AppViewModel: New member joined: @jason:littlevortex.net in room !UaNXMdCykfJbXNEHum:littlevortex.net - triggering immediate UI update
+11-24 22:10:02.483 25263 25263 D Andromuks: AppViewModel: New member joined: @pridumyvatel-bogatyr:matrix.org in room !UwXqIUBsdexWRWGcxh:matrix.org - triggering immediate UI update
+11-24 22:10:02.483 25263 25263 D Andromuks: AppViewModel: Member left/banned: @watchtower:aguiarvieira.pt in room !UzlMkjVDHcMfGXgXbd:aguiarvieira.pt - triggering immediate UI update
+11-24 22:10:02.483 25263 25263 D Andromuks: AppViewModel: New member joined: @hookshot:aguiarvieira.pt in room !VFEttyDSIeKXdsiCmo:aguiarvieira.pt - triggering immediate UI update
+11-24 22:10:02.483 25263 25263 D Andromuks: AppViewModel: New member joined: @whatsapp_351935116693:matrixbridg.es in room !VVWhzgMfWcQoQTgwwc:matrixbridg.es - triggering immediate UI update
+11-24 22:10:02.483 25263 25263 D Andromuks: AppViewModel: New member joined: @daedric7:matrix.org in room !VzCvlPOxltiYrbkBzW:aguiarvieira.pt - triggering immediate UI update
+11-24 22:10:02.483 25263 25263 D Andromuks: AppViewModel: New member joined: @daedric:daedric.net in room !WCzdIdwLceAAbVdOIg:daedric.net - triggering immediate UI update
+11-24 22:10:02.483 25263 25263 D Andromuks: AppViewModel: New member joined: @pridumyvatel-bogatyr:matrix.org in room !atXuDoAUFqfwwIeVwO:matrix.org - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: New member joined: @watcherbot:meow.codestorm.net in room !cRKbjVihKgMnYyEXqN:codestorm.net - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: New member joined: @erkinalp:matrix.org in room !dBBMdGDEQPbfoYXxwy:feline.support - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: New member joined: @natrius:matrix.org in room !dULZRIKAtLRUEwbQav:matrix.org - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: Member left/banned: @rzn:tchncs.de in room !fKBhtseYFRTcVyVyTJ:envs.net - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: New member joined: @catolico:matrix.org in room !gKMEiOUChtHMqEPWjP:matrix.org - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: New member joined: @pingstats:aguiarvieira.pt in room !gPDNSAuMNREOyJBfCH:aguiarvieira.pt - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: New member joined: @cvwright:matrix.org in room !gcbIHWAYBBmvITkQIn:matrix.org - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: New member joined: @github:maunium.net in room !gmessages-v10:maunium.net - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: New member joined: @bonswouar:matrix.drhugs.com in room !googlechat-v10:maunium.net - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: New member joined: @tulir:maunium.net in room !gvoice-v11:maunium.net - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: New member joined: @cat:feline.support in room !jFcDkzKYDfJFwUJrdB:feline.support - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: New member joined: @xurizaemon:matrix.org in room !jiRZORhJXxYobcAysp:matrix.org - triggering immediate UI update
+11-24 22:10:02.484 25263 25263 D Andromuks: AppViewModel: New member joined: @healthbot:aguiarvieira.pt in room !kFKYOHlKWmAIUsdRUC:aguiarvieira.pt - triggering immediate UI update
+11-24 22:10:02.485 25263 25263 D Andromuks: AppViewModel: New member joined: @glowy:glowers.club in room !mGQuRObUtJqvdGxPkj:glowers.club - triggering immediate UI update
+11-24 22:10:02.485 25263 25263 D Andromuks: AppViewModel: New member joined: @tulir:maunium.net in room !maunium-v10:maunium.net - triggering immediate UI update
+11-24 22:10:02.485 25263 25263 D Andromuks: AppViewModel: New member joined: @bones_was_here:xonotic.org in room !mautrix-discord-v9:maunium.net - triggering immediate UI update
+11-24 22:10:02.485 25263 25263 D Andromuks: AppViewModel: New member joined: @effendy:matrix.org in room !oEMlhXgSfpTEunSHFF:codestorm.net - triggering immediate UI update
+11-24 22:10:02.485 25263 25263 D Andromuks: AppViewModel: New member joined: @nacorid:vengeful.eu in room !qulZLUGwWfFCaWBOaE:aguiarvieira.pt - triggering immediate UI update
+11-24 22:10:02.485 25263 25263 D Andromuks: AppViewModel: New member joined: @+:tomfos.tr in room !rbcFnVowLXAoDmVNGF:tcpip.uk - triggering immediate UI update
+11-24 22:10:02.485 25263 25263 D Andromuks: AppViewModel: New member joined: @daedric:tchncs.de in room !sKlwQuOUJgoqkThgGr:tchncs.de - triggering immediate UI update
+11-24 22:10:02.485 25263 25263 D Andromuks: AppViewModel: New member joined: @github:maunium.net in room !signal-v11:maunium.net - triggering immediate UI update
+11-24 22:10:02.485 25263 25263 D Andromuks: AppViewModel: New member joined: @cat:feline.support in room !u_7vyQbvvT3HfW4zfY8OSoO7FW69DBIQ89CTn7WXRIc - triggering immediate UI update
+11-24 22:10:02.485 25263 25263 D Andromuks: AppViewModel: New member joined: @github:maunium.net in room !whatsapp-v10:maunium.net - triggering immediate UI update
+11-24 22:10:02.485 25263 25263 D Andromuks: AppViewModel: New member joined: @daedric:envs.net in room !yJGpdFvegjGoCBMZUE:envs.net - triggering immediate UI update
+11-24 22:10:02.486 25263 25263 D Andromuks: AppViewModel: Member left/banned: @feeds:integrations.ems.host in room !zgQquZJfEhipbvFbYc:matrix.org - triggering immediate UI update
+11-24 22:10:02.486 25263 25263 D Andromuks: AppViewModel: New member joined: @funar:mgamers.com in room !zyesydHelIQHacPqFI:mgamers.com - triggering immediate UI update
+11-24 22:10:02.486 25263 25263 D Andromuks: AppViewModel: MEMBER PROCESSING - Updated 82 rooms with member changes
+11-24 22:10:02.504 25263 25263 D Andromuks: AppViewModel: Total rooms now: 594 (updated: 99, new: 0, removed: 0) - sync message #8 [App visible: true]
+11-24 22:10:02.507 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room state changed, updating data without sorting
+11-24 22:10:02.510 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Room data updated (no sorting), debounced sort scheduled
+11-24 22:10:02.510 25263 25263 D Andromuks: AppViewModel: SYNC OPTIMIZATION - Member state changed, scheduling UI update
+11-24 22:10:02.520 25263 25326 D Andromuks: AppViewModel: handleFCMRegistrationResponse called with requestId=3, dataType=Boolean
+11-24 22:10:02.520 25263 25326 D Andromuks: AppViewModel: FCM registration response data: true
+11-24 22:10:02.520 25263 25326 I Andromuks: AppViewModel: FCM registration successful (boolean true)
+11-24 22:10:02.520 25263 25326 D Andromuks: AppViewModel: Marked FCM as registered via WebSocket
+11-24 22:10:02.520 25263 25263 D Andromuks: AppViewModel: Space edge processing complete - UI updated
+11-24 22:10:02.545 25263 25263 D Andromuks: AppViewModel: Lazy loading section: HOME
+11-24 22:10:02.548 25263 25263 D Andromuks: AppViewModel: Badge counts - DMs: 0, Unread: 120, Favs: 2
+11-24 22:10:02.549 25263 25263 D Andromuks: AppViewModel: Updated cached sections - allRooms: 594, DMs: 97, Unread: 120, Favourites: 18
+11-24 22:10:02.556 25263 25362 D Andromuks: AppViewModel: handleFCMRegistrationResponse called with requestId=5, dataType=Boolean
+11-24 22:10:02.556 25263 25362 D Andromuks: AppViewModel: FCM registration response data: true
+11-24 22:10:02.556 25263 25362 I Andromuks: AppViewModel: FCM registration successful (boolean true)
+11-24 22:10:02.556 25263 25362 D Andromuks: AppViewModel: Marked FCM as registered via WebSocket
+11-24 22:10:02.556 25263 25362 D Andromuks: AppViewModel: handleFCMRegistrationResponse called with requestId=4, dataType=Boolean
+11-24 22:10:02.556 25263 25362 D Andromuks: AppViewModel: FCM registration response data: true
+11-24 22:10:02.556 25263 25362 I Andromuks: AppViewModel: FCM registration successful (boolean true)
+11-24 22:10:02.556 25263 25362 D Andromuks: AppViewModel: Marked FCM as registered via WebSocket
+11-24 22:10:02.559 25263 25263 D Andromuks: RoomListScreen: stableSection = HOME, roomListUpdateCounter = 4, rooms.size = 594
+11-24 22:10:02.728  5640  5640 I NotificationListener: received notification removed event - pt.aguiarvieira.andromuks#UserHandle{0},category=-1
+11-24 22:10:02.753 25263 25263 D Andromuks: RoomListScreen: Registered FOREGROUND_REFRESH broadcast receiver
+11-24 22:10:03.093 25263 25263 D Andromuks: RoomListScreen: Pending processing completed
+11-24 22:10:03.101 25263 25263 D Andromuks: RoomListScreen: Clearing current room ID - user is viewing room list, not a specific room
+11-24 22:10:03.101 25263 25263 D Andromuks: AppViewModel: Clearing current open room ID from SharedPreferences
+11-24 22:10:03.101 25263 25263 D Andromuks: AppViewModel: SharedPreferences commit succeeded for room ID: 
+11-24 22:10:03.101 25263 25263 D Andromuks: RoomListScreen: Returning to room list - forcing immediate sort
+11-24 22:10:03.101 25263 25263 D Andromuks: AppViewModel: Force sorting room list (tab change or screen return)
+11-24 22:10:03.102 25263 25357 D Andromuks: RoomListScreen: Querying DB for 143/594 rooms missing previews (451 already have previews from JSON)
+11-24 22:10:03.106 25263 25263 D Andromuks: AppViewModel: setSpaces called with 1 spaces
+11-24 22:10:03.106 25263 25263 D Andromuks: AppViewModel: PERFORMANCE - Debounced room reorder completed (594 rooms)
+11-24 22:10:03.107 25263 25263 D Andromuks: RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for 36 message senders from 594 rooms
+11-24 22:10:03.109 25263 25263 D Andromuks: sendWebSocketCommand: command='get_room_state', requestId=6, data={"room_id":"!NaLbfexyNIBQDbzGwB:bonifacelabs.ca","include_members":false,"fetch_members":false,"refetch":false}
+11-24 22:10:03.110 25263 25263 D Andromuks: sendWebSocketCommand: command='get_room_state', requestId=7, data={"room_id":"!vMLhvOKUhgmYGpkwjX:matrix.debian.social","include_members":false,"fetch_members":false,"refetch":false}
+11-24 22:10:03.110 25263 25263 D Andromuks: sendWebSocketCommand: command='get_room_state', requestId=8, data={"room_id":"!5rEAuuJ7dFQ7vVvIPU94bOoPhme75SYX18peBenN_GY","include_members":false,"fetch_members":false,"refetch":false}
+11-24 22:10:03.110 25263 25263 D Andromuks: sendWebSocketCommand: command='get_room_state', requestId=9, data={"room_id":"!bFjeGzjHAZhqKKtiBW:matrix.org","include_members":false,"fetch_members":false,"refetch":false}
+11-24 22:10:03.110 25263 25263 D Andromuks: sendWebSocketCommand: command='get_room_state', requestId=10, data={"room_id":"!LwxXpniicngJjKryhv:aguiarvieira.pt","include_members":false,"fetch_members":false,"refetch":false}
+11-24 22:10:03.110 25263 25263 D Andromuks: sendWebSocketCommand: command='get_room_state', requestId=11, data={"room_id":"!kiP76YI0AlDqXjcKj2nM_Bq30GCgGWehndSt3iyA85E","include_members":false,"fetch_members":false,"refetch":false}
+11-24 22:10:03.110 25263 25263 D Andromuks: sendWebSocketCommand: command='get_room_state', requestId=12, data={"room_id":"!gddmvTF3NLooiLm6IV_i7sXGlD0Rj4Fm1lpCK9oyokU","include_members":false,"fetch_members":false,"refetch":false}
+11-24 22:10:03.110 25263 25263 D Andromuks: sendWebSocketCommand: command='get_room_state', requestId=13, data={"room_id":"!UdKLVYoj9Cb-VuNJHKgqHI37jvx2UUaeBv36DhjGVWo","include_members":false,"fetch_members":false,"refetch":false}
+11-24 22:10:03.110 25263 25263 D Andromuks: sendWebSocketCommand: command='get_room_state', requestId=14, data={"room_id":"!BBRrrATGeXEfvKtLab:aguiarvieira.pt","include_members":false,"fetch_members":false,"refetch":false}
+11-24 22:10:03.110 25263 25263 D Andromuks: sendWebSocketCommand: command='get_room_state', requestId=15, data={"room_id":"!lgkFqiWbOWlhdGGrNg:aguiarvieira.pt","include_members":false,"fetch_members":false,"refetch":false}
+11-24 22:10:03.110 25263 25263 D Andromuks: sendWebSocketCommand: command='get_room_state', requestId=16, data={"room_id":"!tbSlYaykKDtKZbCsVE:aguiarvieira.pt","include_members":false,"fetch_members":false,"refetch":false}
+11-24 22:10:03.111 25263 25263 D Andromuks: sendWebSocketCommand: command='get_room_state', requestId=17, data={"room_id":"!VEfJvWKSpbfNIdTgnN:matrixbridg.es","include_members":false,"fetch_members":false,"refetch":false}
+11-24 22:10:03.111 25263 25263 D Andromuks: RoomListScreen: NAVIGATION OPTIMIZATION - Triggered prefetch for 12 nearby rooms
+11-24 22:10:03.120 25263 25263 D Andromuks: RoomListScreen: stableSection = HOME, roomListUpdateCounter = 5, rooms.size = 594
+11-24 22:10:03.164 25263 25269 I ieira.andromuks: Compiler allocated 10237KB to compile void net.vrkknn.andromuks.RoomListScreenKt.RoomListItem(net.vrkknn.andromuks.RoomItem, java.lang.String, java.lang.String, kotlin.jvm.functions.Function1, kotlin.jvm.functions.Function1, int, net.vrkknn.andromuks.AppViewModel, androidx.compose.ui.Modifier, boolean, androidx.compose.runtime.Composer, int, int)
+11-24 22:10:03.171 25263 25263 D Andromuks: AppViewModel: Room summaries updated for 95 rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: 2)
+11-24 22:10:03.171 25263 25263 D Andromuks: AppViewModel: Room summaries updated for 95 rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: 3)
+11-24 22:10:03.171 25263 25263 D Andromuks: AppViewModel: Room summaries updated for 46 rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: 4)
+11-24 22:10:03.171 25263 25263 D Andromuks: AppViewModel: Room summaries updated for 94 rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: 5)
+11-24 22:10:03.172 25263 25263 D Andromuks: AppViewModel: Room summaries updated for 39 rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: 6)
+11-24 22:10:03.172 25263 25263 D Andromuks: AppViewModel: Room summaries updated for 82 rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: 7)
+11-24 22:10:03.177 25263 25356 D Andromuks: AppViewModel: Handling room state response for room: !UdKLVYoj9Cb-VuNJHKgqHI37jvx2UUaeBv36DhjGVWo
+11-24 22:10:03.177 25263 25357 D Andromuks: AppViewModel: Handling room state response for room: !LwxXpniicngJjKryhv:aguiarvieira.pt
+11-24 22:10:03.182 25263 25357 D Andromuks: AppViewModel: Parsed room state for !LwxXpniicngJjKryhv:aguiarvieira.pt (not current room) - Name: Wallpapers
+11-24 22:10:03.182 25263 25356 D Andromuks: AppViewModel: Parsed room state for !UdKLVYoj9Cb-VuNJHKgqHI37jvx2UUaeBv36DhjGVWo (not current room) - Name: something something mentally ill etc etc offtopic
+11-24 22:10:03.186 25263 25357 D Andromuks: RoomListScreen: Queried last messages for 0/143 rooms from events table (trigger: summaryUpdate)
+11-24 22:10:03.190 25263 25358 D Andromuks: AppViewModel: Handling room state response for room: !bFjeGzjHAZhqKKtiBW:matrix.org
+11-24 22:10:03.190 25263 25358 D Andromuks: AppViewModel: Parsed room state for !bFjeGzjHAZhqKKtiBW:matrix.org (not current room) - Name: Brasil
+11-24 22:10:03.193 25263 25362 D Andromuks: AppViewModel: Handling room state response for room: !5rEAuuJ7dFQ7vVvIPU94bOoPhme75SYX18peBenN_GY
+11-24 22:10:03.193 25263 25362 D Andromuks: AppViewModel: Parsed room state for !5rEAuuJ7dFQ7vVvIPU94bOoPhme75SYX18peBenN_GY (not current room) - Name: Synapse Admins (community edition)
+11-24 22:10:03.194 25263 25362 D Andromuks: AppViewModel: Handling room state response for room: !gddmvTF3NLooiLm6IV_i7sXGlD0Rj4Fm1lpCK9oyokU
+11-24 22:10:03.195 25263 25362 D Andromuks: AppViewModel: Parsed room state for !gddmvTF3NLooiLm6IV_i7sXGlD0Rj4Fm1lpCK9oyokU (not current room) - Name: SchildiChat Android
+11-24 22:10:03.196 25263 25362 D Andromuks: AppViewModel: Handling room state response for room: !kiP76YI0AlDqXjcKj2nM_Bq30GCgGWehndSt3iyA85E
+11-24 22:10:03.196 25263 25362 D Andromuks: AppViewModel: Parsed room state for !kiP76YI0AlDqXjcKj2nM_Bq30GCgGWehndSt3iyA85E (not current room) - Name: Conduit Matrix Server
+11-24 22:10:03.201 25263 25263 D Andromuks: AppViewModel: Badge counts - DMs: 0, Unread: 120, Favs: 2
+11-24 22:10:03.202 25263 25263 D Andromuks: AppViewModel: Updated cached sections - allRooms: 594, DMs: 97, Unread: 120, Favourites: 18
+11-24 22:10:03.205 25263 25263 D Andromuks: RoomListScreen: Section data changed - rooms:true spaces:false
+11-24 22:10:03.206 25263 25263 D Andromuks: RoomListScreen: NAVIGATION OPTIMIZATION - Triggered prefetch for 12 nearby rooms
+11-24 22:10:03.217 25263 25263 D Andromuks: RoomListScreen: stableSection = HOME, roomListUpdateCounter = 5, rooms.size = 594
+11-24 22:10:03.219 25263 25362 D Andromuks: AppViewModel: Handling room state response for room: !vMLhvOKUhgmYGpkwjX:matrix.debian.social
+11-24 22:10:03.219 25263 25362 D Andromuks: AppViewModel: Parsed room state for !vMLhvOKUhgmYGpkwjX:matrix.debian.social (not current room) - Name: Debian
+11-24 22:10:03.223 25263 25362 D Andromuks: AppViewModel: Handling room state response for room: !BBRrrATGeXEfvKtLab:aguiarvieira.pt
+11-24 22:10:03.223 25263 25362 D Andromuks: AppViewModel: Parsed room state for !BBRrrATGeXEfvKtLab:aguiarvieira.pt (not current room) - Name: Synapse Admins Bridge
+11-24 22:10:03.224 25263 25362 D Andromuks: AppViewModel: Handling room state response for room: !lgkFqiWbOWlhdGGrNg:aguiarvieira.pt
+11-24 22:10:03.224 25263 25362 D Andromuks: AppViewModel: Parsed room state for !lgkFqiWbOWlhdGGrNg:aguiarvieira.pt (not current room) - Name: AV Element X
+11-24 22:10:03.225 25263 25362 D Andromuks: AppViewModel: Handling room state response for room: !tbSlYaykKDtKZbCsVE:aguiarvieira.pt
+11-24 22:10:03.225 25263 25362 D Andromuks: AppViewModel: Parsed room state for !tbSlYaykKDtKZbCsVE:aguiarvieira.pt (not current room) - Name: GitHub
+11-24 22:10:03.231 25263 25357 D Andromuks: AppViewModel: Handling room state response for room: !VEfJvWKSpbfNIdTgnN:matrixbridg.es
+11-24 22:10:03.232 25263 25357 D Andromuks: AppViewModel: Parsed room state for !VEfJvWKSpbfNIdTgnN:matrixbridg.es (not current room) - Name: XDRlibs - Chat
+11-24 22:10:03.250 25263 25269 I ieira.andromuks: Compiler allocated 8347KB to compile void net.vrkknn.andromuks.RoomListScreenKt.RoomListScreen(androidx.navigation.NavController, androidx.compose.ui.Modifier, net.vrkknn.andromuks.AppViewModel, androidx.compose.runtime.Composer, int, int)
+11-24 22:10:03.320 25263 25357 D Andromuks: AppViewModel: Handling room state response for room: !NaLbfexyNIBQDbzGwB:bonifacelabs.ca
+11-24 22:10:03.320 25263 25357 D Andromuks: AppViewModel: Parsed room state for !NaLbfexyNIBQDbzGwB:bonifacelabs.ca (not current room) - Name: Jellyfin General Chat
+11-24 22:10:03.583 25263 25263 D Andromuks: RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for 36 message senders from 594 rooms
+11-24 22:10:03.584 25263 25357 D Andromuks: RoomListScreen: Querying DB for 143/594 rooms missing previews (451 already have previews from JSON)
+11-24 22:10:03.584 25263 25263 D Andromuks: RoomListScreen: NAVIGATION OPTIMIZATION - Triggered prefetch for 12 nearby rooms
+11-24 22:10:03.590 25263 25263 D Andromuks: RoomListScreen: stableSection = HOME, roomListUpdateCounter = 6, rooms.size = 594
+11-24 22:10:03.625 25263 25263 D Andromuks: RoomListScreen: NAVIGATION OPTIMIZATION - Triggered prefetch for 12 nearby rooms
+11-24 22:10:03.651 25263 25358 D Andromuks: RoomListScreen: Queried last messages for 0/143 rooms from events table (trigger: summaryUpdate)

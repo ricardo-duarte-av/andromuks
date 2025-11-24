@@ -4001,8 +4001,9 @@ class AppViewModel : ViewModel() {
     /**
      * Ensure current user profile is loaded. Tries cache first, then requests from server.
      * Called when app becomes visible or on startup.
+     * Made public so RoomListScreen can call it directly on cold start.
      */
-    private fun ensureCurrentUserProfileLoaded() {
+    fun ensureCurrentUserProfileLoaded() {
         if (currentUserProfile == null && currentUserId.isNotBlank() && appContext != null) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current user profile missing on visibility, attempting to load - userId: $currentUserId")
             // Try loading from cache first

@@ -144,6 +144,43 @@ fun RoomListScreen(
     val me = appViewModel.currentUserProfile
     val profileLoaded = me != null || appViewModel.currentUserId.isBlank()
     
+    // COLD START FIX: Track profile loading state with timeout
+    var profileLoadStartTime by remember { mutableStateOf<Long?>(null) }
+    var profileLoadTimeout by remember { mutableStateOf(false) }
+    
+    // Attempt to load profile if missing (on cold start, onAppBecameVisible might not be called yet)
+    LaunchedEffect(appViewModel.currentUserId, me) {
+        if (me == null && appViewModel.currentUserId.isNotBlank()) {
+            if (profileLoadStartTime == null) {
+                profileLoadStartTime = System.currentTimeMillis()
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "RoomListScreen: Profile missing, attempting to load - userId: ${appViewModel.currentUserId}")
+                }
+                // Try to load profile (this will check cache first, then request from server)
+                appViewModel.ensureCurrentUserProfileLoaded()
+            }
+        } else if (me != null) {
+            // Profile loaded, reset timeout
+            profileLoadStartTime = null
+            profileLoadTimeout = false
+        }
+    }
+    
+    // COLD START FIX: Add timeout fallback for profile loading (5 seconds)
+    // If profile doesn't load within 5 seconds, show UI anyway to prevent infinite loading
+    LaunchedEffect(profileLoadStartTime) {
+        if (profileLoadStartTime != null && me == null) {
+            kotlinx.coroutines.delay(5000) // 5 second timeout
+            if (appViewModel.currentUserProfile == null) {
+                android.util.Log.w("Andromuks", "RoomListScreen: Profile loading timeout (5s) - allowing UI to show anyway")
+                profileLoadTimeout = true
+            }
+        }
+    }
+    
+    // Use timeout override: if profile timeout expired, treat as loaded to prevent infinite loading
+    val effectiveProfileLoaded = profileLoaded || profileLoadTimeout
+    
     // CRITICAL FIX #2: Wait for pending items to be processed before showing RoomListScreen
     // This ensures database has the latest messages when we query for room summaries
     // Use a local state that tracks both the flag and a timeout override
@@ -181,7 +218,7 @@ fun RoomListScreen(
     }
     
     // Show loading screen if profile is missing or pending items are being processed (unless timeout expired)
-    if (!profileLoaded || shouldBlockForPending) {
+    if (!effectiveProfileLoaded || shouldBlockForPending) {
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -192,7 +229,7 @@ fun RoomListScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                if (!profileLoaded) {
+                if (!effectiveProfileLoaded) {
                     Text(
                         text = "Loading profile...",
                         style = MaterialTheme.typography.bodyLarge,
@@ -200,7 +237,7 @@ fun RoomListScreen(
                     )
                 }
                 if (shouldBlockForPending) {
-                    if (profileLoaded) {
+                    if (effectiveProfileLoaded) {
                         Text(
                             text = "Catching up on messages...",
                             style = MaterialTheme.typography.bodyLarge,
