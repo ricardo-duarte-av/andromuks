@@ -254,8 +254,8 @@ object SpaceRoomParser {
                     continue
                 }
                 
-                // Parse the room
-                val room = parseRoomFromJson(roomId, roomObj, meta, memberCache, appViewModel)
+                // Parse the room (pass isAppVisible for conditional event parsing)
+                val room = parseRoomFromJson(roomId, roomObj, meta, memberCache, appViewModel, isAppVisible)
                 if (room != null) {
                     // Determine if this is a new room or updated room
                     val existingRoom = existingRooms?.get(roomId)
@@ -313,7 +313,7 @@ object SpaceRoomParser {
         return SyncUpdateResult(updatedRooms, newRooms, removedRoomIds)
     }
     
-    private fun parseRoomFromJson(roomId: String, roomObj: JSONObject, meta: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): RoomItem? {
+    private fun parseRoomFromJson(roomId: String, roomObj: JSONObject, meta: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, appViewModel: net.vrkknn.andromuks.AppViewModel? = null, isAppVisible: Boolean = true): RoomItem? {
         try {
             // This is a regular room
             val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
@@ -326,12 +326,97 @@ object SpaceRoomParser {
             // Detect if this is a Direct Message room
             val isDirectMessage = detectDirectMessage(roomId, roomObj, meta, appViewModel)
             
-            // BATTERY OPTIMIZATION: Skip parsing events JSON - query database for last message instead
-            // This eliminates heavy JSON parsing loops (lines 254-329 removed)
-            // Last message will be populated from database summaries after parsing
+            // Extract message preview and sender from events JSON (only when foregrounded for instant UI updates)
+            // When backgrounded, skip parsing to save battery - database query will populate later
             var messagePreview: String? = null
             var messageSender: String? = null
-            // Note: messagePreview and messageSender will be populated from database in AppViewModel
+            
+            if (isAppVisible) {
+                // FOREGROUND: Parse events JSON for instant preview updates (same path as unread badges)
+                // This ensures room summaries update immediately like unread badges do
+                val events = roomObj.optJSONArray("events")
+                if (events != null && events.length() > 0) {
+                    // Look through all events to find the last actual message
+                    // Skip non-message events like typing, member changes, state events, etc.
+                    for (i in events.length() - 1 downTo 0) {
+                        val event = events.optJSONObject(i)
+                        if (event != null) {
+                            val eventType = event.optString("type")
+                            when (eventType) {
+                                "m.room.message" -> {
+                                    val content = event.optJSONObject("content")
+                                    
+                                    // Check if this is an edit event (m.replace)
+                                    val relatesTo = content?.optJSONObject("m.relates_to")
+                                    val isEdit = relatesTo?.optString("rel_type") == "m.replace"
+                                    
+                                    val body = if (isEdit) {
+                                        // Edit event - get body from m.new_content
+                                        val newContent = content?.optJSONObject("m.new_content")
+                                        newContent?.optString("body")?.takeIf { it.isNotBlank() }
+                                    } else {
+                                        // Regular message - get body from content
+                                        content?.optString("body")?.takeIf { it.isNotBlank() }
+                                    }
+                                    
+                                    if (body != null) {
+                                        messagePreview = body
+                                        messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                        break // Found the last message, stop looking
+                                    }
+                                    
+                                    // Handle non-text messages (images, files, etc.) if no body
+                                    if (messagePreview == null && !isEdit) {
+                                        val msgtype = content?.optString("msgtype", "")
+                                        messagePreview = when {
+                                            msgtype == "m.image" -> "📷 Image"
+                                            msgtype == "m.video" -> "🎥 Video"
+                                            msgtype == "m.audio" -> "🎵 Audio"
+                                            msgtype == "m.file" -> "📎 File"
+                                            msgtype == "m.location" -> "📍 Location"
+                                            else -> null
+                                        }
+                                        if (messagePreview != null) {
+                                            messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                            break
+                                        }
+                                    }
+                                }
+                                "m.room.encrypted" -> {
+                                    // Check if it's a decrypted message
+                                    val decryptedType = event.optString("decrypted_type")
+                                    if (decryptedType == "m.room.message" || decryptedType == "m.text") {
+                                        val decrypted = event.optJSONObject("decrypted")
+                                        
+                                        // Check if this is an edit (show new content instead of original)
+                                        val relatesTo = decrypted?.optJSONObject("m.relates_to")
+                                        val isEdit = relatesTo?.optString("rel_type") == "m.replace"
+                                        
+                                        val body = if (isEdit) {
+                                            // Edit event - get body from m.new_content
+                                            val newContent = decrypted?.optJSONObject("m.new_content")
+                                            newContent?.optString("body")?.takeIf { it.isNotBlank() }
+                                        } else {
+                                            // Regular encrypted message - get body from decrypted
+                                            decrypted?.optString("body")?.takeIf { it.isNotBlank() }
+                                        }
+                                        
+                                        if (body != null) {
+                                            messagePreview = body
+                                            messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                            break // Found the last message, stop looking
+                                        }
+                                    }
+                                }
+                                // Skip other event types like typing, member changes, state events, etc.
+                            }
+                        }
+                    }
+                }
+            } else {
+                // BACKGROUND: Skip parsing events JSON to save battery
+                // Database query will populate previews when app is foregrounded
+            }
             
             // Extract sorting_timestamp from meta
             val sortingTimestamp = meta.optLong("sorting_timestamp", 0L).takeIf { it != 0L }
