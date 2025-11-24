@@ -298,7 +298,6 @@ private fun MediaBubbleTimestamp(
             formatMediaTimestamp(timestamp)
         }
         val baseModifier = Modifier
-            .fillMaxWidth()
             .wrapContentWidth(if (isMine) Alignment.Start else Alignment.End)
             .padding(horizontal = 12.dp, vertical = 4.dp)
         val clickableModifier = if (editedBy != null && onEditedClick != null) {
