@@ -69,7 +69,17 @@ class WebSocketService : Service() {
         
         private val callbacksLock = Any() // Thread safety for callback lists
         
-        // Callback for triggering reconnection
+        // PHASE 1.1: Primary instance tracking - ensures only one AppViewModel controls WebSocket lifecycle
+        // Primary instance is the one that manages reconnection, offline mode, and activity logging
+        private var primaryViewModelId: String? = null
+        
+        // Primary callbacks - only the primary instance can set these
+        private var primaryReconnectionCallback: ((String) -> Unit)? = null
+        private var primaryOfflineModeCallback: ((Boolean) -> Unit)? = null
+        private var primaryActivityLogCallback: ((String, String?) -> Unit)? = null
+        
+        // Legacy callbacks - kept for backward compatibility during migration
+        // These will be removed in a future phase after migration is complete
         private var reconnectionCallback: ((String) -> Unit)? = null
         
         // Callback for offline mode management
@@ -107,21 +117,38 @@ class WebSocketService : Service() {
         }
         
         // Activity log callback - set by AppViewModel
+        // Legacy callback - kept for backward compatibility
         private var activityLogCallback: ((String, String?) -> Unit)? = null
         
         /**
+         * PHASE 1.1: Get the primary ViewModel ID
+         * Returns the ID of the AppViewModel instance that is registered as primary
+         */
+        fun getPrimaryViewModelId(): String? = primaryViewModelId
+        
+        /**
+         * PHASE 1.1: Check if a ViewModel ID is the primary instance
+         */
+        fun isPrimaryInstance(viewModelId: String): Boolean {
+            return primaryViewModelId == viewModelId
+        }
+        
+        /**
          * Set callback for logging activity events
+         * Legacy method - kept for backward compatibility
          */
         fun setActivityLogCallback(callback: (String, String?) -> Unit) {
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setActivityLogCallback() called")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setActivityLogCallback() called (legacy)")
             activityLogCallback = callback
         }
         
         /**
          * Log an activity event (app started, websocket connected, disconnected, etc.)
+         * PHASE 1.1: Uses primary callback if available, falls back to legacy callback
          */
         fun logActivity(event: String, networkType: String? = null) {
-            activityLogCallback?.invoke(event, networkType)
+            // Try primary callback first
+            primaryActivityLogCallback?.invoke(event, networkType) ?: activityLogCallback?.invoke(event, networkType)
         }
         
         /**
