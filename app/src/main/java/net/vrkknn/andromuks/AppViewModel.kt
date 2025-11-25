@@ -4279,6 +4279,16 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unregistering $viewModelId from WebSocket callbacks")
         WebSocketService.unregisterReceiveCallback(viewModelId)
         
+        // PHASE 1.2: Clear primary callbacks if this is the primary instance
+        if (instanceRole == InstanceRole.PRIMARY) {
+            val cleared = WebSocketService.clearPrimaryCallbacks(viewModelId)
+            if (cleared) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared primary callbacks for $viewModelId")
+            } else {
+                android.util.Log.w("Andromuks", "AppViewModel: Failed to clear primary callbacks for $viewModelId (may not have been primary)")
+            }
+        }
+        
         // Cancel any pending jobs
         appInvisibleJob?.cancel()
         appInvisibleJob = null
@@ -4761,28 +4771,49 @@ class AppViewModel : ViewModel() {
         WebSocketService.setWebSocketSendCallback { command, requestId, data ->
             sendWebSocketCommand(command, requestId, data) == WebSocketResult.SUCCESS
         }
-        WebSocketService.setReconnectionCallback { reason ->
-            restartWebSocket(reason)
-        }
-        WebSocketService.setOfflineModeCallback { isOffline ->
-            if (isOffline) {
-                android.util.Log.w("Andromuks", "AppViewModel: Entering offline mode")
-                logActivity("Entering Offline Mode", null)
-                isOfflineMode = true
-                lastNetworkState = false
-            } else {
-                android.util.Log.i("Andromuks", "AppViewModel: Exiting offline mode")
-                logActivity("Exiting Offline Mode", null)
-                isOfflineMode = false
-                lastNetworkState = true
-                // Reset reconnection state on network restoration
-                WebSocketService.resetReconnectionState()
-            }
-        }
         
-        // Set up activity logging callback
-        WebSocketService.setActivityLogCallback { event, networkType ->
-            logActivity(event, networkType)
+        // PHASE 1.2: Register primary callbacks with viewModelId
+        // Only PRIMARY instances should register these callbacks
+        if (instanceRole == InstanceRole.PRIMARY) {
+            // Register reconnection callback - this will set this instance as primary
+            val reconnectionRegistered = WebSocketService.setReconnectionCallback(viewModelId) { reason ->
+                restartWebSocket(reason)
+            }
+            if (!reconnectionRegistered) {
+                android.util.Log.w("Andromuks", "AppViewModel: Failed to register as primary instance for reconnection callback. Another instance may already be primary.")
+            }
+            
+            // Register offline mode callback - only if reconnection callback was registered successfully
+            if (reconnectionRegistered) {
+                val offlineModeRegistered = WebSocketService.setOfflineModeCallback(viewModelId) { isOffline ->
+                    if (isOffline) {
+                        android.util.Log.w("Andromuks", "AppViewModel: Entering offline mode")
+                        logActivity("Entering Offline Mode", null)
+                        isOfflineMode = true
+                        lastNetworkState = false
+                    } else {
+                        android.util.Log.i("Andromuks", "AppViewModel: Exiting offline mode")
+                        logActivity("Exiting Offline Mode", null)
+                        isOfflineMode = false
+                        lastNetworkState = true
+                        // Reset reconnection state on network restoration
+                        WebSocketService.resetReconnectionState()
+                    }
+                }
+                if (!offlineModeRegistered) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Failed to register offline mode callback. This should not happen if reconnection callback was registered.")
+                }
+                
+                // Register activity log callback - only if reconnection callback was registered successfully
+                val activityLogRegistered = WebSocketService.setActivityLogCallback(viewModelId) { event, networkType ->
+                    logActivity(event, networkType)
+                }
+                if (!activityLogRegistered) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Failed to register activity log callback. This should not happen if reconnection callback was registered.")
+                }
+            }
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping primary callback registration for non-primary instance ($viewModelId, role=$instanceRole)")
         }
         
         // Delegate WebSocket management to service

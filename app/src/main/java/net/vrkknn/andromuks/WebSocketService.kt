@@ -134,12 +134,90 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Set callback for logging activity events
-         * Legacy method - kept for backward compatibility
+         * PHASE 1.2: Set callback for logging activity events
+         * Only the primary instance can register this callback
+         * 
+         * @param viewModelId Unique identifier for the AppViewModel instance
+         * @param callback Callback function to invoke when activity events occur
+         * @return true if registration succeeded, false if another instance is already primary
          */
+        fun setActivityLogCallback(viewModelId: String, callback: (String, String?) -> Unit): Boolean {
+            synchronized(callbacksLock) {
+                // Check if this is the primary instance
+                if (primaryViewModelId != null && primaryViewModelId != viewModelId) {
+                    android.util.Log.w("WebSocketService", "setActivityLogCallback: Instance $viewModelId is not the primary instance ($primaryViewModelId). Rejecting registration.")
+                    return false
+                }
+                
+                // Must have registered reconnection callback first (enforces primary instance)
+                if (primaryViewModelId != viewModelId) {
+                    android.util.Log.w("WebSocketService", "setActivityLogCallback: Instance $viewModelId must register reconnection callback first. Rejecting registration.")
+                    return false
+                }
+                
+                primaryActivityLogCallback = callback
+                // Also set legacy callback for backward compatibility
+                activityLogCallback = callback
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setActivityLogCallback: Successfully registered primary activity log callback for $viewModelId")
+                return true
+            }
+        }
+        
+        /**
+         * Legacy method - kept for backward compatibility
+         * @deprecated Use setActivityLogCallback(viewModelId, callback) instead
+         */
+        @Deprecated("Use setActivityLogCallback(viewModelId, callback) instead", ReplaceWith("setActivityLogCallback(\"legacy\", callback)"))
         fun setActivityLogCallback(callback: (String, String?) -> Unit) {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setActivityLogCallback() called (legacy)")
+            // Legacy: allow registration without viewModelId, but don't set as primary
             activityLogCallback = callback
+        }
+        
+        /**
+         * PHASE 1.2: Clear primary callbacks for a specific ViewModel instance
+         * This should be called when the primary instance is being destroyed
+         * 
+         * @param viewModelId Unique identifier for the AppViewModel instance
+         * @return true if callbacks were cleared, false if this instance was not primary
+         */
+        fun clearPrimaryCallbacks(viewModelId: String): Boolean {
+            synchronized(callbacksLock) {
+                if (primaryViewModelId != viewModelId) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "clearPrimaryCallbacks: Instance $viewModelId is not the primary instance ($primaryViewModelId). Nothing to clear.")
+                    return false
+                }
+                
+                android.util.Log.i("WebSocketService", "clearPrimaryCallbacks: Clearing primary callbacks for $viewModelId")
+                
+                primaryViewModelId = null
+                primaryReconnectionCallback = null
+                primaryOfflineModeCallback = null
+                primaryActivityLogCallback = null
+                
+                // Note: We don't clear legacy callbacks here to maintain backward compatibility
+                // Legacy callbacks will be cleared by the legacy cleanup code if needed
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "clearPrimaryCallbacks: Successfully cleared primary callbacks for $viewModelId")
+                return true
+            }
+        }
+        
+        /**
+         * PHASE 1.2: Get the active reconnection callback (primary first, then legacy)
+         * Internal helper to ensure we use primary callback when available
+         */
+        private fun getActiveReconnectionCallback(): ((String) -> Unit)? {
+            return primaryReconnectionCallback ?: reconnectionCallback
+        }
+        
+        /**
+         * PHASE 1.2: Get the active offline mode callback (primary first, then legacy)
+         * Internal helper to ensure we use primary callback when available
+         */
+        private fun getActiveOfflineModeCallback(): ((Boolean) -> Unit)? {
+            return primaryOfflineModeCallback ?: offlineModeCallback
         }
         
         /**
@@ -369,18 +447,89 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Set callback for triggering reconnection
+         * PHASE 1.2: Set callback for triggering reconnection
+         * Only one primary instance can register this callback
+         * 
+         * @param viewModelId Unique identifier for the AppViewModel instance
+         * @param callback Callback function to invoke when reconnection is needed
+         * @return true if registration succeeded, false if another instance is already primary
          */
+        fun setReconnectionCallback(viewModelId: String, callback: (String) -> Unit): Boolean {
+            synchronized(callbacksLock) {
+                // Check if another instance is already registered as primary
+                if (primaryViewModelId != null && primaryViewModelId != viewModelId) {
+                    android.util.Log.w("WebSocketService", "setReconnectionCallback: Another instance ($primaryViewModelId) is already registered as primary. Rejecting registration from $viewModelId")
+                    return false
+                }
+                
+                // Same instance re-registering - allow it (might be reconnecting after being cleared)
+                if (primaryViewModelId == viewModelId) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setReconnectionCallback: Primary instance $viewModelId re-registering callback")
+                } else {
+                    // New primary instance
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setReconnectionCallback: Registering $viewModelId as primary instance")
+                    primaryViewModelId = viewModelId
+                }
+                
+                primaryReconnectionCallback = callback
+                // Also set legacy callback for backward compatibility during migration
+                reconnectionCallback = callback
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setReconnectionCallback: Successfully registered primary reconnection callback for $viewModelId")
+                return true
+            }
+        }
+        
+        /**
+         * Legacy method - kept for backward compatibility
+         * @deprecated Use setReconnectionCallback(viewModelId, callback) instead
+         */
+        @Deprecated("Use setReconnectionCallback(viewModelId, callback) instead", ReplaceWith("setReconnectionCallback(\"legacy\", callback)"))
         fun setReconnectionCallback(callback: (String) -> Unit) {
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setReconnectionCallback() called")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setReconnectionCallback() called (legacy - no viewModelId)")
+            // Legacy: allow registration without viewModelId, but don't set as primary
             reconnectionCallback = callback
         }
         
         /**
-         * Set callback for offline mode management
+         * PHASE 1.2: Set callback for offline mode management
+         * Only the primary instance can register this callback
+         * 
+         * @param viewModelId Unique identifier for the AppViewModel instance
+         * @param callback Callback function to invoke when offline mode changes
+         * @return true if registration succeeded, false if another instance is already primary
          */
+        fun setOfflineModeCallback(viewModelId: String, callback: (Boolean) -> Unit): Boolean {
+            synchronized(callbacksLock) {
+                // Check if this is the primary instance
+                if (primaryViewModelId != null && primaryViewModelId != viewModelId) {
+                    android.util.Log.w("WebSocketService", "setOfflineModeCallback: Instance $viewModelId is not the primary instance ($primaryViewModelId). Rejecting registration.")
+                    return false
+                }
+                
+                // Must have registered reconnection callback first (enforces primary instance)
+                if (primaryViewModelId != viewModelId) {
+                    android.util.Log.w("WebSocketService", "setOfflineModeCallback: Instance $viewModelId must register reconnection callback first. Rejecting registration.")
+                    return false
+                }
+                
+                primaryOfflineModeCallback = callback
+                // Also set legacy callback for backward compatibility
+                offlineModeCallback = callback
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setOfflineModeCallback: Successfully registered primary offline mode callback for $viewModelId")
+                return true
+            }
+        }
+        
+        /**
+         * Legacy method - kept for backward compatibility
+         * @deprecated Use setOfflineModeCallback(viewModelId, callback) instead
+         */
+        @Deprecated("Use setOfflineModeCallback(viewModelId, callback) instead", ReplaceWith("setOfflineModeCallback(\"legacy\", callback)"))
         fun setOfflineModeCallback(callback: (Boolean) -> Unit) {
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setOfflineModeCallback() called")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setOfflineModeCallback() called (legacy - no viewModelId)")
+            // Legacy: allow registration without viewModelId, but don't set as primary
             offlineModeCallback = callback
         }
         
@@ -448,8 +597,8 @@ class WebSocketService : Service() {
          */
         fun triggerReconnectionFromExternal(reason: String) {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "triggerReconnectionFromExternal called: $reason")
-            // Call the reconnection callback directly
-            reconnectionCallback?.invoke(reason)
+            // PHASE 1.2: Use primary callback if available, fall back to legacy
+            getActiveReconnectionCallback()?.invoke(reason)
         }
         
         /**
@@ -473,7 +622,8 @@ class WebSocketService : Service() {
             // Check if reconnection callback is available
             // If AppViewModel is not available, we should NOT create ad-hoc WebSocket connections
             // Wait for AppViewModel to connect the WebSocket properly when app starts
-            if (reconnectionCallback == null) {
+            // PHASE 1.2: Check active callback (primary or legacy)
+            if (getActiveReconnectionCallback() == null) {
                 android.util.Log.w("WebSocketService", "Reconnection callback not set (AppViewModel not available) - cannot reconnect. Waiting for app to connect WebSocket properly.")
                 return
             }
@@ -668,7 +818,8 @@ class WebSocketService : Service() {
          */
         fun isServiceHealthy(): Boolean {
             val serviceInstance = instance ?: return false
-            return reconnectionCallback != null &&
+            // PHASE 1.2: Check active callback (primary or legacy)
+            return getActiveReconnectionCallback() != null &&
                    serviceInstance.connectionState != ConnectionState.DISCONNECTED
         }
         
@@ -686,7 +837,8 @@ class WebSocketService : Service() {
             val serviceInstance = instance ?: return false
             
             // Check if reconnection callback is missing
-            if (reconnectionCallback == null) {
+            // PHASE 1.2: Check active callback (primary or legacy)
+            if (getActiveReconnectionCallback() == null) {
                 android.util.Log.w("WebSocketService", "Recovering missing reconnection callback")
                 // This should be set by AppViewModel, but we can't recover it here
                 return false
@@ -993,7 +1145,8 @@ class WebSocketService : Service() {
                     if (isActive) {
                         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Executing reconnection: $reason")
                         logActivity("Reconnection Attempt - $reason", serviceInstance.currentNetworkType.name)
-                        reconnectionCallback?.invoke(reason)
+                        // PHASE 1.2: Use primary callback if available, fall back to legacy
+                        getActiveReconnectionCallback()?.invoke(reason)
                     } else {
                         serviceInstance.connectionState = ConnectionState.DISCONNECTED
                     }
@@ -1048,7 +1201,8 @@ class WebSocketService : Service() {
                 }
                 
                 // Internal trigger - use callback
-                reconnectionCallback?.invoke(reason)
+                // PHASE 1.2: Use primary callback if available, fall back to legacy
+                getActiveReconnectionCallback()?.invoke(reason)
             }
         }
         
@@ -1359,7 +1513,8 @@ class WebSocketService : Service() {
                     android.util.Log.i("WebSocketService", "Backend healthy - triggering immediate reconnection")
                     logActivity("Backend Healthy - Reconnecting", currentNetworkType.name)
                     clearWebSocket("3 consecutive ping failures - backend healthy")
-                    reconnectionCallback?.invoke("3 consecutive ping failures - backend healthy")
+                    // PHASE 1.2: Use primary callback if available, fall back to legacy
+                    getActiveReconnectionCallback()?.invoke("3 consecutive ping failures - backend healthy")
                 } else {
                     // Backend unhealthy - wait for recovery
                     android.util.Log.w("WebSocketService", "Backend unhealthy - waiting for recovery")
@@ -1375,7 +1530,8 @@ class WebSocketService : Service() {
                         if (recovered) {
                             android.util.Log.i("WebSocketService", "Backend healthy again - triggering reconnection")
                             logActivity("Backend Recovered - Reconnecting", currentNetworkType.name)
-                            reconnectionCallback?.invoke("Backend recovered after ping failures")
+                            // PHASE 1.2: Use primary callback if available, fall back to legacy
+                            getActiveReconnectionCallback()?.invoke("Backend recovered after ping failures")
                             return@launch
                         }
                     }
@@ -1435,7 +1591,8 @@ class WebSocketService : Service() {
             
             // Retry connection
             if (isActive) {
-                reconnectionCallback?.invoke("Init complete timeout - retrying")
+                // PHASE 1.2: Use primary callback if available, fall back to legacy
+                getActiveReconnectionCallback()?.invoke("Init complete timeout - retrying")
             }
         }
     }
@@ -1583,7 +1740,8 @@ class WebSocketService : Service() {
         // Update notification with current connection state after service starts
         // This ensures the notification shows the correct state even if no WebSocket is connected yet
         // Also check if reconnection callback is available
-        val hasCallback = reconnectionCallback != null
+        // PHASE 1.2: Check active callback (primary or legacy)
+        val hasCallback = getActiveReconnectionCallback() != null
         updateConnectionStatus(
             isConnected = connectionState == ConnectionState.CONNECTED,
             lagMs = lastKnownLagMs,
@@ -1604,14 +1762,16 @@ class WebSocketService : Service() {
             
             val isConnected = connectionState == ConnectionState.CONNECTED && webSocket != null
             
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restart check: connected=$isConnected, reconnectionCallback=${reconnectionCallback != null}")
+            // PHASE 1.2: Check active callback (primary or legacy)
+            val activeCallback = getActiveReconnectionCallback()
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restart check: connected=$isConnected, reconnectionCallback=${activeCallback != null}")
             
             // If we have no active connection and we're not already reconnecting, attempt reconnection
             // BUT: Only if AppViewModel is available (reconnectionCallback is set)
             // If AppViewModel is not available, wait for it to connect the WebSocket properly
             if (!isConnected && !isReconnecting) {
                 // Store callback in local variable for safe smart cast
-                val callback = reconnectionCallback
+                val callback = activeCallback
                 if (callback != null) {
                     // AppViewModel is available - trigger reconnection through it
                     android.util.Log.w("WebSocketService", "Service restarted but WebSocket disconnected - triggering reconnection via AppViewModel")
@@ -1806,7 +1966,8 @@ class WebSocketService : Service() {
             // DEBUG BUILD: Show detailed stats with lag, sync time, etc.
             when {
                 // Check if reconnection callback is missing (AppViewModel not available)
-                reconnectionCallback == null && connectionState != ConnectionState.CONNECTED -> {
+                // PHASE 1.2: Check active callback (primary or legacy)
+                getActiveReconnectionCallback() == null && connectionState != ConnectionState.CONNECTED -> {
                     "Waiting for app... • ${getNetworkTypeDisplayName(currentNetworkType)}"
                 }
                 !isConnected -> "Connecting... • ${getNetworkTypeDisplayName(currentNetworkType)}"
@@ -1897,7 +2058,8 @@ class WebSocketService : Service() {
             val currentState = connectionState
             
             // Check if reconnection callback is missing (AppViewModel not available)
-            val callbackMissing = reconnectionCallback == null && currentState != ConnectionState.CONNECTED
+            // PHASE 1.2: Check active callback (primary or legacy)
+            val callbackMissing = getActiveReconnectionCallback() == null && currentState != ConnectionState.CONNECTED
             
             // Track both state and callback status for change detection
             val stateKey = "$currentState-$callbackMissing"
