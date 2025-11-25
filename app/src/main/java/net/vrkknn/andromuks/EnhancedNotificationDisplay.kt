@@ -1068,6 +1068,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      */
     fun updateNotificationWithReply(roomId: String, replyText: String) {
         try {
+            // CRITICAL: Don't update notification if bubble is open
+            // Updating the notification removes bubble metadata, causing Android to close the bubble
+            // The bubble will receive the reply via WebSocket updates anyway
+            val isBubbleOpen = BubbleTracker.isBubbleOpen(roomId)
+            if (isBubbleOpen) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Skipping notification update - bubble is open for room: $roomId (prevents bubble from closing)")
+                return
+            }
+            
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             val notifID = roomId.hashCode()
             
@@ -1202,9 +1211,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         })
                     }
                     
-                    // Note: We don't copy bubble metadata because it's tied to the specific Intent
-                    // and recreating it would require the original PendingIntent which we don't have.
-                    // The bubble will work from the original notification creation.
+                    // Note: Bubble metadata is not preserved when updating notifications
+                    // This is why we skip updates when bubble is open (see early return above)
                     
                     // Re-create reply and mark read actions for the notification
                     // We need to recreate them because we can't directly copy Notification.Action to NotificationCompat.Action
