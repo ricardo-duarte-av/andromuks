@@ -84,6 +84,7 @@
             android:theme="@style/Theme.Andromuks"
             android:documentLaunchMode="always"
             android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize|stateHidden"
             android:allowEmbedded="true"
             android:taskAffinity=""
             android:excludeFromRecents="true">

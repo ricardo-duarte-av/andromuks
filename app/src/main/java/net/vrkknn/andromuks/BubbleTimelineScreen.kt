@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -1151,7 +1152,26 @@ fun BubbleTimelineScreen(
         isAttachedToBottom = true
         isInitialLoad = true
         hasInitialSnapCompleted = false
+        
+        // CRITICAL FIX: Load events from DB first, then check if we need pagination
+        // This ensures bubbles load quickly from cache, and fetch more if needed
         appViewModel.ensureTimelineCacheIsFresh(roomId)
+        
+        // Check DB event count - if less than 20 events, request pagination
+        // This ensures bubbles have enough content to display without empty timelines
+        val eventCount = withContext(Dispatchers.IO) {
+            appViewModel.getRoomEventCountFromDb(roomId)
+        }
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: DB event count for room $roomId: $eventCount")
+        
+        if (eventCount < 20) {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Only $eventCount events in DB (< 20), requesting pagination")
+            // Request pagination to get more events
+            appViewModel.loadOlderMessages(roomId, showToast = false)
+        } else {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Sufficient events in DB ($eventCount >= 20), skipping pagination")
+        }
+        
         // Request room state first, then timeline
         appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId)
@@ -1332,6 +1352,8 @@ fun BubbleTimelineScreen(
                 Column(
                     modifier =
                         Modifier.fillMaxSize()
+                            // CRITICAL FIX: Don't add imePadding to Column - let the window shrink naturally
+                            // The weight(1f) timeline will compress when message box takes space with imePadding
                             .then(
                                 if (showDeleteDialog) {
                                     Modifier.blur(10.dp)
@@ -1534,6 +1556,7 @@ fun BubbleTimelineScreen(
                 modifier =
                     Modifier.fillMaxWidth()
                         .navigationBarsPadding()
+                        .imePadding() // CRITICAL FIX: Keep message box above keyboard
                     ) {
                     Row(
                         modifier =

@@ -498,6 +498,7 @@ fun RoomListScreen(
         val directRoomId = appViewModel.getDirectRoomNavigation()
         if (directRoomId != null) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: OPTIMIZATION #1 + #4 - Direct navigation with cache-first loading to: $directRoomId")
+            // CRITICAL FIX: Clear direct navigation state BEFORE navigating to prevent state confusion
             appViewModel.clearDirectRoomNavigation()
             // OPTIMIZATION #4: Use cache-first navigation for instant loading
             appViewModel.navigateToRoomWithCache(directRoomId)
@@ -510,6 +511,7 @@ fun RoomListScreen(
         val pendingRoomId = appViewModel.getPendingRoomNavigation()
         if (pendingRoomId != null) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Detected pending room navigation to: $pendingRoomId")
+            // CRITICAL FIX: Clear pending navigation state BEFORE navigating to prevent state confusion
             appViewModel.clearPendingRoomNavigation()
             // OPTIMIZATION #4: Use cache-first navigation for pending navigation too
             appViewModel.navigateToRoomWithCache(pendingRoomId)
@@ -1620,6 +1622,10 @@ fun RoomListContent(
                         hapticFeedback.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                         coroutineScope.launch {
                             try {
+                                // CRITICAL FIX: Set currentRoomId immediately when navigating from room list
+                                // This ensures state is consistent across all navigation paths
+                                appViewModel.setCurrentRoomIdForTimeline(roomIdForNavigation)
+                                
                                 val prefetchSuccess = appViewModel.prefetchRoomSnapshot(roomIdForNavigation)
                                 if (!prefetchSuccess) {
                                     android.util.Log.w(

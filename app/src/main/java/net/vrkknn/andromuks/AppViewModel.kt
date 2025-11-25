@@ -4374,6 +4374,18 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Sets the current room ID when a timeline screen opens.
+     * This should be called by RoomTimelineScreen when it opens to ensure state is consistent
+     * across all navigation paths (RoomListScreen, notifications, shortcuts).
+     */
+    fun setCurrentRoomIdForTimeline(roomId: String) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setCurrentRoomIdForTimeline called for room: $roomId (current: $currentRoomId)")
+        if (currentRoomId != roomId) {
+            updateCurrentRoomIdInPrefs(roomId)
+        }
+    }
+    
+    /**
      * Clears the current room ID when user navigates back to room list.
      * This allows notifications to resume for rooms that were previously open.
      */

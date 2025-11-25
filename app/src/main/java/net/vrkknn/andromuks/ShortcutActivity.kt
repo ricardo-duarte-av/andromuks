@@ -140,6 +140,11 @@ fun ShortcutNavigation(roomId: String) {
     LaunchedEffect(roomId) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Direct navigation to room: $roomId")
         
+        // CRITICAL FIX: Set currentRoomId immediately for shortcut navigation
+        // This ensures state is consistent even though ShortcutActivity uses a separate AppViewModel instance
+        // The state will be synchronized via SharedPreferences
+        appViewModel.setCurrentRoomIdForTimeline(roomId)
+        
         // Use cache-first navigation for instant loading
         // This will fall back to database loading if RAM cache is empty
         appViewModel.navigateToRoomWithCache(roomId)

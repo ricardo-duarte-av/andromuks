@@ -149,8 +149,8 @@ fun EmojiSelectionDialog(
                         .padding(8.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    // Recent tab (index 0)
-                    item {
+                    // Recent tab (index 0) - only show if there are recent emojis or always show for consistency
+                    item(key = "recent") {
                         Surface(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
@@ -173,9 +173,15 @@ fun EmojiSelectionDialog(
                     }
                     
                     // Standard emoji category tabs (index 1 to emojiCategories.size)
-                    items(emojiCategories.size) { index ->
-                        val category = emojiCategories[index]
-                        val categoryIndex = index + 1 // Offset by 1 for recent tab
+                    // Filter out the "Recent" category since we manually create the recent tab
+                    val filteredCategories = emojiCategories.filter { it.name != "Recent" }
+                    items(
+                        items = filteredCategories,
+                        key = { it.name }
+                    ) { category ->
+                        // Calculate index based on position in original list (before filtering)
+                        val originalIndex = emojiCategories.indexOf(category)
+                        val categoryIndex = originalIndex + 1 // Offset by 1 for recent tab
                         Surface(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))
@@ -197,10 +203,15 @@ fun EmojiSelectionDialog(
                         }
                     }
                     
-                    // Custom emoji pack tabs
-                    items(customEmojiPacks.size) { index ->
-                        val pack = customEmojiPacks[index]
-                        val packIndex = 1 + emojiCategories.size + index // Offset by recent + standard categories
+                    // Custom emoji pack tabs - filter out any packs with displayName matching the recent tab icon
+                    val filteredCustomPacks = customEmojiPacks.filter { it.displayName != "🕒" && it.displayName.isNotBlank() }
+                    items(
+                        items = filteredCustomPacks,
+                        key = { "${it.roomId}_${it.packName}" }
+                    ) { pack ->
+                        // Calculate index based on position in original list (before filtering)
+                        val originalIndex = customEmojiPacks.indexOf(pack)
+                        val packIndex = 1 + emojiCategories.size + originalIndex // Offset by recent + standard categories
                         Surface(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(8.dp))

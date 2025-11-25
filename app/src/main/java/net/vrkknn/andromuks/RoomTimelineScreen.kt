@@ -1232,6 +1232,10 @@ fun RoomTimelineScreen(
 
     LaunchedEffect(roomId) {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Loading timeline for room: $roomId")
+        // CRITICAL FIX: Set currentRoomId immediately when screen opens (for all navigation paths)
+        // This ensures state is consistent whether opening from RoomListScreen, notification, or shortcut
+        appViewModel.setCurrentRoomIdForTimeline(roomId)
+        
         // Reset state for new room
         pendingScrollRestoration = false
         anchorEventIdForRestore = null
@@ -1243,6 +1247,24 @@ fun RoomTimelineScreen(
         // Request room state first, then timeline
         appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId)
+    }
+    
+    // CRITICAL FIX: Clear currentRoomId when leaving the room (back navigation or room change)
+    // This ensures notifications resume when user navigates away
+    // Using roomId as key ensures this disposes when:
+    // 1. User navigates back (composable removed)
+    // 2. User switches to a different room (roomId changes, old room's effect disposes)
+    DisposableEffect(roomId) {
+        onDispose {
+            // Only clear if this room is still the current room (user navigated away)
+            // If user switched to a different room, the new room's LaunchedEffect will have already set currentRoomId
+            if (appViewModel.currentRoomId == roomId) {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Disposing - clearing currentRoomId for room: $roomId")
+                appViewModel.clearCurrentRoomId()
+            } else {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Disposing - not clearing currentRoomId (current: ${appViewModel.currentRoomId}, this room: $roomId)")
+            }
+        }
     }
     
     // Track last known refresh trigger to detect when app resumes
@@ -1457,7 +1479,13 @@ fun RoomTimelineScreen(
     }
 
     // Handle Android back key
-    BackHandler { navController.popBackStack() }
+    BackHandler { 
+        // CRITICAL FIX: Clear currentRoomId when navigating back to ensure notifications resume
+        if (appViewModel.currentRoomId == roomId) {
+            appViewModel.clearCurrentRoomId()
+        }
+        navController.popBackStack() 
+    }
 
     // Use imePadding for keyboard handling
     val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()

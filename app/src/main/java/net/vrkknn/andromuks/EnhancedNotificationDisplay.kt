@@ -470,7 +470,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // but make it silent and non-interruptive to avoid closing the inactive bubble
             val bubbleAlreadyOpen = BubbleTracker.isBubbleOpen(notificationData.roomId)
             val bubbleIsVisible = BubbleTracker.isBubbleVisible(notificationData.roomId)
-            if (BuildConfig.DEBUG) Log.d(TAG, "Bubble check for room ${notificationData.roomId}: open = $bubbleAlreadyOpen, visible = $bubbleIsVisible")
+            val totalOpenBubbles = BubbleTracker.getOpenBubbles().size
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "Bubble check for room ${notificationData.roomId}: open = $bubbleAlreadyOpen, visible = $bubbleIsVisible, total open bubbles = $totalOpenBubbles")
+                if (totalOpenBubbles >= 4) {
+                    Log.w(TAG, "WARNING: ${totalOpenBubbles} bubbles are currently open - this may cause issues")
+                }
+            }
             
             // Always create bubble metadata - needed for bubble lifecycle management
             // The metadata's setSuppressNotification will be set based on visibility
@@ -642,18 +648,18 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     PendingIntent.FLAG_UPDATE_CURRENT
                 }
                 
-                // CRITICAL FIX: Use unique request code per notification to prevent PendingIntent conflicts
-                // Include event_id or timestamp to ensure uniqueness when multiple notifications arrive
-                val uniqueRequestCode = (notificationData.roomId.hashCode() + 
-                    (notificationData.eventId?.hashCode() ?: 0) + 
-                    (notificationData.timestamp?.toInt() ?: 0)).let { 
+                // CRITICAL FIX: Use stable request code per room to prevent multiple bubble instances
+                // The request code must be stable per room so Android recognizes it's the same bubble
+                // If we change the request code for each notification, Android creates new bubble instances
+                // This causes confusion when multiple bubbles are open (especially after 4+ bubbles)
+                val stableRequestCode = notificationData.roomId.hashCode().let { 
                     // Ensure positive value for request code
                     if (it < 0) -it else it 
                 }
                 
                 val bubblePendingIntent = PendingIntent.getActivity(
                     context,
-                    uniqueRequestCode,
+                    stableRequestCode, // Stable per room - don't change for each notification
                     bubbleIntent,
                     pendingIntentFlags
                 )
