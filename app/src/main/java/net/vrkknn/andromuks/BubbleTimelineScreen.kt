@@ -48,6 +48,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Mood
+import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material3.Button
@@ -130,6 +131,7 @@ import net.vrkknn.andromuks.utils.CustomBubbleTextField
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EditPreviewInput
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
+import net.vrkknn.andromuks.utils.StickerSelectionDialog
 import net.vrkknn.andromuks.utils.EmoteEventNarrator
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.InlineReadReceiptAvatars
@@ -440,6 +442,9 @@ fun BubbleTimelineScreen(
     
     // Emoji selection state for text input
     var showEmojiPickerForText by remember { mutableStateOf(false) }
+    
+    // Sticker selection state for text input
+    var showStickerPickerForText by remember { mutableStateOf(false) }
 
     // Media picker state
     var selectedMediaUri by remember { mutableStateOf<Uri?>(null) }
@@ -1724,15 +1729,32 @@ fun BubbleTimelineScreen(
                                         }
                                     },
                                     trailingIcon = {
-                                        IconButton(
-                                            onClick = { showEmojiPickerForText = true },
-                                            modifier = Modifier.size(24.dp)
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Mood,
-                                                contentDescription = "Emoji",
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
+                                            // Sticker button
+                                            IconButton(
+                                                onClick = { showStickerPickerForText = true },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.StickyNote2,
+                                                    contentDescription = "Stickers",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            // Emoji button
+                                            IconButton(
+                                                onClick = { showEmojiPickerForText = true },
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Mood,
+                                                    contentDescription = "Emoji",
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
                                         }
                                     },
                                     keyboardOptions = KeyboardOptions(
@@ -2122,6 +2144,38 @@ fun BubbleTimelineScreen(
                             showEmojiPickerForText = false
                         },
                         customEmojiPacks = appViewModel.customEmojiPacks
+                    )
+                }
+                
+                // Sticker selection dialog for text input
+                if (showStickerPickerForText) {
+                    StickerSelectionDialog(
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onStickerSelected = { sticker ->
+                            // Send sticker message
+                            val mimeType = sticker.info?.optString("mimetype") ?: "image/png"
+                            val size = sticker.info?.optLong("size") ?: 0L
+                            val width = sticker.info?.optInt("w", 0) ?: 0
+                            val height = sticker.info?.optInt("h", 0) ?: 0
+                            val body = sticker.body ?: sticker.name
+                            
+                            appViewModel.sendStickerMessage(
+                                roomId = roomId,
+                                mxcUrl = sticker.mxcUrl,
+                                body = body,
+                                mimeType = mimeType,
+                                size = size,
+                                width = width,
+                                height = height
+                            )
+                            
+                            showStickerPickerForText = false
+                        },
+                        onDismiss = {
+                            showStickerPickerForText = false
+                        },
+                        stickerPacks = appViewModel.stickerPacks
                     )
                 }
                 

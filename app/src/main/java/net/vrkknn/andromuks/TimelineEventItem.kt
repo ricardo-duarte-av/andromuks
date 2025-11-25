@@ -406,6 +406,7 @@ private fun MessageTypeContent(
                 onEdit = onEdit,
                 onDelete = onDelete,
                 myUserId = myUserId,
+                isConsecutive = isConsecutive,
                 onThreadClick = onThreadClick
             )
         }
@@ -554,6 +555,36 @@ private fun RoomMessageContent(
             timelineEvents.find<TimelineEvent> { it.eventId == reply.eventId }
         }
 
+    // Check if it's a sticker message (sent via send_message with base_content)
+    if (msgType == "m.sticker") {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TimelineEventItem: Detected m.sticker message in m.room.message event ${event.eventId}, isConsecutive=$isConsecutive")
+        val stickerMessage = extractStickerFromEvent(event)
+        if (stickerMessage != null) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TimelineEventItem: Successfully extracted sticker, rendering StickerMessageContent with isConsecutive=$isConsecutive")
+            StickerMessageContent(
+                event = event,
+                actualIsMine = actualIsMine,
+                readReceipts = readReceipts,
+                userProfileCache = userProfileCache,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                appViewModel = appViewModel,
+                onUserClick = onUserClick,
+                onReply = onReply,
+                onReact = onReact,
+                onEdit = onEdit,
+                onDelete = onDelete,
+                myUserId = myUserId,
+                isConsecutive = isConsecutive,
+                onThreadClick = onThreadClick
+            )
+        } else {
+            // Fallback: show as text if sticker extraction fails
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "TimelineEventItem: Failed to extract sticker from m.room.message with msgtype m.sticker")
+        }
+        return
+    }
+    
     // Check if it's a media message
     if (msgType == "m.image" || msgType == "m.video" || msgType == "m.audio" || msgType == "m.file") {
         RoomMediaMessageContent(
@@ -1905,6 +1936,7 @@ private fun EncryptedMessageContent(
                 onEdit = onEdit,
                 onDelete = onDelete,
                 myUserId = myUserId,
+                isConsecutive = isConsecutive,
                 onThreadClick = onThreadClick
             )
         } else {
@@ -1937,14 +1969,19 @@ private fun StickerMessageContent(
     onEdit: (TimelineEvent) -> Unit,
     onDelete: (TimelineEvent) -> Unit,
     myUserId: String?,
+    isConsecutive: Boolean,
     onThreadClick: (TimelineEvent) -> Unit
 ) {
+    if (BuildConfig.DEBUG) Log.d(
+        "Andromuks",
+        "StickerMessageContent: Rendering sticker event ${event.eventId}, isConsecutive=$isConsecutive"
+    )
     val stickerMessage = extractStickerFromEvent(event)
 
     if (stickerMessage != null) {
         if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
-            "TimelineEventItem: Found sticker - url=${stickerMessage.url}, body=${stickerMessage.body}, dimensions=${stickerMessage.width}x${stickerMessage.height}"
+            "TimelineEventItem: Found sticker - url=${stickerMessage.url}, body=${stickerMessage.body}, dimensions=${stickerMessage.width}x${stickerMessage.height}, isConsecutive=$isConsecutive"
         )
 
         Row(
@@ -1977,7 +2014,7 @@ private fun StickerMessageContent(
                 isEncrypted = stickerMessage.hasEncryptedFile,
                 event = event,
                 timestamp = event.timestamp,
-                isConsecutive = false,
+                isConsecutive = isConsecutive,
                 onReply = { onReply(event) },
                 onReact = { onReact(event) },
                 onEdit = { onEdit(event) },

@@ -344,6 +344,13 @@ class AppViewModel : ViewModel() {
         val info: org.json.JSONObject?
     )
     
+    data class Sticker(
+        val name: String,
+        val mxcUrl: String,
+        val body: String?,
+        val info: org.json.JSONObject?
+    )
+    
     data class EmojiPack(
         val packName: String,
         val displayName: String,
@@ -351,7 +358,17 @@ class AppViewModel : ViewModel() {
         val emojis: List<CustomEmoji>
     )
     
+    data class StickerPack(
+        val packName: String,
+        val displayName: String,
+        val roomId: String,
+        val stickers: List<Sticker>
+    )
+    
     var customEmojiPacks by mutableStateOf(listOf<EmojiPack>())
+        private set
+    
+    var stickerPacks by mutableStateOf(listOf<StickerPack>())
         private set
     
     // Track pending emoji pack requests: requestId -> (roomId, packName)
@@ -2830,9 +2847,11 @@ class AppViewModel : ViewModel() {
         // Process im.ponies.emote_rooms for custom emoji packs
         val emoteRoomsData = accountDataJson.optJSONObject("im.ponies.emote_rooms")
         if (emoteRoomsData != null) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found im.ponies.emote_rooms account data")
             val content = emoteRoomsData.optJSONObject("content")
             val rooms = content?.optJSONObject("rooms")
             if (rooms != null) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found rooms object in emote_rooms, requesting emoji pack data")
                 // Request emoji pack data for each room/pack combination
                 val keys = rooms.names()
                 if (keys != null) {
@@ -2844,13 +2863,20 @@ class AppViewModel : ViewModel() {
                             if (packNames != null) {
                                 for (j in 0 until packNames.length()) {
                                     val packName = packNames.optString(j)
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting emoji pack data for pack $packName in room $roomId")
                                     requestEmojiPackData(roomId, packName)
                                 }
                             }
                         }
                     }
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No room keys found in emote_rooms")
                 }
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No rooms object found in emote_rooms content")
             }
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms account data found")
         }
     }
     
@@ -8061,6 +8087,72 @@ class AppViewModel : ViewModel() {
     }
     
     /**
+     * Send a sticker message
+     */
+    fun sendStickerMessage(
+        roomId: String,
+        mxcUrl: String,
+        body: String,
+        mimeType: String,
+        size: Long,
+        width: Int = 0,
+        height: Int = 0
+    ) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendStickerMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', body: '$body', width: $width, height: $height")
+        
+        val ws = webSocket ?: return
+        val messageRequestId = requestIdCounter++
+        
+        // Track this outgoing request
+        trackOutgoingRequest(messageRequestId, roomId)
+        
+        val json = org.json.JSONObject()
+        json.put("command", "send_message")
+        json.put("request_id", messageRequestId)
+        
+        val data = org.json.JSONObject()
+        data.put("room_id", roomId)
+        data.put("text", "")
+        
+        // Create base_content for sticker
+        val baseContent = org.json.JSONObject()
+        baseContent.put("msgtype", "m.sticker")
+        baseContent.put("body", body)
+        baseContent.put("url", mxcUrl)
+        
+        val info = org.json.JSONObject()
+        info.put("mimetype", mimeType)
+        info.put("size", size)
+        // Include width and height if provided (required for rendering)
+        if (width > 0 && height > 0) {
+            info.put("w", width)
+            info.put("h", height)
+        }
+        baseContent.put("info", info)
+        
+        data.put("base_content", baseContent)
+        
+        // Empty mentions
+        val mentionsObj = org.json.JSONObject()
+        mentionsObj.put("user_ids", org.json.JSONArray())
+        mentionsObj.put("room", false)
+        data.put("mentions", mentionsObj)
+        
+        // Empty url_previews
+        data.put("url_previews", org.json.JSONArray())
+        
+        json.put("data", data)
+        
+        val payload = json.toString()
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending sticker message: $payload")
+        ws.send(payload)
+        
+        messageRequests[messageRequestId] = roomId
+        pendingSendCount++
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sticker message send queued with request_id: $messageRequestId")
+    }
+    
+    /**
      * Send a video message with thumbnail
      */
     fun sendVideoMessage(
@@ -9579,6 +9671,7 @@ class AppViewModel : ViewModel() {
                         
                         if (images != null) {
                             val emojis = mutableListOf<CustomEmoji>()
+                            val stickers = mutableListOf<Sticker>()
                             val imageKeys = images.names()
                             if (imageKeys != null) {
                                 for (i in 0 until imageKeys.length()) {
@@ -9586,35 +9679,62 @@ class AppViewModel : ViewModel() {
                                     val emojiData = images.optJSONObject(emojiName)
                                     if (emojiData != null) {
                                         val usage = emojiData.optJSONArray("usage")
-                                        // Filter: include if no usage key, or if usage contains "emoticon"
-                                        // Exclude if usage only contains "sticker" (and not "emoticon")
-                                        val shouldInclude = if (usage == null || usage.length() == 0) {
-                                            true // No usage key means it can be used as emoji
-                                        } else {
-                                            var hasEmoticon = false
-                                            var hasSticker = false
-                                            for (j in 0 until usage.length()) {
-                                                val usageItem = usage.optString(j)
-                                                if (usageItem == "emoticon") {
-                                                    hasEmoticon = true
-                                                } else if (usageItem == "sticker") {
-                                                    hasSticker = true
-                                                }
-                                            }
-                                            // Include if has emoticon, or if no usage specified (but we already checked for null/empty)
-                                            // Exclude if only has sticker (and no emoticon)
-                                            hasEmoticon || (!hasSticker)
-                                        }
+                                        val mxcUrl = emojiData.optString("url")
+                                        val info = emojiData.optJSONObject("info")
                                         
-                                        if (shouldInclude) {
-                                            val mxcUrl = emojiData.optString("url")
-                                            if (mxcUrl.isNotBlank() && mxcUrl.startsWith("mxc://")) {
-                                                val info = emojiData.optJSONObject("info")
-                                                emojis.add(CustomEmoji(
+                                        if (mxcUrl.isNotBlank() && mxcUrl.startsWith("mxc://")) {
+                                            // Check if this is a sticker (has usage "sticker" and not "emoticon")
+                                            val isSticker = if (usage != null && usage.length() > 0) {
+                                                var hasSticker = false
+                                                var hasEmoticon = false
+                                                for (j in 0 until usage.length()) {
+                                                    val usageItem = usage.optString(j)
+                                                    if (usageItem == "sticker") {
+                                                        hasSticker = true
+                                                    } else if (usageItem == "emoticon") {
+                                                        hasEmoticon = true
+                                                    }
+                                                }
+                                                hasSticker && !hasEmoticon
+                                            } else {
+                                                false
+                                            }
+                                            
+                                            if (isSticker) {
+                                                // This is a sticker
+                                                stickers.add(Sticker(
                                                     name = emojiName,
                                                     mxcUrl = mxcUrl,
+                                                    body = emojiName, // Use name as body/caption
                                                     info = info
                                                 ))
+                                            } else {
+                                                // This is an emoji (no usage, or has emoticon, or has both)
+                                                val shouldInclude = if (usage == null || usage.length() == 0) {
+                                                    true // No usage key means it can be used as emoji
+                                                } else {
+                                                    var hasEmoticon = false
+                                                    var hasSticker = false
+                                                    for (j in 0 until usage.length()) {
+                                                        val usageItem = usage.optString(j)
+                                                        if (usageItem == "emoticon") {
+                                                            hasEmoticon = true
+                                                        } else if (usageItem == "sticker") {
+                                                            hasSticker = true
+                                                        }
+                                                    }
+                                                    // Include if has emoticon, or if no usage specified (but we already checked for null/empty)
+                                                    // Exclude if only has sticker (and no emoticon)
+                                                    hasEmoticon || (!hasSticker)
+                                                }
+                                                
+                                                if (shouldInclude) {
+                                                    emojis.add(CustomEmoji(
+                                                        name = emojiName,
+                                                        mxcUrl = mxcUrl,
+                                                        info = info
+                                                    ))
+                                                }
                                             }
                                         }
                                     }
@@ -9641,6 +9761,28 @@ class AppViewModel : ViewModel() {
                                 
                                 customEmojiPacks = existingPacks
                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated emoji pack $packName with ${emojis.size} emojis")
+                            }
+                            
+                            if (stickers.isNotEmpty()) {
+                                // Update or add sticker pack
+                                val existingStickerPacks = stickerPacks.toMutableList()
+                                val existingStickerIndex = existingStickerPacks.indexOfFirst { it.roomId == roomId && it.packName == packName }
+                                
+                                val newStickerPack = StickerPack(
+                                    packName = packName,
+                                    displayName = displayName,
+                                    roomId = roomId,
+                                    stickers = stickers
+                                )
+                                
+                                if (existingStickerIndex >= 0) {
+                                    existingStickerPacks[existingStickerIndex] = newStickerPack
+                                } else {
+                                    existingStickerPacks.add(newStickerPack)
+                                }
+                                
+                                stickerPacks = existingStickerPacks
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated sticker pack $packName with ${stickers.size} stickers")
                             }
                         }
                     }

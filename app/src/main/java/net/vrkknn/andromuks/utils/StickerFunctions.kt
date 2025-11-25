@@ -80,9 +80,19 @@ data class StickerMessage(
 fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
     // For unencrypted stickers, use content
     // For encrypted stickers, use decrypted content
+    // Also handle m.room.message events with msgtype: "m.sticker" (sent via send_message with base_content)
     val stickerContent = when {
         event.type == "m.sticker" -> event.content
         event.type == "m.room.encrypted" && event.decryptedType == "m.sticker" -> event.decrypted
+        event.type == "m.room.message" -> {
+            // Check if this is a sticker message (msgtype: "m.sticker")
+            val msgType = event.content?.optString("msgtype", "")
+            if (msgType == "m.sticker") {
+                event.content
+            } else {
+                null
+            }
+        }
         else -> null
     } ?: return null
     
@@ -215,6 +225,7 @@ fun StickerMessage(
     }
     
     // Stickers are displayed without a caption bubble, just the image
+    // Match image rendering pattern exactly
     if (event != null) {
         MessageBubbleWithMenu(
             event = event,
@@ -238,10 +249,8 @@ fun StickerMessage(
             appViewModel = appViewModel,
             onBubbleClick = onBubbleClick
         ) {
-            // Minimal padding for stickers - tight fit with just a small border
-            Column(
-                modifier = Modifier.padding(4.dp)
-            ) {
+            Column {
+                // Sticker content (similar to MediaContent for images)
                 StickerContent(
                     stickerMessage = stickerMessage,
                     homeserverUrl = homeserverUrl,
@@ -250,7 +259,7 @@ fun StickerMessage(
                     onStickerClick = { showStickerViewer = true }
                 )
                 
-                // Timestamp (for consecutive messages)
+                // Timestamp (for consecutive messages) - matches MediaBubbleTimestamp pattern
                 if (timestamp != null) {
                     StickerBubbleTimestamp(
                         timestamp = timestamp,
