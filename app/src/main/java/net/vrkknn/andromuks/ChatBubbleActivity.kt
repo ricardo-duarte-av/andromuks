@@ -98,7 +98,11 @@ class ChatBubbleActivity : ComponentActivity() {
                             uriRoomId
                         }
                         
+                        // CRITICAL: Track bubble at Activity level for reliable detection
+                        // This ensures bubble is tracked even if Composable hasn't composed yet
                         if (extractedRoomId != null) {
+                            BubbleTracker.onBubbleOpened(extractedRoomId)
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCreate - Tracked bubble opened at Activity level for room: $extractedRoomId")
                             appViewModel.setPendingBubbleNavigation(extractedRoomId)
                         }
                     },
@@ -139,8 +143,12 @@ class ChatBubbleActivity : ComponentActivity() {
                     extractRoomIdFromMatrixUri(intent.data)
         
         if (roomId != null) {
+            // CRITICAL: Ensure bubble is tracked as open (backup in case onCreate didn't catch it)
+            // This handles cases where room ID wasn't available in onCreate
+            // IMPORTANT: Activity-level tracking is authoritative - don't let Composable lifecycle override it
+            BubbleTracker.onBubbleOpened(roomId)
             BubbleTracker.onBubbleVisible(roomId)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: Tracked bubble visible for room: $roomId")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onResume - Tracked bubble opened and visible for room: $roomId")
         }
         
         if (::appViewModel.isInitialized) {
@@ -177,6 +185,28 @@ class ChatBubbleActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onNewIntent called - bubble reactivated")
+        
+        // CRITICAL FIX: Update the intent to handle new notifications for existing bubble
+        // This prevents the activity from restarting when a new notification arrives
+        setIntent(intent)
+        
+        // Extract room ID from new intent
+        val roomId = intent.getStringExtra("room_id") ?: 
+                    extractRoomIdFromMatrixUri(intent.data)
+        
+        if (roomId != null) {
+            // CRITICAL: Track bubble for new room ID (in case room changed)
+            BubbleTracker.onBubbleOpened(roomId)
+            BubbleTracker.onBubbleVisible(roomId)
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onNewIntent - Tracked bubble opened for room: $roomId")
+            
+            if (::appViewModel.isInitialized) {
+                // Update navigation to the new room if different, or refresh if same room
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onNewIntent - updating navigation for room: $roomId")
+                appViewModel.setPendingBubbleNavigation(roomId)
+            }
+        }
+        
         // When the bubble is tapped again, bring it to foreground
         // Note: moveTaskToFront() is not available in ComponentActivity
         // The system will handle bringing the bubble to foreground
@@ -202,8 +232,30 @@ class ChatBubbleActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onDestroy called")
-        // Note: Bubble tracking is handled in BubbleTimelineScreen's DisposableEffect
-        // which is more accurate as it tracks when the actual screen is shown/hidden
+        
+        // CRITICAL: Track bubble closure at Activity level for reliable detection
+        // Extract room ID from intent to track which bubble was closed
+        // IMPORTANT: Activity-level tracking is authoritative - this runs AFTER ViewModel is cleared
+        // so it ensures bubble state is accurate even if Composable disposed early
+        val roomId = intent.getStringExtra("room_id") ?: 
+                    extractRoomIdFromMatrixUri(intent.data)
+        
+        if (roomId != null) {
+            // Only close if not already closed (handles case where Composable already closed it)
+            // But Activity-level tracking should be the final authority
+            if (BubbleTracker.isBubbleOpen(roomId)) {
+                BubbleTracker.onBubbleInvisible(roomId)
+                BubbleTracker.onBubbleClosed(roomId)
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onDestroy - Tracked bubble closed at Activity level for room: $roomId")
+            } else {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onDestroy - Bubble already closed (likely by Composable disposal) for room: $roomId")
+            }
+        } else {
+            if (BuildConfig.DEBUG) Log.w("Andromuks", "ChatBubbleActivity: onDestroy - Could not extract room ID from intent")
+        }
+        
+        // Note: BubbleTimelineScreen's DisposableEffect also tracks bubbles for redundancy
+        // but Activity-level tracking in onDestroy() is the final authority for notification dismissal checks
     }
     
     /**

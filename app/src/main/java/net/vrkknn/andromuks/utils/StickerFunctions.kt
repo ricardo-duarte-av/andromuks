@@ -118,13 +118,16 @@ fun extractStickerFromEvent(event: TimelineEvent): StickerMessage? {
     val width = info.optInt("w", 0)
     val height = info.optInt("h", 0)
     
+    // Use default dimensions if missing (similar to how images handle missing dimensions)
+    val finalWidth = if (width <= 0) 256 else width
+    val finalHeight = if (height <= 0) 256 else height
+    
     if (width <= 0 || height <= 0) {
-        Log.w("Andromuks", "StickerFunctions: Invalid sticker dimensions - width=$width, height=$height")
-        return null
+        if (BuildConfig.DEBUG) Log.w("Andromuks", "StickerFunctions: Missing sticker dimensions, using defaults - width=$finalWidth, height=$finalHeight")
     }
     
-    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${width}x${height}, hasEncryptedFile=$hasEncryptedFile")
-    return StickerMessage(url, body, width, height, hasEncryptedFile)
+    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerFunctions: Extracted sticker - url=$url, body=$body, dimensions=${finalWidth}x${finalHeight}, hasEncryptedFile=$hasEncryptedFile")
+    return StickerMessage(url, body, finalWidth, finalHeight, hasEncryptedFile)
 }
 
 /**

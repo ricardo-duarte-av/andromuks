@@ -36,7 +36,15 @@ class NotificationMarkReadReceiver : BroadcastReceiver() {
             context.sendBroadcast(broadcastIntent)
             if (BuildConfig.DEBUG) Log.d(TAG, "Sent mark read broadcast to package: ${context.packageName}")
             
-            // Dismiss the notification immediately for instant feedback
+            // CRITICAL FIX: Only dismiss notification if bubble is not open
+            // Cancelling the notification when a bubble is open causes Android to destroy the bubble
+            val isBubbleOpen = BubbleTracker.isBubbleOpen(roomId)
+            if (isBubbleOpen) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "NOT dismissing notification for room: $roomId - bubble is open (prevents bubble destruction)")
+                return
+            }
+            
+            // Dismiss the notification immediately for instant feedback (only if no bubble)
             try {
                 val notificationManager = NotificationManagerCompat.from(context)
                 val notifID = roomId.hashCode()

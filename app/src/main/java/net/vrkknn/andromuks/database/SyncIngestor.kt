@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.database.dao.AccountDataDao
@@ -1200,25 +1201,29 @@ class SyncIngestor(private val context: Context) {
             }
             
             if (candidates.isNotEmpty() || reactionUpserts.isNotEmpty() || reactionDeletes.isNotEmpty()) {
-                database.withTransaction {
-                    if (candidates.isNotEmpty()) {
-                        eventDao.upsertAll(candidates.map { it.entity })
-                    }
-                    if (reactionDeletes.isNotEmpty()) {
-                        if (BuildConfig.DEBUG) Log.d(
-                            TAG,
-                            "SyncIngestor: Deleting ${reactionDeletes.size} reactions -> ${reactionDeletes.joinToString()}"
-                        )
-                        reactionDao.deleteByEventIds(reactionDeletes.toList())
-                    }
-                    if (reactionUpserts.isNotEmpty()) {
-                        if (BuildConfig.DEBUG) Log.d(
-                            TAG,
-                            "SyncIngestor: Upserting ${reactionUpserts.size} reactions -> ${
-                                reactionUpserts.values.joinToString { it.eventId }
-                            }"
-                        )
-                        reactionDao.upsertAll(reactionUpserts.values.toList())
+                // CRITICAL: Use NonCancellable to ensure database transaction completes even if coroutine is cancelled
+                // This prevents data loss when ViewModel is cleared (e.g., when activity is destroyed)
+                withContext(NonCancellable) {
+                    database.withTransaction {
+                        if (candidates.isNotEmpty()) {
+                            eventDao.upsertAll(candidates.map { it.entity })
+                        }
+                        if (reactionDeletes.isNotEmpty()) {
+                            if (BuildConfig.DEBUG) Log.d(
+                                TAG,
+                                "SyncIngestor: Deleting ${reactionDeletes.size} reactions -> ${reactionDeletes.joinToString()}"
+                            )
+                            reactionDao.deleteByEventIds(reactionDeletes.toList())
+                        }
+                        if (reactionUpserts.isNotEmpty()) {
+                            if (BuildConfig.DEBUG) Log.d(
+                                TAG,
+                                "SyncIngestor: Upserting ${reactionUpserts.size} reactions -> ${
+                                    reactionUpserts.values.joinToString { it.eventId }
+                                }"
+                            )
+                            reactionDao.upsertAll(reactionUpserts.values.toList())
+                        }
                     }
                 }
                 candidates.forEach { candidate ->

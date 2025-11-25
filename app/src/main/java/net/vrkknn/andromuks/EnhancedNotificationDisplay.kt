@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import androidx.core.content.LocusIdCompat
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -464,6 +465,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Use conversation channel for all notifications
             val channelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
             
+            // CRITICAL FIX: Check if a bubble already exists for this room
+            // When bubble is open, we still need to post the notification (for unread indicator and bubble lifecycle)
+            // but make it silent and non-interruptive to avoid closing the inactive bubble
+            val bubbleAlreadyOpen = BubbleTracker.isBubbleOpen(notificationData.roomId)
+            val bubbleIsVisible = BubbleTracker.isBubbleVisible(notificationData.roomId)
+            if (BuildConfig.DEBUG) Log.d(TAG, "Bubble check for room ${notificationData.roomId}: open = $bubbleAlreadyOpen, visible = $bubbleIsVisible")
+            
+            // Always create bubble metadata - needed for bubble lifecycle management
+            // The metadata's setSuppressNotification will be set based on visibility
             val bubbleMetadata = createBubbleMetadata(
                 notificationData = notificationData,
                 isGroupRoom = isGroupRoom,
@@ -481,15 +491,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
             
             // Create main notification
+            // CRITICAL: When bubble is open, make notification silent and non-interruptive
+            // This keeps the bubble alive and updates unread indicator without closing/recreating the bubble
             val notification = NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(R.drawable.matrix) // Minimized icon in status bar
                 .setStyle(messagingStyle)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setContentIntent(createRoomIntent(notificationData))
                 .setAutoCancel(true)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setGroup(notificationData.roomId) // Group by room
                 .setGroupSummary(false)
                 .apply {
@@ -505,7 +515,32 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         setShortcutId(notificationData.roomId)
                     }
                     
+                    // Always set bubble metadata - needed for bubble lifecycle management
                     bubbleMetadata?.let { setBubbleMetadata(it) }
+                    
+                    // Add LocusId for conversation tracking (Android 10+)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        try {
+                            val locusId = LocusIdCompat(notificationData.roomId)
+                            setLocusId(locusId)
+                        } catch (e: Exception) {
+                            if (BuildConfig.DEBUG) Log.w(TAG, "Could not set LocusId", e)
+                        }
+                    }
+                    
+                    // CRITICAL: When bubble is open, make notification silent and non-interruptive
+                    if (bubbleAlreadyOpen) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Bubble is open - making notification silent and non-interruptive for room: ${notificationData.roomId}")
+                        // Silent notification - no sound, vibration, or heads-up
+                        setSilent(true)
+                        setOnlyAlertOnce(true) // Avoid re-alerting
+                        setPriority(NotificationCompat.PRIORITY_LOW) // Lower priority to avoid interruption
+                        setDefaults(0) // No sound, vibration, or lights
+                    } else {
+                        // Normal notification behavior when bubble is not open
+                        setPriority(NotificationCompat.PRIORITY_HIGH)
+                        setDefaults(NotificationCompat.DEFAULT_ALL)
+                    }
                     
                     // Store event_id in extras for later retrieval
                     if (notificationData.eventId != null) {
@@ -585,13 +620,20 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     ): NotificationCompat.BubbleMetadata? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
+                // CRITICAL FIX: Use FLAG_ACTIVITY_SINGLE_TOP instead of CLEAR_TOP to prevent activity restarts
+                // SINGLE_TOP brings existing activity to front without restarting, preventing crashes
+                // Also add FLAG_ACTIVITY_NEW_DOCUMENT for proper bubble task management
                 val bubbleIntent = Intent(context, ChatBubbleActivity::class.java).apply {
                     action = "net.vrkknn.andromuks.ACTION_OPEN_BUBBLE"
                     data = android.net.Uri.parse("matrix:bubble/${notificationData.roomId.substring(1)}")
                     putExtra("room_id", notificationData.roomId)
                     putExtra("direct_navigation", true)
                     putExtra("bubble_mode", true)
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    // Use SINGLE_TOP to prevent restarting existing bubble activity
+                    // Use NEW_DOCUMENT for proper bubble task isolation
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or 
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            Intent.FLAG_ACTIVITY_NEW_DOCUMENT
                 }
                 
                 val pendingIntentFlags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -600,9 +642,18 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     PendingIntent.FLAG_UPDATE_CURRENT
                 }
                 
+                // CRITICAL FIX: Use unique request code per notification to prevent PendingIntent conflicts
+                // Include event_id or timestamp to ensure uniqueness when multiple notifications arrive
+                val uniqueRequestCode = (notificationData.roomId.hashCode() + 
+                    (notificationData.eventId?.hashCode() ?: 0) + 
+                    (notificationData.timestamp?.toInt() ?: 0)).let { 
+                    // Ensure positive value for request code
+                    if (it < 0) -it else it 
+                }
+                
                 val bubblePendingIntent = PendingIntent.getActivity(
                     context,
-                    notificationData.roomId.hashCode(),
+                    uniqueRequestCode,
                     bubbleIntent,
                     pendingIntentFlags
                 )
@@ -617,10 +668,19 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     context.resources.displayMetrics
                 ).toInt()
                 
+                // CRITICAL FIX: Only suppress notification in bubble metadata if bubble is visible
+                // When bubble is open but not visible (minimized), we still want the notification
+                // to update the bubble's unread indicator, so setSuppressNotification should be false
+                // The notification itself will be made silent via setSilent(true) in the main notification builder
+                val shouldSuppressNotification = BubbleTracker.isBubbleVisible(notificationData.roomId)
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Bubble metadata - suppress notification: $shouldSuppressNotification (visible: ${BubbleTracker.isBubbleVisible(notificationData.roomId)})")
+                }
+                
                 NotificationCompat.BubbleMetadata.Builder(bubblePendingIntent, bubbleIcon)
                     .setDesiredHeight(desiredHeight)
                     .setAutoExpandBubble(shouldAutoExpand)
-                    .setSuppressNotification(false)
+                    .setSuppressNotification(shouldSuppressNotification)
                     .build()
             } catch (e: Exception) {
                 Log.e(TAG, "Error creating bubble metadata", e)
@@ -1208,7 +1268,30 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Note: Unread count clearing is handled automatically by our shortcut updates
             // No need to call clearUnreadCount() which can lose icons
             
-            // Dismiss the notification now that it's been marked as read
+            // CRITICAL FIX: Only dismiss notification if bubble is not open
+            // Cancelling the notification when a bubble is open causes Android to destroy the bubble
+            val isBubbleOpen = BubbleTracker.isBubbleOpen(roomId)
+            if (isBubbleOpen) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "NOT dismissing notification for room: $roomId - bubble is open (prevents bubble destruction)")
+                // Still update shortcuts to clear unread count, but keep notification alive for bubble
+                updateConversationShortcuts(NotificationData(
+                    roomId = roomId,
+                    eventId = eventId,
+                    sender = "",
+                    senderDisplayName = "",
+                    roomName = "",
+                    body = "",
+                    type = "dm",
+                    avatarUrl = null,
+                    roomAvatarUrl = null,
+                    timestamp = System.currentTimeMillis(),
+                    unreadCount = 0,
+                    image = null
+                ))
+                return
+            }
+            
+            // Dismiss the notification now that it's been marked as read (only if no bubble)
             val notificationManagerCompat = NotificationManagerCompat.from(context)
             notificationManagerCompat.cancel(notifID)
             
@@ -1221,8 +1304,17 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     
     /**
      * Clear notification for specific room
+     * CRITICAL: Only clears if bubble is not open to prevent bubble destruction
      */
     fun clearNotificationForRoom(roomId: String) {
+        // CRITICAL FIX: Only dismiss notification if bubble is not open
+        // Cancelling the notification when a bubble is open causes Android to destroy the bubble
+        val isBubbleOpen = BubbleTracker.isBubbleOpen(roomId)
+        if (isBubbleOpen) {
+            if (BuildConfig.DEBUG) Log.d(TAG, "NOT clearing notification for room: $roomId - bubble is open (prevents bubble destruction)")
+            return
+        }
+        
         val notificationManager = NotificationManagerCompat.from(context)
         notificationManager.cancel(roomId.hashCode().let { kotlin.math.abs(it) })
     }

@@ -366,16 +366,29 @@ fun BubbleTimelineScreen(
     }
     
     // Track bubble lifecycle for notification dismissal logic
+    // NOTE: This is redundant with Activity-level tracking but provides early detection
+    // Activity-level tracking in ChatBubbleActivity.onDestroy() is the authoritative source
     DisposableEffect(roomId) {
-        BubbleTracker.onBubbleOpened(roomId)
+        // Only track if not already tracked (Activity might have already tracked it)
+        if (!BubbleTracker.isBubbleOpen(roomId)) {
+            BubbleTracker.onBubbleOpened(roomId)
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Tracked bubble opened for room: $roomId (Composable level)")
+        }
         // When the screen is composed, the bubble is visible
         BubbleTracker.onBubbleVisible(roomId)
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Tracked bubble opened and visible for room: $roomId")
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Tracked bubble visible for room: $roomId")
         onDispose {
             // When the screen is disposed, the bubble is no longer visible
+            // NOTE: Activity.onDestroy() will also close it, but this provides early detection
+            // However, Activity-level tracking is authoritative for FCMService checks
             BubbleTracker.onBubbleInvisible(roomId)
-            BubbleTracker.onBubbleClosed(roomId)
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Tracked bubble invisible and closed for room: $roomId")
+            // Only close if Activity hasn't already closed it (check before closing)
+            if (BubbleTracker.isBubbleOpen(roomId)) {
+                BubbleTracker.onBubbleClosed(roomId)
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Tracked bubble closed for room: $roomId (Composable disposal)")
+            } else {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Bubble already closed (likely by Activity) for room: $roomId")
+            }
         }
     }
     val coroutineScope = rememberCoroutineScope()
