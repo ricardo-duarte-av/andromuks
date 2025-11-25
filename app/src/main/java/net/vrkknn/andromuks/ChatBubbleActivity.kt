@@ -107,20 +107,30 @@ class ChatBubbleActivity : ComponentActivity() {
                         }
                     },
                     onCloseBubble = {
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble called - minimizing bubble")
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - calling moveTaskToBack")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble called - closing bubble")
+                        // CRITICAL FIX: Close the bubble by finishing the activity
+                        // This properly dismisses the bubble instead of just moving it to background
                         try {
-                            moveTaskToBack(true)
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - moveTaskToBack completed")
+                            // First, mark bubble as closed in tracker
+                            val roomId = intent.getStringExtra("room_id") ?: 
+                                        extractRoomIdFromMatrixUri(intent.data)
+                            if (roomId != null) {
+                                BubbleTracker.onBubbleInvisible(roomId)
+                                BubbleTracker.onBubbleClosed(roomId)
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - marked bubble as closed for room: $roomId")
+                            }
+                            
+                            // Finish the activity to close the bubble
+                            finish()
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - finish() called")
                         } catch (e: Exception) {
-                            Log.e("Andromuks", "ChatBubbleActivity: onCloseBubble - moveTaskToBack failed", e)
-                            // Try alternative approach
+                            Log.e("Andromuks", "ChatBubbleActivity: onCloseBubble - finish() failed", e)
+                            // Fallback: try moveTaskToBack if finish fails
                             try {
-                                val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-                                activityManager.moveTaskToFront(taskId, ActivityManager.MOVE_TASK_WITH_HOME)
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - alternative method completed")
+                                moveTaskToBack(true)
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onCloseBubble - fallback moveTaskToBack completed")
                             } catch (e2: Exception) {
-                                Log.e("Andromuks", "ChatBubbleActivity: onCloseBubble - alternative method also failed", e2)
+                                Log.e("Andromuks", "ChatBubbleActivity: onCloseBubble - fallback also failed", e2)
                             }
                         }
                     }

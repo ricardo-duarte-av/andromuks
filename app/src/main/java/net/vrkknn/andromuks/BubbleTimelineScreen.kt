@@ -424,14 +424,18 @@ fun BubbleTimelineScreen(
         }
 
     // For DM rooms, get the avatar from the other participant
+    // CRITICAL FIX: Use roomItem.avatarUrl as fallback (like RoomListScreen does)
+    // This ensures avatars show even if member map isn't populated yet
     val displayAvatarUrl =
         if (isDirectMessage && roomItem != null) {
             val memberMap = appViewModel.getMemberMap(roomId)
             val otherParticipant = memberMap.keys.find { it != myUserId }
             val otherProfile = otherParticipant?.let { memberMap[it] }
-            otherProfile?.avatarUrl
+            // Use member profile avatar, fallback to roomItem avatar, then room state avatar
+            otherProfile?.avatarUrl ?: roomItem.avatarUrl ?: appViewModel.currentRoomState?.avatarUrl
         } else {
-            appViewModel.currentRoomState?.avatarUrl
+            // For group rooms, use roomItem avatar as fallback (like RoomListScreen)
+            roomItem?.avatarUrl ?: appViewModel.currentRoomState?.avatarUrl
         }
 
     if (BuildConfig.DEBUG) Log.d(
