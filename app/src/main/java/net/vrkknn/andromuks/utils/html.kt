@@ -723,7 +723,8 @@ fun HtmlMessageText(
     color: Color = Color.Unspecified,
     onMatrixUserClick: (String) -> Unit = {},
     onRoomLinkClick: (RoomLink) -> Unit = {},
-    appViewModel: AppViewModel? = null
+    appViewModel: AppViewModel? = null,
+    isEmojiOnly: Boolean = false
 ) {
     // Don't render HTML for redacted messages
     // The parent composable should handle showing the deletion message
@@ -745,8 +746,15 @@ fun HtmlMessageText(
         // Fallback to plain text body
         val content = event.content ?: event.decrypted
         val body = content?.optString("body", "")?.let { decodeHtmlEntities(it) } ?: ""
+        val baseStyle = MaterialTheme.typography.bodyMedium
+        val textStyle = if (isEmojiOnly) {
+            baseStyle.copy(fontSize = baseStyle.fontSize * 2)
+        } else {
+            baseStyle
+        }
         Text(
             text = body,
+            style = textStyle,
             modifier = modifier,
             color = color
         )
@@ -806,11 +814,16 @@ fun HtmlMessageText(
         with(density) { sampleLayout.size.height.toDp().value.toInt() }
     }
     
-    val inlineContentMap = remember(annotatedString, inlineImages.toMap(), inlineMatrixUsers.toMap(), onMatrixUserClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor) {
+    val inlineContentMap = remember(annotatedString, inlineImages.toMap(), inlineMatrixUsers.toMap(), onMatrixUserClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly) {
         val map = mutableMapOf<String, InlineTextContent>()
         inlineImages.forEach { (id, imageData) ->
-            // Limit image height to text line height
-            val maxHeight = minOf(imageData.height, textLineHeight)
+            // Limit image height to text line height, but use 2x size for emoji-only messages
+            val baseMaxHeight = minOf(imageData.height, textLineHeight)
+            val maxHeight = if (isEmojiOnly) {
+                baseMaxHeight * 2
+            } else {
+                baseMaxHeight
+            }
             map[id] = InlineTextContent(
                 Placeholder(
                     width = maxHeight.sp,
@@ -857,8 +870,15 @@ fun HtmlMessageText(
         // Fallback if rendering failed
         val content = event.content ?: event.decrypted
         val body = content?.optString("body", "")?.let { decodeHtmlEntities(it) } ?: ""
+        val baseStyle = MaterialTheme.typography.bodyMedium
+        val textStyle = if (isEmojiOnly) {
+            baseStyle.copy(fontSize = baseStyle.fontSize * 2)
+        } else {
+            baseStyle
+        }
         Text(
             text = body,
+            style = textStyle,
             modifier = modifier,
             color = color
         )
@@ -981,7 +1001,14 @@ fun HtmlMessageText(
                     // If it's a long press or other gesture, don't consume - let parent handle it
                 }
             },
-            style = MaterialTheme.typography.bodyMedium.copy(color = color),
+            style = if (isEmojiOnly) {
+                MaterialTheme.typography.bodyMedium.copy(
+                    color = color,
+                    fontSize = MaterialTheme.typography.bodyMedium.fontSize * 2
+                )
+            } else {
+                MaterialTheme.typography.bodyMedium.copy(color = color)
+            },
             inlineContent = inlineContentMap,
             onTextLayout = { layoutResult ->
                 textLayoutResult = layoutResult

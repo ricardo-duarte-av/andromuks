@@ -112,6 +112,75 @@ fun formatTimestamp(timestamp: Long): String {
     return formatter.format(date)
 }
 
+/**
+ * Check if a message body contains only an emoji (real emoji or custom emoji).
+ * Real emojis are Unicode emoji characters.
+ * Custom emojis can be:
+ * - Markdown format: ![:name:](mxc://...)
+ * - Shortcode format: :name: (which gets rendered as <img> in HTML)
+ * 
+ * This function handles both plain text and HTML content by stripping HTML tags.
+ */
+fun isEmojiOnlyMessage(body: String): Boolean {
+    if (body.isBlank()) return false
+    
+    // Strip HTML tags if present (for HTML-formatted messages)
+    val textWithoutHtml = body.replace(Regex("""<[^>]+>"""), "").trim()
+    if (textWithoutHtml.isEmpty()) return false
+    
+    // Remove whitespace
+    val trimmed = textWithoutHtml.trim()
+    if (trimmed.isEmpty()) return false
+    
+    // Check for custom emoji markdown pattern: ![:name:](mxc://...)
+    val customEmojiMarkdownRegex = Regex("""^!\[:([^\]]+):\]\(mxc://[^)]+\)$""")
+    if (customEmojiMarkdownRegex.matches(trimmed)) {
+        return true
+    }
+    
+    // Check for custom emoji shortcode pattern: :name: (with optional whitespace)
+    // This is the format used in plain text body for custom emojis
+    val customEmojiShortcodeRegex = Regex("""^:[\w+-]+:\s*$""")
+    if (customEmojiShortcodeRegex.matches(trimmed)) {
+        return true
+    }
+    
+    // Check if the text contains only emoji characters
+    // This regex matches emoji characters including variations and modifiers
+    val emojiRegex = Regex("""^[\p{Emoji}\p{Emoji_Presentation}\p{Emoji_Modifier_Base}\p{Emoji_Modifier}\p{Emoji_Component}\s]*$""")
+    
+    // Remove all whitespace and check if only emoji remains
+    val withoutWhitespace = trimmed.replace(Regex("""\s+"""), "")
+    if (withoutWhitespace.isEmpty()) return false
+    
+    // Check if all remaining characters are emojis
+    return emojiRegex.matches(withoutWhitespace) && withoutWhitespace.isNotEmpty()
+}
+
+/**
+ * Check if an HTML formatted body contains only a custom emoji image.
+ * Custom emojis in HTML are rendered as: <img src="mxc://..." alt=":name:" ...>
+ */
+fun isCustomEmojiOnlyHtml(formattedBody: String?): Boolean {
+    if (formattedBody.isNullOrBlank()) return false
+    
+    val trimmed = formattedBody.trim()
+    
+    // Check if the HTML contains only an img tag with MXC URL (custom emoji)
+    // Pattern: <img ... src="mxc://..." ...> with optional whitespace
+    // The src attribute can appear anywhere in the tag
+    val customEmojiImgRegex = Regex("""^\s*<img[^>]*>\s*$""", RegexOption.IGNORE_CASE)
+    if (customEmojiImgRegex.matches(trimmed)) {
+        // Verify it has an MXC URL in the src attribute
+        val hasMxcUrl = Regex("""src\s*=\s*["']mxc://[^"']+["']""", RegexOption.IGNORE_CASE).containsMatchIn(trimmed)
+        if (hasMxcUrl) {
+            return true
+        }
+    }
+    
+    return false
+}
+
 @Composable
 fun InlineBubbleTimestamp(
     timestamp: Long,
@@ -166,6 +235,16 @@ fun AdaptiveMessageText(
     // For redacted messages, always use plain text to show the deletion message
     val isRedacted = event.redactedBy != null
     
+    // Check if this is an emoji-only message
+    // For HTML messages, also check the formatted_body for custom emoji images
+    val formattedBody = event.content?.optString("formatted_body") 
+        ?: event.decrypted?.optString("formatted_body")
+        ?: event.localContent?.optString("sanitized_html")
+    
+    val isEmojiOnly = remember(body, formattedBody) { 
+        isEmojiOnlyMessage(body) || (formattedBody != null && isCustomEmojiOnlyHtml(formattedBody))
+    }
+    
     // Check if HTML rendering is supported and available (and not redacted)
     if (!isRedacted && supportsHtmlRendering(event)) {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "AdaptiveMessageText: Using HTML rendering for event ${event.eventId}")
@@ -177,7 +256,8 @@ fun AdaptiveMessageText(
             modifier = modifier,
             onMatrixUserClick = onMatrixUserClick,
             onRoomLinkClick = onRoomLinkClick,
-            appViewModel = appViewModel
+            appViewModel = appViewModel,
+            isEmojiOnly = isEmojiOnly
         )
     } else {
         // Fallback to plain text for redacted messages or when HTML is not available
@@ -187,10 +267,18 @@ fun AdaptiveMessageText(
             if (BuildConfig.DEBUG) Log.d("Andromuks", "AdaptiveMessageText: Using SmartMessageText for event ${event.eventId}")
         }
         
+        // Apply 2x font size for emoji-only messages
+        val baseStyle = MaterialTheme.typography.bodyMedium
+        val textStyle = if (isEmojiOnly) {
+            baseStyle.copy(fontSize = baseStyle.fontSize * 2)
+        } else {
+            baseStyle
+        }
+        
         // Show deletion message (in body parameter) or regular text
         Text(
             text = body,
-            style = MaterialTheme.typography.bodyMedium,
+            style = textStyle,
             color = textColor,
             fontStyle = if (isRedacted) FontStyle.Italic else FontStyle.Normal,
             modifier = modifier

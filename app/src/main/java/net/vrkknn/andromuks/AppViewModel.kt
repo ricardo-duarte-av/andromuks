@@ -147,8 +147,20 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Registering primary callbacks for $viewModelId")
         
         // Register reconnection callback - this will set this instance as primary
+        // INFINITE LOOP FIX: Directly trigger reconnection instead of calling restartWebSocket which can loop
         val reconnectionRegistered = WebSocketService.setReconnectionCallback(viewModelId) { reason ->
-            restartWebSocket(reason)
+            // INFINITE LOOP FIX: Directly trigger reconnection if we have credentials, otherwise use restartWebSocket with cooldown
+            if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                android.util.Log.i("Andromuks", "AppViewModel: Reconnection callback triggered - directly initializing WebSocket connection (reason: $reason)")
+                // Clear WebSocket first
+                WebSocketService.clearWebSocket(reason)
+                // Then trigger reconnection directly
+                initializeWebSocketConnection(homeserverUrl, authToken)
+            } else {
+                // Fall back to restartWebSocket (which has cooldown protection)
+                android.util.Log.w("Andromuks", "AppViewModel: Reconnection callback triggered but no credentials available - using restartWebSocket (reason: $reason)")
+                restartWebSocket(reason)
+            }
         }
         if (!reconnectionRegistered) {
             val existingPrimary = WebSocketService.getPrimaryViewModelId()
@@ -607,6 +619,11 @@ class AppViewModel : ViewModel() {
     // QUEUE FLUSHING: Track if queue is being flushed to prevent out-of-order messages
     private var isFlushingQueue = false
     private var lastReconnectionTime = 0L
+    
+    // INFINITE LOOP FIX: Track restart state to prevent rapid-fire restarts
+    private var isRestarting = false
+    private var lastRestartTime = 0L
+    private val RESTART_COOLDOWN_MS = 5000L // 5 seconds minimum between restarts
 
     var spacesLoaded by mutableStateOf(false)
         private set
@@ -6225,6 +6242,23 @@ class AppViewModel : ViewModel() {
 
     
     private fun restartWebSocket(reason: String = "Unknown reason") {
+        // INFINITE LOOP FIX: Prevent rapid-fire restarts
+        val currentTime = System.currentTimeMillis()
+        val timeSinceLastRestart = currentTime - lastRestartTime
+        
+        if (isRestarting) {
+            android.util.Log.w("Andromuks", "AppViewModel: restartWebSocket already in progress - ignoring duplicate call (reason: $reason)")
+            return
+        }
+        
+        if (timeSinceLastRestart < RESTART_COOLDOWN_MS) {
+            android.util.Log.w("Andromuks", "AppViewModel: restartWebSocket called too soon (${timeSinceLastRestart}ms ago, cooldown: ${RESTART_COOLDOWN_MS}ms) - ignoring (reason: $reason)")
+            return
+        }
+        
+        isRestarting = true
+        lastRestartTime = currentTime
+        
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: restartWebSocket invoked - reason: $reason")
         logActivity("Restarting WebSocket - $reason", null)
         
@@ -6256,7 +6290,17 @@ class AppViewModel : ViewModel() {
             WebSocketService.cancelReconnection()
             // Ensure the service state is reset before establishing a new connection
             WebSocketService.clearWebSocket(reason)
-            restartCallback.invoke(reason)
+            
+            // INFINITE LOOP FIX: Clear restart flag after a delay to allow connection to complete
+            viewModelScope.launch {
+                try {
+                    restartCallback.invoke(reason)
+                    // Wait a bit before clearing the flag to prevent immediate re-triggers
+                    delay(2000L)
+                } finally {
+                    isRestarting = false
+                }
+            }
             return
         }
 
@@ -6271,15 +6315,21 @@ class AppViewModel : ViewModel() {
             // This should be handled by the code that normally connects (e.g., AuthCheckScreen)
             // For now, just log and return - the service restart check will handle it properly
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Service restart reconnection - connection should be handled by app startup flow")
+            isRestarting = false
             return
         }
         
-        // For other reasons, use the service restart method
-        android.util.Log.w(
-            "Andromuks",
-            "AppViewModel: onRestartWebSocket callback not set - falling back to service restart"
-        )
-        WebSocketService.restartWebSocket(reason)
+        // INFINITE LOOP FIX: Don't call WebSocketService.restartWebSocket() from reconnection callback
+        // This creates an infinite loop because it calls the callback again
+        // Instead, we should directly trigger connection via initializeWebSocketConnection()
+        android.util.Log.w("Andromuks", "AppViewModel: onRestartWebSocket callback not set - cannot restart (would create loop)")
+        android.util.Log.w("Andromuks", "AppViewModel: Connection should be handled by initializeWebSocketConnection() or app startup flow")
+        
+        // Clear restart flag after a delay
+        viewModelScope.launch {
+            delay(2000L)
+            isRestarting = false
+        }
     }
 
     fun requestUserProfile(userId: String, roomId: String? = null) {
@@ -10574,10 +10624,11 @@ class AppViewModel : ViewModel() {
                                         val info = emojiData.optJSONObject("info")
                                         
                                         if (mxcUrl.isNotBlank() && mxcUrl.startsWith("mxc://")) {
-                                            // Check if this is a sticker (has usage "sticker" and not "emoticon")
-                                            val isSticker = if (usage != null && usage.length() > 0) {
-                                                var hasSticker = false
-                                                var hasEmoticon = false
+                                            // Parse usage array to determine if this can be used as emoji, sticker, or both
+                                            var hasSticker = false
+                                            var hasEmoticon = false
+                                            
+                                            if (usage != null && usage.length() > 0) {
                                                 for (j in 0 until usage.length()) {
                                                     val usageItem = usage.optString(j)
                                                     if (usageItem == "sticker") {
@@ -10586,46 +10637,29 @@ class AppViewModel : ViewModel() {
                                                         hasEmoticon = true
                                                     }
                                                 }
-                                                hasSticker && !hasEmoticon
                                             } else {
-                                                false
+                                                // No usage key means it can be used as emoji (default behavior)
+                                                hasEmoticon = true
                                             }
                                             
-                                            if (isSticker) {
-                                                // This is a sticker
+                                            // Add to stickers if it has "sticker" usage (regardless of emoticon)
+                                            if (hasSticker) {
                                                 stickers.add(Sticker(
                                                     name = emojiName,
                                                     mxcUrl = mxcUrl,
                                                     body = emojiName, // Use name as body/caption
                                                     info = info
                                                 ))
-                                            } else {
-                                                // This is an emoji (no usage, or has emoticon, or has both)
-                                                val shouldInclude = if (usage == null || usage.length() == 0) {
-                                                    true // No usage key means it can be used as emoji
-                                                } else {
-                                                    var hasEmoticon = false
-                                                    var hasSticker = false
-                                                    for (j in 0 until usage.length()) {
-                                                        val usageItem = usage.optString(j)
-                                                        if (usageItem == "emoticon") {
-                                                            hasEmoticon = true
-                                                        } else if (usageItem == "sticker") {
-                                                            hasSticker = true
-                                                        }
-                                                    }
-                                                    // Include if has emoticon, or if no usage specified (but we already checked for null/empty)
-                                                    // Exclude if only has sticker (and no emoticon)
-                                                    hasEmoticon || (!hasSticker)
-                                                }
-                                                
-                                                if (shouldInclude) {
-                                                    emojis.add(CustomEmoji(
-                                                        name = emojiName,
-                                                        mxcUrl = mxcUrl,
-                                                        info = info
-                                                    ))
-                                                }
+                                            }
+                                            
+                                            // Add to emojis if it has "emoticon" usage or no usage key
+                                            // (entries can appear in both lists if they have both usage types)
+                                            if (hasEmoticon) {
+                                                emojis.add(CustomEmoji(
+                                                    name = emojiName,
+                                                    mxcUrl = mxcUrl,
+                                                    info = info
+                                                ))
                                             }
                                         }
                                     }
