@@ -1228,6 +1228,15 @@ class WebSocketService : Service() {
                 logActivity("Connecting - $reason", serviceInstance.currentNetworkType.name)
                 
                 serviceInstance.reconnectionJob = serviceScope.launch {
+                    // PHASE 3.3: Validate network before reconnecting (prevents reconnection on captive portals)
+                    val networkValidated = serviceInstance.waitForNetworkValidation(2000L)
+                    if (!networkValidated) {
+                        android.util.Log.w("WebSocketService", "Network validation timeout or failed - proceeding with reconnection anyway (might be slow network)")
+                        logActivity("Network Validation Timeout - Proceeding", serviceInstance.currentNetworkType.name)
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network validated - proceeding with reconnection")
+                    }
+                    
                     // RUSH TO HEALTHY: Check backend health first, then reconnect
                     val backendHealthy = serviceInstance.checkBackendHealth()
                     
@@ -1356,6 +1365,9 @@ class WebSocketService : Service() {
     private var stateCorruptionJob: Job? = null // State corruption monitoring
     private var isCurrentlyConnected = false
     private var currentNetworkType: NetworkType = NetworkType.NONE
+    
+    // PHASE 3.2: Network type change detection
+    private var lastNetworkType: NetworkType = NetworkType.NONE // Track previous network type
     
     // WebSocket connection management
     private var webSocket: WebSocket? = null
@@ -1543,7 +1555,12 @@ class WebSocketService : Service() {
             context = this,
             onNetworkAvailable = { networkType ->
                 android.util.Log.i("WebSocketService", "Network available: $networkType - checking if reconnection needed")
-                currentNetworkType = convertNetworkType(networkType)
+                val newNetworkType = convertNetworkType(networkType)
+                val previousNetworkType = lastNetworkType
+                
+                // PHASE 3.2: Update network type tracking
+                lastNetworkType = newNetworkType
+                currentNetworkType = newNetworkType
                 
                 // Network became available - trigger reconnection if disconnected
                 if (connectionState != ConnectionState.CONNECTED) {
@@ -1553,36 +1570,64 @@ class WebSocketService : Service() {
                     // PHASE 2.1: Use scheduleReconnection which will queue if callback not available
                     scheduleReconnection("Network available: $networkType")
                 } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network available and WebSocket already connected - no action needed")
+                    // PHASE 3.2: Check if network type changed (e.g., offline → WiFi, or different network)
+                    if (previousNetworkType != newNetworkType && previousNetworkType != NetworkType.NONE) {
+                        // Network type changed while connected - check if we should reconnect
+                        val shouldReconnect = shouldReconnectOnNetworkChange(previousNetworkType, newNetworkType)
+                        if (shouldReconnect) {
+                            android.util.Log.i("WebSocketService", "Network type changed while connected - reconnecting ($previousNetworkType → $newNetworkType)")
+                            clearWebSocket("Network type changed: $previousNetworkType → $newNetworkType")
+                            scheduleReconnection("Network type changed: $previousNetworkType → $newNetworkType")
+                        }
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network available and WebSocket already connected - no action needed")
+                    }
                 }
             },
             onNetworkLost = {
                 android.util.Log.w("WebSocketService", "Network lost - marking connection as degraded")
                 logActivity("Network Lost", currentNetworkType.name)
                 
+                // PHASE 3.2: Update network type tracking
+                lastNetworkType = currentNetworkType // Keep previous type for when network returns
+                currentNetworkType = NetworkType.NONE
+                
                 // Network lost - mark connection as degraded, don't reconnect yet
                 // Wait for network to become available again
                 isCurrentlyConnected = false
-                currentNetworkType = NetworkType.NONE
                 
                 // Update notification to show network loss
                 updateConnectionStatus(false, lastKnownLagMs, lastSyncTimestamp)
             },
             onNetworkTypeChanged = { previousType, newType ->
-                android.util.Log.i("WebSocketService", "Network type changed: $previousType → $newType - reconnecting WebSocket")
+                val previousNetworkType = lastNetworkType
+                val newNetworkType = convertNetworkType(newType)
+                
+                android.util.Log.i("WebSocketService", "Network type changed: $previousType → $newType (previous tracked: $previousNetworkType)")
                 logActivity("Network Type Changed: $previousType → $newType", newType.name)
                 
-                currentNetworkType = convertNetworkType(newType)
+                // PHASE 3.2: Determine if we should reconnect based on network quality change
+                val shouldReconnect = shouldReconnectOnNetworkChange(previousNetworkType, newNetworkType)
                 
-                // Network type changed (e.g., WiFi → Mobile, or different WiFi network)
-                // Close existing connection and reconnect on new network
-                if (connectionState == ConnectionState.CONNECTED || connectionState == ConnectionState.RECONNECTING) {
-                    android.util.Log.w("WebSocketService", "Network type changed while connected - reconnecting on new network")
-                    clearWebSocket("Network type changed: $previousType → $newType")
-                    scheduleReconnection("Network type changed: $previousType → $newType")
+                // Update network type tracking
+                lastNetworkType = newNetworkType
+                currentNetworkType = newNetworkType
+                
+                if (shouldReconnect) {
+                    // Network type changed and we should reconnect (better network, or offline→online)
+                    if (connectionState == ConnectionState.CONNECTED || connectionState == ConnectionState.RECONNECTING) {
+                        android.util.Log.w("WebSocketService", "Network type changed while connected - reconnecting on new network ($previousNetworkType → $newNetworkType)")
+                        clearWebSocket("Network type changed: $previousNetworkType → $newNetworkType")
+                        scheduleReconnection("Network type changed: $previousNetworkType → $newNetworkType")
+                    } else {
+                        // Not connected - just trigger reconnection
+                        android.util.Log.i("WebSocketService", "Network type changed - triggering reconnection ($previousNetworkType → $newNetworkType)")
+                        scheduleReconnection("Network type changed: $previousNetworkType → $newNetworkType")
+                    }
                 } else {
-                    // Not connected - just trigger reconnection
-                    scheduleReconnection("Network type changed: $previousType → $newType")
+                    // Network type changed but we shouldn't reconnect (e.g., WiFi → Mobile, still works)
+                    android.util.Log.i("WebSocketService", "Network type changed but not reconnecting - network still functional ($previousNetworkType → $newNetworkType)")
+                    // Just update the network type, keep existing connection
                 }
             }
         )
@@ -1612,6 +1657,105 @@ class WebSocketService : Service() {
             NetworkMonitor.NetworkType.VPN -> NetworkType.VPN
             NetworkMonitor.NetworkType.OTHER -> NetworkType.OTHER
         }
+    }
+    
+    /**
+     * PHASE 3.3: Wait for network validation to complete
+     * Checks if network has NET_CAPABILITY_VALIDATED (internet access)
+     * 
+     * @param timeoutMs Maximum time to wait for validation (default 2000ms)
+     * @return true if network is validated, false if timeout or not validated
+     */
+    private suspend fun waitForNetworkValidation(timeoutMs: Long = 2000L): Boolean {
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        
+        val activeNetwork = connectivityManager.activeNetwork ?: return false
+        
+        // Check if network is already validated
+        val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
+        if (capabilities != null && capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network validation: Already validated")
+            return true
+        }
+        
+        // Network not validated yet - wait for validation
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network validation: Waiting up to ${timeoutMs}ms for validation")
+        
+        val startTime = System.currentTimeMillis()
+        val checkInterval = 200L // Check every 200ms
+        
+        while (System.currentTimeMillis() - startTime < timeoutMs) {
+            delay(checkInterval)
+            
+            val currentCapabilities = connectivityManager.getNetworkCapabilities(activeNetwork)
+            if (currentCapabilities != null && currentCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) {
+                val elapsed = System.currentTimeMillis() - startTime
+                android.util.Log.i("WebSocketService", "Network validation: Validated after ${elapsed}ms")
+                return true
+            }
+            
+            // Check if network is still active
+            val currentNetwork = connectivityManager.activeNetwork
+            if (currentNetwork != activeNetwork) {
+                android.util.Log.w("WebSocketService", "Network validation: Network changed during validation")
+                return false
+            }
+        }
+        
+        // Timeout - network validation didn't complete
+        android.util.Log.w("WebSocketService", "Network validation: Timeout after ${timeoutMs}ms - network may be slow or captive portal")
+        return false
+    }
+    
+    /**
+     * PHASE 3.2: Determine if we should reconnect when network type changes
+     * 
+     * @param previousType Previous network type
+     * @param newType New network type
+     * @return true if we should reconnect, false if we should keep existing connection
+     */
+    private fun shouldReconnectOnNetworkChange(previousType: NetworkType, newType: NetworkType): Boolean {
+        // Network was lost and now available - always reconnect
+        if (previousType == NetworkType.NONE && newType != NetworkType.NONE) {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "shouldReconnectOnNetworkChange: Offline → Online - reconnecting")
+            return true
+        }
+        
+        // Network became unavailable - don't reconnect (wait for network to return)
+        if (previousType != NetworkType.NONE && newType == NetworkType.NONE) {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "shouldReconnectOnNetworkChange: Online → Offline - not reconnecting")
+            return false
+        }
+        
+        // Mobile → WiFi (better network) - reconnect to get better connection
+        if (previousType == NetworkType.CELLULAR && newType == NetworkType.WIFI) {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "shouldReconnectOnNetworkChange: Mobile → WiFi - reconnecting for better network")
+            return true
+        }
+        
+        // WiFi → Mobile (worse network, but still works) - don't reconnect unnecessarily
+        if (previousType == NetworkType.WIFI && newType == NetworkType.CELLULAR) {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "shouldReconnectOnNetworkChange: WiFi → Mobile - not reconnecting (network still functional)")
+            return false
+        }
+        
+        // WiFi → WiFi or Mobile → Mobile (different network) - reconnect to ensure proper connection
+        if ((previousType == NetworkType.WIFI && newType == NetworkType.WIFI) ||
+            (previousType == NetworkType.CELLULAR && newType == NetworkType.CELLULAR)) {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "shouldReconnectOnNetworkChange: Same type but different network ($previousType → $newType) - reconnecting")
+            return true
+        }
+        
+        // Other transitions (Ethernet, VPN, etc.) - reconnect to be safe
+        if (previousType != newType) {
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "shouldReconnectOnNetworkChange: Other transition ($previousType → $newType) - reconnecting")
+            return true
+        }
+        
+        // No change - don't reconnect
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "shouldReconnectOnNetworkChange: No network type change - not reconnecting")
+        return false
     }
     
     private fun shouldIncludeLastReceivedForReconnect(): Boolean {
