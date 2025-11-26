@@ -212,42 +212,50 @@ suspend fun waitForBackendHealth(
     delayMillis: Long = 5_000L,
     loggerTag: String = "NetworkUtils"
 ) {
+    Log.i(loggerTag, "waitForBackendHealth: Starting backend health check for $homeserverUrl")
     withContext(Dispatchers.IO) {
         val healthClient = OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(5, TimeUnit.SECONDS)
             .build()
 
+        var attemptCount = 0
         while (true) {
+            attemptCount++
+            Log.d(loggerTag, "waitForBackendHealth: Attempt $attemptCount - checking backend health")
+            
             val isHealthy = try {
                 val request = Request.Builder()
                     .url(homeserverUrl)
                     .get()
                     .build()
 
+                Log.d(loggerTag, "waitForBackendHealth: Sending HTTP GET request to $homeserverUrl")
                 healthClient.newCall(request).execute().use { response ->
                     val healthy = response.isSuccessful && response.code == 200
-                    if (BuildConfig.DEBUG) Log.d(loggerTag, "Backend health check: HTTP ${response.code} (healthy=$healthy)")
+                    Log.i(loggerTag, "waitForBackendHealth: Backend health check: HTTP ${response.code} (healthy=$healthy)")
                     healthy
                 }
             } catch (e: Exception) {
-                Log.w(loggerTag, "Backend health check failed: ${e.message}")
+                Log.w(loggerTag, "waitForBackendHealth: Backend health check failed: ${e.message}", e)
                 false
             }
 
             if (isHealthy) {
-                Log.i(loggerTag, "Backend health check succeeded (HTTP 200). Proceeding with WebSocket connection.")
+                Log.i(loggerTag, "waitForBackendHealth: Backend health check succeeded (HTTP 200). Proceeding with WebSocket connection.")
                 return@withContext
             }
 
-            Log.w(loggerTag, "Backend not reachable (non-200 response). Retrying in ${delayMillis}ms.")
+            Log.w(loggerTag, "waitForBackendHealth: Backend not reachable (non-200 response). Retrying in ${delayMillis}ms.")
             delay(delayMillis)
 
             if (!isActive) {
+                Log.w(loggerTag, "waitForBackendHealth: Coroutine cancelled, exiting health check")
                 return@withContext
             }
         }
     }
+    Log.i(loggerTag, "waitForBackendHealth: Completed backend health check")
 }
 
 fun connectToWebsocket(

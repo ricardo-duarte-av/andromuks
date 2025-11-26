@@ -221,12 +221,64 @@ class WebSocketService : Service() {
         }
         
         /**
+         * PHASE 1.4: Safely invoke reconnection callback with error handling and logging
+         * 
+         * @param reason Reason for reconnection
+         * @param logIfMissing Whether to log a warning if callback is missing (default: true)
+         */
+        private fun invokeReconnectionCallback(reason: String, logIfMissing: Boolean = true) {
+            val callback = getActiveReconnectionCallback()
+            if (callback != null) {
+                try {
+                    callback.invoke(reason)
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Reconnection callback invoked: $reason")
+                } catch (e: Exception) {
+                    android.util.Log.e("WebSocketService", "Error invoking reconnection callback: ${e.message}", e)
+                }
+            } else {
+                if (logIfMissing) {
+                    android.util.Log.w("WebSocketService", "Reconnection callback not available - cannot trigger reconnection: $reason")
+                }
+            }
+        }
+        
+        /**
+         * PHASE 1.4: Safely invoke offline mode callback with error handling and logging
+         * 
+         * @param isOffline Whether the app is in offline mode
+         * @param logIfMissing Whether to log a warning if callback is missing (default: false)
+         */
+        private fun invokeOfflineModeCallback(isOffline: Boolean, logIfMissing: Boolean = false) {
+            val callback = getActiveOfflineModeCallback()
+            if (callback != null) {
+                try {
+                    callback.invoke(isOffline)
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Offline mode callback invoked: isOffline=$isOffline")
+                } catch (e: Exception) {
+                    android.util.Log.e("WebSocketService", "Error invoking offline mode callback: ${e.message}", e)
+                }
+            } else {
+                if (logIfMissing) {
+                    android.util.Log.w("WebSocketService", "Offline mode callback not available - cannot notify offline mode change: isOffline=$isOffline")
+                }
+            }
+        }
+        
+        /**
          * Log an activity event (app started, websocket connected, disconnected, etc.)
-         * PHASE 1.1: Uses primary callback if available, falls back to legacy callback
+         * PHASE 1.4: Uses primary callback if available, falls back to legacy callback with error handling
          */
         fun logActivity(event: String, networkType: String? = null) {
             // Try primary callback first
-            primaryActivityLogCallback?.invoke(event, networkType) ?: activityLogCallback?.invoke(event, networkType)
+            val callback = primaryActivityLogCallback ?: activityLogCallback
+            if (callback != null) {
+                try {
+                    callback.invoke(event, networkType)
+                } catch (e: Exception) {
+                    android.util.Log.e("WebSocketService", "Error invoking activity log callback: ${e.message}", e)
+                }
+            }
+            // Note: We don't log warnings for missing activity log callbacks as it's not critical
         }
         
         /**
@@ -597,8 +649,8 @@ class WebSocketService : Service() {
          */
         fun triggerReconnectionFromExternal(reason: String) {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "triggerReconnectionFromExternal called: $reason")
-            // PHASE 1.2: Use primary callback if available, fall back to legacy
-            getActiveReconnectionCallback()?.invoke(reason)
+            // PHASE 1.4: Use safe invocation helper with error handling
+            invokeReconnectionCallback(reason)
         }
         
         /**
@@ -1145,8 +1197,8 @@ class WebSocketService : Service() {
                     if (isActive) {
                         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Executing reconnection: $reason")
                         logActivity("Reconnection Attempt - $reason", serviceInstance.currentNetworkType.name)
-                        // PHASE 1.2: Use primary callback if available, fall back to legacy
-                        getActiveReconnectionCallback()?.invoke(reason)
+                        // PHASE 1.4: Use safe invocation helper with error handling
+                        invokeReconnectionCallback(reason)
                     } else {
                         serviceInstance.connectionState = ConnectionState.DISCONNECTED
                     }
@@ -1200,9 +1252,18 @@ class WebSocketService : Service() {
                     return@launch
                 }
                 
+                // PHASE 1.4 FIX: Prevent infinite loop - if reason is "Service restarted - reconnecting",
+                // don't call the callback again as it was already called from onStartCommand
+                // The callback should handle the actual connection, not trigger another restart
+                if (reason.contains("Service restarted")) {
+                    android.util.Log.w("WebSocketService", "restartWebSocket called with 'Service restarted' reason - this would create a loop. AppViewModel should handle connection directly.")
+                    // Don't call callback again - AppViewModel's restartWebSocket should handle the connection
+                    return@launch
+                }
+                
                 // Internal trigger - use callback
-                // PHASE 1.2: Use primary callback if available, fall back to legacy
-                getActiveReconnectionCallback()?.invoke(reason)
+                // PHASE 1.4: Use safe invocation helper with error handling
+                invokeReconnectionCallback(reason)
             }
         }
         
@@ -1513,8 +1574,8 @@ class WebSocketService : Service() {
                     android.util.Log.i("WebSocketService", "Backend healthy - triggering immediate reconnection")
                     logActivity("Backend Healthy - Reconnecting", currentNetworkType.name)
                     clearWebSocket("3 consecutive ping failures - backend healthy")
-                    // PHASE 1.2: Use primary callback if available, fall back to legacy
-                    getActiveReconnectionCallback()?.invoke("3 consecutive ping failures - backend healthy")
+                    // PHASE 1.4: Use safe invocation helper with error handling
+                    invokeReconnectionCallback("3 consecutive ping failures - backend healthy")
                 } else {
                     // Backend unhealthy - wait for recovery
                     android.util.Log.w("WebSocketService", "Backend unhealthy - waiting for recovery")
@@ -1530,8 +1591,8 @@ class WebSocketService : Service() {
                         if (recovered) {
                             android.util.Log.i("WebSocketService", "Backend healthy again - triggering reconnection")
                             logActivity("Backend Recovered - Reconnecting", currentNetworkType.name)
-                            // PHASE 1.2: Use primary callback if available, fall back to legacy
-                            getActiveReconnectionCallback()?.invoke("Backend recovered after ping failures")
+                            // PHASE 1.4: Use safe invocation helper with error handling
+                            invokeReconnectionCallback("Backend recovered after ping failures")
                             return@launch
                         }
                     }
@@ -1591,8 +1652,8 @@ class WebSocketService : Service() {
             
             // Retry connection
             if (isActive) {
-                // PHASE 1.2: Use primary callback if available, fall back to legacy
-                getActiveReconnectionCallback()?.invoke("Init complete timeout - retrying")
+                // PHASE 1.4: Use safe invocation helper with error handling
+                invokeReconnectionCallback("Init complete timeout - retrying")
             }
         }
     }
@@ -1766,27 +1827,35 @@ class WebSocketService : Service() {
             val activeCallback = getActiveReconnectionCallback()
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restart check: connected=$isConnected, reconnectionCallback=${activeCallback != null}")
             
-            // If we have no active connection and we're not already reconnecting, attempt reconnection
-            // BUT: Only if AppViewModel is available (reconnectionCallback is set)
-            // If AppViewModel is not available, wait for it to connect the WebSocket properly
+            // PHASE 1.4 FIX: Only trigger reconnection if we had a connection that was lost
+            // On initial service start, we should wait for the app to establish the connection
+            // Don't trigger reconnection on startup - this creates infinite loops
             if (!isConnected && !isReconnecting) {
-                // Store callback in local variable for safe smart cast
-                val callback = activeCallback
-                if (callback != null) {
-                    // AppViewModel is available - trigger reconnection through it
-                    android.util.Log.w("WebSocketService", "Service restarted but WebSocket disconnected - triggering reconnection via AppViewModel")
-                    logActivity("Service Restarted - Reconnecting", currentNetworkType.name)
-                    try {
-                        callback("Service restarted - reconnecting")
-                    } catch (e: Exception) {
-                        android.util.Log.e("WebSocketService", "Reconnection callback failed", e)
-                        logActivity("Reconnection Failed - ${e.message}", currentNetworkType.name)
+                // Check if this is a fresh service start (no previous connection) or a lost connection
+                // If connectionStartTime is 0, this is a fresh start - don't trigger reconnection
+                val hadPreviousConnection = connectionStartTime > 0
+                
+                if (hadPreviousConnection) {
+                    // We had a connection that was lost - trigger reconnection
+                    val callback = activeCallback
+                    if (callback != null) {
+                        android.util.Log.w("WebSocketService", "Service restarted and connection was lost - triggering reconnection via AppViewModel")
+                        logActivity("Service Restarted - Connection Lost - Reconnecting", currentNetworkType.name)
+                        try {
+                            callback("Service restarted - connection lost - reconnecting")
+                        } catch (e: Exception) {
+                            android.util.Log.e("WebSocketService", "Reconnection callback failed", e)
+                            logActivity("Reconnection Failed - ${e.message}", currentNetworkType.name)
+                        }
+                    } else {
+                        // AppViewModel not available - wait for it
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restarted but AppViewModel not available - waiting for app to connect WebSocket properly")
+                        logActivity("Service Restarted - Waiting for AppViewModel", currentNetworkType.name)
                     }
                 } else {
-                    // AppViewModel not available - DO NOT create ad-hoc WebSocket
-                    // Wait for AppViewModel to connect the WebSocket properly when app starts
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restarted but AppViewModel not available - waiting for app to connect WebSocket properly")
-                    logActivity("Service Restarted - Waiting for AppViewModel", currentNetworkType.name)
+                    // Fresh service start - don't trigger reconnection, let app handle it
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service started fresh - waiting for app to establish initial connection")
+                    logActivity("Service Started - Waiting for Initial Connection", currentNetworkType.name)
                 }
             } else if (isConnected) {
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service restarted and WebSocket already connected")

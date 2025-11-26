@@ -15,6 +15,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -150,21 +152,6 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 }
             }
             if (BuildConfig.DEBUG) Log.d("Andromuks", "AuthCheckScreen: appViewModel instance: $appViewModel")
-            
-            // Set reconnection parameters in service BEFORE starting service (run_id is in SharedPreferences)
-            val lastReceivedId = appViewModel.getLastReceivedId()
-            if (lastReceivedId != 0) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: Setting reconnection parameters in service - lastReceivedId: $lastReceivedId (run_id from SharedPreferences)")
-                WebSocketService.setReconnectionState(lastReceivedId)
-            }
-            
-            // Start WebSocket service BEFORE connecting websocket
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: Starting WebSocket service before connection")
-            appViewModel.startWebSocketService()
-            
-            // Set app as visible since we're starting the app
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: Setting app as visible")
-            WebSocketService.setAppVisibility(true)
 
             // CRITICAL FIX: Only primary AppViewModel instance should create WebSocket connections
             // Non-primary instances should attach to existing connection or wait for primary to connect
@@ -181,12 +168,11 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             } else if (isPrimary) {
                 // This is the primary instance and no connection exists - create the connection
                 // The Foreground service will maintain this connection
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: Primary instance - creating WebSocket connection (will be maintained by Foreground service)")
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: Verifying backend health before opening WebSocket")
-                waitForBackendHealth(homeserverUrl, loggerTag = "AuthCheckScreen")
-                
-                // Connect websocket - service is now ready to receive the connection
-                connectToWebsocket(homeserverUrl, client, token, appViewModel)
+                // PHASE 1.4 FIX: Use AppViewModel's initializeWebSocketConnection() which uses viewModelScope
+                // This ensures the connection attempt survives activity recreation
+                // All setup (service start, reconnection params, health check, connection) is handled there
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: Primary instance - delegating WebSocket connection to AppViewModel (survives activity recreation)")
+                appViewModel.initializeWebSocketConnection(homeserverUrl, token)
             } else {
                 // Non-primary instance and no connection exists - wait for primary to connect
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: Non-primary instance - waiting for primary instance to establish WebSocket connection")
