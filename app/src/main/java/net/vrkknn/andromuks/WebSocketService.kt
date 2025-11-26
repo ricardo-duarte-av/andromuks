@@ -1394,6 +1394,9 @@ class WebSocketService : Service() {
     private var serviceStartTime: Long = 0 // Track when service started (0 = not started yet)
     private var wasRestarted: Boolean = false // Track if service was restarted (instance was null before onCreate)
     
+    // PHASE 2.3: Callback health monitoring
+    private var lastCallbackCheckTime: Long = 0 // Track when callbacks were last verified
+    
     // RUSH TO HEALTHY: Fixed ping interval - no adaptive logic needed
     // Ping/pong failures are handled by immediate retry and dropping after 3 failures
     
@@ -1444,18 +1447,27 @@ class WebSocketService : Service() {
     private fun startStateCorruptionMonitoring() {
         stateCorruptionJob?.cancel()
         stateCorruptionJob = serviceScope.launch {
+            var stateCorruptionCheckCounter = 0
             while (isActive) {
-                delay(60_000) // Check every 60 seconds
+                delay(30_000) // Check every 30 seconds (for callback health)
                 
                 try {
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Running periodic state corruption check")
-                    WebSocketService.detectAndRecoverStateCorruption()
+                    // PHASE 2.3: Check callback health every 30 seconds
+                    validateCallbacks()
+                    
+                    // State corruption check every 60 seconds (every other iteration)
+                    stateCorruptionCheckCounter++
+                    if (stateCorruptionCheckCounter >= 2) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Running periodic state corruption check")
+                        WebSocketService.detectAndRecoverStateCorruption()
+                        stateCorruptionCheckCounter = 0
+                    }
                 } catch (e: Exception) {
-                    android.util.Log.e("WebSocketService", "Error in state corruption monitoring", e)
+                    android.util.Log.e("WebSocketService", "Error in state corruption/callback monitoring", e)
                 }
             }
         }
-        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "State corruption monitoring started")
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "State corruption and callback health monitoring started")
     }
     
     /**
@@ -1464,7 +1476,53 @@ class WebSocketService : Service() {
     private fun stopStateCorruptionMonitoring() {
         stateCorruptionJob?.cancel()
         stateCorruptionJob = null
-        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "State corruption monitoring stopped")
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "State corruption and callback health monitoring stopped")
+    }
+    
+    /**
+     * PHASE 2.3: Validate that all primary callbacks are set
+     * Checks if callbacks are available and logs warnings if missing
+     * Updates notification if callback is missing and connection is not CONNECTED
+     */
+    private fun validateCallbacks() {
+        lastCallbackCheckTime = System.currentTimeMillis()
+        
+        // PHASE 1.2: Check active callback (primary or legacy)
+        val activeReconnectionCallback = getActiveReconnectionCallback()
+        val isConnected = connectionState == ConnectionState.CONNECTED
+        
+        // Verify primaryReconnectionCallback if connection is not CONNECTED
+        if (!isConnected && activeReconnectionCallback == null) {
+            android.util.Log.w("WebSocketService", "Callback health check: reconnection callback is null and connection is not CONNECTED")
+            logActivity("Callback Missing - Waiting for AppViewModel", currentNetworkType.name)
+            
+            // Update notification to show "Waiting for app..."
+            updateConnectionStatus(
+                isConnected = false,
+                lagMs = lastKnownLagMs,
+                lastSyncTimestamp = lastSyncTimestamp
+            )
+        } else if (BuildConfig.DEBUG && !isConnected) {
+            android.util.Log.d("WebSocketService", "Callback health check: reconnection callback is available (connection not CONNECTED)")
+        } else if (BuildConfig.DEBUG && isConnected) {
+            android.util.Log.d("WebSocketService", "Callback health check: connection is CONNECTED (callback check skipped)")
+        }
+        
+        // Check all primary callbacks for completeness (for diagnostics)
+        val hasPrimaryReconnection = primaryReconnectionCallback != null
+        val hasPrimaryOfflineMode = primaryOfflineModeCallback != null
+        val hasPrimaryActivityLog = primaryActivityLogCallback != null
+        
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("WebSocketService", "Callback health check: reconnection=$hasPrimaryReconnection, offlineMode=$hasPrimaryOfflineMode, activityLog=$hasPrimaryActivityLog")
+        }
+        
+        // Log warning if primary instance is registered but callbacks are missing
+        if (primaryViewModelId != null) {
+            if (!hasPrimaryReconnection) {
+                android.util.Log.w("WebSocketService", "Primary instance $primaryViewModelId registered but reconnection callback is missing")
+            }
+        }
     }
     
     private fun shouldIncludeLastReceivedForReconnect(): Boolean {
