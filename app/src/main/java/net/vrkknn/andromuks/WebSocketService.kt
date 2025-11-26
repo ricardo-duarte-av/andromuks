@@ -528,7 +528,45 @@ class WebSocketService : Service() {
                 reconnectionCallback = callback
                 
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setReconnectionCallback: Successfully registered primary reconnection callback for $viewModelId")
+                
+                // PHASE 2.1: Process any pending reconnection requests that were queued before callback was available
+                processPendingReconnections()
+                
                 return true
+            }
+        }
+        
+        /**
+         * PHASE 2.1: Process pending reconnection requests that were queued when callback was unavailable
+         */
+        private fun processPendingReconnections() {
+            val serviceInstance = instance ?: return
+            
+            // Check if callback is now available
+            val activeCallback = getActiveReconnectionCallback()
+            if (activeCallback == null) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "processPendingReconnections: Callback still not available, skipping")
+                return
+            }
+            
+            // Process all queued requests
+            synchronized(serviceInstance.pendingReconnectionLock) {
+                if (serviceInstance.pendingReconnectionReasons.isEmpty()) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "processPendingReconnections: No pending reconnection requests")
+                    return
+                }
+                
+                val queuedReasons = serviceInstance.pendingReconnectionReasons.toList()
+                serviceInstance.pendingReconnectionReasons.clear()
+                
+                android.util.Log.i("WebSocketService", "processPendingReconnections: Processing ${queuedReasons.size} queued reconnection request(s)")
+                
+                // Process each queued request
+                queuedReasons.forEach { reason ->
+                    android.util.Log.i("WebSocketService", "processPendingReconnections: Processing queued reconnection: $reason")
+                    // Use scheduleReconnection to ensure proper handling (rate limiting, state checks, etc.)
+                    scheduleReconnection(reason)
+                }
             }
         }
         
@@ -541,6 +579,8 @@ class WebSocketService : Service() {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setReconnectionCallback() called (legacy - no viewModelId)")
             // Legacy: allow registration without viewModelId, but don't set as primary
             reconnectionCallback = callback
+            // PHASE 2.1: Process any pending reconnection requests
+            processPendingReconnections()
         }
         
         /**
@@ -1146,6 +1186,17 @@ class WebSocketService : Service() {
         fun scheduleReconnection(reason: String) {
             val serviceInstance = instance ?: return
             
+            // PHASE 2.1: If reconnection callback is not available, queue the request
+            val activeCallback = getActiveReconnectionCallback()
+            if (activeCallback == null) {
+                synchronized(serviceInstance.pendingReconnectionLock) {
+                    serviceInstance.pendingReconnectionReasons.add(reason)
+                    android.util.Log.w("WebSocketService", "Reconnection callback not available - queued reconnection request: $reason (queue size: ${serviceInstance.pendingReconnectionReasons.size})")
+                    logActivity("Reconnection Queued - $reason", serviceInstance.currentNetworkType.name)
+                }
+                return
+            }
+            
             // ATOMIC GUARD: Use synchronized lock to prevent parallel reconnection attempts
             synchronized(serviceInstance.reconnectionLock) {
                 val currentTime = System.currentTimeMillis()
@@ -1330,6 +1381,10 @@ class WebSocketService : Service() {
     
     // Atomic lock for preventing parallel reconnection attempts (compare-and-set)
     private val reconnectionLock = Any()
+    
+    // PHASE 2.1: Pending reconnection queue for when callback is not yet available
+    private val pendingReconnectionReasons = mutableListOf<String>()
+    private val pendingReconnectionLock = Any() // Thread safety for pending queue
     
     // Ping loop state
     private var pingLoopStarted = false // Track if ping loop has been started after first sync_complete
