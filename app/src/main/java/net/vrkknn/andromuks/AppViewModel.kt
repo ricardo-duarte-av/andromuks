@@ -3582,24 +3582,30 @@ class AppViewModel : ViewModel() {
                 
                 // BATTERY OPTIMIZATION: Update conversation shortcuts incrementally from sync_complete rooms only
                 // Only processes rooms that changed in sync_complete (typically 2-3 rooms), never sorts all 588 rooms
-                viewModelScope.launch(Dispatchers.Default) {
-                    // Get all rooms from sync_complete (updated + new)
-                    val syncRooms = (syncResult.updatedRooms + syncResult.newRooms).filter { 
-                        it.sortingTimestamp != null && it.sortingTimestamp > 0 
+                // COLD START FIX: Only update shortcuts if initialization is complete
+                // During initialization, shortcuts will be updated after init_complete arrives
+                if (initializationComplete) {
+                    viewModelScope.launch(Dispatchers.Default) {
+                        // Get all rooms from sync_complete (updated + new)
+                        val syncRooms = (syncResult.updatedRooms + syncResult.newRooms).filter { 
+                            it.sortingTimestamp != null && it.sortingTimestamp > 0 
+                        }
+                        
+                        if (syncRooms.isNotEmpty()) {
+                            conversationsApi?.updateShortcutsFromSyncRooms(syncRooms)
+                        }
+                        
+                        // BATTERY OPTIMIZATION: Only update persons API if sync_complete has DM changes
+                        // No need to sort - buildDirectPersonTargets() filters to DMs and doesn't use sorted order
+                        val syncDMs = syncRooms.filter { it.isDirectMessage }
+                        if (syncDMs.isNotEmpty()) {
+                            // Get all DMs from roomMap (no sorting needed - persons API doesn't care about order)
+                            val allDMs = roomMap.values.filter { it.isDirectMessage }
+                            personsApi?.updatePersons(buildDirectPersonTargets(allDMs))
+                        }
                     }
-                    
-                    if (syncRooms.isNotEmpty()) {
-                        conversationsApi?.updateShortcutsFromSyncRooms(syncRooms)
-                    }
-                    
-                    // BATTERY OPTIMIZATION: Only update persons API if sync_complete has DM changes
-                    // No need to sort - buildDirectPersonTargets() filters to DMs and doesn't use sorted order
-                    val syncDMs = syncRooms.filter { it.isDirectMessage }
-                    if (syncDMs.isNotEmpty()) {
-                        // Get all DMs from roomMap (no sorting needed - persons API doesn't care about order)
-                        val allDMs = roomMap.values.filter { it.isDirectMessage }
-                        personsApi?.updatePersons(buildDirectPersonTargets(allDMs))
-                    }
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping shortcut update in processParsedSyncResult - initialization not complete yet")
                 }
             } else {
                 // Room state hash unchanged - check if individual rooms need timestamp updates
@@ -3664,25 +3670,31 @@ class AppViewModel : ViewModel() {
             // BATTERY OPTIMIZATION: Update shortcuts incrementally from sync_complete rooms (no sorting needed!)
             // Even when backgrounded, we can update shortcuts for rooms in sync_complete without sorting all 588 rooms
             // This is much lighter than the old approach that sorted all rooms every 10 syncs
-            viewModelScope.launch(Dispatchers.Default) {
-                // Get all rooms from sync_complete (updated + new)
-                val syncRooms = (syncResult.updatedRooms + syncResult.newRooms).filter { 
-                    it.sortingTimestamp != null && it.sortingTimestamp > 0 
+            // COLD START FIX: Only update shortcuts if initialization is complete
+            // During initialization, shortcuts will be updated after init_complete arrives
+            if (initializationComplete) {
+                viewModelScope.launch(Dispatchers.Default) {
+                    // Get all rooms from sync_complete (updated + new)
+                    val syncRooms = (syncResult.updatedRooms + syncResult.newRooms).filter { 
+                        it.sortingTimestamp != null && it.sortingTimestamp > 0 
+                    }
+                    
+                    if (syncRooms.isNotEmpty()) {
+                        conversationsApi?.updateShortcutsFromSyncRooms(syncRooms)
+                    }
+                    
+                    // BATTERY OPTIMIZATION: Only update persons API if sync_complete has DM changes
+                    // No need to sort - buildDirectPersonTargets() filters to DMs and doesn't use sorted order
+                    val syncDMs = syncRooms.filter { it.isDirectMessage }
+                    if (syncDMs.isNotEmpty()) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Background: Updating persons (DMs changed in sync_complete)")
+                        // Get all DMs from roomMap (no sorting needed - persons API doesn't care about order)
+                        val allDMs = roomMap.values.filter { it.isDirectMessage }
+                        personsApi?.updatePersons(buildDirectPersonTargets(allDMs))
+                    }
                 }
-                
-                if (syncRooms.isNotEmpty()) {
-                    conversationsApi?.updateShortcutsFromSyncRooms(syncRooms)
-                }
-                
-                // BATTERY OPTIMIZATION: Only update persons API if sync_complete has DM changes
-                // No need to sort - buildDirectPersonTargets() filters to DMs and doesn't use sorted order
-                val syncDMs = syncRooms.filter { it.isDirectMessage }
-                if (syncDMs.isNotEmpty()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Background: Updating persons (DMs changed in sync_complete)")
-                    // Get all DMs from roomMap (no sorting needed - persons API doesn't care about order)
-                    val allDMs = roomMap.values.filter { it.isDirectMessage }
-                    personsApi?.updatePersons(buildDirectPersonTargets(allDMs))
-                }
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping shortcut update in processParsedSyncResult (background) - initialization not complete yet")
             }
             // Note: We don't invalidate cache on every sync when backgrounded - saves CPU time
         }
@@ -4279,13 +4291,38 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unregistering $viewModelId from WebSocket callbacks")
         WebSocketService.unregisterReceiveCallback(viewModelId)
         
-        // PHASE 1.2: Clear primary callbacks if this is the primary instance
+        // PHASE 1.3: Clear primary callbacks if this is the primary instance
         if (instanceRole == InstanceRole.PRIMARY) {
-            val cleared = WebSocketService.clearPrimaryCallbacks(viewModelId)
-            if (cleared) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared primary callbacks for $viewModelId")
+            // PHASE 1.3: Validate that this instance is actually the primary before clearing
+            val currentPrimaryId = WebSocketService.getPrimaryViewModelId()
+            val isActuallyPrimary = WebSocketService.isPrimaryInstance(viewModelId)
+            
+            if (isActuallyPrimary) {
+                // This instance is confirmed as primary - safe to clear
+                val cleared = WebSocketService.clearPrimaryCallbacks(viewModelId)
+                if (cleared) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared primary callbacks for $viewModelId")
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: Failed to clear primary callbacks for $viewModelId (unexpected failure)")
+                }
             } else {
-                android.util.Log.w("Andromuks", "AppViewModel: Failed to clear primary callbacks for $viewModelId (may not have been primary)")
+                // This instance thinks it's primary but WebSocketService says otherwise
+                if (currentPrimaryId != null) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Instance $viewModelId marked as PRIMARY but WebSocketService reports $currentPrimaryId as primary. State mismatch detected.")
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: Instance $viewModelId marked as PRIMARY but no primary instance registered in WebSocketService. State mismatch detected.")
+                }
+                // Attempt to clear anyway (defensive cleanup)
+                val cleared = WebSocketService.clearPrimaryCallbacks(viewModelId)
+                if (!cleared && BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Clear attempt failed as expected (instance was not primary)")
+                }
+            }
+        } else {
+            // Not a primary instance - verify we're not accidentally registered as primary
+            if (WebSocketService.isPrimaryInstance(viewModelId)) {
+                android.util.Log.w("Andromuks", "AppViewModel: Instance $viewModelId is not marked as PRIMARY but is registered as primary in WebSocketService. Clearing to prevent state corruption.")
+                WebSocketService.clearPrimaryCallbacks(viewModelId)
             }
         }
         
@@ -4772,15 +4809,38 @@ class AppViewModel : ViewModel() {
             sendWebSocketCommand(command, requestId, data) == WebSocketResult.SUCCESS
         }
         
-        // PHASE 1.2: Register primary callbacks with viewModelId
+        // PHASE 1.3: Register primary callbacks with viewModelId and validation
         // Only PRIMARY instances should register these callbacks
         if (instanceRole == InstanceRole.PRIMARY) {
-            // Register reconnection callback - this will set this instance as primary
+            // PHASE 1.3: Validate primary instance state before registration
+            val currentPrimaryId = WebSocketService.getPrimaryViewModelId()
+            
+            if (currentPrimaryId != null) {
+                if (currentPrimaryId == viewModelId) {
+                    // This instance is already primary - re-registering (e.g., after service restart)
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Re-registering primary callbacks for existing primary instance $viewModelId")
+                } else {
+                    // Another instance is already primary - this is a problem
+                    android.util.Log.w("Andromuks", "AppViewModel: Another instance ($currentPrimaryId) is already registered as primary. This instance ($viewModelId) cannot register as primary. This may indicate multiple PRIMARY instances exist.")
+                    // Continue anyway - the registration will be rejected by WebSocketService
+                }
+            } else {
+                // No primary instance registered - this instance will become primary
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No primary instance registered. This instance ($viewModelId) will become primary.")
+            }
+            
+            // Register reconnection callback - this will set this instance as primary (or reject if another is primary)
             val reconnectionRegistered = WebSocketService.setReconnectionCallback(viewModelId) { reason ->
                 restartWebSocket(reason)
             }
+            
             if (!reconnectionRegistered) {
-                android.util.Log.w("Andromuks", "AppViewModel: Failed to register as primary instance for reconnection callback. Another instance may already be primary.")
+                val existingPrimary = WebSocketService.getPrimaryViewModelId()
+                android.util.Log.w("Andromuks", "AppViewModel: Failed to register as primary instance for reconnection callback. Current primary: $existingPrimary, This instance: $viewModelId")
+                // Log this as an activity event for debugging
+                logActivity("Failed to Register as Primary - Another Instance Active", null)
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Successfully registered as primary instance ($viewModelId)")
             }
             
             // Register offline mode callback - only if reconnection callback was registered successfully
