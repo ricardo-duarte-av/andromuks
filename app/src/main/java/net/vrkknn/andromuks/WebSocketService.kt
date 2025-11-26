@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import net.vrkknn.andromuks.utils.NetworkMonitor
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -1397,6 +1398,9 @@ class WebSocketService : Service() {
     // PHASE 2.3: Callback health monitoring
     private var lastCallbackCheckTime: Long = 0 // Track when callbacks were last verified
     
+    // PHASE 3.1: Network monitoring
+    private var networkMonitor: NetworkMonitor? = null
+    
     // RUSH TO HEALTHY: Fixed ping interval - no adaptive logic needed
     // Ping/pong failures are handled by immediate retry and dropping after 3 failures
     
@@ -1522,6 +1526,91 @@ class WebSocketService : Service() {
             if (!hasPrimaryReconnection) {
                 android.util.Log.w("WebSocketService", "Primary instance $primaryViewModelId registered but reconnection callback is missing")
             }
+        }
+    }
+    
+    /**
+     * PHASE 3.1: Start network monitoring
+     * Detects network changes immediately (WiFi↔WiFi, Mobile↔Mobile, Offline↔Online, WiFi↔Mobile)
+     */
+    private fun startNetworkMonitoring() {
+        if (networkMonitor != null) {
+            if (BuildConfig.DEBUG) android.util.Log.w("WebSocketService", "NetworkMonitor already started")
+            return
+        }
+        
+        networkMonitor = NetworkMonitor(
+            context = this,
+            onNetworkAvailable = { networkType ->
+                android.util.Log.i("WebSocketService", "Network available: $networkType - checking if reconnection needed")
+                currentNetworkType = convertNetworkType(networkType)
+                
+                // Network became available - trigger reconnection if disconnected
+                if (connectionState != ConnectionState.CONNECTED) {
+                    android.util.Log.w("WebSocketService", "Network available but WebSocket not connected - triggering reconnection")
+                    logActivity("Network Available - Reconnecting", currentNetworkType.name)
+                    
+                    // PHASE 2.1: Use scheduleReconnection which will queue if callback not available
+                    scheduleReconnection("Network available: $networkType")
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network available and WebSocket already connected - no action needed")
+                }
+            },
+            onNetworkLost = {
+                android.util.Log.w("WebSocketService", "Network lost - marking connection as degraded")
+                logActivity("Network Lost", currentNetworkType.name)
+                
+                // Network lost - mark connection as degraded, don't reconnect yet
+                // Wait for network to become available again
+                isCurrentlyConnected = false
+                currentNetworkType = NetworkType.NONE
+                
+                // Update notification to show network loss
+                updateConnectionStatus(false, lastKnownLagMs, lastSyncTimestamp)
+            },
+            onNetworkTypeChanged = { previousType, newType ->
+                android.util.Log.i("WebSocketService", "Network type changed: $previousType → $newType - reconnecting WebSocket")
+                logActivity("Network Type Changed: $previousType → $newType", newType.name)
+                
+                currentNetworkType = convertNetworkType(newType)
+                
+                // Network type changed (e.g., WiFi → Mobile, or different WiFi network)
+                // Close existing connection and reconnect on new network
+                if (connectionState == ConnectionState.CONNECTED || connectionState == ConnectionState.RECONNECTING) {
+                    android.util.Log.w("WebSocketService", "Network type changed while connected - reconnecting on new network")
+                    clearWebSocket("Network type changed: $previousType → $newType")
+                    scheduleReconnection("Network type changed: $previousType → $newType")
+                } else {
+                    // Not connected - just trigger reconnection
+                    scheduleReconnection("Network type changed: $previousType → $newType")
+                }
+            }
+        )
+        
+        networkMonitor?.start()
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network monitoring started")
+    }
+    
+    /**
+     * PHASE 3.1: Stop network monitoring
+     */
+    private fun stopNetworkMonitoring() {
+        networkMonitor?.stop()
+        networkMonitor = null
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Network monitoring stopped")
+    }
+    
+    /**
+     * PHASE 3.1: Convert NetworkMonitor.NetworkType to WebSocketService.NetworkType
+     */
+    private fun convertNetworkType(networkType: NetworkMonitor.NetworkType): NetworkType {
+        return when (networkType) {
+            NetworkMonitor.NetworkType.NONE -> NetworkType.NONE
+            NetworkMonitor.NetworkType.WIFI -> NetworkType.WIFI
+            NetworkMonitor.NetworkType.CELLULAR -> NetworkType.CELLULAR
+            NetworkMonitor.NetworkType.ETHERNET -> NetworkType.ETHERNET
+            NetworkMonitor.NetworkType.VPN -> NetworkType.VPN
+            NetworkMonitor.NetworkType.OTHER -> NetworkType.OTHER
         }
     }
     
@@ -1896,6 +1985,9 @@ class WebSocketService : Service() {
         // Start state corruption monitoring immediately when service is created
         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Starting service state monitoring from onCreate")
         startStateCorruptionMonitoring()
+        
+        // PHASE 3.1: Start network monitoring for immediate reconnection on network changes
+        startNetworkMonitoring()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -2049,6 +2141,8 @@ class WebSocketService : Service() {
         try {
             // Stop all monitoring and jobs
             stopStateCorruptionMonitoring()
+            // PHASE 3.1: Stop network monitoring
+            stopNetworkMonitoring()
             
             // Cancel all coroutine jobs
             pingJob?.cancel()
