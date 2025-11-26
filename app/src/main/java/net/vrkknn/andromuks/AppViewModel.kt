@@ -106,6 +106,10 @@ class AppViewModel : ViewModel() {
         
         // PHASE 4: Counter for generating unique ViewModel IDs
         private var viewModelCounter = 0
+        
+        // PHASE 5.1: Constants for outgoing message queue
+        private const val MAX_QUEUE_SIZE = 100 // Maximum queue size
+        private const val MAX_MESSAGE_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
     }
     
     // PHASE 4: Unique ID for this ViewModel instance (for WebSocket callback registration)
@@ -544,11 +548,49 @@ class AppViewModel : ViewModel() {
     private val notificationActionCompletionCallbacks = mutableMapOf<Int, () -> Unit>()
 
     // WebSocket pending operations for retry when connection is restored
+    // PHASE 5.1: Enhanced PendingWebSocketOperation with persistence support
     private data class PendingWebSocketOperation(
         val type: String, // "sendMessage", "sendReply", "markRoomAsRead", etc.
         val data: Map<String, Any>,
-        val retryCount: Int = 0
-    )
+        val retryCount: Int = 0,
+        val messageId: String = java.util.UUID.randomUUID().toString(), // PHASE 5.1: Unique identifier
+        val timestamp: Long = System.currentTimeMillis(), // PHASE 5.1: When message was queued
+        val acknowledged: Boolean = false, // PHASE 5.1: Whether response was received
+        val acknowledgmentTimeout: Long = System.currentTimeMillis() + 30000L // PHASE 5.1: When to consider message failed (30s default)
+    ) {
+        // PHASE 5.1: Helper to convert to JSON-serializable format
+        fun toJsonMap(): Map<String, Any> {
+            return mapOf(
+                "type" to type,
+                "data" to data,
+                "retryCount" to retryCount,
+                "messageId" to messageId,
+                "timestamp" to timestamp,
+                "acknowledged" to acknowledged,
+                "acknowledgmentTimeout" to acknowledgmentTimeout
+            )
+        }
+        
+        companion object {
+            // PHASE 5.1: Helper to create from JSON-serializable format
+            fun fromJsonMap(jsonMap: Map<String, Any>): PendingWebSocketOperation? {
+                return try {
+                    PendingWebSocketOperation(
+                        type = jsonMap["type"] as? String ?: return null,
+                        data = jsonMap["data"] as? Map<String, Any> ?: return null,
+                        retryCount = (jsonMap["retryCount"] as? Number)?.toInt() ?: 0,
+                        messageId = jsonMap["messageId"] as? String ?: java.util.UUID.randomUUID().toString(),
+                        timestamp = (jsonMap["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis(),
+                        acknowledged = jsonMap["acknowledged"] as? Boolean ?: false,
+                        acknowledgmentTimeout = (jsonMap["acknowledgmentTimeout"] as? Number)?.toLong() ?: System.currentTimeMillis() + 30000L
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Failed to parse PendingWebSocketOperation from JSON", e)
+                    null
+                }
+            }
+        }
+    }
     
     // NAVIGATION PERFORMANCE: Room navigation state cache
     data class RoomNavigationState(
@@ -561,6 +603,10 @@ class AppViewModel : ViewModel() {
     
     private val pendingWebSocketOperations = mutableListOf<PendingWebSocketOperation>()
     private val maxRetryAttempts = 3
+    
+    // QUEUE FLUSHING: Track if queue is being flushed to prevent out-of-order messages
+    private var isFlushingQueue = false
+    private var lastReconnectionTime = 0L
 
     var spacesLoaded by mutableStateOf(false)
         private set
@@ -1258,6 +1304,9 @@ class AppViewModel : ViewModel() {
         clearCurrentRoomId()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared current room ID on app startup")
         
+        // PHASE 5.1: Load pending WebSocket operations from storage
+        loadPendingOperationsFromStorage()
+        
         val components = FCMNotificationManager.initializeComponents(
             context = context,
             homeserverUrl = homeserverUrl,
@@ -1270,6 +1319,166 @@ class AppViewModel : ViewModel() {
         webClientPushIntegration = components.webClientPushIntegration
         
         // Network monitoring will be started when WebSocket service starts
+        
+        // PHASE 5.2: Start periodic acknowledgment timeout check
+        startAcknowledgmentTimeoutCheck()
+        
+        // PHASE 5.4: Start periodic cleanup of acknowledged messages
+        startAcknowledgedMessagesCleanup()
+    }
+    
+    // PHASE 5.2: Periodic acknowledgment timeout check job
+    private var acknowledgmentTimeoutJob: Job? = null
+    
+    // PHASE 5.4: Periodic cleanup job for acknowledged messages
+    private var acknowledgedMessagesCleanupJob: Job? = null
+    
+    /**
+     * PHASE 5.2: Start periodic check for unacknowledged messages
+     * Checks every 10 seconds for messages that have exceeded their acknowledgment timeout
+     */
+    private fun startAcknowledgmentTimeoutCheck() {
+        acknowledgmentTimeoutJob?.cancel()
+        acknowledgmentTimeoutJob = viewModelScope.launch {
+            while (isActive) {
+                delay(10000L) // Check every 10 seconds
+                checkAcknowledgmentTimeouts()
+            }
+        }
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Started acknowledgment timeout check job")
+    }
+    
+    /**
+     * PHASE 5.2: Check for unacknowledged messages that have exceeded their timeout
+     * Retries messages if retryCount < maxRetryAttempts, otherwise marks as failed
+     * QUEUE FLUSHING FIX: Respects stabilization period after reconnection to prevent triple-sending
+     */
+    private fun checkAcknowledgmentTimeouts() {
+        val currentTime = System.currentTimeMillis()
+        val operationsToRetry = mutableListOf<PendingWebSocketOperation>()
+        val operationsToRemove = mutableListOf<PendingWebSocketOperation>()
+        
+        // QUEUE FLUSHING FIX: Don't retry immediately after reconnection - give backend time to stabilize
+        // Wait at least 5 seconds after reconnection before retrying
+        val stabilizationPeriodMs = 5000L // 5 seconds
+        val timeSinceReconnection = if (lastReconnectionTime > 0) currentTime - lastReconnectionTime else Long.MAX_VALUE
+        val isInStabilizationPeriod = timeSinceReconnection < stabilizationPeriodMs
+        
+        pendingWebSocketOperations.forEach { operation ->
+            if (!operation.acknowledged && currentTime >= operation.acknowledgmentTimeout) {
+                // QUEUE FLUSHING FIX: If we're in stabilization period, extend timeout instead of retrying
+                if (isInStabilizationPeriod && operation.retryCount == 0) {
+                    // First retry after reconnection - extend timeout to give backend more time
+                    val newTimeout = currentTime + 10000L // 10 more seconds
+                    android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Extending timeout for ${operation.type} (stabilization period, ${timeSinceReconnection}ms since reconnection)")
+                    val updatedOperation = operation.copy(acknowledgmentTimeout = newTimeout)
+                    operationsToRemove.add(operation)
+                    operationsToRetry.add(updatedOperation)
+                } else if (operation.retryCount < maxRetryAttempts) {
+                    // Retry the message
+                    val newRetryCount = operation.retryCount + 1
+                    val newTimeout = currentTime + 30000L // 30 seconds for next attempt
+                    android.util.Log.w("Andromuks", "AppViewModel: Message acknowledgment timeout - retrying (attempt $newRetryCount/${maxRetryAttempts}): ${operation.type}, messageId: ${operation.messageId}")
+                    
+                    operationsToRetry.add(operation.copy(
+                        retryCount = newRetryCount,
+                        acknowledgmentTimeout = newTimeout
+                    ))
+                    operationsToRemove.add(operation)
+                } else {
+                    // Max retries exceeded - mark as failed and remove
+                    android.util.Log.e("Andromuks", "AppViewModel: Message failed after ${maxRetryAttempts} retries: ${operation.type}, messageId: ${operation.messageId}")
+                    logActivity("Message Failed - ${operation.type} (${maxRetryAttempts} retries)", null)
+                    operationsToRemove.add(operation)
+                }
+            }
+        }
+        
+        // Remove failed/retried operations
+        operationsToRemove.forEach { pendingWebSocketOperations.remove(it) }
+        
+        // Add retried operations back with updated retry count
+        operationsToRetry.forEach { addPendingOperation(it) }
+        
+        // Retry the operations
+        if (operationsToRetry.isNotEmpty()) {
+            android.util.Log.i("Andromuks", "AppViewModel: Retrying ${operationsToRetry.size} timed-out messages")
+            operationsToRetry.forEach { operation ->
+                when {
+                    operation.type == "sendMessage" -> {
+                        val roomId = operation.data["roomId"] as? String
+                        val text = operation.data["text"] as? String
+                        if (roomId != null && text != null) {
+                            sendMessageInternal(roomId, text)
+                        }
+                    }
+                    operation.type == "sendReply" -> {
+                        // Note: sendReply requires originalEvent which is complex to restore
+                        // For now, we'll skip retrying sendReply operations
+                        android.util.Log.w("Andromuks", "AppViewModel: Skipping retry of sendReply (originalEvent not stored)")
+                    }
+                    operation.type == "markRoomAsRead" -> {
+                        val roomId = operation.data["roomId"] as? String
+                        val eventId = operation.data["eventId"] as? String
+                        if (roomId != null && eventId != null) {
+                            markRoomAsReadInternal(roomId, eventId)
+                        }
+                    }
+                    operation.type.startsWith("command_") -> {
+                        // PHASE 5.2: Retry generic commands
+                        val command = operation.type.removePrefix("command_")
+                        val requestId = operation.data["requestId"] as? Int
+                        @Suppress("UNCHECKED_CAST")
+                        val data = operation.data["data"] as? Map<String, Any>
+                        if (requestId != null && data != null) {
+                            // Generate new request_id for retry (can't reuse old one)
+                            val newRequestId = requestIdCounter++
+                            android.util.Log.w("Andromuks", "AppViewModel: Retrying command '$command' with new request_id: $newRequestId (was: $requestId)")
+                            sendWebSocketCommand(command, newRequestId, data)
+                        }
+                    }
+                    else -> {
+                        android.util.Log.w("Andromuks", "AppViewModel: Unknown operation type for retry: ${operation.type}")
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * PHASE 5.4: Start periodic cleanup of acknowledged messages
+     * Removes acknowledged messages older than 1 hour every 5 minutes
+     */
+    private fun startAcknowledgedMessagesCleanup() {
+        acknowledgedMessagesCleanupJob?.cancel()
+        acknowledgedMessagesCleanupJob = viewModelScope.launch {
+            while (isActive) {
+                delay(5 * 60 * 1000L) // Every 5 minutes
+                cleanupAcknowledgedMessages()
+            }
+        }
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Started acknowledged messages cleanup job")
+    }
+    
+    /**
+     * PHASE 5.4: Cleanup acknowledged messages older than 1 hour
+     * Prevents queue from growing indefinitely with old acknowledged messages
+     */
+    private fun cleanupAcknowledgedMessages() {
+        val currentTime = System.currentTimeMillis()
+        val oneHourAgo = currentTime - (60 * 60 * 1000L) // 1 hour
+        
+        val operationsToRemove = pendingWebSocketOperations.filter { 
+            it.acknowledged && it.timestamp < oneHourAgo
+        }
+        
+        if (operationsToRemove.isNotEmpty()) {
+            operationsToRemove.forEach { pendingWebSocketOperations.remove(it) }
+            savePendingOperationsToStorage()
+            android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.4 - Cleaned up ${operationsToRemove.size} acknowledged messages older than 1 hour")
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.4 - No acknowledged messages to clean up")
+        }
     }
     
     
@@ -3818,6 +4027,10 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onInitComplete - registering FCM to ensure backend has current token")
         registerFCMWithGomuksBackend()
         
+        // QUEUE FLUSHING FIX: Flush pending queue after init_complete with stabilization delay
+        // This ensures backend is ready and prevents triple-sending
+        flushPendingQueueAfterReconnection()
+        
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Calling navigation callback (callback is ${if (onNavigateToRoomList != null) "set" else "null"})")
         
         // Only trigger navigation callback once to prevent double navigation
@@ -4903,15 +5116,16 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setWebSocket - registering FCM to ensure backend has current token")
         registerFCMWithGomuksBackend()
         
-        // Broadcast that socket connection is available and retry pending operations
-        android.util.Log.i("Andromuks", "AppViewModel: WebSocket connection established - retrying ${pendingWebSocketOperations.size} pending operations")
+        // Broadcast that socket connection is available
+        android.util.Log.i("Andromuks", "AppViewModel: WebSocket connection established - ${pendingWebSocketOperations.size} pending operations will be flushed after init_complete")
         
         // Track if we've had an initial connection (no longer needed for vibration)
         if (!hasHadInitialConnection) {
             hasHadInitialConnection = true
         }
         
-        retryPendingWebSocketOperations()
+        // QUEUE FLUSHING FIX: Don't flush queue here - wait for init_complete
+        // This prevents triple-sending and ensures backend is ready before retrying
     }
     
     /**
@@ -5216,7 +5430,162 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Retry all pending WebSocket operations now that connection is available
+     * PHASE 5.1: Add operation to queue with size limits and persistence
+     */
+    private fun addPendingOperation(operation: PendingWebSocketOperation): Boolean {
+        // PHASE 5.1: Enforce queue size limit (remove oldest if at limit)
+        if (pendingWebSocketOperations.size >= MAX_QUEUE_SIZE) {
+            // Remove oldest operation (sorted by timestamp)
+            val sorted = pendingWebSocketOperations.sortedBy { it.timestamp }
+            val oldest = sorted.firstOrNull()
+            if (oldest != null) {
+                pendingWebSocketOperations.remove(oldest)
+                android.util.Log.w("Andromuks", "AppViewModel: Queue full (${MAX_QUEUE_SIZE}), removed oldest operation: ${oldest.type}")
+            }
+        }
+        
+        pendingWebSocketOperations.add(operation)
+        savePendingOperationsToStorage()
+        return true
+    }
+    
+    /**
+     * PHASE 5.1: Save pending WebSocket operations to SharedPreferences
+     * Called whenever operations are added or modified
+     */
+    private fun savePendingOperationsToStorage() {
+        appContext?.let { context ->
+            try {
+                val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                val operationsArray = JSONArray()
+                
+                // Convert operations to JSON
+                pendingWebSocketOperations.forEach { operation ->
+                    val operationJson = JSONObject(operation.toJsonMap())
+                    operationsArray.put(operationJson)
+                }
+                
+                prefs.edit()
+                    .putString("pending_websocket_operations", operationsArray.toString())
+                    .apply()
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved ${pendingWebSocketOperations.size} pending WebSocket operations to storage")
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to save pending WebSocket operations to storage", e)
+            }
+        }
+    }
+    
+    /**
+     * PHASE 5.1: Load pending WebSocket operations from SharedPreferences
+     * Called on app startup
+     */
+    private fun loadPendingOperationsFromStorage() {
+        appContext?.let { context ->
+            try {
+                val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                val operationsJson = prefs.getString("pending_websocket_operations", null)
+                
+                if (operationsJson == null || operationsJson.isEmpty()) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending WebSocket operations found in storage")
+                    return
+                }
+                
+                val operationsArray = JSONArray(operationsJson)
+                val loadedOperations = mutableListOf<PendingWebSocketOperation>()
+                val currentTime = System.currentTimeMillis()
+                
+                // Parse operations and filter out old ones (>24 hours)
+                for (i in 0 until operationsArray.length()) {
+                    val operationJson = operationsArray.getJSONObject(i)
+                    val operationMap = mutableMapOf<String, Any>()
+                    
+                    // Convert JSONObject to Map
+                    val keys = operationJson.keys()
+                    while (keys.hasNext()) {
+                        val key = keys.next()
+                        operationMap[key] = operationJson.get(key)
+                    }
+                    
+                    val operation = PendingWebSocketOperation.fromJsonMap(operationMap)
+                    if (operation != null) {
+                        // PHASE 5.1: Remove old messages (>24 hours)
+                        val age = currentTime - operation.timestamp
+                        if (age <= MAX_MESSAGE_AGE_MS) {
+                            loadedOperations.add(operation)
+                        } else {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed old pending operation (age: ${age / 1000 / 60} minutes): ${operation.type}")
+                        }
+                    }
+                }
+                
+                // PHASE 5.1: Limit queue size (keep most recent)
+                val operationsToLoad = if (loadedOperations.size > MAX_QUEUE_SIZE) {
+                    loadedOperations.sortedByDescending { it.timestamp }.take(MAX_QUEUE_SIZE)
+                } else {
+                    loadedOperations
+                }
+                
+                pendingWebSocketOperations.clear()
+                pendingWebSocketOperations.addAll(operationsToLoad)
+                
+                if (operationsToLoad.isNotEmpty()) {
+                    android.util.Log.i("Andromuks", "AppViewModel: Loaded ${operationsToLoad.size} pending WebSocket operations from storage (removed ${loadedOperations.size - operationsToLoad.size} old/over-limit)")
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No valid pending WebSocket operations to load")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to load pending WebSocket operations from storage", e)
+            }
+        }
+    }
+    
+    /**
+     * QUEUE FLUSHING FIX: Flush pending queue after reconnection with stabilization delay
+     * Waits for init_complete, then adds stabilization delay before flushing to prevent triple-sending
+     */
+    private fun flushPendingQueueAfterReconnection() {
+        if (pendingWebSocketOperations.isEmpty()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending operations to flush after reconnection")
+            return
+        }
+        
+        val unacknowledgedCount = pendingWebSocketOperations.count { !it.acknowledged }
+        if (unacknowledgedCount == 0) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: All pending operations already acknowledged, no flush needed")
+            return
+        }
+        
+        android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Scheduling flush of $unacknowledgedCount unacknowledged operations after stabilization delay")
+        lastReconnectionTime = System.currentTimeMillis()
+        
+        viewModelScope.launch {
+            // QUEUE FLUSHING FIX: Wait 2 seconds after init_complete for backend to stabilize
+            // This prevents triple-sending messages
+            delay(2000L)
+            
+            // Set flag to prevent new messages from being sent while flushing
+            isFlushingQueue = true
+            
+            try {
+                android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Starting flush of pending operations")
+                retryPendingWebSocketOperations()
+                
+                // Wait a bit more to ensure all retries are processed
+                delay(500L)
+                
+                android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Flush complete, ${pendingWebSocketOperations.size} operations remain in queue")
+            } finally {
+                // Clear flag to allow new messages
+                isFlushingQueue = false
+            }
+        }
+    }
+    
+    /**
+     * PHASE 5.4: Retry pending WebSocket operations with smart queue management
+     * Only retries unacknowledged messages, respects timeouts, orders by timestamp, limits batch size
+     * QUEUE FLUSHING FIX: Now respects stabilization period after reconnection
      */
     private fun retryPendingWebSocketOperations() {
         if (pendingWebSocketOperations.isEmpty()) {
@@ -5224,65 +5593,108 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying ${pendingWebSocketOperations.size} pending WebSocket operations")
+        val currentTime = System.currentTimeMillis()
         
-        val operationsToRetry = pendingWebSocketOperations.toList()
-        pendingWebSocketOperations.clear()
+        // PHASE 5.4: Filter operations to retry:
+        // 1. Only unacknowledged messages
+        // 2. Only if acknowledgmentTimeout has passed
+        // 3. Sort by timestamp (oldest first)
+        val operationsToRetry = pendingWebSocketOperations
+            .filter { !it.acknowledged && currentTime >= it.acknowledgmentTimeout }
+            .sortedBy { it.timestamp }
+            .take(10) // PHASE 5.4: Limit batch size to 10 at a time
         
-        operationsToRetry.forEach { operation ->
-            try {
-                when (operation.type) {
-                    "sendMessage" -> {
-                        val roomId = operation.data["roomId"] as String?
-                        val text = operation.data["text"] as String?
-                        if (roomId != null && text != null) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying sendMessage for room $roomId")
-                            val result = sendMessageInternal(roomId, text)
-                            if (result != WebSocketResult.SUCCESS && operation.retryCount < maxRetryAttempts) {
-                                // Re-queue if still failing
-                                pendingWebSocketOperations.add(operation.copy(retryCount = operation.retryCount + 1))
-                            }
-                        }
-                    }
-                    "sendReply" -> {
-                        // Note: SendReply operations would need the originalEvent, which is complex to serialize
-                        // For now, we'll skip retrying sendReply operations as they're less critical
-                        android.util.Log.w("Andromuks", "AppViewModel: Skipping retry of sendReply operation (complex to serialize)")
-                    }
-                    "markRoomAsRead" -> {
-                        val roomId = operation.data["roomId"] as String?
-                        val eventId = operation.data["eventId"] as String?
-                        if (roomId != null && eventId != null) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying markRoomAsRead for room $roomId")
-                            markRoomAsReadInternal(roomId, eventId)
-                        }
-                    }
-                    else -> {
-                        // NETWORK OPTIMIZATION: Handle offline retry commands
-                        if (operation.type.startsWith("offline_")) {
-                            val command = operation.data["command"] as String?
-                            val requestId = operation.data["requestId"] as Int?
-                            @Suppress("UNCHECKED_CAST")
-                            val data = operation.data["data"] as? Map<String, Any>
-                            
-                            if (command != null && requestId != null && data != null) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Retrying offline command: $command")
-                                sendWebSocketCommand(command, requestId, data)
-                            }
-                        } else {
-                            android.util.Log.w("Andromuks", "AppViewModel: Unknown operation type for retry: ${operation.type}")
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Error retrying operation ${operation.type}: ${e.message}")
-                if (operation.retryCount < maxRetryAttempts) {
-                    pendingWebSocketOperations.add(operation.copy(retryCount = operation.retryCount + 1))
-                }
-            }
+        if (operationsToRetry.isEmpty()) {
+            val acknowledgedCount = pendingWebSocketOperations.count { it.acknowledged }
+            val waitingCount = pendingWebSocketOperations.count { currentTime < it.acknowledgmentTimeout }
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No operations ready to retry (acknowledged: $acknowledgedCount, waiting for timeout: $waitingCount, total: ${pendingWebSocketOperations.size})")
+            return
         }
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Finished retrying pending operations, ${pendingWebSocketOperations.size} remain queued")
+        android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.4 - Retrying ${operationsToRetry.size} pending WebSocket operations (oldest first, batch limited to 10)")
+        
+        // Remove operations from queue before retrying (will be re-added if they fail)
+        operationsToRetry.forEach { pendingWebSocketOperations.remove(it) }
+        savePendingOperationsToStorage()
+        
+        // PHASE 5.4: Retry operations with delay between retries to avoid rate limiting
+        viewModelScope.launch {
+            operationsToRetry.forEachIndexed { index, operation ->
+                try {
+                    // PHASE 5.4: Add delay between retries (100ms) to avoid rate limiting
+                    if (index > 0) {
+                        delay(100L)
+                    }
+                    
+                    when (operation.type) {
+                        "sendMessage" -> {
+                            val roomId = operation.data["roomId"] as String?
+                            val text = operation.data["text"] as String?
+                            if (roomId != null && text != null) {
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying sendMessage for room $roomId (attempt ${operation.retryCount + 1})")
+                                val result = sendMessageInternal(roomId, text)
+                                if (result != WebSocketResult.SUCCESS && operation.retryCount < maxRetryAttempts) {
+                                    // Re-queue if still failing
+                                    addPendingOperation(operation.copy(retryCount = operation.retryCount + 1))
+                                }
+                            }
+                        }
+                        "sendReply" -> {
+                            // Note: SendReply operations would need the originalEvent, which is complex to serialize
+                            // For now, we'll skip retrying sendReply operations as they're less critical
+                            android.util.Log.w("Andromuks", "AppViewModel: Skipping retry of sendReply operation (complex to serialize)")
+                        }
+                        "markRoomAsRead" -> {
+                            val roomId = operation.data["roomId"] as String?
+                            val eventId = operation.data["eventId"] as String?
+                            if (roomId != null && eventId != null) {
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Retrying markRoomAsRead for room $roomId (attempt ${operation.retryCount + 1})")
+                                markRoomAsReadInternal(roomId, eventId)
+                            }
+                        }
+                        else -> {
+                            // PHASE 5.4: Handle generic commands and offline retry commands
+                            if (operation.type.startsWith("offline_")) {
+                                val command = operation.data["command"] as String?
+                                val requestId = operation.data["requestId"] as Int?
+                                @Suppress("UNCHECKED_CAST")
+                                val data = operation.data["data"] as? Map<String, Any>
+                                
+                                if (command != null && requestId != null && data != null) {
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Retrying offline command: $command (attempt ${operation.retryCount + 1})")
+                                    sendWebSocketCommand(command, requestId, data)
+                                }
+                            } else if (operation.type.startsWith("command_")) {
+                                // PHASE 5.4: Retry generic commands
+                                val command = operation.type.removePrefix("command_")
+                                val requestId = operation.data["requestId"] as? Int
+                                @Suppress("UNCHECKED_CAST")
+                                val data = operation.data["data"] as? Map<String, Any>
+                                
+                                if (requestId != null && data != null) {
+                                    // Generate new request_id for retry (can't reuse old one)
+                                    val newRequestId = requestIdCounter++
+                                    android.util.Log.w("Andromuks", "AppViewModel: Retrying command '$command' with new request_id: $newRequestId (was: $requestId, attempt ${operation.retryCount + 1})")
+                                    sendWebSocketCommand(command, newRequestId, data)
+                                }
+                            } else {
+                                android.util.Log.w("Andromuks", "AppViewModel: Unknown operation type for retry: ${operation.type}")
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Error retrying operation ${operation.type}: ${e.message}")
+                    if (operation.retryCount < maxRetryAttempts) {
+                        addPendingOperation(operation.copy(retryCount = operation.retryCount + 1))
+                    }
+                }
+            }
+            
+            // PHASE 5.1: Save queue after retry operations complete
+            savePendingOperationsToStorage()
+            
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.4 - Finished retrying ${operationsToRetry.size} operations, ${pendingWebSocketOperations.size} remain queued")
+        }
     }
     
 
@@ -7992,6 +8404,7 @@ class AppViewModel : ViewModel() {
         }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending typing indicator for room: $roomId")
+        // PHASE 5.3: set_typing uses positive request_id and expects a response
         val typingRequestId = requestIdCounter++
         val result = sendWebSocketCommand("set_typing", typingRequestId, mapOf(
             "room_id" to roomId,
@@ -8014,7 +8427,7 @@ class AppViewModel : ViewModel() {
         // If WebSocket is not available, queue the operation for retry when connection is restored
         if (result != WebSocketResult.SUCCESS) {
             android.util.Log.w("Andromuks", "AppViewModel: sendMessage failed with result: $result - queuing for retry when connection is restored")
-            pendingWebSocketOperations.add(
+            addPendingOperation(
                 PendingWebSocketOperation(
                     type = "sendMessage",
                     data = mapOf(
@@ -8029,6 +8442,8 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMessageInternal called")
         val messageRequestId = requestIdCounter++
         
+        // PHASE 5.2: sendWebSocketCommand() now automatically tracks all commands with positive request_id
+        // No need to manually add to queue here - it's handled in sendWebSocketCommand()
         val result = sendWebSocketCommand("send_message", messageRequestId, mapOf(
             "room_id" to roomId,
             "text" to text,
@@ -8334,6 +8749,7 @@ class AppViewModel : ViewModel() {
             mentions.add(originalEvent.sender)
         }
         
+        // PHASE 5.2: sendWebSocketCommand() now automatically tracks all commands with positive request_id
         val commandData = mapOf(
             "room_id" to roomId,
             "text" to text,
@@ -8753,6 +9169,14 @@ class AppViewModel : ViewModel() {
         // THREAD SAFETY: Create safe copies to avoid ConcurrentModificationException during logging
         val roomStateKeysSnapshot = synchronized(roomStateRequests) { roomStateRequests.keys.toList() }
 
+        // PHASE 5.2/5.3: Acknowledge ALL commands with positive request_id when response arrives
+        // Backend responds with same request_id, so we match by request_id and remove from queue
+        // This ensures all commands are tracked and acknowledged properly
+        if (requestId > 0) {
+            handleMessageAcknowledgmentByRequestId(requestId)
+        } else if (requestId == 0) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - Received response with request_id=0 (no acknowledgment needed)")
+        }
         
         if (profileRequests.containsKey(requestId)) {
             handleProfileResponse(requestId, data)
@@ -8812,6 +9236,16 @@ class AppViewModel : ViewModel() {
     }
     
     fun handleError(requestId: Int, errorMessage: String) {
+        // PHASE 5.2/5.3: Acknowledge command even on error (remove from pending queue)
+        // Error responses still mean the server received and processed the request
+        // Backend responds with same request_id even for errors, so we acknowledge by request_id
+        if (requestId > 0) {
+            android.util.Log.w("Andromuks", "AppViewModel: PHASE 5.3 - Error response received for request_id=$requestId: $errorMessage (acknowledging command)")
+            handleMessageAcknowledgmentByRequestId(requestId)
+        } else if (requestId == 0) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - Received error with request_id=0 (no acknowledgment needed)")
+        }
+        
         if (profileRequests.containsKey(requestId)) {
             handleProfileError(requestId, errorMessage)
         } else if (messageRequests.containsKey(requestId)) {
@@ -9243,6 +9677,38 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Outgoing request response received, waiting for send_complete for actual event")
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: No roomId found for outgoing request $requestId")
+        }
+    }
+    
+    /**
+     * PHASE 5.3: Handle send_complete to track Matrix server delivery confirmation
+     * send_complete has negative request_id (spontaneous from server)
+     * Matches to original message by transaction_id stored in operation data
+     */
+    fun handleSendComplete(eventData: JSONObject, error: String?) {
+        val transactionId = eventData.optString("transaction_id", "")
+        if (transactionId.isEmpty()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - send_complete has no transaction_id, cannot match to original message")
+            return
+        }
+        
+        // Find operation by transaction_id (stored when response was received)
+        val operation = pendingWebSocketOperations.find { 
+            val opTransactionId = it.data["transaction_id"] as? String
+            opTransactionId == transactionId
+        }
+        
+        if (operation != null) {
+            val command = operation.data["command"] as? String ?: operation.type.removePrefix("command_")
+            if (error != null && error.isNotEmpty()) {
+                android.util.Log.e("Andromuks", "AppViewModel: PHASE 5.3 - Matrix server error for transaction_id=$transactionId, command=$command: $error")
+                logActivity("Matrix Server Error - $command: $error", null)
+            } else {
+                android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.3 - Matrix server confirmed delivery for transaction_id=$transactionId, command=$command")
+                logActivity("Matrix Server Confirmed - $command", null)
+            }
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - No pending operation found for transaction_id=$transactionId (may have been already acknowledged)")
         }
     }
     
@@ -9883,6 +10349,32 @@ class AppViewModel : ViewModel() {
             pendingSendCount--
         }
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling message response for room: $roomId, pendingSendCount=$pendingSendCount, data: $data")
+        
+        // PHASE 5.2: Acknowledgment is now handled in handleResponse() for all commands
+        // No need to acknowledge here separately
+        
+        // PHASE 5.3: Extract transaction_id from response for send_complete matching
+        // Response contains transaction_id that we'll use to match send_complete later
+        if (data is JSONObject) {
+            val transactionId = data.optString("transaction_id", "")
+            if (transactionId.isNotEmpty()) {
+                // Store transaction_id in the pending operation for send_complete matching
+                val operation = pendingWebSocketOperations.find { 
+                    val opRequestId = it.data["requestId"] as? Int
+                    opRequestId == requestId
+                }
+                if (operation != null && operation.type.startsWith("command_send_message")) {
+                    // Update operation with transaction_id for send_complete matching
+                    val updatedData = operation.data.toMutableMap()
+                    updatedData["transaction_id"] = transactionId
+                    val updatedOperation = operation.copy(data = updatedData)
+                    pendingWebSocketOperations.remove(operation)
+                    pendingWebSocketOperations.add(updatedOperation)
+                    savePendingOperationsToStorage()
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - Stored transaction_id=$transactionId for request_id=$requestId")
+                }
+            }
+        }
         
         // Check if the response indicates an error
         var isError = false
@@ -11790,7 +12282,7 @@ class AppViewModel : ViewModel() {
         // If WebSocket is not available, queue the operation for retry when connection is restored
         if (result != WebSocketResult.SUCCESS) {
             android.util.Log.w("Andromuks", "AppViewModel: markRoomAsRead failed with result: $result - queuing for retry when connection is restored")
-            pendingWebSocketOperations.add(
+            addPendingOperation(
                 PendingWebSocketOperation(
                     type = "markRoomAsRead",
                     data = mapOf(
@@ -11806,6 +12298,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsReadInternal called")
         val markReadRequestId = requestIdCounter++
         
+        // PHASE 5.2: sendWebSocketCommand() now automatically tracks all commands with positive request_id
         val commandData = mapOf(
             "room_id" to roomId,
             "event_id" to eventId,
@@ -11907,8 +12400,36 @@ class AppViewModel : ViewModel() {
             // Remove the request from pending
             markReadRequests.remove(requestId)
             
+            // PHASE 5.2: Acknowledgment is now handled in handleResponse() for all commands
+            // No need to acknowledge here separately
+            
             // Invoke completion callback for notification actions
             notificationActionCompletionCallbacks.remove(requestId)?.invoke()
+        }
+    }
+    
+    /**
+     * PHASE 5.2/5.3: Handle message acknowledgment by request_id (source of truth)
+     * Backend responds with same request_id, so we match by request_id stored in operation data
+     * Finds message in queue, marks as acknowledged, and removes from queue
+     * 
+     * This is called from handleResponse() and handleError() for all commands with positive request_id
+     */
+    private fun handleMessageAcknowledgmentByRequestId(requestId: Int) {
+        val operation = pendingWebSocketOperations.find { 
+            val opRequestId = it.data["requestId"] as? Int
+            opRequestId == requestId
+        }
+        if (operation != null) {
+            val command = operation.data["command"] as? String ?: operation.type.removePrefix("command_")
+            val elapsed = System.currentTimeMillis() - operation.timestamp
+            android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.3 - Command acknowledged by request_id: requestId=$requestId, command=$command, type=${operation.type}, elapsed=${elapsed}ms")
+            logActivity("Command Acknowledged - $command (request_id: $requestId)", null)
+            pendingWebSocketOperations.remove(operation)
+            savePendingOperationsToStorage()
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed acknowledged command from queue (${pendingWebSocketOperations.size} remaining)")
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - No pending operation found for requestId: $requestId (may have been already acknowledged, not tracked, or request_id=0)")
         }
     }
     
@@ -11968,6 +12489,57 @@ class AppViewModel : ViewModel() {
             return WebSocketResult.NOT_CONNECTED
         }
         
+        // QUEUE FLUSHING FIX: If queue is being flushed, queue this message instead of sending immediately
+        // This prevents out-of-order messages
+        if (isFlushingQueue && requestId > 0) {
+            android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Queueing command '$command' (request_id: $requestId) until flush completes")
+            val messageId = java.util.UUID.randomUUID().toString()
+            val acknowledgmentTimeout = System.currentTimeMillis() + 30000L // 30 seconds
+            
+            val operation = PendingWebSocketOperation(
+                type = "command_$command",
+                data = mapOf(
+                    "command" to command,
+                    "requestId" to requestId,
+                    "data" to data
+                ),
+                retryCount = 0,
+                messageId = messageId,
+                timestamp = System.currentTimeMillis(),
+                acknowledged = false,
+                acknowledgmentTimeout = acknowledgmentTimeout
+            )
+            
+            addPendingOperation(operation)
+            return WebSocketResult.SUCCESS // Return success since it's queued
+        }
+        
+        // PHASE 5.2: Track all commands with positive request_id for acknowledgment
+        // request_id = 0 means no response expected (like typing)
+        // request_id > 0 means we expect a response with same request_id
+        if (requestId > 0) {
+            val messageId = java.util.UUID.randomUUID().toString()
+            val acknowledgmentTimeout = System.currentTimeMillis() + 30000L // 30 seconds
+            
+            val operation = PendingWebSocketOperation(
+                type = "command_$command", // Use command name as type for generic tracking
+                data = mapOf(
+                    "command" to command,
+                    "requestId" to requestId,
+                    "data" to data
+                ),
+                retryCount = 0,
+                messageId = messageId, // Internal tracking only
+                timestamp = System.currentTimeMillis(),
+                acknowledged = false,
+                acknowledgmentTimeout = acknowledgmentTimeout
+            )
+            
+            // Add to queue before sending (will be removed when response arrives)
+            addPendingOperation(operation)
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Tracking command '$command' with request_id: $requestId for acknowledgment")
+        }
+        
         // Send command immediately
         return try {
             val json = org.json.JSONObject()
@@ -12001,23 +12573,20 @@ class AppViewModel : ViewModel() {
      * NETWORK OPTIMIZATION: Queue command for retry when connection is restored
      */
     private fun queueCommandForOfflineRetry(command: String, requestId: Int, data: Map<String, Any>) {
-        // Add to pending operations for retry when connection is restored
-        if (pendingWebSocketOperations.size < 50) { // Limit offline queue size
-            pendingWebSocketOperations.add(
-                PendingWebSocketOperation(
-                    type = "offline_$command",
-                    data = mapOf(
-                        "command" to command,
-                        "requestId" to requestId,
-                        "data" to data
-                    ),
-                    retryCount = 0
-                )
+        // PHASE 5.1: Add to pending operations for retry when connection is restored
+        // Queue size limit is now enforced in addPendingOperation()
+        addPendingOperation(
+            PendingWebSocketOperation(
+                type = "offline_$command",
+                data = mapOf(
+                    "command" to command,
+                    "requestId" to requestId,
+                    "data" to data
+                ),
+                retryCount = 0
             )
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Queued offline command: $command")
-        } else {
-            android.util.Log.w("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Offline queue full, dropping command: $command")
-        }
+        )
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NETWORK OPTIMIZATION - Queued offline command: $command")
     }
     
     /**

@@ -533,7 +533,13 @@ fun connectToWebsocket(
                         val requestId = jsonObject.optInt("request_id")
                         val data = jsonObject.opt("data")
                         
+                        // PHASE 5.3: Log response receipt for acknowledgment tracking
+                        if (BuildConfig.DEBUG && requestId > 0) {
+                            Log.d("Andromuks", "NetworkUtils: PHASE 5.3 - Received response command with request_id=$requestId")
+                        }
+                        
                         // PHASE 4: Distribute to all registered ViewModels
+                        // PHASE 5.3: handleResponse() will acknowledge by request_id
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             for (viewModel in WebSocketService.getRegisteredViewModels()) {
                                 viewModel.handleResponse(requestId, data ?: Any())
@@ -543,15 +549,25 @@ fun connectToWebsocket(
                     "send_complete" -> {
                         val data = jsonObject.optJSONObject("data")
                         val event = data?.optJSONObject("event")
+                        val error = data?.optString("error")
+                        
+                        // PHASE 5.3: Track Matrix server delivery confirmation
+                        // send_complete has negative request_id (spontaneous from server)
+                        // Match to original message by transaction_id in event data
                         if (event != null) {
-                            val eventType = event.optString("type", "unknown")
-                            val eventId = event.optString("event_id", "unknown")
+                            val transactionId = event.optString("transaction_id", "")
+                            if (transactionId.isNotEmpty()) {
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: PHASE 5.3 - Received send_complete with transaction_id=$transactionId, error=$error")
+                            }
                         }
+                        
                         // PHASE 4: Distribute to all registered ViewModels
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             if (event != null) {
                                 for (viewModel in WebSocketService.getRegisteredViewModels()) {
-                                    // Use the dedicated processSendCompleteEvent function
+                                    // PHASE 5.3: Handle Matrix server delivery confirmation
+                                    viewModel.handleSendComplete(event, error)
+                                    // Also process the event for UI updates
                                     viewModel.processSendCompleteEvent(event)
                                 }
                             }
@@ -560,7 +576,14 @@ fun connectToWebsocket(
                     "error" -> {
                         val requestId = jsonObject.optInt("request_id")
                         val errorMessage = jsonObject.optString("data", "Unknown error")
+                        
+                        // PHASE 5.3: Log error receipt for acknowledgment tracking
+                        if (BuildConfig.DEBUG && requestId > 0) {
+                            Log.d("Andromuks", "NetworkUtils: PHASE 5.3 - Received error command with request_id=$requestId: $errorMessage")
+                        }
+                        
                         // PHASE 4: Distribute to all registered ViewModels
+                        // PHASE 5.3: handleError() will acknowledge by request_id
                         WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                             for (viewModel in WebSocketService.getRegisteredViewModels()) {
                                 viewModel.handleError(requestId, errorMessage)
