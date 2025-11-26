@@ -844,9 +844,20 @@ class WebSocketService : Service() {
         /**
          * Clear WebSocket connection
          */
-        fun clearWebSocket(reason: String = "Unknown") {
+        /**
+         * PHASE 4.1: Clear WebSocket with close code and reason
+         */
+        fun clearWebSocket(reason: String = "Unknown", closeCode: Int? = null, closeReason: String? = null) {
             traceToggle("clearWebSocket")
             val serviceInstance = instance ?: return
+            
+            // PHASE 4.1: Store close code and reason if provided
+            if (closeCode != null) {
+                serviceInstance.lastCloseCode = closeCode
+                serviceInstance.lastCloseReason = closeReason ?: reason
+                android.util.Log.i("WebSocketService", "WebSocket closed with code $closeCode: ${closeReason ?: reason}")
+            }
+            
             serviceInstance.pingInFlight = false // Reset ping-in-flight flag
             
             // Only log disconnection if we actually had a connection
@@ -896,6 +907,20 @@ class WebSocketService : Service() {
             
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket connection cleared in service")
             logPingStatus()
+        }
+        
+        /**
+         * PHASE 4.1: Get last WebSocket close code
+         */
+        fun getLastCloseCode(): Int? {
+            return instance?.lastCloseCode
+        }
+        
+        /**
+         * PHASE 4.1: Get last WebSocket close reason
+         */
+        fun getLastCloseReason(): String? {
+            return instance?.lastCloseReason
         }
         
         /**
@@ -1225,6 +1250,13 @@ class WebSocketService : Service() {
                 serviceInstance.lastReconnectionTime = currentTime
                 
                 android.util.Log.w("WebSocketService", "Scheduling reconnection: $reason")
+                
+                // PHASE 4.1: Log last close code if available (for debugging)
+                val lastCloseCode = serviceInstance.lastCloseCode
+                if (lastCloseCode != null) {
+                    android.util.Log.i("WebSocketService", "Last WebSocket close code: $lastCloseCode (${serviceInstance.lastCloseReason})")
+                }
+                
                 logActivity("Connecting - $reason", serviceInstance.currentNetworkType.name)
                 
                 serviceInstance.reconnectionJob = serviceScope.launch {
@@ -1368,6 +1400,10 @@ class WebSocketService : Service() {
     
     // PHASE 3.2: Network type change detection
     private var lastNetworkType: NetworkType = NetworkType.NONE // Track previous network type
+    
+    // PHASE 4.1: WebSocket close code tracking
+    private var lastCloseCode: Int? = null // Track last WebSocket close code
+    private var lastCloseReason: String? = null // Track last WebSocket close reason
     
     // WebSocket connection management
     private var webSocket: WebSocket? = null

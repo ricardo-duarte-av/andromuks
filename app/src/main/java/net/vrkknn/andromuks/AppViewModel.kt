@@ -3778,6 +3778,18 @@ class AppViewModel : ViewModel() {
         // This is safe to call now because connection is confirmed healthy
         resetReconnectionState()
         
+        // PHASE 4.2: Reset DNS failure count on successful connection
+        resetDnsFailureCount()
+        
+        // PHASE 4.3: Reset TLS failure count on successful connection
+        resetTlsFailureCount()
+        
+        // PHASE 4.3: Clear certificate error state on successful connection
+        if (getCertificateErrorState()) {
+            android.util.Log.i("Andromuks", "AppViewModel: Clearing certificate error state (connection succeeded)")
+            setCertificateErrorState(false, null)
+        }
+        
         spacesLoaded = true
         
         // Now that all rooms are loaded, populate space edges
@@ -4920,6 +4932,13 @@ class AppViewModel : ViewModel() {
      * @param reason Human-readable reason for reconnection (for logging)
      */
     fun scheduleReconnection(reason: String) {
+        // PHASE 4.3: Don't reconnect if there's a certificate error (security issue)
+        if (getCertificateErrorState()) {
+            android.util.Log.w("Andromuks", "AppViewModel: Blocking reconnection attempt - certificate error state is active")
+            logActivity("Reconnection Blocked - Certificate Error", null)
+            return
+        }
+        
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Delegating reconnection scheduling to service")
         // Delegate to service
         WebSocketService.scheduleReconnection(reason)
@@ -4929,7 +4948,7 @@ class AppViewModel : ViewModel() {
         return WebSocketService.isWebSocketConnected()
     }
 
-    fun clearWebSocket(reason: String = "Unknown") {
+    fun clearWebSocket(reason: String = "Unknown", closeCode: Int? = null, closeReason: String? = null) {
         this.webSocket = null
         
         // Reset initialization flag on disconnect - will be set again when init_complete arrives
@@ -4938,9 +4957,264 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket cleared - resetting initializationComplete flag (reason: $reason)")
         }
         
-        // Delegate WebSocket clearing to service
-        WebSocketService.clearWebSocket(reason)
+        // PHASE 4.1: Delegate WebSocket clearing to service with close code information
+        WebSocketService.clearWebSocket(reason, closeCode, closeReason)
     }
+    
+    /**
+     * PHASE 4.1: Handle WebSocket close with code and reason
+     * Determines reconnection strategy based on close code
+     */
+    fun handleWebSocketClose(code: Int, reason: String) {
+        android.util.Log.i("Andromuks", "AppViewModel: WebSocket closed with code $code: $reason")
+        logActivity("WebSocket Closed - Code $code: $reason", null)
+        
+        // Clear WebSocket connection
+        clearWebSocket("WebSocket closed ($code)", code, reason)
+        
+        // PHASE 4.1: Determine reconnection strategy based on close code
+        when (code) {
+            1000 -> {
+                // Normal closure - don't reconnect immediately, wait for ping timeout
+                android.util.Log.i("Andromuks", "AppViewModel: Normal WebSocket closure (1000) - not reconnecting immediately")
+                // Don't schedule reconnection - let ping/pong detect if connection is truly lost
+            }
+            1001 -> {
+                // Going Away - server restarting, reconnect with short delay
+                android.util.Log.w("Andromuks", "AppViewModel: Server going away (1001) - scheduling reconnection with delay")
+                viewModelScope.launch {
+                    delay(2000L) // 2 second delay for server restart
+                    scheduleReconnection("Server going away (1001)")
+                }
+            }
+            1006 -> {
+                // Abnormal closure (no close frame) - connection lost, reconnect immediately
+                android.util.Log.e("Andromuks", "AppViewModel: Abnormal WebSocket closure (1006) - reconnecting immediately")
+                scheduleReconnection("Abnormal closure (1006)")
+            }
+            1012 -> {
+                // Service Restart - backend restarting, reconnect with delay
+                android.util.Log.w("Andromuks", "AppViewModel: Service restart (1012) - scheduling reconnection with delay")
+                viewModelScope.launch {
+                    delay(3000L) // 3 second delay for backend restart
+                    scheduleReconnection("Service restart (1012)")
+                }
+            }
+            in 4000..4999 -> {
+                // Application-specific codes - log and reconnect
+                android.util.Log.w("Andromuks", "AppViewModel: Application close code $code - reconnecting")
+                scheduleReconnection("Application close code $code: $reason")
+            }
+            else -> {
+                // Other close codes - reconnect with standard strategy
+                android.util.Log.w("Andromuks", "AppViewModel: WebSocket closed with code $code - reconnecting")
+                scheduleReconnection("Close code $code: $reason")
+            }
+        }
+    }
+    
+    /**
+     * PHASE 4.2: Handle connection failure with error-specific strategies
+     * 
+     * @param errorType Type of error: "DNS_FAILURE", "NETWORK_UNREACHABLE", or "GENERIC_ERROR"
+     * @param error The original exception
+     * @param reason Human-readable failure reason
+     */
+    fun handleConnectionFailure(errorType: String, error: Throwable, reason: String) {
+        android.util.Log.w("Andromuks", "AppViewModel: Connection failure - Type: $errorType, Reason: $reason")
+        logActivity("Connection Failure - $errorType: ${error.message}", null)
+        
+        when (errorType) {
+            "DNS_FAILURE" -> {
+                // DNS failures are often persistent - use exponential backoff with longer delays
+                android.util.Log.w("Andromuks", "AppViewModel: DNS resolution failure detected - using exponential backoff")
+                
+                // Track DNS failure count for exponential backoff
+                val dnsFailureCount = getDnsFailureCount()
+                val nextDnsFailureCount = dnsFailureCount + 1
+                setDnsFailureCount(nextDnsFailureCount)
+                
+                // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 64s (max)
+                val delayMs = minOf(2000L * (1L shl (nextDnsFailureCount - 1)), 64000L)
+                
+                android.util.Log.i("Andromuks", "AppViewModel: DNS failure #$nextDnsFailureCount - scheduling reconnection in ${delayMs}ms")
+                logActivity("DNS Failure #$nextDnsFailureCount - Retry in ${delayMs}ms", null)
+                
+                viewModelScope.launch {
+                    delay(delayMs)
+                    // Reset DNS failure count on successful reconnection attempt
+                    // (will be reset when connection succeeds)
+                    scheduleReconnection("DNS resolution failure (attempt $nextDnsFailureCount)")
+                }
+            }
+            "NETWORK_UNREACHABLE" -> {
+                // Network unreachable - wait for network availability before retrying
+                // WebSocketService's NetworkMonitor will trigger reconnection when network becomes available
+                android.util.Log.w("Andromuks", "AppViewModel: Network unreachable - waiting for network availability")
+                logActivity("Network Unreachable - Waiting for Network", null)
+                
+                // Don't retry immediately - NetworkMonitor in WebSocketService will handle reconnection
+                // when network becomes available. This prevents battery drain from rapid retries.
+                // We still schedule a delayed reconnection as a fallback (in case NetworkMonitor misses the event)
+                viewModelScope.launch {
+                    // Wait 10 seconds - if network is still unavailable, NetworkMonitor will handle it
+                    delay(10000L)
+                    // Only schedule if still disconnected (NetworkMonitor may have already reconnected)
+                    if (!isWebSocketConnected()) {
+                        android.util.Log.i("Andromuks", "AppViewModel: Network still unreachable after 10s - scheduling fallback reconnection")
+                        scheduleReconnection("Network unreachable (fallback retry)")
+                    }
+                }
+            }
+            else -> {
+                // Generic error - use standard reconnection strategy
+                android.util.Log.w("Andromuks", "AppViewModel: Generic connection error - using standard reconnection")
+                scheduleReconnection(reason)
+            }
+        }
+    }
+    
+    // PHASE 4.2: DNS failure tracking (stored in SharedPreferences)
+    private fun getDnsFailureCount(): Int {
+        return appContext?.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            ?.getInt("dns_failure_count", 0) ?: 0
+    }
+    
+    private fun setDnsFailureCount(count: Int) {
+        appContext?.let { context ->
+            context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .edit()
+                .putInt("dns_failure_count", count)
+                .apply()
+        }
+    }
+    
+    /**
+     * PHASE 4.2: Reset DNS failure count when connection succeeds
+     * Should be called when WebSocket connection is successfully established
+     */
+    private fun resetDnsFailureCount() {
+        val currentCount = getDnsFailureCount()
+        if (currentCount > 0) {
+            android.util.Log.i("Andromuks", "AppViewModel: Resetting DNS failure count (was: $currentCount)")
+            appContext?.let { context ->
+                context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                    .edit()
+                    .putInt("dns_failure_count", 0)
+                    .apply()
+            }
+        }
+    }
+    
+    /**
+     * PHASE 4.3: Handle TLS/SSL errors with appropriate strategies
+     * 
+     * @param errorType Type of TLS error: "CERTIFICATE_ERROR" or "TLS_ERROR"
+     * @param error The original exception
+     * @param reason Human-readable failure reason
+     */
+    fun handleTlsError(errorType: String, error: Throwable, reason: String) {
+        android.util.Log.e("Andromuks", "AppViewModel: TLS/SSL error - Type: $errorType, Reason: $reason")
+        
+        when (errorType) {
+            "CERTIFICATE_ERROR" -> {
+                // Certificate errors are security issues - don't reconnect automatically
+                android.util.Log.e("Andromuks", "AppViewModel: Certificate validation error detected - NOT reconnecting automatically (security issue)")
+                logActivity("Certificate Error - Connection Blocked", null)
+                
+                // Store certificate error state to prevent automatic reconnection
+                setCertificateErrorState(true, reason)
+                
+                // Log error details (but not full certificate for security)
+                val errorDetails = when {
+                    error is java.security.cert.CertificateException -> error.message ?: "Certificate validation failed"
+                    error.cause is java.security.cert.CertificateException -> (error.cause as java.security.cert.CertificateException).message ?: "Certificate validation failed"
+                    else -> "Certificate error: ${error.message}"
+                }
+                android.util.Log.e("Andromuks", "AppViewModel: Certificate error details: $errorDetails")
+                
+                // TODO: In the future, we could show a user notification here
+                // For now, we just prevent reconnection and log the error
+                // The user will see "Disconnected" state and can manually retry
+            }
+            "TLS_ERROR" -> {
+                // Other TLS errors (handshake failures, protocol errors) - reconnect with exponential backoff
+                android.util.Log.w("Andromuks", "AppViewModel: TLS error detected (non-certificate) - reconnecting with exponential backoff")
+                logActivity("TLS Error - Reconnecting", null)
+                
+                // Track TLS failure count for exponential backoff
+                val tlsFailureCount = getTlsFailureCount()
+                val nextTlsFailureCount = tlsFailureCount + 1
+                setTlsFailureCount(nextTlsFailureCount)
+                
+                // Exponential backoff: 2s, 4s, 8s, 16s, 32s, 64s (max)
+                val delayMs = minOf(2000L * (1L shl (nextTlsFailureCount - 1)), 64000L)
+                
+                android.util.Log.i("Andromuks", "AppViewModel: TLS failure #$nextTlsFailureCount - scheduling reconnection in ${delayMs}ms")
+                logActivity("TLS Error #$nextTlsFailureCount - Retry in ${delayMs}ms", null)
+                
+                viewModelScope.launch {
+                    delay(delayMs)
+                    // Reset TLS failure count on successful reconnection attempt
+                    scheduleReconnection("TLS error (attempt $nextTlsFailureCount)")
+                }
+            }
+            else -> {
+                android.util.Log.w("Andromuks", "AppViewModel: Unknown TLS error type: $errorType - using standard reconnection")
+                scheduleReconnection(reason)
+            }
+        }
+    }
+    
+    // PHASE 4.3: Certificate error state tracking (stored in SharedPreferences)
+    private fun setCertificateErrorState(hasError: Boolean, reason: String?) {
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("certificate_error_state", hasError)
+                .putString("certificate_error_reason", reason)
+                .putLong("certificate_error_timestamp", if (hasError) System.currentTimeMillis() else 0L)
+                .apply()
+        }
+    }
+    
+    private fun getCertificateErrorState(): Boolean {
+        return appContext?.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            ?.getBoolean("certificate_error_state", false) ?: false
+    }
+    
+    // PHASE 4.3: TLS failure tracking (stored in SharedPreferences)
+    private fun getTlsFailureCount(): Int {
+        return appContext?.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            ?.getInt("tls_failure_count", 0) ?: 0
+    }
+    
+    private fun setTlsFailureCount(count: Int) {
+        appContext?.let { context ->
+            context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                .edit()
+                .putInt("tls_failure_count", count)
+                .apply()
+        }
+    }
+    
+    /**
+     * PHASE 4.3: Reset TLS failure count when connection succeeds
+     * Should be called when WebSocket connection is successfully established
+     */
+    private fun resetTlsFailureCount() {
+        val currentCount = getTlsFailureCount()
+        if (currentCount > 0) {
+            android.util.Log.i("Andromuks", "AppViewModel: Resetting TLS failure count (was: $currentCount)")
+            appContext?.let { context ->
+                context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                    .edit()
+                    .putInt("tls_failure_count", 0)
+                    .apply()
+            }
+        }
+    }
+    
     /**
      * Retry all pending WebSocket operations now that connection is available
      */

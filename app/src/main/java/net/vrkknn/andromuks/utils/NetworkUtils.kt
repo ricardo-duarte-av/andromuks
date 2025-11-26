@@ -379,13 +379,73 @@ fun connectToWebsocket(
                 return
             }
             
+            // PHASE 4.3: Detect TLS/SSL errors first (before DNS/network errors)
+            val tlsErrorType = when {
+                t is javax.net.ssl.SSLException -> {
+                    // Check if it's a certificate error
+                    val message = t.message ?: ""
+                    if (message.contains("certificate", ignoreCase = true) || 
+                        message.contains("cert", ignoreCase = true) ||
+                        t.cause is java.security.cert.CertificateException) {
+                        "CERTIFICATE_ERROR"
+                    } else {
+                        "TLS_ERROR"
+                    }
+                }
+                t is java.security.cert.CertificateException -> "CERTIFICATE_ERROR"
+                t.cause is javax.net.ssl.SSLException -> {
+                    val sslCause = t.cause as javax.net.ssl.SSLException
+                    val message = sslCause.message ?: ""
+                    if (message.contains("certificate", ignoreCase = true) || 
+                        message.contains("cert", ignoreCase = true) ||
+                        sslCause.cause is java.security.cert.CertificateException) {
+                        "CERTIFICATE_ERROR"
+                    } else {
+                        "TLS_ERROR"
+                    }
+                }
+                t.cause is java.security.cert.CertificateException -> "CERTIFICATE_ERROR"
+                else -> null
+            }
+            
+            if (tlsErrorType != null) {
+                // PHASE 4.3: Handle TLS/SSL errors
+                val tlsErrorDetails = when {
+                    t is javax.net.ssl.SSLException -> t.message ?: "SSL error"
+                    t is java.security.cert.CertificateException -> "Certificate validation failed"
+                    t.cause is javax.net.ssl.SSLException -> (t.cause as javax.net.ssl.SSLException).message ?: "SSL error"
+                    t.cause is java.security.cert.CertificateException -> "Certificate validation failed"
+                    else -> "TLS/SSL error"
+                }
+                
+                // Log TLS error (but don't log full certificate details for security)
+                Log.e("Andromuks", "NetworkUtils: TLS/SSL error detected - Type: $tlsErrorType, Details: $tlsErrorDetails")
+                
+                // Clear WebSocket connection
+                val failureReason = "TLS/SSL error: $tlsErrorDetails"
+                appViewModel.clearWebSocket(failureReason)
+                WebSocketService.clearWebSocket(failureReason)
+                
+                // Handle TLS error with appropriate strategy
+                appViewModel.handleTlsError(tlsErrorType, t, failureReason)
+                return
+            }
+            
+            // PHASE 4.2: Detect DNS and network errors
+            val errorType = when {
+                t is java.net.UnknownHostException -> "DNS_FAILURE"
+                t is java.net.SocketException && (t.message?.contains("Network is unreachable") == true || t.message?.contains("No route to host") == true) -> "NETWORK_UNREACHABLE"
+                t is java.net.ConnectException -> "NETWORK_UNREACHABLE"
+                else -> "GENERIC_ERROR"
+            }
+            
             // Clear WebSocket connection in both AppViewModel and service
             val failureReason = "Connection failure: ${t.message}"
             appViewModel.clearWebSocket(failureReason)
             WebSocketService.clearWebSocket(failureReason)
             
-            // Trigger reconnection with exponential backoff
-            appViewModel.scheduleReconnection(reason = failureReason)
+            // PHASE 4.2: Handle connection failure with error-specific strategies
+            appViewModel.handleConnectionFailure(errorType, t, failureReason)
         }
 
         override fun onMessage(webSocket: WebSocket, text: String) {
@@ -648,48 +708,23 @@ fun connectToWebsocket(
         }
 
         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
+            Log.i("Andromuks", "NetworkUtils: WebSocket Closing ($code): $reason")
             
-            // Determine the close reason
-            val closeReason = when (code) {
-                1000 -> "Normal closure ($code)"
-                1001 -> "Server going away ($code)"
-                1006 -> "Abnormal closure ($code)"
-                else -> "Close code $code: $reason"
-            }
+            // PHASE 4.1: Extract close code and reason, pass to AppViewModel for handling
+            // AppViewModel.handleWebSocketClose() will determine reconnection strategy
+            appViewModel.handleWebSocketClose(code, reason)
             
-            // Clear WebSocket connection in both AppViewModel and service
-            appViewModel.clearWebSocket(closeReason)
-            WebSocketService.clearWebSocket(closeReason)
-            
-            // Trigger reconnection for abnormal closures
-            when (code) {
-                1000 -> {
-                    // Normal closure - don't reconnect
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: Normal WebSocket closure")
-                }
-                1001 -> {
-                    // Going away - reconnect after delay
-                    Log.w("Andromuks", "NetworkUtils: Server going away, scheduling reconnection")
-                    appViewModel.scheduleReconnection(reason = "Server going away (1001)")
-                }
-                1006 -> {
-                    // Abnormal closure (no close frame) - immediate reconnect attempt
-                    Log.e("Andromuks", "NetworkUtils: Abnormal WebSocket closure (1006)")
-                    appViewModel.scheduleReconnection(reason = "Abnormal closure (1006)")
-                }
-                else -> {
-                    // Other errors - reconnect with backoff
-                    Log.w("Andromuks", "NetworkUtils: WebSocket closed with code $code: $reason")
-                    appViewModel.scheduleReconnection(reason = closeReason)
-                }
-            }
+            // Also clear in service with close code information
+            WebSocketService.clearWebSocket("WebSocket closing ($code)", code, reason)
         }
         
         override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
+            Log.i("Andromuks", "NetworkUtils: WebSocket Closed ($code): $reason")
             streamingDecompressor?.close()
-            appViewModel.clearWebSocket("WebSocket closed ($code)")
+            
+            // PHASE 4.1: onClosed is called after onClosing, but we should still log the final close
+            // The close code/reason were already handled in onClosing() via handleWebSocketClose()
+            // WebSocket cleanup is already done in onClosing(), so we just need to ensure decompressor is closed
         }
     }
 
