@@ -154,7 +154,27 @@ fun isEmojiOnlyMessage(body: String): Boolean {
     if (withoutWhitespace.isEmpty()) return false
     
     // Check if all remaining characters are emojis
-    return emojiRegex.matches(withoutWhitespace) && withoutWhitespace.isNotEmpty()
+    if (!emojiRegex.matches(withoutWhitespace)) return false
+    
+    // CRITICAL FIX: Only treat as emoji-only if it's a SINGLE emoji (not multiple emojis or regular text)
+    // The emoji regex correctly identifies emoji-only strings, but we need to:
+    // 1. Ensure it's a single emoji (reasonable code point count: 1-8 for single emoji with modifiers)
+    // 2. Exclude ASCII letters and digits to prevent regular text like "a" or "1" from being treated as emoji
+    
+    val codePointCount = withoutWhitespace.codePointCount(0, withoutWhitespace.length)
+    
+    // Single emojis are typically 1-2 code points, but with modifiers can be up to 4-5
+    // Complex emoji sequences (like family emojis) can be longer, but those are still "single emoji" visually
+    // We'll use a conservative limit of 8 code points to handle most single emoji cases
+    if (codePointCount < 1 || codePointCount > 8) return false
+    
+    // CRITICAL: Exclude ASCII letters and digits to prevent regular text from being treated as emoji
+    // Regular characters like "a", "1", etc. should never be treated as emoji-only messages
+    val containsAsciiLetterOrDigit = Regex("""[a-zA-Z0-9]""").containsMatchIn(withoutWhitespace)
+    if (containsAsciiLetterOrDigit) return false
+    
+    // If we passed all checks, it's a valid single emoji
+    return true
 }
 
 /**

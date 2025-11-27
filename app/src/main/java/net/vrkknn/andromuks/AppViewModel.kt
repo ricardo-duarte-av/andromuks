@@ -4167,6 +4167,7 @@ class AppViewModel : ViewModel() {
     
     // OPTIMIZATION #1: Direct room navigation (bypasses pending state)
     private var directRoomNavigation: String? = null
+    private var directRoomNavigationTimestamp: Long? = null
     
     // Pending bubble navigation from chat bubbles
     private var pendingBubbleNavigation: String? = null
@@ -4207,9 +4208,10 @@ class AppViewModel : ViewModel() {
     }
     
     // OPTIMIZATION #1: Direct navigation method (bypasses pending state)
-    fun setDirectRoomNavigation(roomId: String) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #1 - Set direct room navigation to: $roomId")
+    fun setDirectRoomNavigation(roomId: String, notificationTimestamp: Long? = null) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #1 - Set direct room navigation to: $roomId (timestamp: $notificationTimestamp)")
         directRoomNavigation = roomId
+        directRoomNavigationTimestamp = notificationTimestamp
     }
     
     fun getDirectRoomNavigation(): String? {
@@ -4223,6 +4225,11 @@ class AppViewModel : ViewModel() {
     fun clearDirectRoomNavigation() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #1 - Clearing direct room navigation")
         directRoomNavigation = null
+        directRoomNavigationTimestamp = null
+    }
+    
+    fun getDirectRoomNavigationTimestamp(): Long? {
+        return directRoomNavigationTimestamp
     }
     
     fun getPendingRoomNavigation(): String? {

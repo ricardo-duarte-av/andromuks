@@ -142,19 +142,18 @@ class MainActivity : ComponentActivity() {
                             }
                             
                             if (extractedRoomId != null) {
-                                // OPTIMIZATION #1: Direct navigation instead of pending state
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - Direct navigation to room: $extractedRoomId")
+                                // CRITICAL FIX #2: Store room navigation and wait for WebSocket connection
+                                // This ensures proper state (spacesLoaded, WebSocket connected) before navigating
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - Storing direct room navigation to: $extractedRoomId (will wait for WebSocket)")
                                 // Extract notification timestamp if present
                                 val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
-                                // Store for immediate navigation once UI is ready
-                                appViewModel.setDirectRoomNavigation(extractedRoomId)
+                                // Store for navigation once WebSocket is connected and spacesLoaded = true
+                                appViewModel.setDirectRoomNavigation(extractedRoomId, notificationTimestamp)
                                 if (!shortcutUserId.isNullOrBlank()) {
                                     appViewModel.reportPersonShortcutUsed(shortcutUserId)
                                 }
-                                // Navigate with notification timestamp if available
-                                if (notificationTimestamp != null) {
-                                    appViewModel.navigateToRoomWithCache(extractedRoomId, notificationTimestamp)
-                                }
+                                // NOTE: Don't call navigateToRoomWithCache() here - RoomListScreen will handle it
+                                // after WebSocket connection and spacesLoaded = true
                             }
                             
                             // Register broadcast receiver for notification actions
