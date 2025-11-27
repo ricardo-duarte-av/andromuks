@@ -1932,7 +1932,7 @@ fun BubbleTimelineScreen(
                             Modifier.align(Alignment.BottomEnd)
                                 .padding(
                                     end = 16.dp,
-                                    bottom = 16.dp
+                                    bottom = 80.dp // Position above send button area (text input + padding)
                                 )
                                 .navigationBarsPadding(),
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
