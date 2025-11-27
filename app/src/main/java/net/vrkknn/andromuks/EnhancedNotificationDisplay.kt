@@ -419,30 +419,26 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             messagingStyle.addMessage(message)
             
-            // Create or update conversation shortcut SYNCHRONOUSLY before showing notification
-            // This ensures the shortcut exists with proper icon before bubble is created
+            // Create RoomItem for shortcut update
+            val roomItem = RoomItem(
+                id = notificationData.roomId,
+                name = notificationData.roomName ?: notificationData.roomId,
+                messagePreview = notificationData.body,
+                messageSender = notificationData.senderDisplayName ?: notificationData.sender,
+                unreadCount = 1,
+                highlightCount = 0,
+                avatarUrl = notificationData.roomAvatarUrl,
+                sortingTimestamp = notificationData.timestamp ?: System.currentTimeMillis()
+            )
+            
+            // SHORTCUT OPTIMIZATION: Update shortcut when notification is shown
+            // This ensures the room is in shortcuts when user receives messages (similar to when sending)
+            // Uses efficient single-room update method, not full list processing
+            conversationsApi?.updateShortcutsFromSyncRooms(listOf(roomItem))
+            
+            // Try to get existing shortcut for notification bubble
             val shortcutInfo = conversationsApi?.let { api ->
                 try {
-                    val roomList = listOf(
-                        RoomItem(
-                            id = notificationData.roomId,
-                            name = notificationData.roomName ?: notificationData.roomId,
-                            messagePreview = notificationData.body,
-                            messageSender = notificationData.senderDisplayName ?: notificationData.sender,
-                            unreadCount = 1,
-                            highlightCount = 0,
-                            avatarUrl = notificationData.roomAvatarUrl,
-                            sortingTimestamp = System.currentTimeMillis()
-                        )
-                    )
-                    
-                    // Update shortcuts asynchronously (non-blocking)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "━━━ TIMING: Triggering async shortcut update NOW ━━━")
-                    api.updateConversationShortcuts(roomList)
-                    
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Shortcuts update triggered (async) for: ${notificationData.roomId}")
-                    
-                    // Try to get existing shortcut (may not exist yet)
                     val existingShortcut = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
                         .firstOrNull { it.id == notificationData.roomId }
                     
@@ -454,7 +450,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         null
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error creating/getting shortcut info", e)
+                    Log.e(TAG, "Error getting shortcut info", e)
                     null
                 }
             }
@@ -579,8 +575,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val notificationManager = NotificationManagerCompat.from(context)
             notificationManager.notify(notifID, notification)
             
-            // Update conversation shortcuts
-            updateConversationShortcuts(notificationData)
+            // SHORTCUT OPTIMIZATION: Shortcuts already updated above when notification is shown
+            // Using efficient single-room update via updateShortcutsFromSyncRooms
             
         } catch (e: Exception) {
             Log.e(TAG, "Error showing enhanced notification", e)
@@ -1287,21 +1283,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val isBubbleOpen = BubbleTracker.isBubbleOpen(roomId)
             if (isBubbleOpen) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "NOT dismissing notification for room: $roomId - bubble is open (prevents bubble destruction)")
-                // Still update shortcuts to clear unread count, but keep notification alive for bubble
-                updateConversationShortcuts(NotificationData(
-                    roomId = roomId,
-                    eventId = eventId,
-                    sender = "",
-                    senderDisplayName = "",
-                    roomName = "",
-                    body = "",
-                    type = "dm",
-                    avatarUrl = null,
-                    roomAvatarUrl = null,
-                    timestamp = System.currentTimeMillis(),
-                    unreadCount = 0,
-                    image = null
-                ))
+                // Shortcuts will be updated when user sends a message or receives new notifications
+                // No need to update shortcuts when marking as read
                 return
             }
             

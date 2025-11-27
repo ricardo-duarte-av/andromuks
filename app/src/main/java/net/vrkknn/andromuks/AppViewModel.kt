@@ -3866,32 +3866,22 @@ class AppViewModel : ViewModel() {
                 lastRoomStateHash = newRoomStateHash
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Room data updated (no sorting), debounced sort scheduled")
                 
-                // BATTERY OPTIMIZATION: Update conversation shortcuts incrementally from sync_complete rooms only
-                // Only processes rooms that changed in sync_complete (typically 2-3 rooms), never sorts all 588 rooms
-                // COLD START FIX: Only update shortcuts if initialization is complete
-                // During initialization, shortcuts will be updated after init_complete arrives
-                if (initializationComplete) {
-                    viewModelScope.launch(Dispatchers.Default) {
-                        // Get all rooms from sync_complete (updated + new)
-                        val syncRooms = (syncResult.updatedRooms + syncResult.newRooms).filter { 
-                            it.sortingTimestamp != null && it.sortingTimestamp > 0 
-                        }
-                        
-                        if (syncRooms.isNotEmpty()) {
-                            conversationsApi?.updateShortcutsFromSyncRooms(syncRooms)
-                        }
-                        
-                        // BATTERY OPTIMIZATION: Only update persons API if sync_complete has DM changes
-                        // No need to sort - buildDirectPersonTargets() filters to DMs and doesn't use sorted order
-                        val syncDMs = syncRooms.filter { it.isDirectMessage }
-                        if (syncDMs.isNotEmpty()) {
-                            // Get all DMs from roomMap (no sorting needed - persons API doesn't care about order)
-                            val allDMs = roomMap.values.filter { it.isDirectMessage }
-                            personsApi?.updatePersons(buildDirectPersonTargets(allDMs))
-                        }
+                // SHORTCUT OPTIMIZATION: Shortcuts only update when user sends messages (not on sync_complete)
+                // This drastically reduces shortcut updates. Removed shortcut updates from sync_complete processing.
+                
+                // BATTERY OPTIMIZATION: Only update persons API if sync_complete has DM changes
+                // No need to sort - buildDirectPersonTargets() filters to DMs and doesn't use sorted order
+                viewModelScope.launch(Dispatchers.Default) {
+                    val syncRooms = (syncResult.updatedRooms + syncResult.newRooms).filter { 
+                        it.sortingTimestamp != null && it.sortingTimestamp > 0 
                     }
-                } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping shortcut update in processParsedSyncResult - initialization not complete yet")
+                    
+                    val syncDMs = syncRooms.filter { it.isDirectMessage }
+                    if (syncDMs.isNotEmpty()) {
+                        // Get all DMs from roomMap (no sorting needed - persons API doesn't care about order)
+                        val allDMs = roomMap.values.filter { it.isDirectMessage }
+                        personsApi?.updatePersons(buildDirectPersonTargets(allDMs))
+                    }
                 }
             } else {
                 // Room state hash unchanged - check if individual rooms need timestamp updates
@@ -3953,34 +3943,23 @@ class AppViewModel : ViewModel() {
             // This saves CPU time since sorting 588 rooms takes ~2-5ms per sync
             allRooms = allRoomsUnsorted // Use unsorted list from roomMap - lightweight operation
             
-            // BATTERY OPTIMIZATION: Update shortcuts incrementally from sync_complete rooms (no sorting needed!)
-            // Even when backgrounded, we can update shortcuts for rooms in sync_complete without sorting all 588 rooms
-            // This is much lighter than the old approach that sorted all rooms every 10 syncs
-            // COLD START FIX: Only update shortcuts if initialization is complete
-            // During initialization, shortcuts will be updated after init_complete arrives
-            if (initializationComplete) {
-                viewModelScope.launch(Dispatchers.Default) {
-                    // Get all rooms from sync_complete (updated + new)
-                    val syncRooms = (syncResult.updatedRooms + syncResult.newRooms).filter { 
-                        it.sortingTimestamp != null && it.sortingTimestamp > 0 
-                    }
-                    
-                    if (syncRooms.isNotEmpty()) {
-                        conversationsApi?.updateShortcutsFromSyncRooms(syncRooms)
-                    }
-                    
-                    // BATTERY OPTIMIZATION: Only update persons API if sync_complete has DM changes
-                    // No need to sort - buildDirectPersonTargets() filters to DMs and doesn't use sorted order
-                    val syncDMs = syncRooms.filter { it.isDirectMessage }
-                    if (syncDMs.isNotEmpty()) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Background: Updating persons (DMs changed in sync_complete)")
-                        // Get all DMs from roomMap (no sorting needed - persons API doesn't care about order)
-                        val allDMs = roomMap.values.filter { it.isDirectMessage }
-                        personsApi?.updatePersons(buildDirectPersonTargets(allDMs))
-                    }
+            // SHORTCUT OPTIMIZATION: Shortcuts only update when user sends messages (not on sync_complete)
+            // This drastically reduces shortcut updates. Removed shortcut updates from sync_complete processing.
+            
+            // BATTERY OPTIMIZATION: Only update persons API if sync_complete has DM changes
+            // No need to sort - buildDirectPersonTargets() filters to DMs and doesn't use sorted order
+            viewModelScope.launch(Dispatchers.Default) {
+                val syncRooms = (syncResult.updatedRooms + syncResult.newRooms).filter { 
+                    it.sortingTimestamp != null && it.sortingTimestamp > 0 
                 }
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping shortcut update in processParsedSyncResult (background) - initialization not complete yet")
+                
+                val syncDMs = syncRooms.filter { it.isDirectMessage }
+                if (syncDMs.isNotEmpty()) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Background: Updating persons (DMs changed in sync_complete)")
+                    // Get all DMs from roomMap (no sorting needed - persons API doesn't care about order)
+                    val allDMs = roomMap.values.filter { it.isDirectMessage }
+                    personsApi?.updatePersons(buildDirectPersonTargets(allDMs))
+                }
             }
             // Note: We don't invalidate cache on every sync when backgrounded - saves CPU time
         }
@@ -4028,10 +4007,10 @@ class AppViewModel : ViewModel() {
             // Create new ConversationsApi instance with real homeserver URL
             conversationsApi = ConversationsApi(appContext!!, homeserverUrl, authToken, realMatrixHomeserverUrl)
             personsApi = PersonsApi(appContext!!, homeserverUrl, authToken, realMatrixHomeserverUrl)
-            // COLD START FIX: Don't update shortcuts here - initialization is complete, but we should let
-            // incremental updates from sync_complete handle shortcuts. This prevents processing all 588 rooms
-            // on startup. Shortcuts will be updated incrementally as sync_complete messages arrive with changes.
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping shortcut update on init_complete - will use incremental updates from sync_complete")
+            // SHORTCUT OPTIMIZATION: Shortcuts only update when user sends messages (not on init_complete)
+            // This prevents massive shortcut updates on every reconnection. Shortcuts will populate
+            // naturally as the user actively sends messages.
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping shortcut update on init_complete - shortcuts update only when user sends messages")
         }
         
         // FCM registration with Gomuks Backend will be triggered via callback when token is ready
@@ -4503,15 +4482,11 @@ class AppViewModel : ViewModel() {
         allRooms = sortedRooms
         invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
         
-        // COLD START FIX: Only update shortcuts if initialization is complete
-        // During initialization, shortcuts will be updated incrementally from sync_complete messages
-        if (initializationComplete) {
-            // Update conversation shortcuts
-            conversationsApi?.updateConversationShortcuts(sortedRooms)
-            personsApi?.updatePersons(buildDirectPersonTargets(sortedRooms))
-        } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping shortcut update in refreshUIState - initialization not complete yet")
-        }
+        // SHORTCUT OPTIMIZATION: Shortcuts only update when user sends messages (not in refreshUIState)
+        // This drastically reduces shortcut updates. Removed shortcut updates from refreshUIState.
+        
+        // Always update persons API (needed for conversation bubbles)
+        personsApi?.updatePersons(buildDirectPersonTargets(sortedRooms))
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: UI refreshed, roomListUpdateCounter: $roomListUpdateCounter")
     }
@@ -9768,9 +9743,23 @@ class AppViewModel : ViewModel() {
             val event = TimelineEvent.fromJson(eventData)
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Created timeline event from send_complete: ${event.eventId}, type=${event.type}, eventRoomId=${event.roomId}, currentRoomId=$currentRoomId")
             
-            // Only process send_complete if it's for the current room
+            // SHORTCUT OPTIMIZATION: Update shortcut for this room when user sends a message
+            // This drastically reduces shortcut updates - only when user actively sends messages
+            // Update shortcuts BEFORE room check so it works for any room, not just current room
+            if ((event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") 
+                && event.sender == currentUserId && event.roomId.isNotEmpty()) {
+                val room = roomMap[event.roomId]
+                if (room != null) {
+                    viewModelScope.launch(Dispatchers.Default) {
+                        conversationsApi?.updateShortcutsFromSyncRooms(listOf(room))
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated shortcut for room ${room.name} after sending message")
+                    }
+                }
+            }
+            
+            // Only process timeline updates if it's for the current room
             if (event.roomId != currentRoomId) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: send_complete for different room (${event.roomId}), ignoring")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: send_complete for different room (${event.roomId}), ignoring timeline update")
                 return
             }
             
