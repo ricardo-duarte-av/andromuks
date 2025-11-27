@@ -13,8 +13,11 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import androidx.compose.ui.Alignment
@@ -36,6 +39,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
     val sharedPreferences = remember { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val client = remember { OkHttpClient.Builder().build() }
     val scope = rememberCoroutineScope()
+    
+    // CRITICAL FIX: Track navigation state to prevent duplicate navigation
+    var navigationHandled by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         appViewModel.isLoading = true
@@ -200,11 +206,60 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                     connectToWebsocket(homeserverUrl, client, token, appViewModel)
                 }
             }
-            // Do not navigate yet; wait for spacesLoaded
         } else {
             if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "No token or server URL found. Going to login.")
             appViewModel.isLoading = false
             navController.navigate("login")
+        }
+    }
+    
+    // CRITICAL FIX: Add fallback navigation if spacesLoaded becomes true from database
+    // or after timeout, even if WebSocket never connects (e.g., airplane mode)
+    // This prevents infinite spinner when WebSocket can't connect
+    // Only apply this if we have token and homeserver (i.e., not on login screen)
+    val hasCredentials = remember {
+        val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+        val token = prefs.getString("gomuks_auth_token", null)
+        val homeserverUrl = prefs.getString("homeserver_url", null)
+        token != null && homeserverUrl != null
+    }
+    
+    LaunchedEffect(appViewModel.spacesLoaded, hasCredentials) {
+        if (hasCredentials && appViewModel.spacesLoaded && !navigationHandled) {
+            // Spaces loaded from database - navigate immediately
+            if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Spaces loaded from database - navigating to room_list (WebSocket may not be connected)")
+            appViewModel.isLoading = false
+            val currentRoute = navController.currentBackStackEntry?.destination?.route
+            if (currentRoute != null && currentRoute != "simple_room_list" && 
+                !currentRoute.startsWith("room_timeline/") && 
+                !currentRoute.startsWith("chat_bubble/")) {
+                navController.navigate("room_list")
+            }
+            navigationHandled = true
+        }
+    }
+    
+    // Timeout fallback: Navigate after 10 seconds even if WebSocket never connects
+    LaunchedEffect(hasCredentials) {
+        if (hasCredentials) {
+            kotlinx.coroutines.delay(10000) // 10 second timeout
+            if (!navigationHandled) {
+                if (appViewModel.spacesLoaded) {
+                    // Spaces loaded during timeout delay - navigate now
+                    if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Spaces loaded during timeout delay - navigating to room_list")
+                } else {
+                    // Spaces not loaded but timeout expired - navigate anyway
+                    android.util.Log.w("AuthCheckScreen", "Navigation timeout (10s) - WebSocket may not be connected, navigating anyway")
+                }
+                appViewModel.isLoading = false
+                val currentRoute = navController.currentBackStackEntry?.destination?.route
+                if (currentRoute != null && currentRoute != "simple_room_list" && 
+                    !currentRoute.startsWith("room_timeline/") && 
+                    !currentRoute.startsWith("chat_bubble/")) {
+                    navController.navigate("room_list")
+                }
+                navigationHandled = true
+            }
         }
     }
 

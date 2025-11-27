@@ -217,8 +217,77 @@ fun RoomListScreen(
         }
     }
     
-    // Show loading screen if profile is missing or pending items are being processed (unless timeout expired)
-    if (!effectiveProfileLoaded || shouldBlockForPending) {
+    // CRITICAL FIX #3: Wait for spaces to be loaded before showing room list
+    // This ensures roomMap is populated and getCurrentRoomSection() returns complete data
+    // Prevents empty tabs (Favs, Direct) when AppViewModel was destroyed and recreated
+    var spacesLoadStartTime by remember { mutableStateOf<Long?>(null) }
+    var spacesLoadTimeout by remember { mutableStateOf(false) }
+    
+    // Track if we've started monitoring spaces loading
+    var spacesMonitoringStarted by remember { mutableStateOf(false) }
+    
+    // Start monitoring spaces loading on first render
+    LaunchedEffect(Unit) {
+        if (!spacesMonitoringStarted) {
+            spacesMonitoringStarted = true
+            if (!appViewModel.spacesLoaded) {
+                spacesLoadStartTime = System.currentTimeMillis()
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "RoomListScreen: Spaces not loaded on first render, starting timeout...")
+                }
+            } else {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "RoomListScreen: Spaces already loaded on first render")
+                }
+            }
+        }
+    }
+    
+    // Observe changes to spacesLoaded from AppViewModel
+    LaunchedEffect(appViewModel.spacesLoaded) {
+        if (!appViewModel.spacesLoaded) {
+            if (spacesLoadStartTime == null) {
+                spacesLoadStartTime = System.currentTimeMillis()
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "RoomListScreen: Spaces not loaded yet, waiting...")
+                }
+            }
+        } else {
+            // Spaces loaded, reset timeout
+            spacesLoadStartTime = null
+            spacesLoadTimeout = false
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "RoomListScreen: Spaces loaded - room list ready")
+            }
+        }
+    }
+    
+    // Add timeout fallback for spaces loading (10 seconds)
+    // If spaces don't load within 10 seconds, show UI anyway to prevent infinite loading
+    // This handles cases where WebSocket never connects or init_complete never arrives
+    // CRITICAL: Use a separate LaunchedEffect that only depends on spacesLoadStartTime to prevent cancellation
+    LaunchedEffect(spacesLoadStartTime) {
+        if (spacesLoadStartTime != null && !spacesLoadTimeout) {
+            val startTime = spacesLoadStartTime!!
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "RoomListScreen: Starting 10s timeout for spaces loading (startTime: $startTime)")
+            }
+            kotlinx.coroutines.delay(10000) // 10 second timeout
+            // Check again after delay - only trigger timeout if still waiting and startTime hasn't changed
+            if (spacesLoadStartTime == startTime && !appViewModel.spacesLoaded && !spacesLoadTimeout) {
+                android.util.Log.w("Andromuks", "RoomListScreen: Spaces loading timeout (10s) - allowing UI to show anyway")
+                spacesLoadTimeout = true
+            } else if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "RoomListScreen: Timeout completed but spaces already loaded or timeout cancelled (spacesLoaded: ${appViewModel.spacesLoaded}, timeout: $spacesLoadTimeout, startTime match: ${spacesLoadStartTime == startTime})")
+            }
+        }
+    }
+    
+    // Use timeout override: if spaces timeout expired, treat as loaded to prevent infinite loading
+    val effectiveSpacesLoaded = appViewModel.spacesLoaded || spacesLoadTimeout
+    
+    // Show loading screen if profile is missing, pending items are being processed, or spaces are not loaded (unless timeout expired)
+    if (!effectiveProfileLoaded || shouldBlockForPending || !effectiveSpacesLoaded) {
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -251,6 +320,14 @@ fun RoomListScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                }
+                if (!effectiveSpacesLoaded && effectiveProfileLoaded && !shouldBlockForPending) {
+                    Text(
+                        text = "Loading rooms...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = if (shouldBlockForPending) 8.dp else 0.dp)
+                    )
                 }
             }
         }

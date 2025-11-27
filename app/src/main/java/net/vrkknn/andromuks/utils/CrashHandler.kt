@@ -39,6 +39,7 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
     
     private var defaultHandler: Thread.UncaughtExceptionHandler? = null
     private var context: Context? = null
+    @Volatile private var isHandlingException = false // Guard against infinite recursion
     
     /**
      * Initialize the crash handler. Should be called in Application.onCreate() or MainActivity.onCreate()
@@ -51,26 +52,69 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
     }
     
     override fun uncaughtException(thread: Thread, throwable: Throwable) {
-        Log.e(TAG, "Uncaught exception caught", throwable)
-        
-        try {
-            // Save crash log to file
-            val crashLogPath = saveCrashLog(throwable, thread)
-            
-            // Save crash info to SharedPreferences for dialog on next app start
-            context?.let { ctx ->
-                val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-                prefs.edit()
-                    .putLong(PREF_LAST_CRASH_TIME, System.currentTimeMillis())
-                    .putString(PREF_CRASH_LOG_PATH, crashLogPath)
-                    .apply()
+        // Guard against infinite recursion - if we're already handling an exception,
+        // just pass it to the default handler immediately
+        if (isHandlingException) {
+            // If defaultHandler is null or also recurses, use System.err as last resort
+            try {
+                defaultHandler?.uncaughtException(thread, throwable)
+            } catch (e: Throwable) {
+                // Last resort: print to stderr
+                System.err.println("Fatal: CrashHandler recursion detected")
+                throwable.printStackTrace(System.err)
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to save crash log", e)
+            return
         }
         
-        // Call default handler to show system crash dialog
-        defaultHandler?.uncaughtException(thread, throwable)
+        isHandlingException = true
+        
+        try {
+            // Safely log the exception - wrap in try-catch to prevent recursion
+            try {
+                Log.e(TAG, "Uncaught exception caught", throwable)
+            } catch (e: Throwable) {
+                // If logging fails, print to stderr instead
+                System.err.println("CrashHandler: Uncaught exception caught")
+                throwable.printStackTrace(System.err)
+            }
+            
+            try {
+                // Save crash log to file
+                val crashLogPath = saveCrashLog(throwable, thread)
+                
+                // Save crash info to SharedPreferences for dialog on next app start
+                context?.let { ctx ->
+                    try {
+                        val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                        prefs.edit()
+                            .putLong(PREF_LAST_CRASH_TIME, System.currentTimeMillis())
+                            .putString(PREF_CRASH_LOG_PATH, crashLogPath)
+                            .apply()
+                    } catch (e: Exception) {
+                        // Ignore SharedPreferences errors to prevent recursion
+                    }
+                }
+            } catch (e: Exception) {
+                // If saving crash log fails, try to log it safely
+                try {
+                    Log.e(TAG, "Failed to save crash log", e)
+                } catch (ignored: Throwable) {
+                    // If even logging fails, ignore to prevent recursion
+                }
+            }
+        } finally {
+            // Always reset the flag and call default handler, even if something failed
+            isHandlingException = false
+            
+            // Call default handler to show system crash dialog
+            try {
+                defaultHandler?.uncaughtException(thread, throwable)
+            } catch (e: Throwable) {
+                // If default handler also fails, print to stderr as last resort
+                System.err.println("Fatal: Default crash handler failed")
+                throwable.printStackTrace(System.err)
+            }
+        }
     }
     
     /**
