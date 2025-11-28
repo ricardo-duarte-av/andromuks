@@ -127,6 +127,10 @@ class AppViewModel : ViewModel() {
         instanceRole = InstanceRole.PRIMARY
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Instance role set to PRIMARY for $viewModelId")
         
+        // STEP 2.1: Register/update this ViewModel with service (as primary)
+        // This updates the registration if it was already registered as secondary
+        WebSocketService.registerViewModel(viewModelId, isPrimary = true)
+        
         // PHASE 1.4 FIX: Register primary callbacks immediately when marked as primary
         // This ensures callbacks are available before WebSocket connection is established
         // The service can then properly detect that AppViewModel is available
@@ -256,6 +260,73 @@ class AppViewModel : ViewModel() {
     fun markAsBubbleInstance() {
         instanceRole = InstanceRole.BUBBLE
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Instance role set to BUBBLE for $viewModelId")
+        
+        // STEP 2.1: Register this ViewModel with service (as secondary)
+        WebSocketService.registerViewModel(viewModelId, isPrimary = false)
+    }
+    
+    /**
+     * STEP 2.3: Called by WebSocketService when this ViewModel is promoted to primary
+     * This happens automatically when the original primary ViewModel is destroyed
+     * 
+     * When promoted, the ViewModel:
+     * 1. Registers as primary with the service
+     * 2. Registers primary callbacks with service
+     * 3. Takes over WebSocket management (attaches to existing WebSocket or ensures service is running)
+     */
+    fun onPromotedToPrimary() {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: STEP 2.3 - ViewModel $viewModelId promoted to primary")
+        
+        // Update instance role
+        instanceRole = InstanceRole.PRIMARY
+        
+        // STEP 2.3: Update registration to reflect primary status
+        WebSocketService.registerViewModel(viewModelId, isPrimary = true)
+        
+        // STEP 2.3: Register primary callbacks with service
+        // The callbacks are already stored in service (from previous primary), but we need to
+        // ensure this ViewModel can handle them. Since callbacks don't capture AppViewModel
+        // (Step 1.2), they should work, but we re-register to ensure this ViewModel is set as primary
+        registerPrimaryCallbacks()
+        
+        // STEP 2.3: Take over WebSocket management
+        // 1. Ensure WebSocket service is running (if not already)
+        if (!WebSocketService.isServiceRunning()) {
+            android.util.Log.i("Andromuks", "AppViewModel: STEP 2.3 - WebSocket service not running, starting it")
+            startWebSocketService()
+        }
+        
+        // 2. Attach to existing WebSocket if available and not already attached
+        val existingWebSocket = WebSocketService.getWebSocket()
+        if (existingWebSocket != null) {
+            if (webSocket == null || webSocket != existingWebSocket) {
+                android.util.Log.i("Andromuks", "AppViewModel: STEP 2.3 - Attaching to existing WebSocket")
+                webSocket = existingWebSocket
+                WebSocketService.registerReceiveCallback(viewModelId, this)
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: STEP 2.3 - Already attached to WebSocket")
+            }
+        } else {
+            // 3. If no WebSocket exists and we have credentials, attempt to reconnect
+            // This handles the case where the primary was destroyed while disconnected
+            appContext?.let { context ->
+                val prefs = context.getSharedPreferences("AndromuksPrefs", android.content.Context.MODE_PRIVATE)
+                val storedHomeserverUrl = prefs.getString("homeserverUrl", null)
+                val storedAuthToken = prefs.getString("authToken", null)
+                
+                if (storedHomeserverUrl != null && storedAuthToken != null) {
+                    android.util.Log.i("Andromuks", "AppViewModel: STEP 2.3 - No WebSocket found, attempting to reconnect as new primary")
+                    // Use viewModelScope to ensure connection survives activity recreation
+                    viewModelScope.launch {
+                        initializeWebSocketConnection(storedHomeserverUrl, storedAuthToken)
+                    }
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: STEP 2.3 - No WebSocket and no credentials found - cannot reconnect")
+                }
+            }
+        }
+        
+        android.util.Log.i("Andromuks", "AppViewModel: STEP 2.3 - ViewModel $viewModelId successfully promoted to primary, callbacks registered, and WebSocket management taken over")
     }
     
     /**
@@ -1367,6 +1438,11 @@ class AppViewModel : ViewModel() {
      * @param authToken Authentication token for the backend (optional, can be empty at initialization)
      */
     fun initializeFCM(context: Context, homeserverUrl: String = "", authToken: String = "") {
+        // STEP 2.1: Register this ViewModel with service (as secondary by default)
+        // Will be updated to primary if markAsPrimaryInstance() is called later
+        if (!WebSocketService.isViewModelRegistered(viewModelId)) {
+            WebSocketService.registerViewModel(viewModelId, isPrimary = false)
+        }
         appContext = context
         
         // Clear current room ID on app startup - ensures notifications aren't suppressed after crash/restart
@@ -4505,6 +4581,18 @@ class AppViewModel : ViewModel() {
             webSocket = existingWebSocket
             WebSocketService.registerReceiveCallback(viewModelId, this)
             
+            // STEP 2.2: Check if this ViewModel was promoted to primary while it wasn't attached
+            val currentPrimaryId = WebSocketService.getPrimaryViewModelId()
+            if (currentPrimaryId == viewModelId && instanceRole != InstanceRole.PRIMARY) {
+                android.util.Log.i("Andromuks", "AppViewModel: STEP 2.2 - ViewModel $viewModelId was promoted to primary while detached - handling promotion now")
+                onPromotedToPrimary()
+            } else {
+                // STEP 2.1: Register this ViewModel with service (as secondary, if not already primary)
+                if (instanceRole != InstanceRole.PRIMARY) {
+                    WebSocketService.registerViewModel(viewModelId, isPrimary = false)
+                }
+            }
+            
             // CRITICAL FIX: If spaces are already loaded (from cache/DB) and WebSocket is connected,
             // trigger navigation immediately since onInitComplete() won't be called again
             // This fixes the infinite spinner when opening via notification
@@ -4515,6 +4603,11 @@ class AppViewModel : ViewModel() {
             }
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No existing WebSocket to attach for $viewModelId")
+            
+            // STEP 2.1: Still register ViewModel even if WebSocket doesn't exist (for tracking)
+            if (instanceRole != InstanceRole.PRIMARY) {
+                WebSocketService.registerViewModel(viewModelId, isPrimary = false)
+            }
         }
     }
     
@@ -4631,6 +4724,9 @@ class AppViewModel : ViewModel() {
     override fun onCleared() {
         super.onCleared()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onCleared - cleaning up resources for $viewModelId")
+        
+        // STEP 2.1: Unregister this ViewModel from service lifecycle tracking
+        WebSocketService.unregisterViewModel(viewModelId)
         
         // PHASE 4: Unregister this ViewModel from receiving WebSocket messages
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unregistering $viewModelId from WebSocket callbacks")
@@ -7561,8 +7657,53 @@ class AppViewModel : ViewModel() {
         }
         
         val currentCachedCount = RoomTimelineCache.getCachedEventCount(roomId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION NOTE - Cache miss with $currentCachedCount events available. Waiting for manual refresh to request additional history.")
-        isTimelineLoading = false
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION NOTE - Cache miss with $currentCachedCount events available.")
+        
+        // CRITICAL FIX: If database is empty AND cache is empty, send paginate command immediately
+        // This fixes the issue where opening a room from shortcut shows empty timeline
+        if (currentCachedCount == 0) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Database and cache both empty for $roomId - sending paginate command immediately")
+            
+            // Wait for WebSocket to be ready (it might not be connected yet when opening via shortcut)
+            viewModelScope.launch {
+                var waitCount = 0
+                val maxWaitAttempts = 50 // Wait up to 5 seconds (50 * 100ms)
+                while (!isWebSocketConnected() && waitCount < maxWaitAttempts) {
+                    kotlinx.coroutines.delay(100)
+                    waitCount++
+                }
+                
+                if (!isWebSocketConnected()) {
+                    android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected after waiting, cannot request timeline for $roomId")
+                    isTimelineLoading = false
+                    return@launch
+                }
+                
+                // Send paginate command to fetch events from server
+                val paginateRequestId = requestIdCounter++
+                timelineRequests[paginateRequestId] = roomId
+                
+                val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                    "room_id" to roomId,
+                    "max_timeline_id" to 0,
+                    "limit" to 200,
+                    "reset" to false
+                ))
+                
+                if (result == WebSocketResult.SUCCESS) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request for empty room $roomId (requestId=$paginateRequestId)")
+                    markInitialPaginate(roomId, "empty_room_initial_load")
+                    isTimelineLoading = true // Set loading while waiting for response
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: Failed to send paginate request for $roomId: $result")
+                    timelineRequests.remove(paginateRequestId)
+                    isTimelineLoading = false
+                }
+            }
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache has $currentCachedCount events - waiting for manual refresh to request additional history.")
+            isTimelineLoading = false
+        }
     }
     /**
      * Fully refreshes the room timeline by resetting in-memory state and fetching a clean snapshot.

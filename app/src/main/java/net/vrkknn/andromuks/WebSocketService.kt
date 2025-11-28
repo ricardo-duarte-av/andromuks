@@ -70,6 +70,15 @@ class WebSocketService : Service() {
         
         private val callbacksLock = Any() // Thread safety for callback lists
         
+        // STEP 2.1: ViewModel lifecycle tracking - tracks which ViewModels are alive
+        // This allows the service to know which ViewModels exist and can be promoted to primary
+        data class ViewModelInfo(
+            val viewModelId: String,
+            val isPrimary: Boolean,
+            val registeredAt: Long = System.currentTimeMillis()
+        )
+        private val registeredViewModels = mutableMapOf<String, ViewModelInfo>()
+        
         // PHASE 1.1: Primary instance tracking - ensures only one AppViewModel controls WebSocket lifecycle
         // Primary instance is the one that manages reconnection, offline mode, and activity logging
         private var primaryViewModelId: String? = null
@@ -164,6 +173,149 @@ class WebSocketService : Service() {
                     "offlineModeCallback" to (primaryOfflineModeCallback != null),
                     "activityLogCallback" to (primaryActivityLogCallback != null)
                 )
+            }
+        }
+        
+        /**
+         * STEP 2.1: Register a ViewModel with the service
+         * This tracks which ViewModels are alive and can be used for primary promotion
+         * 
+         * @param viewModelId Unique identifier for the ViewModel
+         * @param isPrimary Whether this ViewModel is the primary instance
+         * @return true if registration succeeded or updated, false if registration failed
+         */
+        fun registerViewModel(viewModelId: String, isPrimary: Boolean): Boolean {
+            synchronized(callbacksLock) {
+                val existing = registeredViewModels[viewModelId]
+                if (existing != null) {
+                    // Already registered - update if primary status changed
+                    if (existing.isPrimary != isPrimary) {
+                        registeredViewModels[viewModelId] = existing.copy(isPrimary = isPrimary)
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 2.1 - Updated ViewModel $viewModelId primary status: ${existing.isPrimary} -> $isPrimary")
+                        
+                        // Update primary tracking if this became primary
+                        if (isPrimary) {
+                            primaryViewModelId = viewModelId
+                        } else if (existing.isPrimary && primaryViewModelId == viewModelId) {
+                            // Was primary, now secondary - clear primary tracking
+                            primaryViewModelId = null
+                        }
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 2.1 - ViewModel $viewModelId already registered with same primary status")
+                    }
+                    return true
+                }
+                
+                // New registration
+                registeredViewModels[viewModelId] = ViewModelInfo(
+                    viewModelId = viewModelId,
+                    isPrimary = isPrimary
+                )
+                
+                // Update primary tracking if this is the primary instance
+                if (isPrimary) {
+                    primaryViewModelId = viewModelId
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 2.1 - Registered primary ViewModel: $viewModelId")
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 2.1 - Registered secondary ViewModel: $viewModelId")
+                }
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 2.1 - Total registered ViewModels: ${registeredViewModels.size}")
+                return true
+            }
+        }
+        
+        /**
+         * STEP 2.2: Unregister a ViewModel from the service
+         * This is called when a ViewModel is destroyed (e.g., activity destroyed)
+         * If the destroyed ViewModel was primary, automatically promotes another ViewModel to primary
+         * 
+         * @param viewModelId Unique identifier for the ViewModel
+         * @return true if unregistered, false if not found
+         */
+        fun unregisterViewModel(viewModelId: String): Boolean {
+            synchronized(callbacksLock) {
+                val removed = registeredViewModels.remove(viewModelId)
+                if (removed != null) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 2.2 - Unregistered ViewModel: $viewModelId (wasPrimary=${removed.isPrimary})")
+                    
+                    // STEP 2.2: If this was the primary, attempt to promote another ViewModel
+                    if (removed.isPrimary && primaryViewModelId == viewModelId) {
+                        android.util.Log.i("WebSocketService", "STEP 2.2 - Primary ViewModel $viewModelId destroyed - attempting automatic promotion")
+                        primaryViewModelId = null
+                        
+                        // STEP 2.2: Find another ViewModel to promote to primary
+                        val remainingViewModels = registeredViewModels.values.toList()
+                        if (remainingViewModels.isNotEmpty()) {
+                            // Prefer MainActivity ViewModel (AppViewModel_0) if available, otherwise use first available
+                            val candidateToPromote = remainingViewModels.firstOrNull { 
+                                it.viewModelId.startsWith("AppViewModel_0") 
+                            } ?: remainingViewModels.first()
+                            
+                            android.util.Log.i("WebSocketService", "STEP 2.2 - Promoting ViewModel ${candidateToPromote.viewModelId} to primary")
+                            
+                            // Update registration to mark as primary
+                            registeredViewModels[candidateToPromote.viewModelId] = candidateToPromote.copy(isPrimary = true)
+                            primaryViewModelId = candidateToPromote.viewModelId
+                            
+                            // STEP 2.2: Notify the promoted ViewModel
+                            // Find the AppViewModel instance from registered receive callbacks
+                            val promotedViewModel = webSocketReceiveCallbacks.firstOrNull { 
+                                it.first == candidateToPromote.viewModelId 
+                            }?.second
+                            
+                            if (promotedViewModel != null) {
+                                try {
+                                    android.util.Log.i("WebSocketService", "STEP 2.2 - Notifying ViewModel ${candidateToPromote.viewModelId} of promotion to primary")
+                                    promotedViewModel.onPromotedToPrimary()
+                                } catch (e: Exception) {
+                                    android.util.Log.e("WebSocketService", "STEP 2.2 - Error notifying ViewModel of promotion: ${e.message}", e)
+                                }
+                            } else {
+                                android.util.Log.w("WebSocketService", "STEP 2.2 - Promoted ViewModel ${candidateToPromote.viewModelId} not found in receive callbacks - will register callbacks when it attaches")
+                            }
+                        } else {
+                            android.util.Log.w("WebSocketService", "STEP 2.2 - No remaining ViewModels to promote - primary callbacks remain in service for next ViewModel")
+                            // Note: Primary callbacks are NOT cleared here - they remain in service (Step 1.3)
+                            // This allows callbacks to work even after primary is destroyed
+                        }
+                    }
+                    
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 2.2 - Remaining registered ViewModels: ${registeredViewModels.size}")
+                    return true
+                } else {
+                    android.util.Log.w("WebSocketService", "STEP 2.2 - Attempted to unregister unknown ViewModel: $viewModelId")
+                    return false
+                }
+            }
+        }
+        
+        /**
+         * STEP 2.1: Get list of registered ViewModel IDs
+         * Returns all ViewModels that are currently registered (alive)
+         */
+        fun getRegisteredViewModelIds(): List<String> {
+            synchronized(callbacksLock) {
+                return registeredViewModels.keys.toList()
+            }
+        }
+        
+        /**
+         * STEP 2.1: Get list of registered ViewModels (for primary promotion)
+         * Returns ViewModelInfo for all registered ViewModels
+         */
+        fun getRegisteredViewModelInfos(): List<ViewModelInfo> {
+            synchronized(callbacksLock) {
+                return registeredViewModels.values.toList()
+            }
+        }
+        
+        /**
+         * STEP 2.1: Check if a ViewModel is registered (alive)
+         */
+        fun isViewModelRegistered(viewModelId: String): Boolean {
+            synchronized(callbacksLock) {
+                return registeredViewModels.containsKey(viewModelId)
             }
         }
         
