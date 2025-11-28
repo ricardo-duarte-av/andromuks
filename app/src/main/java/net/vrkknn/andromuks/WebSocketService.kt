@@ -177,6 +177,47 @@ class WebSocketService : Service() {
         }
         
         /**
+         * STEP 3.1: Check if primary ViewModel is still alive and healthy
+         * Returns true if:
+         * - Primary ViewModel ID is set
+         * - Primary ViewModel is still registered (not destroyed)
+         * - Primary callbacks are still valid
+         * Returns false if primary is missing, destroyed, or callbacks are invalid
+         */
+        fun isPrimaryAlive(): Boolean {
+            synchronized(callbacksLock) {
+                val primaryId = primaryViewModelId
+                
+                // Check if primary ID is set
+                if (primaryId == null) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 3.1 - Primary health check: No primary ViewModel ID set")
+                    return false
+                }
+                
+                // Check if primary ViewModel is still registered (not destroyed)
+                val isRegistered = registeredViewModels.containsKey(primaryId)
+                if (!isRegistered) {
+                    android.util.Log.w("WebSocketService", "STEP 3.1 - Primary health check: Primary ViewModel $primaryId is not registered (was destroyed)")
+                    return false
+                }
+                
+                // Check if primary callbacks are still valid
+                val hasCallbacks = primaryReconnectionCallback != null &&
+                                  primaryOfflineModeCallback != null &&
+                                  primaryActivityLogCallback != null
+                
+                if (!hasCallbacks) {
+                    android.util.Log.w("WebSocketService", "STEP 3.1 - Primary health check: Primary ViewModel $primaryId is registered but callbacks are missing")
+                    return false
+                }
+                
+                // All checks passed - primary is alive and healthy
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 3.1 - Primary health check: Primary ViewModel $primaryId is alive and healthy")
+                return true
+            }
+        }
+        
+        /**
          * STEP 2.1: Register a ViewModel with the service
          * This tracks which ViewModels are alive and can be used for primary promotion
          * 
@@ -243,42 +284,7 @@ class WebSocketService : Service() {
                     if (removed.isPrimary && primaryViewModelId == viewModelId) {
                         android.util.Log.i("WebSocketService", "STEP 2.2 - Primary ViewModel $viewModelId destroyed - attempting automatic promotion")
                         primaryViewModelId = null
-                        
-                        // STEP 2.2: Find another ViewModel to promote to primary
-                        val remainingViewModels = registeredViewModels.values.toList()
-                        if (remainingViewModels.isNotEmpty()) {
-                            // Prefer MainActivity ViewModel (AppViewModel_0) if available, otherwise use first available
-                            val candidateToPromote = remainingViewModels.firstOrNull { 
-                                it.viewModelId.startsWith("AppViewModel_0") 
-                            } ?: remainingViewModels.first()
-                            
-                            android.util.Log.i("WebSocketService", "STEP 2.2 - Promoting ViewModel ${candidateToPromote.viewModelId} to primary")
-                            
-                            // Update registration to mark as primary
-                            registeredViewModels[candidateToPromote.viewModelId] = candidateToPromote.copy(isPrimary = true)
-                            primaryViewModelId = candidateToPromote.viewModelId
-                            
-                            // STEP 2.2: Notify the promoted ViewModel
-                            // Find the AppViewModel instance from registered receive callbacks
-                            val promotedViewModel = webSocketReceiveCallbacks.firstOrNull { 
-                                it.first == candidateToPromote.viewModelId 
-                            }?.second
-                            
-                            if (promotedViewModel != null) {
-                                try {
-                                    android.util.Log.i("WebSocketService", "STEP 2.2 - Notifying ViewModel ${candidateToPromote.viewModelId} of promotion to primary")
-                                    promotedViewModel.onPromotedToPrimary()
-                                } catch (e: Exception) {
-                                    android.util.Log.e("WebSocketService", "STEP 2.2 - Error notifying ViewModel of promotion: ${e.message}", e)
-                                }
-                            } else {
-                                android.util.Log.w("WebSocketService", "STEP 2.2 - Promoted ViewModel ${candidateToPromote.viewModelId} not found in receive callbacks - will register callbacks when it attaches")
-                            }
-                        } else {
-                            android.util.Log.w("WebSocketService", "STEP 2.2 - No remaining ViewModels to promote - primary callbacks remain in service for next ViewModel")
-                            // Note: Primary callbacks are NOT cleared here - they remain in service (Step 1.3)
-                            // This allows callbacks to work even after primary is destroyed
-                        }
+                        attemptPrimaryPromotion("primary_destroyed")
                     }
                     
                     if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 2.2 - Remaining registered ViewModels: ${registeredViewModels.size}")
@@ -316,6 +322,53 @@ class WebSocketService : Service() {
         fun isViewModelRegistered(viewModelId: String): Boolean {
             synchronized(callbacksLock) {
                 return registeredViewModels.containsKey(viewModelId)
+            }
+        }
+        
+        /**
+         * STEP 2.2/3.3: Attempt to promote a secondary ViewModel to primary
+         * This is called when primary is destroyed or detected as dead
+         * 
+         * @param reason Reason for promotion (for logging)
+         */
+        private fun attemptPrimaryPromotion(reason: String) {
+            synchronized(callbacksLock) {
+                // Find another ViewModel to promote to primary
+                val remainingViewModels = registeredViewModels.values.toList()
+                if (remainingViewModels.isNotEmpty()) {
+                    // Prefer MainActivity ViewModel (AppViewModel_0) if available, otherwise use first available
+                    val candidateToPromote = remainingViewModels.firstOrNull { 
+                        it.viewModelId.startsWith("AppViewModel_0") 
+                    } ?: remainingViewModels.first()
+                    
+                    android.util.Log.i("WebSocketService", "STEP 3.3 - Promoting ViewModel ${candidateToPromote.viewModelId} to primary (reason: $reason)")
+                    
+                    // Update registration to mark as primary
+                    registeredViewModels[candidateToPromote.viewModelId] = candidateToPromote.copy(isPrimary = true)
+                    primaryViewModelId = candidateToPromote.viewModelId
+                    
+                    // Notify the promoted ViewModel
+                    // Find the AppViewModel instance from registered receive callbacks
+                    val promotedViewModel = webSocketReceiveCallbacks.firstOrNull { 
+                        it.first == candidateToPromote.viewModelId 
+                    }?.second
+                    
+                    if (promotedViewModel != null) {
+                        try {
+                            android.util.Log.i("WebSocketService", "STEP 3.3 - Notifying ViewModel ${candidateToPromote.viewModelId} of promotion to primary")
+                            promotedViewModel.onPromotedToPrimary()
+                        } catch (e: Exception) {
+                            android.util.Log.e("WebSocketService", "STEP 3.3 - Error notifying ViewModel of promotion: ${e.message}", e)
+                        }
+                    } else {
+                        android.util.Log.w("WebSocketService", "STEP 3.3 - Promoted ViewModel ${candidateToPromote.viewModelId} not found in receive callbacks - will register callbacks when it attaches")
+                    }
+                } else {
+                    android.util.Log.w("WebSocketService", "STEP 3.3 - No remaining ViewModels to promote (reason: $reason) - primary callbacks remain in service for next ViewModel")
+                    // Note: Primary callbacks are NOT cleared here - they remain in service (Step 1.3)
+                    // This allows callbacks to work even after primary is destroyed
+                    // The next MainActivity launch will automatically become primary when it calls markAsPrimaryInstance()
+                }
             }
         }
         
@@ -1594,6 +1647,7 @@ class WebSocketService : Service() {
     // RUSH TO HEALTHY: Removed network optimization variables - ping/pong is the authority
     
     private var stateCorruptionJob: Job? = null // State corruption monitoring
+    private var primaryHealthCheckJob: Job? = null // STEP 3.2: Primary ViewModel health monitoring
     private var isCurrentlyConnected = false
     private var currentNetworkType: NetworkType = NetworkType.NONE
     
@@ -1728,6 +1782,67 @@ class WebSocketService : Service() {
         stateCorruptionJob?.cancel()
         stateCorruptionJob = null
         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "State corruption and callback health monitoring stopped")
+    }
+    
+    /**
+         * STEP 3.2: Start periodic primary ViewModel health monitoring
+         * Checks primary health every 30 seconds and logs status for debugging
+         * Automatically promotes a secondary ViewModel if primary is detected as dead
+         */
+        private fun startPrimaryHealthMonitoring() {
+            primaryHealthCheckJob?.cancel()
+            primaryHealthCheckJob = serviceScope.launch {
+                while (isActive) {
+                    delay(30_000) // Check every 30 seconds
+                    
+                    try {
+                        val isAlive = isPrimaryAlive()
+                        val primaryId = getPrimaryViewModelId()
+                        
+                        if (isAlive) {
+                            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 3.2 - Primary health check: Primary ViewModel $primaryId is alive and healthy")
+                        } else {
+                            android.util.Log.w("WebSocketService", "STEP 3.2 - Primary health check: Primary ViewModel is NOT alive (primaryId=$primaryId)")
+                            
+                            // Log detailed status for debugging
+                            val registeredCount = getRegisteredViewModelIds().size
+                            val callbackStatus = getPrimaryCallbackStatus()
+                            android.util.Log.w("WebSocketService", "STEP 3.2 - Health check details: registeredViewModels=$registeredCount, callbackStatus=$callbackStatus")
+                            
+                            // STEP 3.3: If primary health check fails, automatically promote next available ViewModel
+                            if (primaryId != null) {
+                                // Primary ID is set but ViewModel is dead - clear it and attempt promotion
+                                android.util.Log.i("WebSocketService", "STEP 3.3 - Primary ViewModel $primaryId detected as dead - attempting automatic promotion")
+                                synchronized(callbacksLock) {
+                                    primaryViewModelId = null
+                                }
+                                Companion.attemptPrimaryPromotion("health_check_failed")
+                            } else {
+                                // No primary ID set - check if we have ViewModels to promote
+                                if (registeredCount > 0) {
+                                    android.util.Log.i("WebSocketService", "STEP 3.3 - No primary set but $registeredCount ViewModels available - attempting promotion")
+                                    Companion.attemptPrimaryPromotion("no_primary_set")
+                                } else {
+                                    android.util.Log.w("WebSocketService", "STEP 3.3 - No primary and no ViewModels available - next MainActivity launch will become primary")
+                                    // Primary callbacks remain in service - next MainActivity will automatically become primary
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("WebSocketService", "STEP 3.2 - Error in primary health check", e)
+                    }
+                }
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 3.2 - Primary health monitoring started (checks every 30 seconds)")
+        }
+    
+    /**
+     * STEP 3.2: Stop primary health monitoring
+     */
+    private fun stopPrimaryHealthMonitoring() {
+        primaryHealthCheckJob?.cancel()
+        primaryHealthCheckJob = null
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 3.2 - Primary health monitoring stopped")
     }
     
     /**
@@ -2365,6 +2480,9 @@ class WebSocketService : Service() {
         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Starting service state monitoring from onCreate")
         startStateCorruptionMonitoring()
         
+        // STEP 3.2: Start primary health monitoring immediately when service is created
+        startPrimaryHealthMonitoring()
+        
         // PHASE 3.1: Start network monitoring for immediate reconnection on network changes
         startNetworkMonitoring()
     }
@@ -2520,6 +2638,8 @@ class WebSocketService : Service() {
         try {
             // Stop all monitoring and jobs
             stopStateCorruptionMonitoring()
+            // STEP 3.2: Stop primary health monitoring
+            stopPrimaryHealthMonitoring()
             // PHASE 3.1: Stop network monitoring
             stopNetworkMonitoring()
             
