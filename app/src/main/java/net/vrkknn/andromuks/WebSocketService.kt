@@ -74,7 +74,12 @@ class WebSocketService : Service() {
         // Primary instance is the one that manages reconnection, offline mode, and activity logging
         private var primaryViewModelId: String? = null
         
-        // Primary callbacks - only the primary instance can set these
+        // STEP 1.1: Primary callbacks stored in service (not AppViewModel)
+        // These callbacks are stored as lambda functions in the service, allowing them to persist
+        // even if the primary AppViewModel is destroyed. The callbacks are invoked by the service
+        // when needed (reconnection, offline mode changes, activity logging).
+        // NOTE: Currently these callbacks may still capture AppViewModel references, which will be
+        // addressed in Step 1.2 when we modify how callbacks are registered.
         private var primaryReconnectionCallback: ((String) -> Unit)? = null
         private var primaryOfflineModeCallback: ((Boolean) -> Unit)? = null
         private var primaryActivityLogCallback: ((String, String?) -> Unit)? = null
@@ -132,6 +137,34 @@ class WebSocketService : Service() {
          */
         fun isPrimaryInstance(viewModelId: String): Boolean {
             return primaryViewModelId == viewModelId
+        }
+        
+        /**
+         * STEP 1.1: Check if primary callbacks are registered
+         * Returns true if all primary callbacks (reconnection, offline mode, activity log) are registered
+         * This is useful for debugging and health checks
+         */
+        fun hasPrimaryCallbacks(): Boolean {
+            synchronized(callbacksLock) {
+                return primaryReconnectionCallback != null &&
+                       primaryOfflineModeCallback != null &&
+                       primaryActivityLogCallback != null
+            }
+        }
+        
+        /**
+         * STEP 1.1: Get primary callback status for debugging
+         * Returns a map indicating which callbacks are registered
+         */
+        fun getPrimaryCallbackStatus(): Map<String, Boolean> {
+            synchronized(callbacksLock) {
+                return mapOf(
+                    "primaryViewModelId" to (primaryViewModelId != null),
+                    "reconnectionCallback" to (primaryReconnectionCallback != null),
+                    "offlineModeCallback" to (primaryOfflineModeCallback != null),
+                    "activityLogCallback" to (primaryActivityLogCallback != null)
+                )
+            }
         }
         
         /**
@@ -222,7 +255,11 @@ class WebSocketService : Service() {
         }
         
         /**
-         * PHASE 1.4: Safely invoke reconnection callback with error handling and logging
+         * STEP 1.3: Safely invoke reconnection callback with error handling and logging
+         * 
+         * This method uses stored callbacks (not AppViewModel references), allowing callbacks
+         * to work even if the primary AppViewModel is destroyed. The callback reads credentials
+         * from SharedPreferences and finds registered ViewModels to handle reconnection.
          * 
          * @param reason Reason for reconnection
          * @param logIfMissing Whether to log a warning if callback is missing (default: true)
@@ -232,19 +269,23 @@ class WebSocketService : Service() {
             if (callback != null) {
                 try {
                     callback.invoke(reason)
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Reconnection callback invoked: $reason")
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 1.3 - Reconnection callback invoked: $reason")
                 } catch (e: Exception) {
-                    android.util.Log.e("WebSocketService", "Error invoking reconnection callback: ${e.message}", e)
+                    android.util.Log.e("WebSocketService", "STEP 1.3 - Error invoking reconnection callback: ${e.message}", e)
                 }
             } else {
                 if (logIfMissing) {
-                    android.util.Log.w("WebSocketService", "Reconnection callback not available - cannot trigger reconnection: $reason")
+                    android.util.Log.w("WebSocketService", "STEP 1.3 - Reconnection callback not available - cannot trigger reconnection: $reason")
                 }
             }
         }
         
         /**
-         * PHASE 1.4: Safely invoke offline mode callback with error handling and logging
+         * STEP 1.3: Safely invoke offline mode callback with error handling and logging
+         * 
+         * This method uses stored callbacks (not AppViewModel references), allowing callbacks
+         * to work even if the primary AppViewModel is destroyed. The callback broadcasts to all
+         * registered ViewModels to update their offline state.
          * 
          * @param isOffline Whether the app is in offline mode
          * @param logIfMissing Whether to log a warning if callback is missing (default: false)
@@ -254,20 +295,25 @@ class WebSocketService : Service() {
             if (callback != null) {
                 try {
                     callback.invoke(isOffline)
-                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Offline mode callback invoked: isOffline=$isOffline")
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 1.3 - Offline mode callback invoked: isOffline=$isOffline")
                 } catch (e: Exception) {
-                    android.util.Log.e("WebSocketService", "Error invoking offline mode callback: ${e.message}", e)
+                    android.util.Log.e("WebSocketService", "STEP 1.3 - Error invoking offline mode callback: ${e.message}", e)
                 }
             } else {
                 if (logIfMissing) {
-                    android.util.Log.w("WebSocketService", "Offline mode callback not available - cannot notify offline mode change: isOffline=$isOffline")
+                    android.util.Log.w("WebSocketService", "STEP 1.3 - Offline mode callback not available - cannot notify offline mode change: isOffline=$isOffline")
                 }
             }
         }
         
         /**
-         * Log an activity event (app started, websocket connected, disconnected, etc.)
-         * PHASE 1.4: Uses primary callback if available, falls back to legacy callback with error handling
+         * STEP 1.3: Log an activity event (app started, websocket connected, disconnected, etc.)
+         * 
+         * This method uses stored callbacks (not AppViewModel references), allowing callbacks
+         * to work even if the primary AppViewModel is destroyed. The callback broadcasts to all
+         * registered ViewModels to log the activity.
+         * 
+         * Uses primary callback if available, falls back to legacy callback with error handling
          */
         fun logActivity(event: String, networkType: String? = null) {
             // Try primary callback first
@@ -275,8 +321,9 @@ class WebSocketService : Service() {
             if (callback != null) {
                 try {
                     callback.invoke(event, networkType)
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "STEP 1.3 - Activity log callback invoked: event=$event")
                 } catch (e: Exception) {
-                    android.util.Log.e("WebSocketService", "Error invoking activity log callback: ${e.message}", e)
+                    android.util.Log.e("WebSocketService", "STEP 1.3 - Error invoking activity log callback: ${e.message}", e)
                 }
             }
             // Note: We don't log warnings for missing activity log callbacks as it's not critical

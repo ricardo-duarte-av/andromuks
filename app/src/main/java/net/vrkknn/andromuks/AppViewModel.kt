@@ -138,28 +138,61 @@ class AppViewModel : ViewModel() {
      * This should be called when the instance is marked as primary, before WebSocket connection
      * This ensures the service knows the AppViewModel is available even before connection is established
      */
+    /**
+     * STEP 1.2: Register primary callbacks with service
+     * Callbacks are stored in service and don't capture AppViewModel instance
+     * This allows callbacks to work even if AppViewModel is destroyed
+     */
     private fun registerPrimaryCallbacks() {
         if (instanceRole != InstanceRole.PRIMARY) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping primary callback registration - instance is not PRIMARY")
             return
         }
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Registering primary callbacks for $viewModelId")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: STEP 1.2 - Registering primary callbacks for $viewModelId (callbacks don't capture AppViewModel)")
+        
+        // STEP 1.2: Store current credentials in service for callbacks to use
+        // This allows callbacks to work even if this AppViewModel is destroyed
+        val currentHomeserverUrl = homeserverUrl
+        val currentAuthToken = authToken
+        val currentViewModelId = viewModelId
         
         // Register reconnection callback - this will set this instance as primary
-        // INFINITE LOOP FIX: Directly trigger reconnection instead of calling restartWebSocket which can loop
+        // STEP 1.2: Callback reads from SharedPreferences and uses registered ViewModels (doesn't capture AppViewModel)
         val reconnectionRegistered = WebSocketService.setReconnectionCallback(viewModelId) { reason ->
-            // INFINITE LOOP FIX: Directly trigger reconnection if we have credentials, otherwise use restartWebSocket with cooldown
-            if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                android.util.Log.i("Andromuks", "AppViewModel: Reconnection callback triggered - directly initializing WebSocket connection (reason: $reason)")
-                // Clear WebSocket first
-                WebSocketService.clearWebSocket(reason)
-                // Then trigger reconnection directly
-                initializeWebSocketConnection(homeserverUrl, authToken)
+            android.util.Log.i("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback triggered (reason: $reason)")
+            
+            // STEP 1.2: Read credentials from SharedPreferences (not from captured AppViewModel)
+            val context = appContext
+            if (context == null) {
+                android.util.Log.e("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: appContext is null, cannot reconnect")
+                return@setReconnectionCallback
+            }
+            
+            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
+            val storedHomeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+            val storedAuthToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+            
+            if (storedHomeserverUrl.isNotEmpty() && storedAuthToken.isNotEmpty()) {
+                // STEP 1.2: Find primary ViewModel from registered ViewModels (may be different instance)
+                val registeredViewModels = WebSocketService.getRegisteredViewModels()
+                val primaryViewModel = registeredViewModels.firstOrNull { 
+                    WebSocketService.isPrimaryInstance(it.viewModelId) 
+                }
+                
+                if (primaryViewModel != null) {
+                    android.util.Log.i("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: Found primary ViewModel, initializing WebSocket connection")
+                    // Clear WebSocket first
+                    WebSocketService.clearWebSocket(reason)
+                    // Then trigger reconnection directly on the primary ViewModel
+                    primaryViewModel.initializeWebSocketConnection(storedHomeserverUrl, storedAuthToken)
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: No primary ViewModel found, will be handled by promotion in Step 2")
+                    // For now, just clear WebSocket - promotion will handle reconnection in Step 2
+                    WebSocketService.clearWebSocket(reason)
+                }
             } else {
-                // Fall back to restartWebSocket (which has cooldown protection)
-                android.util.Log.w("Andromuks", "AppViewModel: Reconnection callback triggered but no credentials available - using restartWebSocket (reason: $reason)")
-                restartWebSocket(reason)
+                android.util.Log.w("Andromuks", "AppViewModel: STEP 1.2 - Reconnection callback: No credentials in SharedPreferences")
             }
         }
         if (!reconnectionRegistered) {
@@ -170,20 +203,29 @@ class AppViewModel : ViewModel() {
         }
         
         // Register offline mode callback - only if reconnection callback was registered successfully
+        // STEP 1.2: Callback broadcasts to all registered ViewModels (doesn't capture AppViewModel)
         if (reconnectionRegistered) {
             val offlineModeRegistered = WebSocketService.setOfflineModeCallback(viewModelId) { isOffline ->
-                if (isOffline) {
-                    android.util.Log.w("Andromuks", "AppViewModel: Entering offline mode")
-                    logActivity("Entering Offline Mode", null)
-                    isOfflineMode = true
-                    lastNetworkState = false
-                } else {
-                    android.util.Log.i("Andromuks", "AppViewModel: Exiting offline mode")
-                    logActivity("Exiting Offline Mode", null)
-                    isOfflineMode = false
-                    lastNetworkState = true
-                    // Reset reconnection state on network restoration
-                    WebSocketService.resetReconnectionState()
+                android.util.Log.i("Andromuks", "AppViewModel: STEP 1.2 - Offline mode callback triggered: isOffline=$isOffline")
+                
+                // STEP 1.2: Broadcast to all registered ViewModels (not just this instance)
+                val registeredViewModels = WebSocketService.getRegisteredViewModels()
+                for (viewModel in registeredViewModels) {
+                    try {
+                        if (isOffline) {
+                            android.util.Log.w("Andromuks", "AppViewModel: STEP 1.2 - Broadcasting offline mode to ViewModel ${viewModel.viewModelId}")
+                            viewModel.logActivity("Entering Offline Mode", null)
+                            viewModel.setOfflineMode(true)
+                        } else {
+                            android.util.Log.i("Andromuks", "AppViewModel: STEP 1.2 - Broadcasting online mode to ViewModel ${viewModel.viewModelId}")
+                            viewModel.logActivity("Exiting Offline Mode", null)
+                            viewModel.setOfflineMode(false)
+                            // Reset reconnection state on network restoration
+                            WebSocketService.resetReconnectionState()
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: STEP 1.2 - Error broadcasting offline mode to ViewModel ${viewModel.viewModelId}", e)
+                    }
                 }
             }
             if (!offlineModeRegistered) {
@@ -191,8 +233,19 @@ class AppViewModel : ViewModel() {
             }
             
             // Register activity log callback - only if reconnection callback was registered successfully
+            // STEP 1.2: Callback broadcasts to all registered ViewModels (doesn't capture AppViewModel)
             val activityLogRegistered = WebSocketService.setActivityLogCallback(viewModelId) { event, networkType ->
-                logActivity(event, networkType)
+                android.util.Log.d("Andromuks", "AppViewModel: STEP 1.2 - Activity log callback triggered: event=$event, networkType=$networkType")
+                
+                // STEP 1.2: Broadcast to all registered ViewModels (not just this instance)
+                val registeredViewModels = WebSocketService.getRegisteredViewModels()
+                for (viewModel in registeredViewModels) {
+                    try {
+                        viewModel.logActivity(event, networkType)
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: STEP 1.2 - Error broadcasting activity log to ViewModel ${viewModel.viewModelId}", e)
+                    }
+                }
             }
             if (!activityLogRegistered) {
                 android.util.Log.w("Andromuks", "AppViewModel: Failed to register activity log callback. This should not happen if reconnection callback was registered.")
@@ -4927,8 +4980,17 @@ class AppViewModel : ViewModel() {
     private var hasHadInitialConnection = false // Track if we've had an initial connection to only vibrate on reconnections
 
     // NETWORK OPTIMIZATION: Offline caching and connection state
-    private var isOfflineMode = false
-    private var lastNetworkState = true // true = online, false = offline
+    // STEP 1.2: Made internal so callbacks can update state without capturing AppViewModel
+    internal var isOfflineMode = false
+        private set
+    internal var lastNetworkState = true // true = online, false = offline
+        private set
+    
+    // STEP 1.2: Helper methods to update offline state (used by callbacks)
+    internal fun setOfflineMode(isOffline: Boolean) {
+        isOfflineMode = isOffline
+        lastNetworkState = !isOffline
+    }
     private val offlineCacheExpiry = 24 * 60 * 60 * 1000L // 24 hours
     
     // WebSocket reconnection log
