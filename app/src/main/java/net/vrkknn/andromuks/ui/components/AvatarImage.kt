@@ -69,16 +69,23 @@ fun AvatarImage(
     // Track if the image failed to load
     var imageLoadFailed by remember(avatarUrl) { mutableStateOf(false) }
     
-    // AVATAR LOADING OPTIMIZATION: Lazy loading state - only load when visible
-    var shouldLoadImage by remember(isVisible, avatarUrl) { mutableStateOf(false) }
+    // FIX: Persist shouldLoadImage state per avatarUrl to prevent reset on scroll
+    // Once we've loaded an avatar URL, keep it loaded even if composable is recreated
+    // This prevents fallback flash when scrolling (images are in Coil's memory cache)
+    // Key insight: remember(avatarUrl) ensures state persists per unique URL across recompositions
+    var shouldLoadImage by remember(avatarUrl) { mutableStateOf(false) }
     
     // AVATAR LOADING OPTIMIZATION: Initialize lazy loading with LaunchedEffect
+    // FIX: Removed 50ms delay - AsyncImage handles cache automatically and loads instantly from memory
+    // The delay was causing fallback flash even for cached images
     LaunchedEffect(isVisible, avatarUrl) {
         if (isVisible && avatarUrl != null) {
-            // Small delay to avoid loading while scrolling
-            kotlinx.coroutines.delay(50)
+            // No delay needed - AsyncImage will load from Coil's memory cache instantly if available
+            // For non-cached images, AsyncImage handles loading efficiently without blocking UI
             shouldLoadImage = true
         }
+        // Don't reset shouldLoadImage when item becomes invisible - keep it true
+        // This ensures cached images show instantly when scrolling back into view
     }
     
     // AVATAR LOADING OPTIMIZATION: Generate placeholder from BlurHash if available
