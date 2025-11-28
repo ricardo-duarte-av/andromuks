@@ -555,13 +555,27 @@ fun RoomListScreen(
                         }
                     }
                     
-                    // Merge new summaries with existing ones (preserve JSON-parsed previews for rooms not queried)
-                    roomsWithSummaries = roomsWithSummaries.toMutableMap().apply {
-                        putAll(summaryMap) // Overwrite with new DB results
+                    // FIX: Only update roomsWithSummaries if values actually changed
+                    val hasChanges = summaryMap.any { entry ->
+                        val roomId = entry.key
+                        val (newPreview, newSender) = entry.value
+                        val (oldPreview, oldSender) = roomsWithSummaries[roomId] ?: (null to null)
+                        newPreview != oldPreview || newSender != oldSender
                     }
                     
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "RoomListScreen: Queried last messages for ${summaryMap.size}/${roomsNeedingQuery.size} rooms from events table (trigger: ${if (appViewModel.roomSummaryUpdateCounter > 0) "summaryUpdate" else "roomListChange"})")
+                    if (hasChanges) {
+                        // Merge new summaries with existing ones (preserve JSON-parsed previews for rooms not queried)
+                        roomsWithSummaries = roomsWithSummaries.toMutableMap().apply {
+                            putAll(summaryMap) // Overwrite with new DB results
+                        }
+                        
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d("Andromuks", "RoomListScreen: Updated summaries for ${summaryMap.size} rooms")
+                        }
+                    } else {
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d("Andromuks", "RoomListScreen: Summaries unchanged, skipping update (queried ${summaryMap.size}/${roomsNeedingQuery.size} rooms)")
+                        }
                     }
                 } catch (e: Exception) {
                     android.util.Log.e("Andromuks", "RoomListScreen: Error querying last messages from events: ${e.message}", e)
