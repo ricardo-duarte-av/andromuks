@@ -384,9 +384,18 @@ fun RoomListScreen(
     LaunchedEffect(roomListUpdateCounter) {
         val newSection = appViewModel.getCurrentRoomSection()
         
-        // PERFORMANCE: Deep comparison - only update if rooms/spaces actually changed
-        val roomsChanged = stableSection.rooms.map { "${it.id}:${it.unreadCount}:${it.sortingTimestamp}" } != 
-                          newSection.rooms.map { "${it.id}:${it.unreadCount}:${it.sortingTimestamp}" }
+        // FIX: Compare only meaningful fields, ignore micro timestamp changes
+        // Compare room order (by ID sequence), unread counts, and names
+        // Don't compare exact sortingTimestamp (millisecond differences don't matter visually)
+        val oldRoomSignature = stableSection.rooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}" }
+        val newRoomSignature = newSection.rooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.name}" }
+        val roomsChanged = oldRoomSignature != newRoomSignature
+        
+        // Also check if room order changed (by ID sequence)
+        val oldRoomIds = stableSection.rooms.map { it.id }
+        val newRoomIds = newSection.rooms.map { it.id }
+        val orderChanged = oldRoomIds != newRoomIds
+        
         val spacesChanged = stableSection.spaces.map { "${it.id}:${it.name}" } != 
                            newSection.spaces.map { "${it.id}:${it.name}" }
         
@@ -402,11 +411,11 @@ fun RoomListScreen(
             previousSectionType = stableSection.type
             stableSection = newSection
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section type changed from ${previousSectionType} to ${newSection.type}")
-        } else if (roomsChanged || spacesChanged) {
+        } else if (roomsChanged || orderChanged || spacesChanged) {
             // Same section type but data changed - update without animation
             sectionAnimationDirection = 0
             stableSection = newSection
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section data changed - rooms:$roomsChanged spaces:$spacesChanged")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section data changed - rooms:$roomsChanged order:$orderChanged spaces:$spacesChanged")
         }
         // If nothing changed, skip update - prevents unnecessary recomposition and avatar flashing
     }
