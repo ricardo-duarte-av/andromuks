@@ -1273,37 +1273,43 @@ fun RoomListItem(
                         modifier = Modifier.weight(1f)
                     )
                     // Right side: unread/highlight pill (top) and time (below)
+                    // FIX: Always reserve space for unread badge to prevent height changes
                     Column(horizontalAlignment = Alignment.End) {
-                        if (room.highlightCount != null && room.highlightCount > 0) {
-                            // Highlight badge - more prominent color (error/attention)
-                            Box(
-                                modifier = Modifier
-                                    .background(
-                                        MaterialTheme.colorScheme.error,
-                                        CircleShape
-                                    )
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
+                        // Always show a Box to reserve space, but make it invisible when no unreads
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    if (room.highlightCount != null && room.highlightCount > 0) {
+                                        MaterialTheme.colorScheme.error
+                                    } else if (room.unreadCount != null && room.unreadCount > 0) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        // Transparent to reserve space but remain invisible
+                                        androidx.compose.ui.graphics.Color.Transparent
+                                    },
+                                    CircleShape
+                                )
+                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                        ) {
+                            // Only show text if there are unreads
+                            if (room.highlightCount != null && room.highlightCount > 0) {
                                 Text(
                                     text = room.highlightCount.toString(),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onError
                                 )
-                            }
-                        } else if (room.unreadCount != null && room.unreadCount > 0) {
-                            // Regular unread badge - primary color
-                            Box(
-                                modifier = Modifier
-                                    .background(
-                                        MaterialTheme.colorScheme.primary,
-                                        CircleShape
-                                    )
-                                    .padding(horizontal = 6.dp, vertical = 2.dp)
-                            ) {
+                            } else if (room.unreadCount != null && room.unreadCount > 0) {
                                 Text(
                                     text = room.unreadCount.toString(),
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onPrimary
+                                )
+                            } else {
+                                // Invisible placeholder to maintain consistent height
+                                Text(
+                                    text = "0",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = androidx.compose.ui.graphics.Color.Transparent
                                 )
                             }
                         }
@@ -1315,18 +1321,6 @@ fun RoomListItem(
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-                        
-                        // Show forbidden icon for low priority rooms
-                        if (room.isLowPriority) {
-                            Icon(
-                                imageVector = Icons.Filled.NotificationsOff,
-                                contentDescription = "Low Priority - Notifications Disabled",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .padding(top = 4.dp)
-                                    .size(16.dp)
                             )
                         }
                     }
@@ -1353,31 +1347,74 @@ fun RoomListItem(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
+                        
+                        // FIX: Show silenced icon to the right of the message preview (not below time)
+                        if (room.isLowPriority) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Filled.NotificationsOff,
+                                contentDescription = "Low Priority - Notifications Disabled",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                 } else if (room.messagePreview != null) {
                     // Fallback for when messageSender is null
                     android.util.Log.w("Andromuks", "RoomListScreen: WARNING - No messageSender for room ${room.name}")
                     android.util.Log.w("Andromuks", "RoomListScreen: Room details - ID: ${room.id}, Preview: '${room.messagePreview}', Sender: '${room.messageSender}'")
-                    Text(
-                        text = room.messagePreview,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = room.messagePreview,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        
+                        // FIX: Show silenced icon to the right of the message preview
+                        if (room.isLowPriority) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Filled.NotificationsOff,
+                                contentDescription = "Low Priority - Notifications Disabled",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 } else if (room.messageSender != null) {
                     // Fallback: Sender available but no message preview (shouldn't happen normally since backend decrypts)
                     // This is a safety fallback in case of edge cases
                     val displayNameToUse = senderDisplayName ?: room.messageSender
-                    Text(
-                        text = "$displayNameToUse: (message preview unavailable)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
+                    Row(
+                        modifier = Modifier.padding(top = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "$displayNameToUse: (message preview unavailable)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        
+                        // FIX: Show silenced icon to the right of the message preview
+                        if (room.isLowPriority) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Filled.NotificationsOff,
+                                contentDescription = "Low Priority - Notifications Disabled",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 }
             }
         }
