@@ -3082,10 +3082,18 @@ class AppViewModel : ViewModel() {
                 }
                 // Sort by frequency (descending) to ensure proper order
                 val sortedFrequencies = frequencies.sortedByDescending { it.second }
-                // Store frequencies and update UI list
-                recentEmojiFrequencies = sortedFrequencies.toMutableList()
-                recentEmojis = sortedFrequencies.map { it.first }
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data with frequencies (sorted by count)")
+                // BUG FIX: Only update recent emojis if we found valid entries
+                // This prevents clearing recent emojis when account_data contains io.element.recent_emoji
+                // but the array is empty or all entries are invalid (preserves existing state)
+                if (sortedFrequencies.isNotEmpty()) {
+                    // Store frequencies and update UI list
+                    recentEmojiFrequencies = sortedFrequencies.toMutableList()
+                    recentEmojis = sortedFrequencies.map { it.first }
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data with frequencies (sorted by count)")
+                } else {
+                    // Array exists but is empty or all entries invalid - preserve existing state
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: account_data contains io.element.recent_emoji but array is empty/invalid, preserving existing ${recentEmojis.size} recent emojis")
+                }
             }
         }
         
