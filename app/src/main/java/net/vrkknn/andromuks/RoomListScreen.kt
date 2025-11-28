@@ -347,16 +347,37 @@ fun RoomListScreen(
     val coroutineScope = rememberCoroutineScope()
     
     // Enrich stableSection with database summaries
+    // FIX: Only create new RoomItem copies if data actually changed
     val enrichedSection = remember(stableSection, roomsWithSummaries) {
-        stableSection.copy(
-            rooms = stableSection.rooms.map { room ->
-                val (messagePreview, messageSender) = roomsWithSummaries[room.id] ?: (null to null)
+        val enrichedRooms = stableSection.rooms.map { room ->
+            val (messagePreview, messageSender) = roomsWithSummaries[room.id] ?: (null to null)
+            
+            // Only create new copy if preview/sender actually changed
+            val currentPreview = messagePreview ?: room.messagePreview
+            val currentSender = messageSender ?: room.messageSender
+            
+            if (currentPreview != room.messagePreview || currentSender != room.messageSender) {
                 room.copy(
-                    messagePreview = messagePreview ?: room.messagePreview,
-                    messageSender = messageSender ?: room.messageSender
+                    messagePreview = currentPreview,
+                    messageSender = currentSender
                 )
+            } else {
+                // Return same instance if unchanged - prevents unnecessary recomposition
+                room
             }
-        )
+        }
+        
+        // Only create new RoomSection if any room items actually changed
+        // Check if all room references are the same (no items were copied)
+        val roomsChanged = enrichedRooms.zip(stableSection.rooms).any { (enriched, original) ->
+            enriched !== original // Reference inequality means item was copied
+        }
+        
+        if (!roomsChanged && enrichedRooms.size == stableSection.rooms.size) {
+            stableSection // Return same instance if unchanged
+        } else {
+            stableSection.copy(rooms = enrichedRooms)
+        }
     }
 
     // PERFORMANCE: Only update section if data actually changed
