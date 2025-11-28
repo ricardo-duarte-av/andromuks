@@ -10687,8 +10687,9 @@ class AppViewModel : ViewModel() {
                                                     }
                                                 }
                                             } else {
-                                                // No usage key means it can be used as emoji (default behavior)
+                                                // No usage key or empty means it can be used as BOTH emoji and sticker
                                                 hasEmoticon = true
+                                                hasSticker = true
                                             }
                                             
                                             // Add to stickers if it has "sticker" usage (regardless of emoticon)
