@@ -42,6 +42,16 @@ data class PersonTarget(
     val lastActiveTimestamp: Long
 )
 
+/**
+ * PersonsApi manages Person objects for Android's People API
+ * 
+ * IMPORTANT: Person shortcuts are NOT published as dynamic shortcuts.
+ * They are only used in notifications via Person objects (NotificationCompat.MessagingStyle).
+ * Dynamic shortcuts are reserved for conversation/room shortcuts only.
+ * 
+ * This ensures that person shortcuts don't interfere with the 4 conversation shortcuts
+ * shown in the app icon long-press menu.
+ */
 class PersonsApi(
     private val context: Context,
     private val homeserverUrl: String,
@@ -103,26 +113,45 @@ class PersonsApi(
         }
     }
 
-    fun reportShortcutUsed(userId: String) {
+    /**
+     * Remove all person shortcuts from dynamic shortcuts
+     * Person shortcuts should only be used in notifications, not as app icon shortcuts
+     */
+    fun cleanupPersonShortcuts() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return
-        val shortcutId = shortcutId(userId)
-        ShortcutManagerCompat.reportShortcutUsed(context, shortcutId)
-        if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Reported shortcut used for $userId ($shortcutId)")
+        
+        scope.launch {
+            try {
+                val allShortcuts = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
+                val personShortcuts = allShortcuts.filter { shortcut ->
+                    shortcut.id.startsWith(SHORTCUT_PREFIX)
+                }
+                
+                if (personShortcuts.isNotEmpty()) {
+                    val personShortcutIds = personShortcuts.map { it.id }
+                    ShortcutManagerCompat.removeDynamicShortcuts(context, personShortcutIds)
+                    if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Cleaned up ${personShortcutIds.size} person shortcuts from dynamic shortcuts")
+                }
+                
+                lastShortcutIds = emptySet()
+            } catch (e: Exception) {
+                Log.e(TAG, "PersonsApi: Failed to cleanup person shortcuts", e)
+            }
+        }
+    }
+
+    fun reportShortcutUsed(userId: String) {
+        // Person shortcuts are no longer published as dynamic shortcuts
+        // This method is kept for backward compatibility but does nothing
+        if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: reportShortcutUsed called for $userId (person shortcuts are not dynamic shortcuts)")
     }
 
     fun clear() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) return
-        if (lastShortcutIds.isEmpty()) return
-
-        try {
-            ShortcutManagerCompat.removeDynamicShortcuts(context, lastShortcutIds.toList())
-            if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Cleared ${lastShortcutIds.size} people shortcuts")
-        } catch (e: Exception) {
-            Log.e(TAG, "PersonsApi: Failed to clear shortcuts", e)
-        } finally {
-            lastShortcutIds = emptySet()
-            lastPublished = emptyMap()
-        }
+        // Person shortcuts are no longer published as dynamic shortcuts
+        // Just clear internal state
+        lastShortcutIds = emptySet()
+        lastPublished = emptyMap()
+        if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Cleared internal person state")
     }
 
     private fun trimTargets(targets: List<PersonTarget>): List<PersonTarget> {
@@ -150,30 +179,44 @@ class PersonsApi(
     @RequiresApi(Build.VERSION_CODES.N_MR1)
     private suspend fun publishPeople(targets: List<PersonTarget>) {
         withContext(Dispatchers.IO) {
-            val newShortcutIds = targets.map { shortcutId(it.userId) }.toSet()
-
-            val toRemove = lastShortcutIds - newShortcutIds
-            if (toRemove.isNotEmpty()) {
+            // CRITICAL: Person shortcuts should NOT be published as dynamic shortcuts
+            // They should only be used in notifications via Person objects (NotificationCompat.MessagingStyle)
+            // Dynamic shortcuts are reserved for conversation/room shortcuts only (shown in app icon long-press menu)
+            // 
+            // Android only shows 4 dynamic shortcuts total. If we publish person shortcuts as dynamic shortcuts,
+            // they would push conversation shortcuts out of the top 4 slots.
+            //
+            // Instead, Person objects are attached to notifications (already implemented in EnhancedNotificationDisplay.kt)
+            // and are used by Android's People API for conversation grouping and quick actions.
+            
+            // Remove any existing person shortcuts from dynamic shortcuts to free up slots
+            // and prevent them from appearing in the app icon long-press menu
+            val allShortcuts = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
+            val existingPersonShortcuts = allShortcuts.filter { shortcut ->
+                shortcut.id.startsWith(SHORTCUT_PREFIX)
+            }
+            
+            if (existingPersonShortcuts.isNotEmpty()) {
+                val personShortcutIds = existingPersonShortcuts.map { it.id }
                 try {
-                    ShortcutManagerCompat.removeDynamicShortcuts(context, toRemove.toList())
-                    if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Removed ${toRemove.size} outdated people shortcuts")
+                    ShortcutManagerCompat.removeDynamicShortcuts(context, personShortcutIds)
+                    if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Removed ${personShortcutIds.size} person shortcuts from dynamic shortcuts (they should only be used in notifications)")
                 } catch (e: Exception) {
-                    Log.e(TAG, "PersonsApi: Failed to remove outdated shortcuts", e)
+                    Log.e(TAG, "PersonsApi: Failed to remove person shortcuts from dynamic shortcuts", e)
                 }
             }
-
-            for (target in targets) {
-                try {
-                    val shortcut = buildShortcut(target)
-                    ShortcutManagerCompat.pushDynamicShortcut(context, shortcut)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: Published person shortcut for ${target.userId}")
-                } catch (e: Exception) {
-                    Log.e(TAG, "PersonsApi: Failed to publish shortcut for ${target.userId}", e)
-                }
+            
+            // Clear our tracking since we're not publishing shortcuts anymore
+            if (lastShortcutIds.isNotEmpty()) {
+                lastShortcutIds = emptySet()
             }
-
-            lastShortcutIds = newShortcutIds
+            
+            // Store person data for notification use (Person objects are used in notifications, not as shortcuts)
             lastPublished = targets.associateBy { it.userId }
+            
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "PersonsApi: Processed ${targets.size} person targets for notification use (not as dynamic shortcuts)")
+            }
         }
     }
 

@@ -66,6 +66,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     private var lastShortcutStableIds: Set<String> = emptySet()
     private var lastNameAvatar: Map<String, Pair<String, String?>> = emptyMap()
     private val lastAvatarCachePresence: MutableMap<String, Boolean> = mutableMapOf()
+    private var cacheInitialized: Boolean = false
     
     /**
      * Build a Person object from notification data (like the working Gomuks app)
@@ -303,40 +304,64 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     /**
      * Update conversation shortcuts based on recent rooms
      * Returns immediately for non-blocking calls with debouncing to prevent UI freeze
+     * 
+     * NOTE: This function REPLACES all shortcuts with the top rooms from the provided list.
+     * Use updateShortcutsFromSyncRooms() for incremental updates that preserve existing shortcuts.
      */
     fun updateConversationShortcuts(rooms: List<RoomItem>) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
             //Log.d(TAG, "updateConversationShortcuts called with ${rooms.size} rooms, realMatrixHomeserverUrl: $realMatrixHomeserverUrl")
             
-            // Cancel any pending update
-            pendingShortcutUpdate?.cancel()
-            
-            // Debounce updates to prevent excessive shortcut operations
-            val currentTime = System.currentTimeMillis()
-            val timeSinceLastUpdate = currentTime - lastShortcutUpdateTime
-            
-            if (timeSinceLastUpdate < SHORTCUT_UPDATE_DEBOUNCE_MS) {
-                //Log.d(TAG, "Debouncing shortcut update (${timeSinceLastUpdate}ms since last update)")
-                pendingShortcutUpdate = CoroutineScope(Dispatchers.IO).launch {
-                    kotlinx.coroutines.delay(SHORTCUT_UPDATE_DEBOUNCE_MS - timeSinceLastUpdate)
-                    try {
-                        val shortcuts = createShortcutsFromRooms(rooms)
-                        updateShortcuts(shortcuts)
-                        lastShortcutUpdateTime = System.currentTimeMillis()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error updating conversation shortcuts (debounced)", e)
-                    }
-                }
-            } else {
-                // Update immediately
+            // CRITICAL: Initialize cache from Android's ShortcutManager on first call
+            // This prevents shortcuts from being replaced on app restart
+            if (!cacheInitialized) {
                 CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        val shortcuts = createShortcutsFromRooms(rooms)
-                        updateShortcuts(shortcuts)
-                        lastShortcutUpdateTime = System.currentTimeMillis()
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error updating conversation shortcuts", e)
-                    }
+                    initializeShortcutCache()
+                    cacheInitialized = true
+                    
+                    // After cache is initialized, proceed with update
+                    performUpdateConversationShortcuts(rooms)
+                }
+                return
+            }
+            
+            // Cache already initialized, proceed immediately
+            performUpdateConversationShortcuts(rooms)
+        }
+    }
+    
+    /**
+     * Internal function to perform the actual shortcut update
+     */
+    private fun performUpdateConversationShortcuts(rooms: List<RoomItem>) {
+        // Cancel any pending update
+        pendingShortcutUpdate?.cancel()
+        
+        // Debounce updates to prevent excessive shortcut operations
+        val currentTime = System.currentTimeMillis()
+        val timeSinceLastUpdate = currentTime - lastShortcutUpdateTime
+        
+        if (timeSinceLastUpdate < SHORTCUT_UPDATE_DEBOUNCE_MS) {
+            //Log.d(TAG, "Debouncing shortcut update (${timeSinceLastUpdate}ms since last update)")
+            pendingShortcutUpdate = CoroutineScope(Dispatchers.IO).launch {
+                kotlinx.coroutines.delay(SHORTCUT_UPDATE_DEBOUNCE_MS - timeSinceLastUpdate)
+                try {
+                    val shortcuts = createShortcutsFromRooms(rooms)
+                    updateShortcuts(shortcuts)
+                    lastShortcutUpdateTime = System.currentTimeMillis()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error updating conversation shortcuts (debounced)", e)
+                }
+            }
+        } else {
+            // Update immediately
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val shortcuts = createShortcutsFromRooms(rooms)
+                    updateShortcuts(shortcuts)
+                    lastShortcutUpdateTime = System.currentTimeMillis()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error updating conversation shortcuts", e)
                 }
             }
         }
@@ -391,6 +416,92 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     }
     
     /**
+     * CRITICAL: Initialize shortcut cache from Android's ShortcutManager
+     * This prevents shortcuts from being replaced on app restart by loading existing shortcuts
+     */
+    private suspend fun initializeShortcutCache() = withContext(Dispatchers.IO) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N_MR1) {
+            return@withContext
+        }
+        
+        try {
+            val existingShortcuts = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
+            
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "initializeShortcutCache: Found ${existingShortcuts.size} total dynamic shortcuts")
+                for (shortcut in existingShortcuts.take(10)) { // Log first 10 for debugging
+                    Log.d(TAG, "  Shortcut ID: ${shortcut.id}, Label: ${shortcut.shortLabel}, Categories: ${shortcut.categories}")
+                }
+            }
+            
+            if (existingShortcuts.isNotEmpty()) {
+                val shortcutsMap = mutableMapOf<String, ConversationShortcut>()
+                val shortcutIdsSet = mutableSetOf<String>()
+                val nameAvatarMap = mutableMapOf<String, Pair<String, String?>>()
+                
+                for (shortcut in existingShortcuts) {
+                    val shortcutId = shortcut.id
+                    
+                    // CRITICAL: Filter out person shortcuts - only load conversation shortcuts
+                    // Person shortcuts have prefix "person_" (e.g., "person_@user:server.com")
+                    // Conversation shortcuts use room IDs (start with !, e.g., "!roomId")
+                    if (shortcutId.startsWith("person_")) {
+                        // This is a person shortcut - skip it
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Skipping person shortcut during cache initialization: $shortcutId")
+                        continue
+                    }
+                    
+                    if (!shortcutId.startsWith("!")) {
+                        // Not a valid conversation shortcut (room IDs start with !)
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Skipping invalid conversation shortcut (doesn't start with !): $shortcutId")
+                        continue
+                    }
+                    
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Loading conversation shortcut: $shortcutId (label: ${shortcut.shortLabel}, categories: ${shortcut.categories})")
+                    
+                    val roomId = shortcutId
+                    val roomName = shortcut.shortLabel?.toString() ?: ""
+                    
+                    // Extract avatar URL from shortcut icon if available
+                    val avatarUrl: String? = null // ShortcutInfoCompat doesn't expose avatar URL easily
+                    
+                    // Try to extract timestamp from shortcut long label or use current time
+                    val timestamp = System.currentTimeMillis() // Default to current time since we can't easily get timestamp from shortcut
+                    
+                    val convShortcut = ConversationShortcut(
+                        roomId = roomId,
+                        roomName = roomName,
+                        roomAvatarUrl = avatarUrl,
+                        lastMessage = null,
+                        unreadCount = 0,
+                        timestamp = timestamp
+                    )
+                    
+                    shortcutsMap[roomId] = convShortcut
+                    shortcutIdsSet.add(roomId)
+                    nameAvatarMap[roomId] = Pair(roomName, avatarUrl)
+                    
+                    // Check if avatar is cached
+                    val avatarInCache = avatarUrl?.let { url ->
+                        MediaCache.getCachedFile(context, url) != null
+                    } ?: false
+                    lastAvatarCachePresence[roomId] = avatarInCache
+                }
+                
+                lastShortcutData = shortcutsMap
+                lastShortcutStableIds = shortcutIdsSet
+                lastNameAvatar = nameAvatarMap
+                
+                if (BuildConfig.DEBUG) Log.d(TAG, "Initialized shortcut cache from Android ShortcutManager: ${shortcutIdsSet.size} existing shortcuts")
+            } else {
+                if (BuildConfig.DEBUG) Log.d(TAG, "No existing shortcuts found in Android ShortcutManager")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing shortcut cache from ShortcutManager", e)
+        }
+    }
+    
+    /**
      * BATTERY OPTIMIZATION: Update shortcuts incrementally from sync_complete rooms only
      * Implements lightweight workflow: only processes rooms that changed in sync_complete (typically 2-3 rooms)
      * Never sorts all 588 rooms - much more efficient than the old approach
@@ -412,6 +523,27 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             return // Nothing to process
         }
         
+        // CRITICAL: Initialize cache from Android's ShortcutManager on first call
+        // This prevents shortcuts from being replaced on app restart
+        if (!cacheInitialized) {
+            CoroutineScope(Dispatchers.IO).launch {
+                initializeShortcutCache()
+                cacheInitialized = true
+                
+                // After cache is initialized, process the sync rooms
+                processSyncRooms(syncRooms)
+            }
+            return
+        }
+        
+        // Cache already initialized, process immediately
+        processSyncRooms(syncRooms)
+    }
+    
+    /**
+     * Process sync rooms after cache is initialized
+     */
+    private fun processSyncRooms(syncRooms: List<RoomItem>) {
         // Cancel any pending debounced update
         pendingShortcutUpdate?.cancel()
         
@@ -683,6 +815,13 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     @RequiresApi(Build.VERSION_CODES.N_MR1)
     private suspend fun updateShortcuts(shortcuts: List<ConversationShortcut>) {
         try {
+            // CRITICAL: If cache is not initialized, initialize it first to preserve existing shortcuts
+            // This prevents shortcuts from being replaced on app restart
+            if (!cacheInitialized) {
+                initializeShortcutCache()
+                cacheInitialized = true
+            }
+            
             // Check if shortcuts actually need updating
             val (needsUpdate, _) = shortcutsNeedUpdate(shortcuts)
             if (!needsUpdate) {
@@ -711,14 +850,48 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
 
             //Log.d(TAG, "Updating ${shortcuts.size} shortcuts using pushDynamicShortcut() (background thread)")
             
-            // Update cache (use Set for order-independent comparison)
+            // CRITICAL: Preserve existing shortcuts - only update/add new ones if there's space
+            // This prevents existing shortcuts from being replaced on app restart
             val newIdsSet = shortcuts.map { it.roomId }.toSet()
-            lastShortcutData = shortcuts.associateBy { it.roomId }
-            lastShortcutHash = lastShortcutData.hashCode()
-            lastShortcutStableIds = newIdsSet
-            lastNameAvatar = shortcuts.associate { it.roomId to (it.roomName to it.roomAvatarUrl) }
+            val existingIdsSet = lastShortcutStableIds
             
-            for (shortcut in shortcuts) {
+            // Keep existing shortcuts that aren't being updated
+            val shortcutsToKeep = lastShortcutData.filterKeys { it !in newIdsSet }
+            
+            val currentCount = lastShortcutStableIds.size
+            val slotsAvailable = MAX_SHORTCUTS - currentCount
+            
+            // Determine which shortcuts to update/add
+            val shortcutsToUpdate = if (slotsAvailable > 0) {
+                // We have space - can add new shortcuts (up to available slots)
+                shortcuts.take(slotsAvailable)
+            } else {
+                // No space - only update existing shortcuts that are in the new list
+                shortcuts.filter { it.roomId in existingIdsSet }
+            }
+            
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "updateShortcuts: ${shortcuts.size} new shortcuts, ${currentCount} existing, ${slotsAvailable} slots available")
+                Log.d(TAG, "updateShortcuts: Will update ${shortcutsToUpdate.size} shortcuts, preserve ${shortcutsToKeep.size} existing")
+            }
+            
+            // Merge: keep existing shortcuts + update/add new ones
+            // IMPORTANT: Preserve existing shortcuts in their current order, add new ones at the end
+            val mergedShortcuts = (shortcutsToKeep.values + shortcutsToUpdate.filter { it.roomId !in shortcutsToKeep.keys })
+                .take(MAX_SHORTCUTS) // Ensure we don't exceed MAX_SHORTCUTS
+            
+            // Update cache with merged shortcuts
+            lastShortcutData = mergedShortcuts.associateBy { it.roomId }
+            lastShortcutHash = lastShortcutData.hashCode()
+            lastShortcutStableIds = mergedShortcuts.map { it.roomId }.toSet()
+            lastNameAvatar = mergedShortcuts.associate { it.roomId to (it.roomName to it.roomAvatarUrl) }
+            
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "Merged shortcuts: ${shortcutsToUpdate.size} updated + ${shortcutsToKeep.size} preserved = ${mergedShortcuts.size} total (max ${MAX_SHORTCUTS})")
+                Log.d(TAG, "Final shortcut IDs: ${mergedShortcuts.map { it.roomId }}")
+            }
+            
+            for (shortcut in shortcutsToUpdate) {
                 try {
                     //Log.d(TAG, "Updating shortcut - roomId: '${shortcut.roomId}', roomName: '${shortcut.roomName}'")
                     

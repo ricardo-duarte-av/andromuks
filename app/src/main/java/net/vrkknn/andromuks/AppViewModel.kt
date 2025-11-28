@@ -9745,23 +9745,43 @@ class AppViewModel : ViewModel() {
     }
     
     fun processSendCompleteEvent(eventData: JSONObject) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processSendCompleteEvent called")
+        android.util.Log.d("Andromuks", "AppViewModel: processSendCompleteEvent called")
         try {
             val event = TimelineEvent.fromJson(eventData)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Created timeline event from send_complete: ${event.eventId}, type=${event.type}, eventRoomId=${event.roomId}, currentRoomId=$currentRoomId")
+            android.util.Log.d("Andromuks", "AppViewModel: Created timeline event from send_complete: ${event.eventId}, type=${event.type}, eventRoomId=${event.roomId}, sender=${event.sender}, currentRoomId=$currentRoomId, currentUserId=$currentUserId")
             
             // SHORTCUT OPTIMIZATION: Update shortcut for this room when user sends a message
             // This drastically reduces shortcut updates - only when user actively sends messages
             // Update shortcuts BEFORE room check so it works for any room, not just current room
             if ((event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker") 
                 && event.sender == currentUserId && event.roomId.isNotEmpty()) {
-                val room = roomMap[event.roomId]
-                if (room != null) {
-                    viewModelScope.launch(Dispatchers.Default) {
-                        conversationsApi?.updateShortcutsFromSyncRooms(listOf(room))
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated shortcut for room ${room.name} after sending message")
+                android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Message sent by user, preparing shortcut update for room ${event.roomId}")
+                
+                // Store conversationsApi in local variable to avoid smart cast issue
+                val api = conversationsApi
+                if (api == null) {
+                    android.util.Log.w("Andromuks", "AppViewModel: SHORTCUT - conversationsApi is null, cannot update shortcut")
+                } else {
+                    // Get room from roomMap (should always exist when sending message)
+                    var room = roomMap[event.roomId] ?: getRoomById(event.roomId)
+                    
+                    if (room != null) {
+                        // Room found - update timestamp to current message timestamp
+                        val updatedTimestamp = normalizeTimestamp(event.timestamp, event.unsigned?.optLong("age_ts") ?: 0L)
+                        room = room.copy(sortingTimestamp = updatedTimestamp)
+                        android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Room found, updating shortcut for ${room.name} with timestamp $updatedTimestamp")
+                        
+                        // Update shortcuts asynchronously
+                        viewModelScope.launch(Dispatchers.Default) {
+                            api.updateShortcutsFromSyncRooms(listOf(room))
+                            android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Successfully updated shortcut for room ${room.name} after sending message")
+                        }
+                    } else {
+                        android.util.Log.w("Andromuks", "AppViewModel: SHORTCUT - Room ${event.roomId} not found in roomMap or getRoomById, cannot update shortcut")
                     }
                 }
+            } else {
+                android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Skipping shortcut update: type=${event.type}, sender=${event.sender}, currentUserId=$currentUserId, roomId=${event.roomId}")
             }
             
             // Only process timeline updates if it's for the current room
@@ -10452,6 +10472,31 @@ class AppViewModel : ViewModel() {
         // NOTE: We receive send_complete for sent messages, so we don't need to process
         // the response here to avoid duplicates. send_complete will add the event to timeline.
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Message response received, waiting for send_complete for actual event")
+        
+        // SHORTCUT OPTIMIZATION: Update shortcut when message is successfully sent
+        // Update shortcuts immediately on message response (when we know it was sent successfully)
+        // rather than waiting for send_complete which may not arrive or may be delayed
+        if (!isError && roomId.isNotEmpty()) {
+            android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Message successfully sent to room $roomId, updating shortcut")
+            
+            val api = conversationsApi
+            if (api != null) {
+                // Get room from roomMap and update shortcut
+                val room = roomMap[roomId] ?: getRoomById(roomId)
+                if (room != null) {
+                    // Update timestamp to current time since message was just sent
+                    val updatedRoom = room.copy(sortingTimestamp = System.currentTimeMillis())
+                    viewModelScope.launch(Dispatchers.Default) {
+                        api.updateShortcutsFromSyncRooms(listOf(updatedRoom))
+                        android.util.Log.d("Andromuks", "AppViewModel: SHORTCUT - Successfully updated shortcut for room ${updatedRoom.name} after sending message")
+                    }
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: SHORTCUT - Room $roomId not found in roomMap, cannot update shortcut")
+                }
+            } else {
+                android.util.Log.w("Andromuks", "AppViewModel: SHORTCUT - conversationsApi is null, cannot update shortcut")
+            }
+        }
         
         // Always invoke completion callback for notification actions, even if there was an error
         // This prevents the UI from stalling indefinitely
