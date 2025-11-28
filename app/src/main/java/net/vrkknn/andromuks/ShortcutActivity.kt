@@ -5,10 +5,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.runtime.*
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -107,6 +113,10 @@ fun ShortcutNavigation(roomId: String) {
     val appViewModel: AppViewModel = viewModel()
     val context = androidx.compose.ui.platform.LocalContext.current
     
+    // CRITICAL FIX #3: Track navigation state to prevent multiple navigations
+    var hasNavigated by remember { mutableStateOf(false) }
+    var showLoading by remember { mutableStateOf(true) }
+    
     // Initialize AppViewModel like MainActivity does
     LaunchedEffect(Unit) {
         // Get homeserver URL and auth token from SharedPreferences (needed for initializeFCM)
@@ -133,24 +143,93 @@ fun ShortcutNavigation(roomId: String) {
         // Re-attach to existing WebSocket connection if the service already has one
         appViewModel.attachToExistingWebSocketIfAvailable()
         
+        // CRITICAL FIX #3: Load spaces from database if not already loaded
+        // This ensures spacesLoaded is true even if primary AppViewModel hasn't loaded yet
+        if (!appViewModel.spacesLoaded) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: Spaces not loaded, loading from database...")
+            appViewModel.loadStateFromStorage(context)
+        }
+        
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: AppViewModel initialized with profiles, settings, and FCM")
     }
     
-    // OPTIMIZATION #3: Direct navigation to room timeline
-    LaunchedEffect(roomId) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: OPTIMIZATION #3 - Direct navigation to room: $roomId")
+    // CRITICAL FIX #3: Wait for WebSocket connection and spacesLoaded before navigating
+    // This ensures proper state before showing room timeline (prevents unpredictable behavior)
+    LaunchedEffect(appViewModel.spacesLoaded) {
+        if (hasNavigated) return@LaunchedEffect
         
-        // CRITICAL FIX: Set currentRoomId immediately for shortcut navigation
-        // This ensures state is consistent even though ShortcutActivity uses a separate AppViewModel instance
-        // The state will be synchronized via SharedPreferences
-        appViewModel.setCurrentRoomIdForTimeline(roomId)
+        val spacesReady = appViewModel.spacesLoaded
         
-        // Use cache-first navigation for instant loading
-        // This will fall back to database loading if RAM cache is empty
-        appViewModel.navigateToRoomWithCache(roomId)
+        if (spacesReady) {
+            // Poll WebSocket connection status (check every 100ms, max 100 times = 10 seconds)
+            var websocketConnected = appViewModel.isWebSocketConnected()
+            var pollCount = 0
+            while (!websocketConnected && pollCount < 100) {
+                kotlinx.coroutines.delay(100) // Check every 100ms
+                websocketConnected = appViewModel.isWebSocketConnected()
+                pollCount++
+            }
+            
+            if (websocketConnected || pollCount >= 100) {
+                // WebSocket connected OR timeout - proceed with navigation
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: CRITICAL FIX #3 - WebSocket connected=$websocketConnected (pollCount=$pollCount) and spaces loaded, navigating to: $roomId")
+                
+                // CRITICAL FIX: Set currentRoomId immediately for shortcut navigation
+                // This ensures state is consistent even though ShortcutActivity uses a separate AppViewModel instance
+                // The state will be synchronized via SharedPreferences
+                appViewModel.setCurrentRoomIdForTimeline(roomId)
+                
+                // Use cache-first navigation for instant loading
+                // This will fall back to database loading if RAM cache is empty
+                appViewModel.navigateToRoomWithCache(roomId)
+                
+                // Navigate directly to room timeline
+                navController.navigate("room_timeline/$roomId")
+                hasNavigated = true
+                showLoading = false
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: CRITICAL FIX #3 - WebSocket not connected after polling, will use timeout fallback")
+            }
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: CRITICAL FIX #3 - Waiting for spacesLoaded before navigating")
+        }
+    }
+    
+    // CRITICAL FIX #3: Timeout fallback - navigate after 10 seconds even if WebSocket never connects
+    // This prevents infinite waiting when WebSocket can't connect (e.g., airplane mode)
+    LaunchedEffect(Unit) {
+        if (hasNavigated) return@LaunchedEffect
         
-        // Navigate directly to room timeline
-        navController.navigate("room_timeline/$roomId")
+        kotlinx.coroutines.delay(10000) // 10 second timeout
+        
+        if (!hasNavigated) {
+            android.util.Log.w("Andromuks", "ShortcutActivity: CRITICAL FIX #3 - Navigation timeout (10s) for $roomId - WebSocket may not be connected, navigating anyway")
+            
+            // CRITICAL FIX: Set currentRoomId immediately for shortcut navigation
+            appViewModel.setCurrentRoomIdForTimeline(roomId)
+            
+            // Use cache-first navigation for instant loading
+            appViewModel.navigateToRoomWithCache(roomId)
+            
+            // Navigate directly to room timeline
+            navController.navigate("room_timeline/$roomId")
+            hasNavigated = true
+            showLoading = false
+        }
+    }
+    
+    // Show loading screen while waiting for WebSocket/spaces
+    if (showLoading && !hasNavigated) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+        return
     }
     
     NavHost(
