@@ -67,6 +67,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import net.vrkknn.andromuks.utils.EditHistoryDialog
+import androidx.compose.ui.tooling.preview.Preview
+import org.json.JSONObject
 
 private val AvatarGap = 4.dp
 private val AvatarPlaceholderWidth = 24.dp + AvatarGap
@@ -2721,6 +2723,146 @@ fun TimelineEventItem(
                     text = { Text(errorMessage) }
                 )
             }
+        }
+    }
+}
+
+@Preview(showBackground = true, name = "Non-consecutive message (others)")
+@Composable
+private fun PreviewTimelineEventItemOthers() {
+    MaterialTheme {
+        val content = JSONObject().apply {
+            put("msgtype", "m.text")
+            put("body", "Hello! This is a sample message from another user.")
+        }
+        val event = TimelineEvent(
+            rowid = 1,
+            timelineRowid = 1,
+            roomId = "!preview:example.com",
+            eventId = "\$preview1",
+            sender = "@alice:example.com",
+            type = "m.room.message",
+            timestamp = System.currentTimeMillis(),
+            content = content
+        )
+        val profile = MemberProfile("Alice", null)
+        
+        Column(modifier = Modifier.padding(16.dp)) {
+            TimelineEventItem(
+                event = event,
+                timelineEvents = emptyList(),
+                homeserverUrl = "https://example.com",
+                authToken = "preview_token",
+                userProfileCache = mapOf("@alice:example.com" to profile),
+                isMine = false,
+                myUserId = "@me:example.com",
+                isConsecutive = false
+            )
+        }
+    }
+}
+
+@Preview(showBackground = true, name = "Consecutive message (others)")
+@Composable
+private fun PreviewTimelineEventItemOthersConsecutive() {
+    MaterialTheme {
+        val content = JSONObject().apply {
+            put("msgtype", "m.text")
+            put("body", "This is a consecutive message from the same user.")
+        }
+        val event = TimelineEvent(
+            rowid = 2,
+            timelineRowid = 2,
+            roomId = "!preview:example.com",
+            eventId = "\$preview2",
+            sender = "@alice:example.com",
+            type = "m.room.message",
+            timestamp = System.currentTimeMillis() + 60000,
+            content = content
+        )
+        val profile = MemberProfile("Alice", null)
+        
+        Column(modifier = Modifier.padding(16.dp)) {
+            TimelineEventItem(
+                event = event,
+                timelineEvents = emptyList(),
+                homeserverUrl = "https://example.com",
+                authToken = "preview_token",
+                userProfileCache = mapOf("@alice:example.com" to profile),
+                isMine = false,
+                myUserId = "@me:example.com",
+                isConsecutive = true
+            )
+        }
+    }
+}
+
+@Preview(showBackground = true, name = "Non-consecutive message (mine)")
+@Composable
+private fun PreviewTimelineEventItemMine() {
+    MaterialTheme {
+        val content = JSONObject().apply {
+            put("msgtype", "m.text")
+            put("body", "This is my message!")
+        }
+        val event = TimelineEvent(
+            rowid = 3,
+            timelineRowid = 3,
+            roomId = "!preview:example.com",
+            eventId = "\$preview3",
+            sender = "@me:example.com",
+            type = "m.room.message",
+            timestamp = System.currentTimeMillis() + 120000,
+            content = content
+        )
+        val profile = MemberProfile("Me", null)
+        
+        Column(modifier = Modifier.padding(16.dp)) {
+            TimelineEventItem(
+                event = event,
+                timelineEvents = emptyList(),
+                homeserverUrl = "https://example.com",
+                authToken = "preview_token",
+                userProfileCache = mapOf("@me:example.com" to profile),
+                isMine = true,
+                myUserId = "@me:example.com",
+                isConsecutive = false
+            )
+        }
+    }
+}
+
+@Preview(showBackground = true, name = "Consecutive message (mine)")
+@Composable
+private fun PreviewTimelineEventItemMineConsecutive() {
+    MaterialTheme {
+        val content = JSONObject().apply {
+            put("msgtype", "m.text")
+            put("body", "This is my consecutive message.")
+        }
+        val event = TimelineEvent(
+            rowid = 4,
+            timelineRowid = 4,
+            roomId = "!preview:example.com",
+            eventId = "\$preview4",
+            sender = "@me:example.com",
+            type = "m.room.message",
+            timestamp = System.currentTimeMillis() + 180000,
+            content = content
+        )
+        val profile = MemberProfile("Me", null)
+        
+        Column(modifier = Modifier.padding(16.dp)) {
+            TimelineEventItem(
+                event = event,
+                timelineEvents = emptyList(),
+                homeserverUrl = "https://example.com",
+                authToken = "preview_token",
+                userProfileCache = mapOf("@me:example.com" to profile),
+                isMine = true,
+                myUserId = "@me:example.com",
+                isConsecutive = true
+            )
         }
     }
 }
