@@ -286,8 +286,51 @@ fun RoomListScreen(
     // Use timeout override: if spaces timeout expired, treat as loaded to prevent infinite loading
     val effectiveSpacesLoaded = appViewModel.spacesLoaded || spacesLoadTimeout
     
-    // Show loading screen if profile is missing, pending items are being processed, or spaces are not loaded (unless timeout expired)
-    if (!effectiveProfileLoaded || shouldBlockForPending || !effectiveSpacesLoaded) {
+    // CRITICAL FIX #5: Wait for initial sync to complete before showing UI
+    // This ensures all initial sync_complete messages (received before init_complete) are processed
+    // This way the room list will have: avatars, proper order, unread badges, last message time, sender, and message
+    var initialSyncComplete by remember { mutableStateOf(appViewModel.initialSyncComplete) }
+    var initialSyncWaitStartTime by remember { mutableStateOf<Long?>(null) }
+    var initialSyncWaitTimeout by remember { mutableStateOf(false) }
+    
+    // Observe initial sync completion status
+    LaunchedEffect(appViewModel.initialSyncComplete) {
+        initialSyncComplete = appViewModel.initialSyncComplete
+        if (initialSyncComplete) {
+            initialSyncWaitStartTime = null
+            initialSyncWaitTimeout = false
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "RoomListScreen: Initial sync complete - UI ready with all room data")
+            }
+        }
+    }
+    
+    // Start timeout tracking if initial sync is not complete
+    LaunchedEffect(Unit) {
+        if (!initialSyncComplete && initialSyncWaitStartTime == null) {
+            initialSyncWaitStartTime = System.currentTimeMillis()
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "RoomListScreen: Waiting for initial sync to complete...")
+            }
+        }
+    }
+    
+    // Add timeout fallback for initial sync completion (15 seconds)
+    // If initial sync doesn't complete within 15 seconds, show UI anyway to prevent infinite loading
+    LaunchedEffect(initialSyncWaitStartTime) {
+        if (initialSyncWaitStartTime != null && !initialSyncComplete && !initialSyncWaitTimeout) {
+            val startTime = initialSyncWaitStartTime!!
+            kotlinx.coroutines.delay(15000) // 15 second timeout
+            if (initialSyncWaitStartTime == startTime && !appViewModel.initialSyncComplete && !initialSyncWaitTimeout) {
+                android.util.Log.w("Andromuks", "RoomListScreen: Initial sync completion timeout (15s) - allowing UI to show anyway")
+                initialSyncWaitTimeout = true
+                initialSyncComplete = true // Allow UI to show
+            }
+        }
+    }
+    
+    // Show loading screen if profile is missing, pending items are being processed, spaces are not loaded, or initial sync is not complete (unless timeout expired)
+    if (!effectiveProfileLoaded || shouldBlockForPending || !effectiveSpacesLoaded || (!initialSyncComplete && !initialSyncWaitTimeout)) {
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -329,6 +372,14 @@ fun RoomListScreen(
                         modifier = Modifier.padding(top = if (shouldBlockForPending) 8.dp else 0.dp)
                     )
                 }
+                if (!initialSyncComplete && !initialSyncWaitTimeout && effectiveProfileLoaded && !shouldBlockForPending && effectiveSpacesLoaded) {
+                    Text(
+                        text = "Loading rooms...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = if (shouldBlockForPending || !effectiveSpacesLoaded) 8.dp else 0.dp)
+                    )
+                }
             }
         }
         return
@@ -344,7 +395,6 @@ fun RoomListScreen(
     // BATTERY OPTIMIZATION: Query database for last messages directly in RoomListScreen
     // This ensures fresh data and removes dependency on sync parsing
     var roomsWithSummaries by remember { mutableStateOf<Map<String, Pair<String?, String?>>>(emptyMap()) } // roomId -> (messagePreview, messageSender)
-    val coroutineScope = rememberCoroutineScope()
     
     // Enrich stableSection with database summaries
     // FIX: Only create new RoomItem copies if data actually changed
@@ -433,7 +483,9 @@ fun RoomListScreen(
             return@LaunchedEffect
         }
         
-        coroutineScope.launch(Dispatchers.IO) {
+        // FIX: Use withContext instead of coroutineScope.launch to avoid "rememberCoroutineScope left the composition" errors
+        // LaunchedEffect already provides a coroutine scope, so we can switch dispatchers directly
+        withContext(Dispatchers.IO) {
             try {
                 val database = AndromuksDatabase.getInstance(context)
                 val eventDao = database.eventDao()
@@ -451,7 +503,7 @@ fun RoomListScreen(
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d("Andromuks", "RoomListScreen: All ${roomIds.size} rooms have previews from JSON parsing - skipping DB query")
                     }
-                    return@launch
+                    return@withContext
                 }
                 
                 if (BuildConfig.DEBUG) {
@@ -790,7 +842,16 @@ fun RoomListScreen(
     
     // OPPORTUNISTIC PROFILE LOADING: Request missing profiles for message senders in visible rooms
     // This ensures proper display names and avatars are loaded for room list message previews
-    LaunchedEffect(stableSection.rooms, stableSection.spaces) {
+    // CRITICAL FIX: Only request profiles when initial sync is complete (WebSocket is connected and all initial data is loaded)
+    LaunchedEffect(stableSection.rooms, stableSection.spaces, initialSyncComplete) {
+        // Wait for initial sync completion before requesting profiles
+        if (!initialSyncComplete) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Deferred until initial sync completes")
+            }
+            return@LaunchedEffect
+        }
+        
         // Process rooms
         if (stableSection.rooms.isNotEmpty()) {
             // Get unique message senders from visible rooms (limit to first 50 rooms to avoid overwhelming)
@@ -801,7 +862,7 @@ fun RoomListScreen(
             
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
-                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${messageSenders.size} message senders from ${stableSection.rooms.size} rooms"
+                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${messageSenders.size} message senders from ${stableSection.rooms.size} rooms (initial sync complete)"
             )
             
             // Request profiles for each message sender
@@ -823,7 +884,7 @@ fun RoomListScreen(
             
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
-                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${spaceMessageSenders.size} message senders from space rooms"
+                "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Requesting profiles for ${spaceMessageSenders.size} message senders from space rooms (initial sync complete)"
             )
             
             spaceMessageSenders.forEach { sender ->

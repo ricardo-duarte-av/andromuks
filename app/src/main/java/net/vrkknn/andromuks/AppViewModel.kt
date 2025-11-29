@@ -29,6 +29,8 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import android.content.Context
 import android.media.MediaPlayer
 import android.media.AudioManager
@@ -754,6 +756,15 @@ class AppViewModel : ViewModel() {
     
     // Track if init_complete has been received (distinguishes initialization from real-time updates)
     private var initializationComplete = false
+    
+    // CRITICAL FIX: Track initial sync phase and queue sync_complete messages received before init_complete
+    // This ensures we process all initial room data before showing UI
+    private var initialSyncPhase = false // Set to false when WebSocket connects, true when init_complete arrives
+    private val initialSyncCompleteQueue = mutableListOf<JSONObject>() // Queue for sync_complete messages before init_complete
+    private val initialSyncProcessingMutex = Mutex() // Use Mutex for coroutine-safe locking
+    private var initialSyncProcessingComplete = false // Set to true when all initial sync_complete messages are processed
+    var initialSyncComplete by mutableStateOf(false) // Public state for UI to observe
+        private set
 
     fun setSpaces(spaces: List<SpaceItem>, skipCounterUpdate: Boolean = false) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setSpaces called with ${spaces.size} spaces")
@@ -3570,10 +3581,173 @@ class AppViewModel : ViewModel() {
     }
 
     /**
+     * Process a single initial sync_complete message (called after init_complete for queued messages)
+     * This is the same logic as updateRoomsFromSyncJsonAsync but without the queue check
+     */
+    private fun processInitialSyncComplete(syncJson: JSONObject) {
+        // Update last sync timestamp immediately (this is lightweight)
+        lastSyncTimestamp = System.currentTimeMillis()
+        
+        // Update service with new sync timestamp
+        WebSocketService.updateLastSyncTimestamp()
+        
+        // Extract request_id from sync_complete (used as last_received_id)
+        val requestId = syncJson.optInt("request_id", 0)
+        
+        if (requestId != 0) {
+            if (requestId < 0) {
+                synchronized(pendingSyncLock) {
+                    val currentPending = pendingLastReceivedSyncId
+                    if (currentPending == null || requestId < currentPending) {
+                        pendingLastReceivedSyncId = requestId
+                        if (BuildConfig.DEBUG) android.util.Log.d(
+                            "Andromuks",
+                            "AppViewModel: Recorded pending sync_complete requestId=$requestId (previous pending=$currentPending)"
+                        )
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d(
+                            "Andromuks",
+                            "AppViewModel: Pending sync_complete requestId=$requestId ignored (current pending=$currentPending)"
+                        )
+                    }
+                }
+            }
+        }
+        
+        // Persist sync_complete to database (run in background)
+        appContext?.let { context ->
+            if (syncIngestor == null) {
+                syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
+            }
+
+            // Clone JSON before launching background jobs to avoid concurrent mutation issues
+            val persistenceJson = try {
+                org.json.JSONObject(syncJson.toString())
+            } catch (e: Exception) {
+                android.util.Log.e(
+                    "Andromuks",
+                    "AppViewModel: Failed to clone sync_complete JSON for persistence: ${e.message}",
+                    e
+                )
+                null
+            }
+            
+            viewModelScope.launch(Dispatchers.IO) {
+                val jsonForPersistence = persistenceJson ?: try {
+                    org.json.JSONObject(syncJson.toString())
+                } catch (cloneException: Exception) {
+                    android.util.Log.e(
+                        "Andromuks",
+                        "AppViewModel: Unable to clone sync_complete JSON on IO dispatcher: ${cloneException.message}",
+                        cloneException
+                    )
+                    null
+                }
+
+                if (jsonForPersistence == null) {
+                    android.util.Log.w(
+                        "Andromuks",
+                        "AppViewModel: Skipping sync persistence because JSON clone failed"
+                    )
+                    return@launch
+                }
+
+                try {
+                    // Pass isAppVisible to SyncIngestor for battery optimizations
+                    // Returns set of room IDs that had events persisted (for notifying timeline screens)
+                    val roomsWithEvents = syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId, isAppVisible) ?: emptySet()
+                    
+                    // CRITICAL: Notify RoomListScreen that room summaries may have been updated
+                    // SyncIngestor updates summaries when isAppVisible == true, so we need to refresh the summary display
+                    // This ensures room list shows new message previews/senders immediately
+                    if (roomsWithEvents.isNotEmpty() && isAppVisible) {
+                        withContext(Dispatchers.Main) {
+                            roomSummaryUpdateCounter++
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room summaries updated for ${roomsWithEvents.size} rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: $roomSummaryUpdateCounter)")
+                        }
+                    }
+                    
+                    // CRITICAL: Refresh timeline from DB for current room if events were persisted
+                    // This ensures new events appear even if they weren't processed via processSyncEventsArray()
+                    // (which can happen if events are filtered during parsing or not in the sync JSON structure)
+                    // We only refresh for the current room to avoid unnecessary work
+                    if (currentRoomId.isNotEmpty() && currentRoomId in roomsWithEvents) {
+                        withContext(Dispatchers.Main) {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current room $currentRoomId had events persisted - refreshing timeline from DB to ensure they appear")
+                            // CRITICAL FIX: Wait for DB write to complete before refreshing
+                            // ingestSyncComplete() runs on Dispatchers.IO and completes when DB write is done
+                            // So we can refresh immediately after it returns (no delay needed)
+                            // However, we still add a small delay to let processParsedSyncResult() complete first
+                            // to prevent race conditions where both try to update the timeline
+                            viewModelScope.launch {
+                                // Wait for processParsedSyncResult() to complete (it processes events in memory)
+                                kotlinx.coroutines.delay(100) // Increased delay to ensure DB write is complete
+                                // DB write from ingestSyncComplete() should be complete by now since it's async but awaited
+                                refreshTimelineFromDatabase(currentRoomId)
+                            }
+                        }
+                    }
+                    
+                    if (requestId < 0) {
+                        withContext(Dispatchers.Main) {
+                            onSyncCompletePersisted(requestId)
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Error persisting sync_complete: ${e.message}", e)
+                    // Don't block UI updates if persistence fails
+                }
+            }
+        } ?: run {
+            android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Skipping sync persistence because appContext is null"
+            )
+        }
+        
+        // PERFORMANCE: Move heavy JSON parsing to background thread
+        viewModelScope.launch(Dispatchers.Default) {
+            // Parse sync data on background thread (200-500ms for large accounts)
+            // BATTERY OPTIMIZATION: Pass existing rooms for change detection (skip parsing unchanged rooms)
+            val syncResult = SpaceRoomParser.parseSyncUpdate(
+                syncJson, 
+                roomMemberCache, 
+                this@AppViewModel,
+                existingRooms = roomMap, // Pass existing rooms for comparison
+                isAppVisible = isAppVisible // Pass visibility state
+            )
+            
+            // BATTERY OPTIMIZATION: SpaceRoomParser now only parses metadata (name, unread counts, tags)
+            // Last messages are queried directly in RoomListScreen from database (always fresh)
+            // No need to merge summaries here - RoomListScreen queries database directly when displayed
+            
+            // Switch back to main thread for UI updates only
+            withContext(Dispatchers.Main) {
+                processParsedSyncResult(syncResult, syncJson)
+            }
+        }
+    }
+    
+    /**
      * PERFORMANCE OPTIMIZATION: Async version that processes JSON on background thread
      * This prevents UI blocking during sync parsing (200-500ms improvement)
      */
     fun updateRoomsFromSyncJsonAsync(syncJson: JSONObject) {
+        // CRITICAL FIX: Queue sync_complete messages received before init_complete
+        // These are initial sync messages that populate all rooms - we'll process them after init_complete
+        if (!initialSyncPhase) {
+            // We're in initial sync phase (before init_complete) - queue this message
+            synchronized(initialSyncCompleteQueue) {
+                val clonedJson = JSONObject(syncJson.toString()) // Clone to avoid mutation
+                initialSyncCompleteQueue.add(clonedJson)
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Queued initial sync_complete message (queue size: ${initialSyncCompleteQueue.size})")
+                }
+            }
+            // Don't process yet - wait for init_complete
+            return
+        }
+        
         // Update last sync timestamp immediately (this is lightweight)
         lastSyncTimestamp = System.currentTimeMillis()
         
@@ -4112,6 +4286,51 @@ class AppViewModel : ViewModel() {
     fun onInitComplete() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onInitComplete called - setting spacesLoaded = true")
         
+        // CRITICAL FIX: Set initialSyncPhase = true to stop queueing and start processing queued messages
+        initialSyncPhase = true
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: init_complete received - will process ${initialSyncCompleteQueue.size} queued initial sync_complete messages")
+        }
+        
+        // Process all queued initial sync_complete messages
+        viewModelScope.launch(Dispatchers.Default) {
+            initialSyncProcessingMutex.withLock {
+                val queuedMessages = synchronized(initialSyncCompleteQueue) {
+                    val messages = initialSyncCompleteQueue.toList()
+                    initialSyncCompleteQueue.clear()
+                    messages
+                }
+                
+                if (queuedMessages.isNotEmpty()) {
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Processing ${queuedMessages.size} queued initial sync_complete messages")
+                    }
+                    
+                    // Process each queued message
+                    for ((index, syncJson) in queuedMessages.withIndex()) {
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d("Andromuks", "AppViewModel: Processing queued initial sync_complete message ${index + 1}/${queuedMessages.size}")
+                        }
+                        // Process synchronously to ensure order
+                        processInitialSyncComplete(syncJson)
+                    }
+                    
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Finished processing all ${queuedMessages.size} initial sync_complete messages")
+                    }
+                }
+                
+                // Mark initial sync processing as complete
+                initialSyncProcessingComplete = true
+                withContext(Dispatchers.Main) {
+                    initialSyncComplete = true
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Initial sync processing complete - UI can now be shown")
+                    }
+                }
+            }
+        }
+        
         // Mark initialization as complete - from now on, all sync_complete messages are real-time updates
         initializationComplete = true
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initialization complete - future sync_complete messages will trigger UI updates")
@@ -4596,10 +4815,23 @@ class AppViewModel : ViewModel() {
             // CRITICAL FIX: If spaces are already loaded (from cache/DB) and WebSocket is connected,
             // trigger navigation immediately since onInitComplete() won't be called again
             // This fixes the infinite spinner when opening via notification
-            if (spacesLoaded && isWebSocketConnected() && !navigationCallbackTriggered) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback immediately")
-                navigationCallbackTriggered = true
-                onNavigateToRoomList?.invoke()
+            // Also mark initial sync as complete if we're attaching to an already-initialized connection
+            if (spacesLoaded && isWebSocketConnected()) {
+                // If we're attaching to an already-initialized connection, mark initial sync as complete
+                if (initializationComplete) {
+                    initialSyncPhase = true
+                    initialSyncProcessingComplete = true
+                    initialSyncComplete = true
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Attaching to already-initialized WebSocket - marking initial sync as complete")
+                    }
+                }
+                
+                if (!navigationCallbackTriggered) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback immediately")
+                    navigationCallbackTriggered = true
+                    onNavigateToRoomList?.invoke()
+                }
             }
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No existing WebSocket to attach for $viewModelId")
@@ -4607,6 +4839,17 @@ class AppViewModel : ViewModel() {
             // STEP 2.1: Still register ViewModel even if WebSocket doesn't exist (for tracking)
             if (instanceRole != InstanceRole.PRIMARY) {
                 WebSocketService.registerViewModel(viewModelId, isPrimary = false)
+            }
+            
+            // CRITICAL FIX: If WebSocket doesn't exist and we're already initialized, mark initial sync as complete
+            // This handles the case where we're reconnecting and initialization was already done
+            if (initializationComplete) {
+                initialSyncPhase = true
+                initialSyncProcessingComplete = true
+                initialSyncComplete = true
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Already initialized - marking initial sync as complete")
+                }
             }
         }
     }
@@ -5247,6 +5490,14 @@ class AppViewModel : ViewModel() {
     fun setWebSocket(webSocket: WebSocket) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setWebSocket() called for $viewModelId")
         this.webSocket = webSocket
+        
+        // CRITICAL FIX: Initialize initial sync phase when WebSocket connects
+        // Set initialSyncPhase = false to start tracking sync_complete messages before init_complete
+        initialSyncPhase = false
+        initialSyncCompleteQueue.clear()
+        initialSyncProcessingComplete = false
+        initialSyncComplete = false
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initial sync phase started - will queue sync_complete messages until init_complete")
         
         // PHASE 4: Register this ViewModel to receive WebSocket messages
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Registering $viewModelId to receive WebSocket messages")
