@@ -2729,7 +2729,7 @@ fun TimelineEventItem(
 
 @Preview(showBackground = true, name = "Non-consecutive message (others)")
 @Composable
-private fun PreviewTimelineEventItemOthers() {
+fun PreviewTimelineEventItemOthers() {
     MaterialTheme {
         val content = JSONObject().apply {
             put("msgtype", "m.text")
@@ -2764,7 +2764,7 @@ private fun PreviewTimelineEventItemOthers() {
 
 @Preview(showBackground = true, name = "Consecutive message (others)")
 @Composable
-private fun PreviewTimelineEventItemOthersConsecutive() {
+fun PreviewTimelineEventItemOthersConsecutive() {
     MaterialTheme {
         val content = JSONObject().apply {
             put("msgtype", "m.text")
@@ -2799,7 +2799,7 @@ private fun PreviewTimelineEventItemOthersConsecutive() {
 
 @Preview(showBackground = true, name = "Non-consecutive message (mine)")
 @Composable
-private fun PreviewTimelineEventItemMine() {
+fun PreviewTimelineEventItemMine() {
     MaterialTheme {
         val content = JSONObject().apply {
             put("msgtype", "m.text")
@@ -2834,7 +2834,7 @@ private fun PreviewTimelineEventItemMine() {
 
 @Preview(showBackground = true, name = "Consecutive message (mine)")
 @Composable
-private fun PreviewTimelineEventItemMineConsecutive() {
+fun PreviewTimelineEventItemMineConsecutive() {
     MaterialTheme {
         val content = JSONObject().apply {
             put("msgtype", "m.text")
