@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -2497,17 +2498,40 @@ fun TimelineEventItem(
     ) {
         // Show avatar only for non-consecutive messages (and not for emotes, they have their own)
         if (!actualIsMine && !isConsecutive && !isEmoteMessage) {
-            Box(modifier = Modifier.clickable { onUserClick(event.sender) }) {
-                AvatarImage(
-                    mxcUrl = avatarUrl,
-                    homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
-                    authToken = authToken,
-                    fallbackText = (displayName ?: event.sender).take(1),
-                    size = 24.dp,
-                    userId = event.sender,
-                    displayName = displayName,
-                    // AVATAR LOADING OPTIMIZATION: Enable lazy loading for timeline performance
-                    isVisible = true // Timeline items are visible when rendered
+            // For first messages, show avatar with timestamp below it
+            Column(
+                modifier = Modifier.width(24.dp), // Avatar width
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(modifier = Modifier.clickable { onUserClick(event.sender) }) {
+                    AvatarImage(
+                        mxcUrl = avatarUrl,
+                        homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                        authToken = authToken,
+                        fallbackText = (displayName ?: event.sender).take(1),
+                        size = 24.dp,
+                        userId = event.sender,
+                        displayName = displayName,
+                        // AVATAR LOADING OPTIMIZATION: Enable lazy loading for timeline performance
+                        isVisible = true // Timeline items are visible when rendered
+                    )
+                }
+                // Timestamp below avatar (smaller font)
+                val timestampText = if (editedBy != null) {
+                    "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
+                } else {
+                    formatTimestamp(event.timestamp)
+                }
+                val timestampModifier = if (editedBy != null && appViewModel != null) {
+                    Modifier.clickable { openEditHistory() }
+                } else {
+                    Modifier
+                }
+                Text(
+                    text = timestampText,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = timestampModifier
                 )
             }
             Spacer(modifier = Modifier.width(AvatarGap))
@@ -2517,9 +2541,12 @@ fun TimelineEventItem(
         }
 
         // Event content
-        Column(modifier = Modifier.weight(1f)) {
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
             // Show name and timestamp header only for non-consecutive messages (and not for emotes)
             if (!isConsecutive && !isEmoteMessage) {
+                // For our messages, show display name right-aligned; for others, left-aligned
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
@@ -2597,24 +2624,6 @@ fun TimelineEventItem(
                             modifier = Modifier.clickable { onUserClick(event.sender) }
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
-                    val timestampText =
-                            if (editedBy != null) {
-                                "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
-                            } else {
-                                formatTimestamp(event.timestamp)
-                        }
-                    val timestampModifier = if (editedBy != null && appViewModel != null) {
-                        Modifier.clickable { openEditHistory() }
-                    } else {
-                        Modifier
-                    }
-                    Text(
-                        text = timestampText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = timestampModifier
-                    )
                 }
             }
 
@@ -2643,8 +2652,56 @@ fun TimelineEventItem(
                 onThreadClick = onThreadClick,
                 onShowEditHistory = if (appViewModel != null) openEditHistory else null
             )
+        }
 
-        if (actualIsMine) {
+        // For our messages: show avatar with timestamp on the right side
+        if (actualIsMine && !isConsecutive && !isEmoteMessage) {
+            // Spacer between display name (in Column) and avatar
+            Spacer(modifier = Modifier.width(2.dp))
+            // Avatar with timestamp below it on the right side
+            Column(
+                modifier = Modifier.width(40.dp), // Wide enough for timestamp "HH:mm"
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(modifier = Modifier.clickable { onUserClick(event.sender) }) {
+                    AvatarImage(
+                        mxcUrl = avatarUrl,
+                        homeserverUrl = appViewModel?.homeserverUrl ?: homeserverUrl,
+                        authToken = authToken,
+                        fallbackText = (displayName ?: event.sender).take(1),
+                        size = 24.dp,
+                        userId = event.sender,
+                        displayName = displayName,
+                        // AVATAR LOADING OPTIMIZATION: Enable lazy loading for timeline performance
+                        isVisible = true // Timeline items are visible when rendered
+                    )
+                }
+                // Timestamp below avatar (smaller font)
+                val timestampText = if (editedBy != null) {
+                    "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
+                } else {
+                    formatTimestamp(event.timestamp)
+                }
+                val timestampModifier = if (editedBy != null && appViewModel != null) {
+                    Modifier.clickable { openEditHistory() }
+                } else {
+                    Modifier
+                }
+                Text(
+                    text = timestampText,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = timestampModifier
+                )
+            }
+        } else if (actualIsMine && isConsecutive && !isEmoteMessage) {
+            // Add spacer to maintain alignment for consecutive messages (but not for emotes)
+            // AvatarPlaceholderWidth (28dp) + 8dp = 36dp total
+            Spacer(modifier = Modifier.width(AvatarPlaceholderWidth + 8.dp))
+        }
+        
+        // Only add ReadReceiptGap for consecutive messages (non-consecutive already has avatar on right edge)
+        if (actualIsMine && isConsecutive) {
             Spacer(modifier = Modifier.width(ReadReceiptGap))
         }
     }
@@ -2688,5 +2745,4 @@ fun TimelineEventItem(
             }
         }
     }
-}
 }
