@@ -39,24 +39,30 @@ Wait for all initial `sync_complete` messages (received before `init_complete`) 
    var initialSyncComplete by mutableStateOf(false) // Public state for UI
    ```
 
-2. **setWebSocket()** - Initialize tracking:
+2. **setWebSocket()** - Initialize tracking (called on every connection, including reconnections):
    - Set `initialSyncPhase = false` when WebSocket connects
-   - Clear queue and reset flags
+   - Clear queue and reset flags including `initialSyncComplete = false`
+   - This ensures we start fresh on every connection (initial or reconnection)
 
-3. **updateRoomsFromSyncJsonAsync()** - Queue messages:
+3. **clearWebSocket()** - Prepare for reconnection:
+   - Reset `initialSyncPhase = false` and clear queue
+   - Keep `initialSyncComplete = true` to prevent UI flicker during disconnect
+   - When WebSocket reconnects, `setWebSocket` will reset `initialSyncComplete = false` again
+
+4. **updateRoomsFromSyncJsonAsync()** - Queue messages:
    - If `initialSyncPhase == false`, queue the message instead of processing
    - If `initialSyncPhase == true`, process normally (real-time updates)
 
-4. **onInitComplete()** - Process queue:
+5. **onInitComplete()** - Process queue:
    - Set `initialSyncPhase = true` (stop queueing)
    - Process all queued messages in order
    - Set `initialSyncComplete = true` when done
 
-5. **processInitialSyncComplete()** - New function:
+6. **processInitialSyncComplete()** - New function:
    - Processes a single queued `sync_complete` message
    - Same logic as `updateRoomsFromSyncJsonAsync` but without queue check
 
-6. **attachToExistingWebSocketIfAvailable()** - Handle reconnection:
+7. **attachToExistingWebSocketIfAvailable()** - Handle reconnection:
    - If already initialized, mark initial sync as complete immediately
 
 ### RoomListScreen.kt
@@ -79,9 +85,18 @@ Wait for all initial `sync_complete` messages (received before `init_complete`) 
 
 ## Edge Cases Handled
 
-1. **Reconnection**: If attaching to already-initialized WebSocket, mark sync as complete
-2. **Timeout**: 15-second fallback prevents infinite loading
-3. **No initial messages**: If no `sync_complete` messages arrive before `init_complete`, mark as complete immediately
+1. **Reconnection**: Properly handles WebSocket reconnection:
+   - When WebSocket disconnects (`clearWebSocket`): Resets `initialSyncPhase = false` and clears queue, but keeps `initialSyncComplete = true` to prevent UI flicker
+   - When WebSocket reconnects (`setWebSocket`): Resets everything including `initialSyncComplete = false` to start fresh
+   - New `sync_complete` messages received before `init_complete` are queued again
+   - After `init_complete`, all queued messages are processed
+   - This ensures proper handling even if the app is active when WebSocket reconnects
+
+2. **Attaching to existing connection**: If attaching to already-initialized WebSocket, mark sync as complete immediately
+
+3. **Timeout**: 15-second fallback prevents infinite loading
+
+4. **No initial messages**: If no `sync_complete` messages arrive before `init_complete`, mark as complete immediately
 
 ## Testing
 

@@ -5491,12 +5491,16 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setWebSocket() called for $viewModelId")
         this.webSocket = webSocket
         
-        // CRITICAL FIX: Initialize initial sync phase when WebSocket connects
+        // CRITICAL FIX: Initialize initial sync phase when WebSocket connects (both initial connection and reconnection)
         // Set initialSyncPhase = false to start tracking sync_complete messages before init_complete
+        // This ensures we queue all initial sync_complete messages and process them after init_complete
+        // On reconnection, the backend sends new sync_complete messages before init_complete, so we need to queue them again
         initialSyncPhase = false
-        initialSyncCompleteQueue.clear()
+        synchronized(initialSyncCompleteQueue) {
+            initialSyncCompleteQueue.clear()
+        }
         initialSyncProcessingComplete = false
-        initialSyncComplete = false
+        initialSyncComplete = false // Reset so UI waits for initial sync to complete again
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initial sync phase started - will queue sync_complete messages until init_complete")
         
         // PHASE 4: Register this ViewModel to receive WebSocket messages
@@ -5585,6 +5589,20 @@ class AppViewModel : ViewModel() {
         if (initializationComplete) {
             initializationComplete = false
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket cleared - resetting initializationComplete flag (reason: $reason)")
+        }
+        
+        // CRITICAL FIX: Reset initial sync state on disconnect to prepare for reconnection
+        // On reconnection, we'll receive new sync_complete messages before init_complete
+        // We need to queue them again, so reset the state here
+        initialSyncPhase = false
+        synchronized(initialSyncCompleteQueue) {
+            initialSyncCompleteQueue.clear()
+        }
+        initialSyncProcessingComplete = false
+        // Don't reset initialSyncComplete here - let setWebSocket handle it when reconnecting
+        // This prevents UI flicker if the app is already showing the room list
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: WebSocket cleared - reset initial sync state (reason: $reason, queue cleared)")
         }
         
         // PHASE 4.1: Delegate WebSocket clearing to service with close code information
