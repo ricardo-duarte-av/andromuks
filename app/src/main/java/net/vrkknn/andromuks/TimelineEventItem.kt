@@ -1217,36 +1217,21 @@ private fun RoomTextMessageContent(
                         appViewModel = appViewModel
                     )
 
-                    // Reply message content with inline timestamp
-                    Box {
-                        AdaptiveMessageText(
-                            event = event,
-                            body = finalBody,
-                            format = format,
-                            userProfileCache = userProfileCache,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            appViewModel = appViewModel,
-                            roomId = event.roomId,
-                            textColor = textColor,
-                            modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
-                            onUserClick = onUserClick,
-                            onMatrixUserClick = onUserClick,
-                            onRoomLinkClick = onRoomLinkClick
-                        )
-                        // Timestamp positioned at bottom-end
-                        Box(
-                            modifier = Modifier.align(Alignment.BottomEnd)
-                        ) {
-                            InlineBubbleTimestamp(
-                                timestamp = event.timestamp,
-                                editedBy = editedBy,
-                                isMine = actualIsMine,
-                                isConsecutive = isConsecutive,
-                                onEditedClick = if (editedBy != null && onShowEditHistory != null) onShowEditHistory else null
-                            )
-                        }
-                    }
+                    // Reply message content
+                    AdaptiveMessageText(
+                        event = event,
+                        body = finalBody,
+                        format = format,
+                        userProfileCache = userProfileCache,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        appViewModel = appViewModel,
+                        roomId = event.roomId,
+                        textColor = textColor,
+                        onUserClick = onUserClick,
+                        onMatrixUserClick = onUserClick,
+                        onRoomLinkClick = onRoomLinkClick
+                    )
                 }
             }
         } else {
@@ -1274,7 +1259,7 @@ private fun RoomTextMessageContent(
                 Box(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                 ) {
-                    // Text with extra padding at the end for timestamp
+                    // Text message content
                     AdaptiveMessageText(
                         event = event,
                         body = finalBody,
@@ -1285,23 +1270,10 @@ private fun RoomTextMessageContent(
                         appViewModel = appViewModel,
                         roomId = event.roomId,
                         textColor = textColor,
-                        modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
                         onUserClick = onUserClick,
                         onMatrixUserClick = onUserClick,
                         onRoomLinkClick = onRoomLinkClick
                     )
-                    // Timestamp positioned at bottom-end
-                    Box(
-                        modifier = Modifier.align(Alignment.BottomEnd)
-                    ) {
-                        InlineBubbleTimestamp(
-                            timestamp = event.timestamp,
-                            editedBy = editedBy,
-                            isMine = actualIsMine,
-                        isConsecutive = isConsecutive,
-                        onEditedClick = if (editedBy != null && onShowEditHistory != null) onShowEditHistory else null
-                        )
-                    }
                 }
             }
         }
@@ -1897,36 +1869,21 @@ private fun EncryptedMessageContent(
                             )
 
                             // Reply message content with inline timestamp
-                            Box {
-                                // finalBody already contains deletion message if redacted
-                                AdaptiveMessageText(
-                                    event = event,
-                                    body = finalBody,
-                                    format = format,
-                                    userProfileCache = userProfileCache,
-                                    homeserverUrl = homeserverUrl,
-                                    authToken = authToken,
-                                    appViewModel = appViewModel,
-                                    roomId = event.roomId,
-                                    textColor = textColor,
-                                    modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
-                                    onUserClick = onUserClick,
-                                    onMatrixUserClick = onUserClick,
-                                    onRoomLinkClick = onRoomLinkClick
-                                )
-                                // Timestamp positioned at bottom-end
-                                Box(
-                                    modifier = Modifier.align(Alignment.BottomEnd)
-                                ) {
-                                    InlineBubbleTimestamp(
-                                        timestamp = event.timestamp,
-                                        editedBy = editedBy,
-                                        isMine = actualIsMine,
-                                        isConsecutive = isConsecutive,
-                                        onEditedClick = if (editedBy != null && onShowEditHistory != null) onShowEditHistory else null
-                                    )
-                                }
-                            }
+                            // finalBody already contains deletion message if redacted
+                            AdaptiveMessageText(
+                                event = event,
+                                body = finalBody,
+                                format = format,
+                                userProfileCache = userProfileCache,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                appViewModel = appViewModel,
+                                roomId = event.roomId,
+                                textColor = textColor,
+                                onUserClick = onUserClick,
+                                onMatrixUserClick = onUserClick,
+                                onRoomLinkClick = onRoomLinkClick
+                            )
                         }
                     }
                 } else {
@@ -1965,23 +1922,10 @@ private fun EncryptedMessageContent(
                                 appViewModel = appViewModel,
                                 roomId = event.roomId,
                                 textColor = textColor,
-                                modifier = if (isConsecutive) Modifier.padding(end = 48.dp) else Modifier,
                                 onUserClick = onUserClick,
                                 onMatrixUserClick = onUserClick,
                                 onRoomLinkClick = onRoomLinkClick
                             )
-                            // Timestamp positioned at bottom-end
-                            Box(
-                                modifier = Modifier.align(Alignment.BottomEnd)
-                            ) {
-                                InlineBubbleTimestamp(
-                                    timestamp = event.timestamp,
-                                    editedBy = editedBy,
-                                    isMine = actualIsMine,
-                                    isConsecutive = isConsecutive,
-                                    onEditedClick = if (editedBy != null && onShowEditHistory != null) onShowEditHistory else null
-                                )
-                            }
                         }
                     }
                 }
@@ -2536,8 +2480,24 @@ fun TimelineEventItem(
             }
             Spacer(modifier = Modifier.width(AvatarGap))
         } else if (!actualIsMine && isConsecutive && !isEmoteMessage) {
-            // Add spacer to maintain alignment for consecutive messages (but not for emotes)
-            Spacer(modifier = Modifier.width(AvatarPlaceholderWidth)) // 24dp avatar + 4dp spacer
+            // Timestamp to the left of the bubble for others' consecutive messages
+            val timestampText = if (editedBy != null) {
+                "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
+            } else {
+                formatTimestamp(event.timestamp)
+            }
+            val timestampModifier = if (editedBy != null && appViewModel != null) {
+                Modifier.clickable { openEditHistory() }
+            } else {
+                Modifier
+            }
+            Text(
+                text = timestampText,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = timestampModifier
+            )
+            Spacer(modifier = Modifier.width(4.dp))
         }
 
         // Event content
@@ -2654,6 +2614,28 @@ fun TimelineEventItem(
             )
         }
 
+        // For our consecutive messages: show timestamp to the right of the bubble
+        if (actualIsMine && isConsecutive && !isEmoteMessage) {
+            Spacer(modifier = Modifier.width(8.dp))
+            val timestampText = if (editedBy != null) {
+                "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
+            } else {
+                formatTimestamp(event.timestamp)
+            }
+            val timestampModifier = if (editedBy != null && appViewModel != null) {
+                Modifier.clickable { openEditHistory() }
+            } else {
+                Modifier
+            }
+            Text(
+                text = timestampText,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = timestampModifier
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+
         // For our messages: show avatar with timestamp on the right side
         if (actualIsMine && !isConsecutive && !isEmoteMessage) {
             // Spacer between display name (in Column) and avatar
@@ -2694,10 +2676,6 @@ fun TimelineEventItem(
                     modifier = timestampModifier
                 )
             }
-        } else if (actualIsMine && isConsecutive && !isEmoteMessage) {
-            // Add spacer to maintain alignment for consecutive messages (but not for emotes)
-            // AvatarPlaceholderWidth (28dp) + 8dp = 36dp total
-            Spacer(modifier = Modifier.width(AvatarPlaceholderWidth + 8.dp))
         }
         
         // Only add ReadReceiptGap for consecutive messages (non-consecutive already has avatar on right edge)
