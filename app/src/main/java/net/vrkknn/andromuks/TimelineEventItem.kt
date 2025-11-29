@@ -2739,33 +2739,41 @@ fun TimelineEventItem(
 @Composable
 fun PreviewTimelineEventItemOthers() {
     MaterialTheme {
-        val content = JSONObject().apply {
-            put("msgtype", "m.text")
-            put("body", "Hello! This is a sample message from another user.")
-        }
-        val event = TimelineEvent(
-            rowid = 1,
-            timelineRowid = 1,
-            roomId = "!preview:example.com",
-            eventId = "\$preview1",
-            sender = "@alice:example.com",
-            type = "m.room.message",
-            timestamp = System.currentTimeMillis(),
-            content = content
-        )
-        val profile = MemberProfile("Alice", null)
-        
-        Column(modifier = Modifier.padding(16.dp)) {
-            TimelineEventItem(
-                event = event,
-                timelineEvents = emptyList(),
-                homeserverUrl = "https://example.com",
-                authToken = "preview_token",
-                userProfileCache = mapOf("@alice:example.com" to profile),
-                isMine = false,
-                myUserId = "@me:example.com",
-                isConsecutive = false
+        try {
+            val content = JSONObject().apply {
+                put("msgtype", "m.text")
+                put("body", "Hello! This is a sample message from another user.")
+            }
+            val event = TimelineEvent(
+                rowid = 1,
+                timelineRowid = 1,
+                roomId = "!preview:example.com",
+                eventId = "\$preview1",
+                sender = "@alice:example.com",
+                type = "m.room.message",
+                timestamp = System.currentTimeMillis(),
+                content = content
             )
+            val profile = MemberProfile("Alice", null)
+            
+            Column(modifier = Modifier.padding(16.dp)) {
+                TimelineEventItem(
+                    event = event,
+                    timelineEvents = emptyList(),
+                    homeserverUrl = "https://example.com",
+                    authToken = "preview_token",
+                    userProfileCache = mapOf("@alice:example.com" to profile),
+                    isMine = false,
+                    myUserId = "@me:example.com",
+                    isConsecutive = false
+                )
+            }
+        } catch (e: Exception) {
+            // Fallback for preview when network dependencies aren't available
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Preview unavailable: ${e.javaClass.simpleName}")
+                Text("Network components not available in preview mode", style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
@@ -2809,33 +2817,41 @@ fun PreviewTimelineEventItemOthersConsecutive() {
 @Composable
 fun PreviewTimelineEventItemMine() {
     MaterialTheme {
-        val content = JSONObject().apply {
-            put("msgtype", "m.text")
-            put("body", "This is my message!")
-        }
-        val event = TimelineEvent(
-            rowid = 3,
-            timelineRowid = 3,
-            roomId = "!preview:example.com",
-            eventId = "\$preview3",
-            sender = "@me:example.com",
-            type = "m.room.message",
-            timestamp = System.currentTimeMillis() + 120000,
-            content = content
-        )
-        val profile = MemberProfile("Me", null)
-        
-        Column(modifier = Modifier.padding(16.dp)) {
-            TimelineEventItem(
-                event = event,
-                timelineEvents = emptyList(),
-                homeserverUrl = "https://example.com",
-                authToken = "preview_token",
-                userProfileCache = mapOf("@me:example.com" to profile),
-                isMine = true,
-                myUserId = "@me:example.com",
-                isConsecutive = false
+        try {
+            val content = JSONObject().apply {
+                put("msgtype", "m.text")
+                put("body", "This is my message!")
+            }
+            val event = TimelineEvent(
+                rowid = 3,
+                timelineRowid = 3,
+                roomId = "!preview:example.com",
+                eventId = "\$preview3",
+                sender = "@me:example.com",
+                type = "m.room.message",
+                timestamp = System.currentTimeMillis() + 120000,
+                content = content
             )
+            val profile = MemberProfile("Me", null)
+            
+            Column(modifier = Modifier.padding(16.dp)) {
+                TimelineEventItem(
+                    event = event,
+                    timelineEvents = emptyList(),
+                    homeserverUrl = "https://example.com",
+                    authToken = "preview_token",
+                    userProfileCache = mapOf("@me:example.com" to profile),
+                    isMine = true,
+                    myUserId = "@me:example.com",
+                    isConsecutive = false
+                )
+            }
+        } catch (e: Exception) {
+            // Fallback for preview when network dependencies aren't available
+            Column(modifier = Modifier.padding(16.dp)) {
+                Text("Preview unavailable: ${e.javaClass.simpleName}")
+                Text("Network components not available in preview mode", style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }
