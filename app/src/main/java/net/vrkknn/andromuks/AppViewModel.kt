@@ -4021,9 +4021,18 @@ class AppViewModel : ViewModel() {
         // Add new rooms
         syncResult.newRooms.forEach { room ->
             roomMap[room.id] = room
-            // Mark as newly joined - will be sorted to the top
-            newlyJoinedRoomIds.add(room.id)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (marked as newly joined)")
+            
+            // CRITICAL FIX: Only mark as "newly joined" if initial sync is complete
+            // During initial sync, all rooms are "new" because roomMap is empty, but they're not actually newly joined
+            // Only mark as newly joined for real-time updates after initial sync is complete
+            if (initialSyncProcessingComplete) {
+                // Initial sync is complete - this is a real new room, mark as newly joined
+                newlyJoinedRoomIds.add(room.id)
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (marked as newly joined)")
+            } else {
+                // Initial sync - just add the room without marking as newly joined
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added room during initial sync: ${room.name} (not marking as newly joined)")
+            }
             
             // Update animation state only if app is visible (battery optimization)
             if (isAppVisible) {
