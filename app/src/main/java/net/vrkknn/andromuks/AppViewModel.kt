@@ -1708,10 +1708,20 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Get device ID for push registration
+     * Get device ID for push registration (backend's device_id, for reference only)
      */
     fun getDeviceID(): String? {
         return webClientPushIntegration?.getDeviceID()
+    }
+    
+    /**
+     * Get local device ID used for FCM registration.
+     * CRITICAL: This is the unique per-device identifier that prevents one device from overwriting another's FCM registration.
+     * 
+     * @return A unique device identifier that persists across app restarts
+     */
+    fun getLocalDeviceID(): String? {
+        return webClientPushIntegration?.getLocalDeviceID()
     }
     
     /**
@@ -1748,7 +1758,9 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Always registering FCM on WebSocket connection to ensure backend has current token")
         
         val token = getFCMTokenForGomuksBackend()
-        val deviceId = webClientPushIntegration?.getDeviceID()
+        // CRITICAL FIX: Use local device ID instead of backend's device_id
+        // This ensures each Android device has a unique identifier and prevents one device from overwriting another's FCM registration
+        val deviceId = webClientPushIntegration?.getLocalDeviceID()
         val encryptionKey = webClientPushIntegration?.getPushEncryptionKey()
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: registerFCMWithGomuksBackend - token=${token?.take(20)}..., deviceId=$deviceId, encryptionKey=${encryptionKey?.take(20)}...")

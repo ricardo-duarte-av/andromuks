@@ -5,6 +5,7 @@ import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
+import android.provider.Settings
 import android.util.Base64
 import android.util.Log
 import org.json.JSONObject
@@ -26,7 +27,8 @@ class WebClientPushIntegration(private val context: Context) {
     companion object {
         private const val TAG = "WebClientPushIntegration"
         private const val PREFS_NAME = "web_client_prefs"
-        private const val KEY_DEVICE_ID = "device_id"
+        private const val KEY_DEVICE_ID = "device_id" // Backend's device_id (for reference, not used for FCM)
+        private const val KEY_LOCAL_DEVICE_ID = "local_device_id" // Unique per-device identifier for FCM
         private const val KEY_PUSH_ENCRYPTION_KEY = "push_encryption_key"
         private const val KEY_LAST_PUSH_REG = "last_push_reg"
         private const val PUSH_REG_INTERVAL_HOURS = 12L
@@ -40,19 +42,67 @@ class WebClientPushIntegration(private val context: Context) {
     
     /**
      * Store device ID from Gomuks Backend client_state
+     * NOTE: This is stored for reference only. FCM registration uses getLocalDeviceID() instead.
      */
     fun storeDeviceId(deviceId: String) {
         prefs.edit().putString(KEY_DEVICE_ID, deviceId).apply()
-        if (BuildConfig.DEBUG) Log.d(TAG, "Stored device ID: $deviceId")
+        if (BuildConfig.DEBUG) Log.d(TAG, "Stored backend device ID: $deviceId (for reference only, FCM uses local device ID)")
     }
     
     /**
-     * Get device ID from Gomuks Backend
+     * Get device ID from Gomuks Backend (for reference only)
+     * NOTE: For FCM registration, use getLocalDeviceID() instead to ensure each device has a unique identifier.
      */
     fun getDeviceID(): String? {
         val deviceId = prefs.getString(KEY_DEVICE_ID, null)
-        if (BuildConfig.DEBUG) Log.d(TAG, "getDeviceID: returning $deviceId")
+        if (BuildConfig.DEBUG) Log.d(TAG, "getDeviceID: returning backend device ID: $deviceId")
         return deviceId
+    }
+    
+    /**
+     * Get or generate a unique device identifier for FCM registration.
+     * This ensures each Android device has a unique identifier that persists across app restarts.
+     * CRITICAL FIX: Use this instead of backend's device_id to prevent one device from overwriting another's FCM registration.
+     * 
+     * The identifier is generated once per device installation and stored permanently.
+     * It uses the same device identifier as the User-Agent (manufacturer + model) combined with a random component.
+     * 
+     * @return A unique device identifier (alphanumeric, uppercase, max 20 characters)
+     */
+    fun getLocalDeviceID(): String {
+        // Check if we already have a local device ID
+        val existingId = prefs.getString(KEY_LOCAL_DEVICE_ID, null)
+        if (existingId != null && existingId.isNotEmpty()) {
+            if (BuildConfig.DEBUG) Log.d(TAG, "getLocalDeviceID: Reusing existing local device ID: $existingId")
+            return existingId
+        }
+        
+        // Generate a new unique device identifier
+        // Use the same device identifier as User-Agent (manufacturer + model)
+        // This matches the format used in getUserAgent(): "Andromuks/1.0 - OnePlus GM1901"
+        val deviceIdentifier = net.vrkknn.andromuks.utils.getDeviceIdentifier() // e.g., "OnePlus GM1901"
+        
+        // Format: replace spaces with underscores, remove special characters, uppercase
+        // Example: "OnePlus GM1901" -> "ONEPLUS_GM1901"
+        val baseId = deviceIdentifier
+            .replace(" ", "_")
+            .replace("/", "_")
+            .replace("-", "_")
+            .replace(Regex("[^A-Za-z0-9_]"), "")
+            .uppercase()
+            .take(15) // Limit base part to 15 chars
+        
+        // Add a random component to ensure uniqueness even for same-model devices
+        val randomComponent = UUID.randomUUID().toString().replace("-", "").take(5).uppercase()
+        
+        // Combine: base identifier + random component (max 20 chars total)
+        val uniqueId = "${baseId}_${randomComponent}".take(20)
+        
+        // Store it permanently (never changes for this device installation)
+        prefs.edit().putString(KEY_LOCAL_DEVICE_ID, uniqueId).apply()
+        if (BuildConfig.DEBUG) Log.d(TAG, "getLocalDeviceID: Generated new local device ID: $uniqueId (based on device: $deviceIdentifier, will persist for this device)")
+        
+        return uniqueId
     }
     
     /**
@@ -187,12 +237,13 @@ class WebClientPushIntegration(private val context: Context) {
     /**
      * Create push registration message for web client
      * This matches the format from the reference implementation
+     * CRITICAL FIX: Uses local device ID instead of backend device_id to ensure each device has unique registration
      */
     fun createPushRegistrationMessage(token: String): JSONObject {
         return JSONObject(
             mapOf(
                 "type" to "register_push",
-                "device_id" to getDeviceID(),
+                "device_id" to getLocalDeviceID(), // Use local device ID, not backend's device_id
                 "token" to token,
                 "encryption" to mapOf(
                     "key" to getPushEncryptionKey(),

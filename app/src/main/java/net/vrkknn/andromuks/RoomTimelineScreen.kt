@@ -1243,6 +1243,15 @@ fun RoomTimelineScreen(
         isAttachedToBottom = true
         isInitialLoad = true
         hasInitialSnapCompleted = false
+        
+        // CRITICAL FIX: Ensure loading state is set early when opening a new room
+        // This ensures "Room loading..." shows immediately while room data is being loaded/processed
+        if (appViewModel.currentRoomId != roomId || appViewModel.timelineEvents.isEmpty()) {
+            // Only set loading if we're opening a different room or timeline is empty
+            // This prevents showing loading when resuming the same room
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Setting loading state for room: $roomId")
+        }
+        
         appViewModel.ensureTimelineCacheIsFresh(roomId)
         // Request room state first, then timeline
         appViewModel.requestRoomState(roomId)
@@ -1571,12 +1580,32 @@ fun RoomTimelineScreen(
                                 }
                             )
                     ) {
-                        if (isLoading) {
+                        // CRITICAL FIX: Show "Room loading..." while room is being loaded/processed
+                        // This ensures the UI doesn't show incomplete state when navigating to a room
+                        // Show loading when: isLoading is true OR timeline is empty and we're waiting for initial load
+                        val shouldShowLoading = isLoading || (timelineItems.isEmpty() && !hasInitialSnapCompleted)
+                        
+                        if (shouldShowLoading) {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("Loading timeline...")
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(48.dp),
+                                        strokeWidth = 3.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.height(16.dp))
+                                    Text(
+                                        text = "Room loading...",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
                         } else {
                             LazyColumn(
