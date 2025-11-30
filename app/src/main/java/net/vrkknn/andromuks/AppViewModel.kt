@@ -3065,7 +3065,7 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: MEMBER PROCESSING - Processing ${roomsWithMemberEvents.size} rooms with member events [App visible: $isAppVisible]")
+        // Removed debug log to reduce log spam during initial sync
         
         // Track current sync's room IDs with member events
         val currentSyncRooms = mutableSetOf<String>()
@@ -3109,13 +3109,15 @@ class AppViewModel : ViewModel() {
                                 storeMemberProfile(roomId, userId, profile)
                                 
                                 // COLD START FIX: Only trigger UI updates for actual real-time changes, not historical data
-                                // During initialization (before init_complete), all member events are historical and shouldn't trigger UI updates
-                                // After init_complete, only actual state transitions (invite→join, leave→join) should trigger updates
+                                // During initial sync (before initialSyncComplete), all member events are historical and shouldn't trigger UI updates
+                                // After initial sync is complete, only actual state transitions (invite→join, leave→join) should trigger updates
                                 val isActualNewJoin = isNewJoin && (prevMembership == null || prevMembership == "invite" || prevMembership == "leave")
                                 
-                                // BATTERY OPTIMIZATION: Only trigger UI updates when foregrounded AND initialization is complete
-                                // Cache is still updated (for accuracy), but no recompositions during initialization or when backgrounded
-                                if (isAppVisible && initializationComplete) {
+                                // BATTERY OPTIMIZATION: Only trigger UI updates when foregrounded AND initial sync is complete
+                                // Cache is still updated (for accuracy), but no recompositions during initial sync or when backgrounded
+                                // CRITICAL: Check initialSyncComplete (not initializationComplete) because we're still processing
+                                // historical data from queued sync_complete messages even after initializationComplete is set
+                                if (isAppVisible && initialSyncComplete) {
                                     if (isActualNewJoin) {
                                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: New member joined: $userId in room $roomId - triggering immediate UI update")
                                         // New joins are critical - trigger member update immediately
@@ -3125,16 +3127,8 @@ class AppViewModel : ViewModel() {
                                         // Trigger UI update for profile changes
                                         memberUpdateCounter++
                                     }
-                                } else {
-                                    if (BuildConfig.DEBUG && (isNewJoin || isProfileChange)) {
-                                        val reason = when {
-                                            !initializationComplete -> "initialization"
-                                            !isAppVisible -> "app backgrounded"
-                                            else -> "unknown"
-                                        }
-                                        android.util.Log.d("Andromuks", "AppViewModel: Member change cached ($reason) - $userId in room $roomId [newJoin=$isNewJoin, profileChange=$isProfileChange]")
-                                    }
                                 }
+                                // Removed debug log for member changes during initial sync to reduce log spam
                                 //android.util.Log.d("Andromuks", "AppViewModel: Cached joined member '$userId' in room '$roomId' -> displayName: '$displayName'")
                             }
                             "invite" -> {
@@ -3187,7 +3181,7 @@ class AppViewModel : ViewModel() {
         lastProcessedMembers.clear()
         lastProcessedMembers.addAll(currentSyncRooms)
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: MEMBER PROCESSING - Updated ${currentSyncRooms.size} rooms with member changes")
+        // Removed debug log to reduce log spam during initial sync
     }
     
     /**
@@ -4812,27 +4806,33 @@ class AppViewModel : ViewModel() {
                 }
             }
             
-            // CRITICAL FIX: If spaces are already loaded (from cache/DB) and WebSocket is connected,
-            // trigger navigation immediately since onInitComplete() won't be called again
-            // This fixes the infinite spinner when opening via notification
-            // Also mark initial sync as complete if we're attaching to an already-initialized connection
-            if (spacesLoaded && isWebSocketConnected()) {
-                // If we're attaching to an already-initialized connection, mark initial sync as complete
-                if (initializationComplete) {
-                    initialSyncPhase = true
-                    initialSyncProcessingComplete = true
-                    initialSyncComplete = true
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Attaching to already-initialized WebSocket - marking initial sync as complete")
-                    }
+            // CRITICAL FIX: If WebSocket is connected (CONNECTED state), it means init_complete was already received
+            // Mark initial sync as complete immediately to prevent UI from waiting indefinitely
+            // This fixes the "Loading rooms..." stall when opening from notification or app icon
+            // when the app/foreground service has been running for a while
+            if (isWebSocketConnected()) {
+                // WebSocket is in CONNECTED state, which means init_complete was already received
+                // (connectionState is only set to CONNECTED in onInitCompleteReceived)
+                // Mark initial sync as complete - don't wait for initializationComplete flag
+                // because this might be a new AppViewModel instance that doesn't have that flag set
+                initialSyncPhase = true
+                initialSyncProcessingComplete = true
+                initialSyncComplete = true
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Attaching to already-initialized WebSocket (connected=true) - marking initial sync as complete")
                 }
                 
-                if (!navigationCallbackTriggered) {
+                // If spaces are loaded, trigger navigation immediately
+                if (spacesLoaded && !navigationCallbackTriggered) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback immediately")
                     navigationCallbackTriggered = true
                     onNavigateToRoomList?.invoke()
                 }
             }
+            // CRITICAL FIX: Don't set initialSyncComplete = true if WebSocket is not connected
+            // Even if spacesLoaded is true, we should wait for the connection to be established
+            // and receive init_complete. Setting it to true here would cause a flash:
+            // rooms show briefly, then setWebSocket() resets it to false, then "Loading rooms..." appears
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No existing WebSocket to attach for $viewModelId")
             
@@ -4841,16 +4841,11 @@ class AppViewModel : ViewModel() {
                 WebSocketService.registerViewModel(viewModelId, isPrimary = false)
             }
             
-            // CRITICAL FIX: If WebSocket doesn't exist and we're already initialized, mark initial sync as complete
-            // This handles the case where we're reconnecting and initialization was already done
-            if (initializationComplete) {
-                initialSyncPhase = true
-                initialSyncProcessingComplete = true
-                initialSyncComplete = true
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Already initialized - marking initial sync as complete")
-                }
-            }
+            // CRITICAL FIX: Don't set initialSyncComplete = true here, even if spacesLoaded is true
+            // On cold start, a new WebSocket will be created, which will reset initialSyncComplete to false
+            // Setting it to true here would cause a flash: rooms show briefly, then "Loading rooms..." appears
+            // We should only set initialSyncComplete = true when attaching to an existing, already-initialized WebSocket
+            // For cold starts, wait for the new WebSocket to connect and receive init_complete
         }
     }
     
