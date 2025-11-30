@@ -7455,31 +7455,50 @@ class AppViewModel : ViewModel() {
         val aggregatedByEvent = mutableMapOf<String, List<MessageReaction>>()
         for (event in events) {
             val reactionsObject = event.aggregatedReactions ?: continue
-            val reactionList = mutableListOf<MessageReaction>()
-            val keys = reactionsObject.keys()
-            while (keys.hasNext()) {
-                val key = keys.next()
-                var count = 0
-                when (val value = reactionsObject.opt(key)) {
-                    is Number -> count = value.toInt()
-                    is JSONObject -> count = value.optInt("count", 0)
-                    else -> {
-                        // Attempt fallback to optInt
-                        count = reactionsObject.optInt(key, 0)
+            
+            // CRASH FIX: Wrap reaction processing in try-catch to handle malformed JSON gracefully
+            try {
+                val reactionList = mutableListOf<MessageReaction>()
+                val keys = reactionsObject.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    try {
+                        var count = 0
+                        when (val value = reactionsObject.opt(key)) {
+                            is Number -> count = value.toInt()
+                            is JSONObject -> count = value.optInt("count", 0)
+                            else -> {
+                                // Attempt fallback to optInt
+                                count = reactionsObject.optInt(key, 0)
+                            }
+                        }
+                        if (count > 0 && !key.isNullOrBlank()) {
+                            reactionList.add(
+                                MessageReaction(
+                                    emoji = key,
+                                    count = count,
+                                    users = emptyList()
+                                )
+                            )
+                        }
+                    } catch (e: Exception) {
+                        // Skip this reaction key if there's an error processing it
+                        android.util.Log.w("Andromuks", "AppViewModel: Error processing reaction key '$key' for event ${event.eventId}: ${e.message}")
                     }
                 }
-                if (count > 0 && !key.isNullOrBlank()) {
-                    reactionList.add(
-                        MessageReaction(
-                            emoji = key,
-                            count = count,
-                            users = emptyList()
-                        )
-                    )
+                if (reactionList.isNotEmpty()) {
+                    // Sort reactions by emoji - handle any potential comparison errors
+                    try {
+                        aggregatedByEvent[event.eventId] = reactionList.sortedBy { it.emoji }
+                    } catch (e: Exception) {
+                        // If sorting fails, use unsorted list
+                        android.util.Log.w("Andromuks", "AppViewModel: Error sorting reactions for event ${event.eventId}, using unsorted: ${e.message}")
+                        aggregatedByEvent[event.eventId] = reactionList
+                    }
                 }
-            }
-            if (reactionList.isNotEmpty()) {
-                aggregatedByEvent[event.eventId] = reactionList.sortedBy { it.emoji }
+            } catch (e: Exception) {
+                // Skip this event's reactions if there's an error iterating over them
+                android.util.Log.w("Andromuks", "AppViewModel: Error processing aggregated reactions for event ${event.eventId} from $source: ${e.message}", e)
             }
         }
 
@@ -7522,9 +7541,19 @@ class AppViewModel : ViewModel() {
                 json.put("timestamp", entity.timestamp)
             }
             if (entity.aggregatedReactionsJson != null) {
-                val content = json.optJSONObject("content")
-                if (content != null && !content.has("reactions")) {
-                    content.put("reactions", JSONObject(entity.aggregatedReactionsJson))
+                try {
+                    val content = json.optJSONObject("content")
+                    if (content != null && !content.has("reactions")) {
+                        // Parse aggregated reactions JSON - handle malformed JSON gracefully
+                        val reactionsJson = JSONObject(entity.aggregatedReactionsJson)
+                        content.put("reactions", reactionsJson)
+                    }
+                } catch (e: org.json.JSONException) {
+                    // Malformed aggregated reactions JSON - log and skip
+                    android.util.Log.w("Andromuks", "AppViewModel: Failed to parse aggregated reactions JSON for event ${entity.eventId}: ${e.message}")
+                } catch (e: Exception) {
+                    // Any other error - log and skip
+                    android.util.Log.w("Andromuks", "AppViewModel: Error processing aggregated reactions for event ${entity.eventId}: ${e.message}", e)
                 }
             }
             var timelineEvent = TimelineEvent.fromJson(json)
