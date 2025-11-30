@@ -1371,7 +1371,9 @@ fun BubbleTimelineScreen(
                         authToken = appViewModel.authToken,
                         roomId = roomId,
                         onHeaderClick = {
-                            navController.navigate("room_info/$roomId")
+                            // CRITICAL FIX: Disable header click in chat bubbles - room_info route doesn't exist
+                            // in the bubble navigation graph. Users can open the full app to access room info.
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Header click disabled - room info not available in bubble navigation")
                         },
                         onOpenInApp = onOpenInApp,
                         onCloseBubble = onCloseBubble,
