@@ -740,6 +740,7 @@ class AppViewModel : ViewModel() {
     )
     
     private val pendingWebSocketOperations = mutableListOf<PendingWebSocketOperation>()
+    private val pendingOperationsLock = Any() // Lock for synchronizing access to pendingWebSocketOperations
     private val maxRetryAttempts = 3
     
     // QUEUE FLUSHING: Track if queue is being flushed to prevent out-of-order messages
@@ -5922,8 +5923,14 @@ class AppViewModel : ViewModel() {
                 val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
                 val operationsArray = JSONArray()
                 
+                // CRASH FIX: Create a snapshot to avoid ConcurrentModificationException
+                // Multiple threads may modify pendingWebSocketOperations while we're iterating
+                val operationsSnapshot = synchronized(pendingOperationsLock) {
+                    pendingWebSocketOperations.toList() // Create immutable copy
+                }
+                
                 // Convert operations to JSON
-                pendingWebSocketOperations.forEach { operation ->
+                operationsSnapshot.forEach { operation ->
                     val operationJson = JSONObject(operation.toJsonMap())
                     operationsArray.put(operationJson)
                 }
@@ -5932,7 +5939,27 @@ class AppViewModel : ViewModel() {
                     .putString("pending_websocket_operations", operationsArray.toString())
                     .apply()
                 
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved ${pendingWebSocketOperations.size} pending WebSocket operations to storage")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved ${operationsSnapshot.size} pending WebSocket operations to storage")
+            } catch (e: ConcurrentModificationException) {
+                // Retry once with a fresh snapshot if we still get CME
+                android.util.Log.w("Andromuks", "AppViewModel: ConcurrentModificationException in savePendingOperationsToStorage, retrying", e)
+                try {
+                    val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+                    val operationsArray = JSONArray()
+                    val operationsSnapshot = synchronized(pendingOperationsLock) {
+                        pendingWebSocketOperations.toList()
+                    }
+                    operationsSnapshot.forEach { operation ->
+                        val operationJson = JSONObject(operation.toJsonMap())
+                        operationsArray.put(operationJson)
+                    }
+                    prefs.edit()
+                        .putString("pending_websocket_operations", operationsArray.toString())
+                        .apply()
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved ${operationsSnapshot.size} pending WebSocket operations to storage (retry succeeded)")
+                } catch (e2: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Failed to save pending WebSocket operations to storage (retry also failed)", e2)
+                }
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Failed to save pending WebSocket operations to storage", e)
             }
