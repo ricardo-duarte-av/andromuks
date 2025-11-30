@@ -3577,8 +3577,9 @@ class AppViewModel : ViewModel() {
     /**
      * Process a single initial sync_complete message (called after init_complete for queued messages)
      * This is the same logic as updateRoomsFromSyncJsonAsync but without the queue check
+     * @return Job for the summary update, or null if no summary update is needed
      */
-    private fun processInitialSyncComplete(syncJson: JSONObject) {
+    private fun processInitialSyncComplete(syncJson: JSONObject): Job? {
         // Update last sync timestamp immediately (this is lightweight)
         lastSyncTimestamp = System.currentTimeMillis()
         
@@ -3609,7 +3610,8 @@ class AppViewModel : ViewModel() {
         }
         
         // Persist sync_complete to database (run in background)
-        appContext?.let { context ->
+        // CRITICAL FIX: Return the summary update job so we can wait for it to complete
+        val summaryUpdateJob = appContext?.let { context ->
             if (syncIngestor == null) {
                 syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
             }
@@ -3697,6 +3699,7 @@ class AppViewModel : ViewModel() {
                 "Andromuks",
                 "AppViewModel: Skipping sync persistence because appContext is null"
             )
+            null
         }
         
         // PERFORMANCE: Move heavy JSON parsing to background thread
@@ -3720,6 +3723,9 @@ class AppViewModel : ViewModel() {
                 processParsedSyncResult(syncResult, syncJson)
             }
         }
+        
+        // Return the summary update job so caller can wait for it
+        return summaryUpdateJob
     }
     
     /**
@@ -4300,17 +4306,33 @@ class AppViewModel : ViewModel() {
                         android.util.Log.d("Andromuks", "AppViewModel: Processing ${queuedMessages.size} queued initial sync_complete messages")
                     }
                     
+                    // Collect all summary update jobs to wait for them to complete
+                    val summaryUpdateJobs = mutableListOf<Job>()
+                    
                     // Process each queued message
                     for ((index, syncJson) in queuedMessages.withIndex()) {
                         if (BuildConfig.DEBUG) {
                             android.util.Log.d("Andromuks", "AppViewModel: Processing queued initial sync_complete message ${index + 1}/${queuedMessages.size}")
                         }
-                        // Process synchronously to ensure order
-                        processInitialSyncComplete(syncJson)
+                        // Process and collect summary update jobs
+                        val job = processInitialSyncComplete(syncJson)
+                        if (job != null) {
+                            summaryUpdateJobs.add(job)
+                        }
                     }
                     
                     if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Finished processing all ${queuedMessages.size} initial sync_complete messages")
+                        android.util.Log.d("Andromuks", "AppViewModel: Finished processing all ${queuedMessages.size} initial sync_complete messages, waiting for ${summaryUpdateJobs.size} summary updates to complete")
+                    }
+                    
+                    // CRITICAL FIX: Wait for all summary updates to complete before marking initial sync complete
+                    // This ensures room summaries are fully loaded from DB before showing the UI
+                    // This prevents multiple UI refreshes after initial sync is marked complete
+                    if (summaryUpdateJobs.isNotEmpty()) {
+                        summaryUpdateJobs.forEach { it.join() }
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d("Andromuks", "AppViewModel: All summary updates completed - initial sync data is now fully loaded")
+                        }
                     }
                 }
                 
