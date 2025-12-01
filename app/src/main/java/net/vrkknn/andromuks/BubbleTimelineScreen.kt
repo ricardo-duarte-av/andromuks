@@ -1753,33 +1753,52 @@ fun BubbleTimelineScreen(
                                     )
                                 }
 
-                                // Create mention transformation for TextField with proper caching
+                                // Create combined transformation for mentions and custom emojis
                                 val colorScheme = MaterialTheme.colorScheme
-                                val mentionTransformation = remember(colorScheme) {
+                                val customEmojiPacks = appViewModel.customEmojiPacks
+                                val mentionAndEmojiTransformation = remember(colorScheme, customEmojiPacks) {
                                     VisualTransformation { text ->
                                         val mentionRegex = Regex("""\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""")
+                                        // Regex for custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
+                                        val customEmojiRegex = Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
+                                        
                                         val annotatedString = buildAnnotatedString {
                                             var lastIndex = 0
                                             
-                                            for (match in mentionRegex.findAll(text.text)) {
-                                                // Add text before mention
+                                            // Collect all matches (mentions and custom emojis) and sort by position
+                                            val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                            mentionRegex.findAll(text.text).forEach { 
+                                                allMatches.add(Pair(0, it)) // 0 = mention
+                                            }
+                                            customEmojiRegex.findAll(text.text).forEach { 
+                                                allMatches.add(Pair(1, it)) // 1 = custom emoji
+                                            }
+                                            allMatches.sortBy { it.second.range.first }
+                                            
+                                            for ((type, match) in allMatches) {
+                                                // Add text before match
                                                 if (match.range.first > lastIndex) {
                                                     append(text.text.substring(lastIndex, match.range.first))
                                                 }
                                                 
-                                                // Add mention as styled text (pill-like appearance)
-                                                // Unescape the display name for display (remove backslashes before brackets)
-                                                val escapedDisplayName = match.groupValues[1]
-                                                val displayName = escapedDisplayName
-                                                    .replace("\\[", "[")
-                                                    .replace("\\]", "]")
-                                                withStyle(
-                                                    style = SpanStyle(
-                                                        color = colorScheme.onPrimaryContainer,
-                                                        background = colorScheme.primaryContainer
-                                                    )
-                                                ) {
-                                                    append(" $displayName ")
+                                                if (type == 0) {
+                                                    // Handle mention
+                                                    val escapedDisplayName = match.groupValues[1]
+                                                    val displayName = escapedDisplayName
+                                                        .replace("\\[", "[")
+                                                        .replace("\\]", "]")
+                                                    withStyle(
+                                                        style = SpanStyle(
+                                                            color = colorScheme.onPrimaryContainer,
+                                                            background = colorScheme.primaryContainer
+                                                        )
+                                                    ) {
+                                                        append(" $displayName ")
+                                                    }
+                                                } else {
+                                                    // Handle custom emoji - replace markdown with just the emoji name
+                                                    val emojiName = match.groupValues[1]
+                                                    append(":$emojiName:")
                                                 }
                                                 
                                                 lastIndex = match.range.last + 1
@@ -1799,8 +1818,17 @@ fun BubbleTimelineScreen(
                                                 var transformedOffset = 0
                                                 var originalOffset = 0
                                                 
-                                                for (match in mentionRegex.findAll(text.text)) {
-                                                    // Add text before mention
+                                                // Collect all matches (mentions and custom emojis) and sort by position
+                                                val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                                mentionRegex.findAll(text.text).forEach { 
+                                                    allMatches.add(Pair(0, it)) // 0 = mention
+                                                }
+                                                customEmojiRegex.findAll(text.text).forEach { 
+                                                    allMatches.add(Pair(1, it)) // 1 = custom emoji
+                                                }
+                                                allMatches.sortBy { it.second.range.first }
+                                                
+                                                for ((type, match) in allMatches) {
                                                     val beforeLength = match.range.first - originalOffset
                                                     if (clampedOffset <= match.range.first) {
                                                         val result = transformedOffset + (clampedOffset - originalOffset)
@@ -1809,19 +1837,25 @@ fun BubbleTimelineScreen(
                                                     transformedOffset += beforeLength
                                                     originalOffset = match.range.first
                                                     
-                                                    // Handle mention transformation
-                                                    val escapedDisplayName = match.groupValues[1]
-                                                    val displayName = escapedDisplayName
-                                                        .replace("\\[", "[")
-                                                        .replace("\\]", "]")
-                                                    val transformedMentionLength = " $displayName ".length
+                                                    val transformedLength = if (type == 0) {
+                                                        // Mention
+                                                        val escapedDisplayName = match.groupValues[1]
+                                                        val displayName = escapedDisplayName
+                                                            .replace("\\[", "[")
+                                                            .replace("\\]", "]")
+                                                        " $displayName ".length
+                                                    } else {
+                                                        // Custom emoji
+                                                        val emojiName = match.groupValues[1]
+                                                        ":$emojiName:".length
+                                                    }
                                                     
                                                     if (clampedOffset <= match.range.last + 1) {
-                                                        val result = transformedOffset + transformedMentionLength
+                                                        val result = transformedOffset + transformedLength
                                                         return result.coerceIn(0, annotatedString.length)
                                                     }
                                                     
-                                                    transformedOffset += transformedMentionLength
+                                                    transformedOffset += transformedLength
                                                     originalOffset = match.range.last + 1
                                                 }
                                                 
@@ -1836,7 +1870,17 @@ fun BubbleTimelineScreen(
                                                 var transformedOffset = 0
                                                 var originalOffset = 0
                                                 
-                                                for (match in mentionRegex.findAll(text.text)) {
+                                                // Collect all matches (mentions and custom emojis) and sort by position
+                                                val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                                mentionRegex.findAll(text.text).forEach { 
+                                                    allMatches.add(Pair(0, it)) // 0 = mention
+                                                }
+                                                customEmojiRegex.findAll(text.text).forEach { 
+                                                    allMatches.add(Pair(1, it)) // 1 = custom emoji
+                                                }
+                                                allMatches.sortBy { it.second.range.first }
+                                                
+                                                for ((type, match) in allMatches) {
                                                     val beforeLength = match.range.first - originalOffset
                                                     if (clampedOffset <= transformedOffset + beforeLength) {
                                                         val result = originalOffset + (clampedOffset - transformedOffset)
@@ -1845,29 +1889,34 @@ fun BubbleTimelineScreen(
                                                     transformedOffset += beforeLength
                                                     originalOffset = match.range.first
                                                     
-                                                    val escapedDisplayName = match.groupValues[1]
-                                                    val displayName = escapedDisplayName
-                                                        .replace("\\[", "[")
-                                                        .replace("\\]", "]")
-                                                    val transformedMentionLength = " $displayName ".length
+                                                    val transformedLength = if (type == 0) {
+                                                        // Mention
+                                                        val escapedDisplayName = match.groupValues[1]
+                                                        val displayName = escapedDisplayName
+                                                            .replace("\\[", "[")
+                                                            .replace("\\]", "]")
+                                                        " $displayName ".length
+                                                    } else {
+                                                        // Custom emoji
+                                                        val emojiName = match.groupValues[1]
+                                                        ":$emojiName:".length
+                                                    }
                                                     
-                                                    if (clampedOffset <= transformedOffset + transformedMentionLength) {
+                                                    if (clampedOffset <= transformedOffset + transformedLength) {
                                                         return match.range.last + 1
                                                     }
                                                     
-                                                    transformedOffset += transformedMentionLength
+                                                    transformedOffset += transformedLength
                                                     originalOffset = match.range.last + 1
                                                 }
                                                 
+                                                // Handle remaining text
                                                 val result = originalOffset + (clampedOffset - transformedOffset)
                                                 return result.coerceIn(0, text.text.length)
                                             }
                                         }
                                         
-                                        TransformedText(
-                                            annotatedString,
-                                            offsetMapping
-                                        )
+                                        TransformedText(annotatedString, offsetMapping)
                                     }
                                 }
 
@@ -2015,7 +2064,7 @@ fun BubbleTimelineScreen(
                                             }
                                         }
                                     ),
-                                    visualTransformation = mentionTransformation
+                                    visualTransformation = mentionAndEmojiTransformation
                                 )
                             }
                         }
