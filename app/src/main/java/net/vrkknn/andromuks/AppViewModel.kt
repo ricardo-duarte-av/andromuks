@@ -1626,12 +1626,16 @@ class AppViewModel : ViewModel() {
         val currentTime = System.currentTimeMillis()
         val oneHourAgo = currentTime - (60 * 60 * 1000L) // 1 hour
         
-        val operationsToRemove = pendingWebSocketOperations.filter { 
-            it.acknowledged && it.timestamp < oneHourAgo
+        val operationsToRemove = synchronized(pendingOperationsLock) {
+            pendingWebSocketOperations.filter { 
+                it.acknowledged && it.timestamp < oneHourAgo
+            }
         }
         
         if (operationsToRemove.isNotEmpty()) {
-            operationsToRemove.forEach { pendingWebSocketOperations.remove(it) }
+            synchronized(pendingOperationsLock) {
+                operationsToRemove.forEach { pendingWebSocketOperations.remove(it) }
+            }
             savePendingOperationsToStorage()
             android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.4 - Cleaned up ${operationsToRemove.size} acknowledged messages older than 1 hour")
         } else {
@@ -5907,17 +5911,21 @@ class AppViewModel : ViewModel() {
      */
     private fun addPendingOperation(operation: PendingWebSocketOperation): Boolean {
         // PHASE 5.1: Enforce queue size limit (remove oldest if at limit)
-        if (pendingWebSocketOperations.size >= MAX_QUEUE_SIZE) {
-            // Remove oldest operation (sorted by timestamp)
-            val sorted = pendingWebSocketOperations.sortedBy { it.timestamp }
-            val oldest = sorted.firstOrNull()
-            if (oldest != null) {
-                pendingWebSocketOperations.remove(oldest)
-                android.util.Log.w("Andromuks", "AppViewModel: Queue full (${MAX_QUEUE_SIZE}), removed oldest operation: ${oldest.type}")
+        synchronized(pendingOperationsLock) {
+            if (pendingWebSocketOperations.size >= MAX_QUEUE_SIZE) {
+                // Remove oldest operation (by timestamp)
+                val oldest = pendingWebSocketOperations.minByOrNull { it.timestamp }
+                if (oldest != null) {
+                    pendingWebSocketOperations.remove(oldest)
+                    android.util.Log.w(
+                        "Andromuks",
+                        "AppViewModel: Queue full (${MAX_QUEUE_SIZE}), removed oldest operation: ${oldest.type}"
+                    )
+                }
             }
+            
+            pendingWebSocketOperations.add(operation)
         }
-        
-        pendingWebSocketOperations.add(operation)
         savePendingOperationsToStorage()
         return true
     }
@@ -6025,8 +6033,10 @@ class AppViewModel : ViewModel() {
                     loadedOperations
                 }
                 
-                pendingWebSocketOperations.clear()
-                pendingWebSocketOperations.addAll(operationsToLoad)
+                synchronized(pendingOperationsLock) {
+                    pendingWebSocketOperations.clear()
+                    pendingWebSocketOperations.addAll(operationsToLoad)
+                }
                 
                 if (operationsToLoad.isNotEmpty()) {
                     android.util.Log.i("Andromuks", "AppViewModel: Loaded ${operationsToLoad.size} pending WebSocket operations from storage (removed ${loadedOperations.size - operationsToLoad.size} old/over-limit)")
@@ -6044,12 +6054,15 @@ class AppViewModel : ViewModel() {
      * Waits for init_complete, then adds stabilization delay before flushing to prevent triple-sending
      */
     private fun flushPendingQueueAfterReconnection() {
-        if (pendingWebSocketOperations.isEmpty()) {
+        val pendingSize = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
+        if (pendingSize == 0) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending operations to flush after reconnection")
             return
         }
         
-        val unacknowledgedCount = pendingWebSocketOperations.count { !it.acknowledged }
+        val unacknowledgedCount = synchronized(pendingOperationsLock) {
+            pendingWebSocketOperations.count { !it.acknowledged }
+        }
         if (unacknowledgedCount == 0) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: All pending operations already acknowledged, no flush needed")
             return
@@ -6073,7 +6086,8 @@ class AppViewModel : ViewModel() {
                 // Wait a bit more to ensure all retries are processed
                 delay(500L)
                 
-                android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Flush complete, ${pendingWebSocketOperations.size} operations remain in queue")
+                val remaining = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
+                android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Flush complete, $remaining operations remain in queue")
             } finally {
                 // Clear flag to allow new messages
                 isFlushingQueue = false
@@ -6087,7 +6101,8 @@ class AppViewModel : ViewModel() {
      * QUEUE FLUSHING FIX: Now respects stabilization period after reconnection
      */
     private fun retryPendingWebSocketOperations() {
-        if (pendingWebSocketOperations.isEmpty()) {
+        val pendingSize = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
+        if (pendingSize == 0) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending WebSocket operations to retry")
             return
         }
@@ -6098,22 +6113,32 @@ class AppViewModel : ViewModel() {
         // 1. Only unacknowledged messages
         // 2. Only if acknowledgmentTimeout has passed
         // 3. Sort by timestamp (oldest first)
-        val operationsToRetry = pendingWebSocketOperations
-            .filter { !it.acknowledged && currentTime >= it.acknowledgmentTimeout }
-            .sortedBy { it.timestamp }
-            .take(10) // PHASE 5.4: Limit batch size to 10 at a time
+        val operationsToRetry = synchronized(pendingOperationsLock) {
+            pendingWebSocketOperations
+                .filter { !it.acknowledged && currentTime >= it.acknowledgmentTimeout }
+                .sortedBy { it.timestamp }
+                .take(10) // PHASE 5.4: Limit batch size to 10 at a time
+        }
         
         if (operationsToRetry.isEmpty()) {
-            val acknowledgedCount = pendingWebSocketOperations.count { it.acknowledged }
-            val waitingCount = pendingWebSocketOperations.count { currentTime < it.acknowledgmentTimeout }
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No operations ready to retry (acknowledged: $acknowledgedCount, waiting for timeout: $waitingCount, total: ${pendingWebSocketOperations.size})")
+            val (acknowledgedCount, waitingCount, total) = synchronized(pendingOperationsLock) {
+                val ack = pendingWebSocketOperations.count { it.acknowledged }
+                val waiting = pendingWebSocketOperations.count { currentTime < it.acknowledgmentTimeout }
+                Triple(ack, waiting, pendingWebSocketOperations.size)
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: No operations ready to retry (acknowledged: $acknowledgedCount, waiting for timeout: $waitingCount, total: $total)"
+            )
             return
         }
         
         android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.4 - Retrying ${operationsToRetry.size} pending WebSocket operations (oldest first, batch limited to 10)")
         
         // Remove operations from queue before retrying (will be re-added if they fail)
-        operationsToRetry.forEach { pendingWebSocketOperations.remove(it) }
+        synchronized(pendingOperationsLock) {
+            operationsToRetry.forEach { pendingWebSocketOperations.remove(it) }
+        }
         savePendingOperationsToStorage()
         
         // PHASE 5.4: Retry operations with delay between retries to avoid rate limiting
@@ -13066,18 +13091,24 @@ class AppViewModel : ViewModel() {
      * This is called from handleResponse() and handleError() for all commands with positive request_id
      */
     private fun handleMessageAcknowledgmentByRequestId(requestId: Int) {
-        val operation = pendingWebSocketOperations.find { 
-            val opRequestId = it.data["requestId"] as? Int
-            opRequestId == requestId
+        val operation: PendingWebSocketOperation? = synchronized(pendingOperationsLock) {
+            pendingWebSocketOperations.find { op ->
+                (op.data["requestId"] as? Int) == requestId
+            }
         }
         if (operation != null) {
             val command = operation.data["command"] as? String ?: operation.type.removePrefix("command_")
             val elapsed = System.currentTimeMillis() - operation.timestamp
             android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.3 - Command acknowledged by request_id: requestId=$requestId, command=$command, type=${operation.type}, elapsed=${elapsed}ms")
             logActivity("Command Acknowledged - $command (request_id: $requestId)", null)
-            pendingWebSocketOperations.remove(operation)
+            synchronized(pendingOperationsLock) {
+                pendingWebSocketOperations.remove(operation)
+            }
             savePendingOperationsToStorage()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed acknowledged command from queue (${pendingWebSocketOperations.size} remaining)")
+            if (BuildConfig.DEBUG) {
+                val remaining = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
+                android.util.Log.d("Andromuks", "AppViewModel: Removed acknowledged command from queue ($remaining remaining)")
+            }
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - No pending operation found for requestId: $requestId (may have been already acknowledged, not tracked, or request_id=0)")
         }
