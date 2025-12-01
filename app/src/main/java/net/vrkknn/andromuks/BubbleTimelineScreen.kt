@@ -865,6 +865,49 @@ fun BubbleTimelineScreen(
         return null
     }
 
+    // Handle backspace deletion of custom emoji markdown
+    fun handleCustomEmojiDeletion(
+        oldValue: TextFieldValue,
+        newValue: TextFieldValue
+    ): TextFieldValue {
+        // Check if text was deleted (backspace was pressed)
+        if (newValue.text.length >= oldValue.text.length) return newValue
+        
+        val oldText = oldValue.text
+        val newText = newValue.text
+        val cursor = newValue.selection.start
+        val deletedLength = oldText.length - newText.length
+        
+        // Regex for custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
+        val customEmojiRegex = Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
+        
+        // Find all custom emoji markdowns in the old text
+        val matches = customEmojiRegex.findAll(oldText).toList()
+        
+        // Check if cursor is within or right after a custom emoji markdown
+        for (match in matches) {
+            val markdownStart = match.range.first
+            val markdownEnd = match.range.last + 1
+            
+            // Check if cursor is within the markdown range (user is deleting from within the markdown)
+            // Or if cursor is right after the markdown and only one character was deleted
+            if (cursor >= markdownStart && cursor <= markdownEnd && deletedLength == 1) {
+                // User is deleting the custom emoji, remove the entire markdown
+                val beforeMarkdown = oldText.substring(0, markdownStart)
+                val afterMarkdown = oldText.substring(markdownEnd)
+                val finalText = beforeMarkdown + afterMarkdown
+                val finalCursor = markdownStart
+                
+                return TextFieldValue(
+                    text = finalText,
+                    selection = TextRange(finalCursor)
+                )
+            }
+        }
+        
+        return newValue
+    }
+
     // Replace completed :shortcode: with its emoji/custom emoji representation
     fun applyCompletedEmojiShortcode(
         value: TextFieldValue
@@ -1924,8 +1967,11 @@ fun BubbleTimelineScreen(
                                 CustomBubbleTextField(
                                     value = textFieldValue,
                                     onValueChange = { newValue: TextFieldValue ->
-                                        // First, apply any completed :shortcode: replacement
-                                        val replacedValue = applyCompletedEmojiShortcode(newValue)
+                                        // First, handle custom emoji deletion (backspace on :name:)
+                                        val afterDeletion = handleCustomEmojiDeletion(textFieldValue, newValue)
+                                        
+                                        // Then, apply any completed :shortcode: replacement
+                                        val replacedValue = applyCompletedEmojiShortcode(afterDeletion)
                                         textFieldValue = replacedValue
                                         draft = replacedValue.text
                                         
