@@ -102,15 +102,22 @@ class SyncIngestor(private val context: Context) {
     }
     
     /**
-     * Check if run_id has changed and clear all data if it has
-     * Returns true if run_id changed (data was cleared), false otherwise
+     * Check if run_id has changed and update it if needed
+     * 
+     * CRITICAL: We do NOT clear any data when run_id changes because:
+     * 1. Logout is not supported in this app - user data should always persist
+     * 2. run_id change just means backend restarted or connection reset
+     * 3. All user data (events, rooms, account_data, etc.) should persist across connection resets
+     * 
+     * Returns true if run_id changed, false otherwise
      */
     suspend fun checkAndHandleRunIdChange(newRunId: String): Boolean = withContext(Dispatchers.IO) {
         val storedRunId = syncMetaDao.get("run_id") ?: ""
         
         if (storedRunId.isNotEmpty() && storedRunId != newRunId) {
-            Log.w(TAG, "Run ID changed from '$storedRunId' to '$newRunId' - clearing all local data")
-            clearAllData()
+            Log.w(TAG, "Run ID changed from '$storedRunId' to '$newRunId' - updating run_id (preserving all user data)")
+            // Just update the run_id - do NOT clear any data
+            // All user data (events, rooms, account_data, etc.) should persist
             syncMetaDao.upsert(SyncMetaEntity("run_id", newRunId))
             return@withContext true
         } else if (storedRunId.isEmpty()) {
@@ -119,33 +126,6 @@ class SyncIngestor(private val context: Context) {
         }
         
         return@withContext false
-    }
-    
-    /**
-     * Clear all persisted data (called when run_id changes)
-     */
-    private suspend fun clearAllData() {
-        if (BuildConfig.DEBUG) Log.d(TAG, "Clearing all persisted sync data")
-        database.withTransaction {
-            // Clear all events, room states, summaries, receipts
-            eventDao.deleteAll()
-            roomStateDao.deleteAll()
-            roomSummaryDao.deleteAll()
-            receiptDao.deleteAll()
-            reactionDao.clearAll()
-            
-            // Clear spaces and space-room relationships
-            spaceRoomDao.deleteAllSpaceRooms()
-            spaceDao.deleteAllSpaces()
-            
-            // Clear account data
-            accountDataDao.deleteAll()
-            
-            // Clear sync metadata except run_id (which we just set)
-            syncMetaDao.upsert(SyncMetaEntity("last_received_id", "0"))
-            syncMetaDao.upsert(SyncMetaEntity("since", ""))
-        }
-        if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all sync data: events, room states, summaries, receipts, spaces, account_data")
     }
     
     /**
@@ -169,7 +149,7 @@ class SyncIngestor(private val context: Context) {
         // Check run_id first - this is critical!
         val runIdChanged = checkAndHandleRunIdChange(runId)
         if (runIdChanged) {
-            Log.w(TAG, "Run ID changed - previous data cleared, ingesting fresh sync")
+            Log.w(TAG, "Run ID changed - updated run_id, preserving all user data and ingesting sync")
         }
         
         val data = syncJson.optJSONObject("data") ?: run {
