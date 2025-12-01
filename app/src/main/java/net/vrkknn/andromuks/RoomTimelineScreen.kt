@@ -157,6 +157,8 @@ import net.vrkknn.andromuks.utils.UploadingDialog
 import net.vrkknn.andromuks.utils.VideoUploadUtils
 import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
+import net.vrkknn.andromuks.utils.EmojiShortcodes
+import net.vrkknn.andromuks.utils.EmojiSuggestionList
 import net.vrkknn.andromuks.BuildConfig
 
 
@@ -529,6 +531,13 @@ fun RoomTimelineScreen(
     var showMentionList by remember { mutableStateOf(false) }
     var mentionQuery by remember { mutableStateOf("") }
     var mentionStartIndex by remember { mutableStateOf(-1) }
+    var isWaitingForFullMemberList by remember { mutableStateOf(false) }
+    var lastMemberUpdateCounterBeforeMention by remember { mutableStateOf(appViewModel.memberUpdateCounter) }
+    
+    // Emoji shortcode ( :shortname: ) state
+    var showEmojiSuggestionList by remember { mutableStateOf(false) }
+    var emojiQuery by remember { mutableStateOf("") }
+    var emojiStartIndex by remember { mutableStateOf(-1) }
     
     // Sync draft with TextFieldValue
     LaunchedEffect(draft) {
@@ -562,6 +571,20 @@ fun RoomTimelineScreen(
     LaunchedEffect(replyingToEvent) {
         if (replyingToEvent != null) {
             showMentionList = false
+            isWaitingForFullMemberList = false
+        }
+    }
+    
+    // Show mention list when full member list is loaded
+    LaunchedEffect(appViewModel.memberUpdateCounter, isWaitingForFullMemberList) {
+        if (isWaitingForFullMemberList && appViewModel.memberUpdateCounter > lastMemberUpdateCounterBeforeMention) {
+            // Full member list has been loaded, now show the mention list
+            val memberMap = appViewModel.getMemberMap(roomId)
+            if (memberMap.isNotEmpty()) {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Full member list loaded (${memberMap.size} members), showing mention list")
+                showMentionList = true
+                isWaitingForFullMemberList = false
+            }
         }
     }
     
@@ -812,6 +835,108 @@ fun RoomTimelineScreen(
         }
         
         return null
+    }
+
+    // Emoji shortcode detection function (for ':' based autocomplete)
+    fun detectEmojiShortcode(text: String, cursorPosition: Int): Pair<String, Int>? {
+        if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
+        
+        // Look for ':' at or before cursor position
+        var colonIndex = -1
+        for (i in (cursorPosition - 1) downTo 0) {
+            val c = text[i]
+            if (c == ':') {
+                colonIndex = i
+                break
+            }
+            // Stop if we hit a delimiter before finding ':'
+            if (c == ' ' || c == '\n' || c == '\t') {
+                break
+            }
+        }
+        
+        if (colonIndex == -1) return null
+        
+        // Ensure ':' is at start of text or preceded by whitespace/newline
+        if (colonIndex > 0) {
+            val prev = text[colonIndex - 1]
+            if (prev != ' ' && prev != '\n' && prev != '\t') {
+                return null
+            }
+        }
+        
+        val queryStart = colonIndex + 1
+        var queryEnd = cursorPosition
+        
+        // Stop query at next delimiter or second ':'
+        if (cursorPosition < text.length) {
+            for (i in cursorPosition until text.length) {
+                val c = text[i]
+                if (c == ' ' || c == '\n' || c == '\t' || c == ':') {
+                    break
+                }
+                queryEnd = i + 1
+            }
+        }
+        
+        if (queryStart <= cursorPosition) {
+            val safeEnd = min(queryEnd, text.length)
+            val query =
+                if (queryStart < safeEnd) text.substring(queryStart, safeEnd) else ""
+            return Pair(query, colonIndex)
+        }
+        
+        return null
+    }
+
+    // Replace completed :shortcode: with its emoji/custom emoji representation
+    fun applyCompletedEmojiShortcode(
+        value: TextFieldValue
+    ): TextFieldValue {
+        val text = value.text
+        val cursor = value.selection.start
+        if (cursor <= 0 || cursor > text.length) return value
+        if (text[cursor - 1] != ':') return value
+        
+        // Find matching opening ':'
+        var start = cursor - 2
+        while (start >= 0) {
+            val c = text[start]
+            if (c == ':') {
+                break
+            }
+            if (c == ' ' || c == '\n' || c == '\t') {
+                return value
+            }
+            start--
+        }
+        
+        if (start < 0 || text[start] != ':') return value
+        
+        val nameStart = start + 1
+        val nameEnd = cursor - 1
+        if (nameEnd <= nameStart) return value
+        
+        val shortcode = text.substring(nameStart, nameEnd)
+        val suggestion =
+            EmojiShortcodes.findByShortcode(shortcode, appViewModel.customEmojiPacks)
+                ?: return value
+        
+        val replacement =
+            suggestion.emoji
+                ?: suggestion.customEmoji?.let { custom ->
+                    "![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")"
+                }
+                ?: return value
+        
+        val newText =
+            text.substring(0, start) + replacement + text.substring(cursor)
+        val newCursorPos = start + replacement.length
+        
+        return TextFieldValue(
+            text = newText,
+            selection = TextRange(newCursorPos)
+        )
     }
 
     fun handleMentionSelection(userId: String, displayName: String?, originalText: String, startIndex: Int, endIndex: Int): String {
@@ -1976,18 +2101,63 @@ fun RoomTimelineScreen(
                                 CustomBubbleTextField(
                                     value = textFieldValue,
                                     onValueChange = { newValue: TextFieldValue ->
-                                        textFieldValue = newValue
-                                        draft = newValue.text
+                                        // First, apply any completed :shortcode: replacement
+                                        val replacedValue = applyCompletedEmojiShortcode(newValue)
+                                        textFieldValue = replacedValue
+                                        draft = replacedValue.text
                                         
                                         // Detect mentions
-                                        val mentionResult = detectMention(newValue.text, newValue.selection.start)
+                                        val mentionResult = detectMention(
+                                            replacedValue.text,
+                                            replacedValue.selection.start
+                                        )
                                         if (mentionResult != null) {
                                             val (query, startIndex) = mentionResult
                                             mentionQuery = query
                                             mentionStartIndex = startIndex
-                                            showMentionList = true
+                                            
+                                            // CRITICAL FIX: Load cached members immediately, then request fresh data
+                                            if (!isWaitingForFullMemberList && !showMentionList) {
+                                                // Check if we already have members in memory cache
+                                                val memberMap = appViewModel.getMemberMap(roomId)
+                                                if (memberMap.isEmpty() || memberMap.size < 10) {
+                                                    // Load from database first (immediate display)
+                                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                                                        val cachedMembers = appViewModel.loadMembersFromDatabase(roomId)
+                                                        if (cachedMembers.isNotEmpty()) {
+                                                            // Show cached members immediately
+                                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Showing ${cachedMembers.size} cached members from database")
+                                                            showMentionList = true
+                                                        }
+                                                        
+                                                        // Request fresh data from server (will update when it arrives)
+                                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: @ detected, requesting fresh member list for room $roomId")
+                                                        isWaitingForFullMemberList = true
+                                                        lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
+                                                        appViewModel.requestFullMemberList(roomId)
+                                                    }
+                                                } else {
+                                                    // We already have members in memory, show list immediately
+                                                    showMentionList = true
+                                                }
+                                            }
                                         } else {
                                             showMentionList = false
+                                            isWaitingForFullMemberList = false
+                                        }
+
+                                        // Detect emoji shortcodes ( :shortname )
+                                        val emojiResult = detectEmojiShortcode(
+                                            replacedValue.text,
+                                            replacedValue.selection.start
+                                        )
+                                        if (emojiResult != null) {
+                                            val (query, startIndex) = emojiResult
+                                            emojiQuery = query
+                                            emojiStartIndex = startIndex
+                                            showEmojiSuggestionList = true
+                                        } else {
+                                            showEmojiSuggestionList = false
                                         }
                                     },
                                     placeholder = { Text("Type a message...") },
@@ -2268,6 +2438,77 @@ fun RoomTimelineScreen(
                                 }
                             }
                         }
+                    }
+                }
+                
+                // Floating emoji shortcode suggestion list
+                if (showEmojiSuggestionList) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(
+                                start = 72.dp, // Align with text input (attach button width + spacing)
+                                bottom = 80.dp  // Above text input
+                            )
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .zIndex(9f)
+                    ) {
+                        EmojiSuggestionList(
+                            query = emojiQuery,
+                            customEmojiPacks = appViewModel.customEmojiPacks,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onSuggestionSelected = { suggestion ->
+                                val currentText = draft
+                                val cursorPos = textFieldValue.selection.start
+                                val endIndex = cursorPos
+                                
+                                val baseReplacement =
+                                    suggestion.emoji
+                                        ?: suggestion.customEmoji?.let { custom ->
+                                            "![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")"
+                                        }
+                                        ?: ""
+                                
+                                if (baseReplacement.isNotEmpty() && emojiStartIndex >= 0 && emojiStartIndex < endIndex) {
+                                    val newText =
+                                        currentText.substring(0, emojiStartIndex) +
+                                            baseReplacement +
+                                            currentText.substring(endIndex)
+                                    val newCursor = emojiStartIndex + baseReplacement.length
+                                    
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursor)
+                                    )
+                                    
+                                    // Update recent emojis (reuse logic from EmojiSelectionDialog for custom emojis)
+                                    val emojiForRecent =
+                                        if (baseReplacement.startsWith("![:") && baseReplacement.contains("mxc://")) {
+                                            val mxcStart = baseReplacement.indexOf("mxc://")
+                                            if (mxcStart >= 0) {
+                                                val mxcEnd = baseReplacement.indexOf("\"", mxcStart)
+                                                if (mxcEnd > mxcStart) {
+                                                    baseReplacement.substring(mxcStart, mxcEnd)
+                                                } else {
+                                                    baseReplacement.substring(mxcStart)
+                                                }
+                                            } else {
+                                                baseReplacement
+                                            }
+                                        } else {
+                                            baseReplacement
+                                        }
+                                    appViewModel.updateRecentEmojis(emojiForRecent)
+                                }
+                                
+                                showEmojiSuggestionList = false
+                                emojiQuery = ""
+                            },
+                            modifier = Modifier.zIndex(10f)
+                        )
                     }
                 }
                 

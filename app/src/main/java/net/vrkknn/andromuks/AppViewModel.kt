@@ -576,6 +576,9 @@ class AppViewModel : ViewModel() {
     // Track pending emoji pack requests: requestId -> (roomId, packName)
     private val emojiPackRequests = mutableMapOf<Int, Pair<String, String>>()
     
+    // Queue for emoji pack requests that were deferred because WebSocket wasn't ready
+    private val deferredEmojiPackRequests = mutableListOf<Pair<String, String>>() // (roomId, packName)
+    
     // Cache for DM room IDs from m.direct account data
     private var directMessageRoomIds by mutableStateOf(setOf<String>())
         private set
@@ -2055,6 +2058,39 @@ class AppViewModel : ViewModel() {
         return roomMemberCache[roomId]?.get(userId)
     }
 
+    /**
+     * Loads members from database and populates the cache for immediate display.
+     * This allows showing cached members immediately when @ is typed, even if data is slightly out-of-date.
+     */
+    suspend fun loadMembersFromDatabase(roomId: String): Map<String, MemberProfile> = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        try {
+            val context = appContext ?: return@withContext emptyMap()
+            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+            val roomMemberDao = database.roomMemberDao()
+            
+            val memberEntities = roomMemberDao.getMembersForRoom(roomId)
+            if (memberEntities.isEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No cached members found in database for room $roomId")
+                return@withContext emptyMap()
+            }
+            
+            // Convert to MemberProfile map and populate cache
+            val memberMap = memberEntities.associate { entity ->
+                entity.userId to MemberProfile(entity.displayName, entity.avatarUrl)
+            }
+            
+            // Populate the in-memory cache
+            val cacheMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
+            cacheMap.putAll(memberMap)
+            
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${memberMap.size} cached members from database for room $roomId")
+            memberMap
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Error loading members from database: ${e.message}", e)
+            emptyMap()
+        }
+    }
+    
     fun getMemberMap(roomId: String): Map<String, MemberProfile> {
         // OPTIMIZED: Use indexed cache for O(1) lookups instead of scanning all entries
         val memberMap = mutableMapOf<String, MemberProfile>()
@@ -5552,6 +5588,17 @@ class AppViewModel : ViewModel() {
         initialSyncComplete = false // Reset so UI waits for initial sync to complete again
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initial sync phase started - will queue sync_complete messages until init_complete")
         
+        // CRITICAL FIX: Process deferred emoji pack requests when WebSocket is set
+        // This ensures custom emojis are loaded even if account_data was processed before WebSocket connected
+        if (deferredEmojiPackRequests.isNotEmpty()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing ${deferredEmojiPackRequests.size} deferred emoji pack requests after WebSocket connection")
+            val requests = deferredEmojiPackRequests.toList()
+            deferredEmojiPackRequests.clear()
+            for ((roomId, packName) in requests) {
+                requestEmojiPackData(roomId, packName)
+            }
+        }
+        
         // PHASE 4: Register this ViewModel to receive WebSocket messages
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Registering $viewModelId to receive WebSocket messages")
         WebSocketService.registerReceiveCallback(viewModelId, this)
@@ -6292,6 +6339,62 @@ class AppViewModel : ViewModel() {
         
         // Update service with last_received_sync_id only (run_id is read from SharedPreferences)
         WebSocketService.setReconnectionState(lastReceivedSyncId)
+        
+        // CRITICAL FIX: Process deferred emoji pack requests when WebSocket is ready
+        // This ensures custom emojis are loaded even if account_data was processed before WebSocket connected
+        if (deferredEmojiPackRequests.isNotEmpty() && webSocket != null) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing ${deferredEmojiPackRequests.size} deferred emoji pack requests")
+            val requests = deferredEmojiPackRequests.toList()
+            deferredEmojiPackRequests.clear()
+            for ((roomId, packName) in requests) {
+                requestEmojiPackData(roomId, packName)
+            }
+        }
+        
+        // CRITICAL FIX: Reload emoji packs from stored account_data if WebSocket is now ready
+        // This handles the case where account_data was loaded from database before WebSocket connected
+        if (webSocket != null) {
+            appContext?.let { context ->
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        val bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
+                        val accountDataJson = bootstrapLoader.loadAccountData()
+                        if (accountDataJson != null) {
+                            val accountDataObj = org.json.JSONObject(accountDataJson)
+                            val emoteRoomsData = accountDataObj.optJSONObject("im.ponies.emote_rooms")
+                            if (emoteRoomsData != null) {
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reloading emoji packs from stored account_data after WebSocket connection")
+                                withContext(Dispatchers.Main) {
+                                    // Process emote_rooms again to request emoji pack data
+                                    val content = emoteRoomsData.optJSONObject("content")
+                                    val rooms = content?.optJSONObject("rooms")
+                                    if (rooms != null) {
+                                        val keys = rooms.names()
+                                        if (keys != null) {
+                                            for (i in 0 until keys.length()) {
+                                                val roomId = keys.optString(i)
+                                                val packsObj = rooms.optJSONObject(roomId)
+                                                if (packsObj != null) {
+                                                    val packNames = packsObj.names()
+                                                    if (packNames != null) {
+                                                        for (j in 0 until packNames.length()) {
+                                                            val packName = packNames.optString(j)
+                                                            requestEmojiPackData(roomId, packName)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Error reloading emoji packs from account_data: ${e.message}", e)
+                    }
+                }
+            }
+        }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Run ID stored and service updated")
     }
@@ -8965,7 +9068,10 @@ class AppViewModel : ViewModel() {
      */
     private fun requestEmojiPackData(roomId: String, packName: String) {
         if (webSocket == null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not connected, skipping emoji pack request for $packName in $roomId")
+            // CRITICAL FIX: Queue emoji pack requests when WebSocket isn't ready
+            // They will be processed when WebSocket connects
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not connected, queuing emoji pack request for $packName in $roomId")
+            deferredEmojiPackRequests.add(Pair(roomId, packName))
             return
         }
         
@@ -10129,22 +10235,24 @@ class AppViewModel : ViewModel() {
      * @param profile The MemberProfile object containing display name and avatar URL
      */
     private fun queueProfileForBatchSave(userId: String, profile: MemberProfile) {
-        // Aggressive memory management: Much smaller batch size to prevent OOM
-        if (pendingProfileSaves.size >= 50) {
-            android.util.Log.w("Andromuks", "AppViewModel: Too many pending profile saves (${pendingProfileSaves.size}), forcing immediate save")
-            viewModelScope.launch(Dispatchers.IO) {
-                performBatchProfileSave()
+        synchronized(pendingProfileSaves) {
+            // Aggressive memory management: Much smaller batch size to prevent OOM
+            if (pendingProfileSaves.size >= 50) {
+                android.util.Log.w("Andromuks", "AppViewModel: Too many pending profile saves (${pendingProfileSaves.size}), forcing immediate save")
+                viewModelScope.launch(Dispatchers.IO) {
+                    performBatchProfileSave()
+                }
             }
-        }
-        
-        pendingProfileSaves[userId] = profile
-        
-        // Start batch save job if not already running
-        if (profileSaveJob?.isActive != true) {
-            profileSaveJob = viewModelScope.launch(Dispatchers.IO) {
-                // Much shorter delay to save more frequently
-                delay(50)
-                performBatchProfileSave()
+            
+            pendingProfileSaves[userId] = profile
+            
+            // Start batch save job if not already running
+            if (profileSaveJob?.isActive != true) {
+                profileSaveJob = viewModelScope.launch(Dispatchers.IO) {
+                    // Much shorter delay to save more frequently
+                    delay(50)
+                    performBatchProfileSave()
+                }
             }
         }
     }
@@ -10152,13 +10260,19 @@ class AppViewModel : ViewModel() {
     /**
      * Performs batch saving of all queued profiles to database.
      * This significantly reduces disk I/O when processing large member lists.
+     * Thread-safe: Uses synchronized to prevent concurrent saves.
      */
     private suspend fun performBatchProfileSave() {
-        if (pendingProfileSaves.isEmpty()) return
+        val profilesToSave = synchronized(pendingProfileSaves) {
+            if (pendingProfileSaves.isEmpty()) return
+            val profiles = pendingProfileSaves.toMap()
+            pendingProfileSaves.clear()
+            profiles
+        }
+        
+        if (profilesToSave.isEmpty()) return
         
         val startTime = System.currentTimeMillis()
-        val profilesToSave = pendingProfileSaves.toMap()
-        pendingProfileSaves.clear()
         
         try {
             // Initialize repository if needed
@@ -10191,10 +10305,12 @@ class AppViewModel : ViewModel() {
      * no profile data is lost.
      */
     fun flushPendingProfileSaves() {
-        if (pendingProfileSaves.isNotEmpty()) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Flushing ${pendingProfileSaves.size} pending profile saves")
-            viewModelScope.launch(Dispatchers.IO) {
-                performBatchProfileSave()
+        synchronized(pendingProfileSaves) {
+            if (pendingProfileSaves.isNotEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Flushing ${pendingProfileSaves.size} pending profile saves")
+                viewModelScope.launch(Dispatchers.IO) {
+                    performBatchProfileSave()
+                }
             }
         }
     }
@@ -11404,6 +11520,8 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared $previousSize existing members from cache for fresh member list")
         
         var updatedMembers = 0
+        val isLargeRoom = events.length() > 100
+        val profilesToBatchSave = mutableMapOf<String, MemberProfile>()
         
         for (i in 0 until events.length()) {
             val event = events.optJSONObject(i) ?: continue
@@ -11427,25 +11545,21 @@ class AppViewModel : ViewModel() {
                             // Use storeMemberProfile to ensure optimization (only store room-specific if differs from global)
                             storeMemberProfile(roomId, stateKey, newProfile)
                             
-                            // MEMORY MANAGEMENT: Cleanup if needed
-                            manageGlobalCacheSize()
-                            manageRoomMemberCacheSize(roomId)
-                            manageFlattenedMemberCacheSize()
+                            // MEMORY MANAGEMENT: Cleanup if needed (less frequently for large rooms)
+                            if (!isLargeRoom || updatedMembers % 50 == 0) {
+                                manageGlobalCacheSize()
+                                manageRoomMemberCacheSize(roomId)
+                                manageFlattenedMemberCacheSize()
+                            }
                             
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added member $stateKey to room $roomId - displayName: '$displayName', avatarUrl: '$avatarUrl'")
+                            if (BuildConfig.DEBUG && updatedMembers < 20) {
+                                android.util.Log.d("Andromuks", "AppViewModel: Added member $stateKey to room $roomId - displayName: '$displayName', avatarUrl: '$avatarUrl'")
+                            }
                             updatedMembers++
                             
-                            // For large member lists, save immediately to prevent OOM
-                            if (updatedMembers > 100) {
-                                // Immediate save for large lists to prevent memory buildup
-                                appContext?.let { context ->
-                                    if (profileRepository == null) {
-                                        profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
-                                    }
-                                    viewModelScope.launch(Dispatchers.IO) {
-                                        profileRepository?.saveProfile(stateKey, newProfile)
-                                    }
-                                }
+                            // For large rooms, collect profiles for batch save instead of queuing individually
+                            if (isLargeRoom) {
+                                profilesToBatchSave[stateKey] = newProfile
                                 
                                 // For very large lists, clear caches aggressively
                                 if (updatedMembers > 500) {
@@ -11485,6 +11599,54 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedMembers members in full member list for room $roomId in ${duration}ms")
             // Trigger UI update since member cache changed
             updateCounter++
+            memberUpdateCounter++ // CRITICAL: Increment memberUpdateCounter so UI recomposes and shows mention list
+            
+            // CRITICAL FIX: For large rooms, batch save all profiles at once instead of queuing individually
+            if (isLargeRoom && profilesToBatchSave.isNotEmpty()) {
+                appContext?.let { context ->
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            // Initialize repository if needed
+                            if (profileRepository == null) {
+                                profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
+                            }
+                            
+                            // Batch save all profiles at once
+                            profileRepository?.saveProfiles(profilesToBatchSave)
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Batch saved ${profilesToBatchSave.size} profiles for large room $roomId")
+                        } catch (e: Exception) {
+                            android.util.Log.e("Andromuks", "AppViewModel: Error batch saving profiles for large room: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+            
+            // CRITICAL FIX: Store members in database for immediate display when @ is typed
+            appContext?.let { context ->
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                        val roomMemberDao = database.roomMemberDao()
+                        
+                        // Convert memberMap to RoomMemberEntity list
+                        val memberEntities = memberMap.map { (userId, profile) ->
+                            net.vrkknn.andromuks.database.entities.RoomMemberEntity(
+                                roomId = roomId,
+                                userId = userId,
+                                displayName = profile.displayName,
+                                avatarUrl = profile.avatarUrl,
+                                lastUpdated = System.currentTimeMillis()
+                            )
+                        }
+                        
+                        // Replace all members for this room in database
+                        roomMemberDao.replaceRoomMembers(roomId, memberEntities)
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Stored ${memberEntities.size} members in database for room $roomId")
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Error storing members in database: ${e.message}", e)
+                    }
+                }
+            }
         }
         
         // Also parse room state metadata (name, alias, topic, avatar) for header display
