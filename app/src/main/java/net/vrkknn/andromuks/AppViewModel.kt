@@ -1628,13 +1628,13 @@ class AppViewModel : ViewModel() {
         
         val operationsToRemove = synchronized(pendingOperationsLock) {
             pendingWebSocketOperations.filter { 
-                it.acknowledged && it.timestamp < oneHourAgo
+            it.acknowledged && it.timestamp < oneHourAgo
             }
         }
         
         if (operationsToRemove.isNotEmpty()) {
             synchronized(pendingOperationsLock) {
-                operationsToRemove.forEach { pendingWebSocketOperations.remove(it) }
+            operationsToRemove.forEach { pendingWebSocketOperations.remove(it) }
             }
             savePendingOperationsToStorage()
             android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.4 - Cleaned up ${operationsToRemove.size} acknowledged messages older than 1 hour")
@@ -3744,7 +3744,7 @@ class AppViewModel : ViewModel() {
         // Return the summary update job so caller can wait for it
         return summaryUpdateJob
     }
-    
+
     /**
      * PERFORMANCE OPTIMIZATION: Async version that processes JSON on background thread
      * This prevents UI blocking during sync parsing (200-500ms improvement)
@@ -4031,8 +4031,8 @@ class AppViewModel : ViewModel() {
             // Only mark as newly joined for real-time updates after initial sync is complete
             if (initialSyncProcessingComplete) {
                 // Initial sync is complete - this is a real new room, mark as newly joined
-                newlyJoinedRoomIds.add(room.id)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (marked as newly joined)")
+            newlyJoinedRoomIds.add(room.id)
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (marked as newly joined)")
             } else {
                 // Initial sync - just add the room without marking as newly joined
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added room during initial sync: ${room.name} (not marking as newly joined)")
@@ -4872,10 +4872,10 @@ class AppViewModel : ViewModel() {
                 
                 // If spaces are loaded, trigger navigation immediately
                 if (spacesLoaded && !navigationCallbackTriggered) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback immediately")
-                    navigationCallbackTriggered = true
-                    onNavigateToRoomList?.invoke()
-                }
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Spaces loaded and WebSocket connected - triggering navigation callback immediately")
+                navigationCallbackTriggered = true
+                onNavigateToRoomList?.invoke()
+            }
             }
             // CRITICAL FIX: Don't set initialSyncComplete = true if WebSocket is not connected
             // Even if spacesLoaded is true, we should wait for the connection to be established
@@ -5401,6 +5401,7 @@ class AppViewModel : ViewModel() {
     }
     
     private val activityLog = mutableListOf<ActivityLogEntry>()
+    private val activityLogLock = Any() // Synchronization lock for activityLog access
     private val maxLogEntries = 100 // Keep last 100 entries
     
     /**
@@ -5415,21 +5416,23 @@ class AppViewModel : ViewModel() {
                 
                 if (logJson != null) {
                     val logArray = org.json.JSONArray(logJson)
-                    activityLog.clear()
-                    
-                    for (i in 0 until logArray.length()) {
-                        val entryJson = logArray.getJSONObject(i)
-                        activityLog.add(ActivityLogEntry.fromJson(entryJson))
-                    }
-                    
-                    // Keep only the last maxLogEntries entries
-                    if (activityLog.size > maxLogEntries) {
-                        val entriesToKeep = activityLog.takeLast(maxLogEntries)
+                    synchronized(activityLogLock) {
                         activityLog.clear()
-                        activityLog.addAll(entriesToKeep)
+                        
+                        for (i in 0 until logArray.length()) {
+                            val entryJson = logArray.getJSONObject(i)
+                            activityLog.add(ActivityLogEntry.fromJson(entryJson))
+                        }
+                        
+                        // Keep only the last maxLogEntries entries
+                        if (activityLog.size > maxLogEntries) {
+                            val entriesToKeep = activityLog.takeLast(maxLogEntries)
+                            activityLog.clear()
+                            activityLog.addAll(entriesToKeep)
+                        }
+                        
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${activityLog.size} activity log entries from storage")
                     }
-                    
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${activityLog.size} activity log entries from storage")
                 }
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Failed to load activity log from storage", e)
@@ -5446,11 +5449,13 @@ class AppViewModel : ViewModel() {
                 val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
                 val logArray = org.json.JSONArray()
                 
-                // Keep only the last maxLogEntries entries
-                val entriesToSave = if (activityLog.size > maxLogEntries) {
-                    activityLog.takeLast(maxLogEntries)
-                } else {
-                    activityLog
+                // Take a snapshot under lock to avoid ConcurrentModificationException
+                val entriesToSave: List<ActivityLogEntry> = synchronized(activityLogLock) {
+                    if (activityLog.size > maxLogEntries) {
+                        activityLog.takeLast(maxLogEntries).toList()
+                    } else {
+                        activityLog.toList()
+                    }
                 }
                 
                 entriesToSave.forEach { entry ->
@@ -5477,11 +5482,12 @@ class AppViewModel : ViewModel() {
             event = event,
             networkType = networkType
         )
-        activityLog.add(entry)
-        
-        // Keep only the last maxLogEntries entries
-        if (activityLog.size > maxLogEntries) {
-            activityLog.removeAt(0)
+        synchronized(activityLogLock) {
+            activityLog.add(entry)
+            // Keep only the last maxLogEntries entries
+            if (activityLog.size > maxLogEntries) {
+                activityLog.removeAt(0)
+            }
         }
         
         // Persist to storage
@@ -5494,7 +5500,7 @@ class AppViewModel : ViewModel() {
      * Get the activity log for display
      */
     fun getActivityLog(): List<ActivityLogEntry> {
-        return activityLog.toList()
+        return synchronized(activityLogLock) { activityLog.toList() }
     }
     
     // Backwards compatibility - keep old reconnection log methods
@@ -5912,19 +5918,19 @@ class AppViewModel : ViewModel() {
     private fun addPendingOperation(operation: PendingWebSocketOperation): Boolean {
         // PHASE 5.1: Enforce queue size limit (remove oldest if at limit)
         synchronized(pendingOperationsLock) {
-            if (pendingWebSocketOperations.size >= MAX_QUEUE_SIZE) {
+        if (pendingWebSocketOperations.size >= MAX_QUEUE_SIZE) {
                 // Remove oldest operation (by timestamp)
                 val oldest = pendingWebSocketOperations.minByOrNull { it.timestamp }
-                if (oldest != null) {
-                    pendingWebSocketOperations.remove(oldest)
+            if (oldest != null) {
+                pendingWebSocketOperations.remove(oldest)
                     android.util.Log.w(
                         "Andromuks",
                         "AppViewModel: Queue full (${MAX_QUEUE_SIZE}), removed oldest operation: ${oldest.type}"
                     )
-                }
             }
-            
-            pendingWebSocketOperations.add(operation)
+        }
+        
+        pendingWebSocketOperations.add(operation)
         }
         savePendingOperationsToStorage()
         return true
@@ -6034,8 +6040,8 @@ class AppViewModel : ViewModel() {
                 }
                 
                 synchronized(pendingOperationsLock) {
-                    pendingWebSocketOperations.clear()
-                    pendingWebSocketOperations.addAll(operationsToLoad)
+                pendingWebSocketOperations.clear()
+                pendingWebSocketOperations.addAll(operationsToLoad)
                 }
                 
                 if (operationsToLoad.isNotEmpty()) {
@@ -6115,9 +6121,9 @@ class AppViewModel : ViewModel() {
         // 3. Sort by timestamp (oldest first)
         val operationsToRetry = synchronized(pendingOperationsLock) {
             pendingWebSocketOperations
-                .filter { !it.acknowledged && currentTime >= it.acknowledgmentTimeout }
-                .sortedBy { it.timestamp }
-                .take(10) // PHASE 5.4: Limit batch size to 10 at a time
+            .filter { !it.acknowledged && currentTime >= it.acknowledgmentTimeout }
+            .sortedBy { it.timestamp }
+            .take(10) // PHASE 5.4: Limit batch size to 10 at a time
         }
         
         if (operationsToRetry.isEmpty()) {
@@ -6137,7 +6143,7 @@ class AppViewModel : ViewModel() {
         
         // Remove operations from queue before retrying (will be re-added if they fail)
         synchronized(pendingOperationsLock) {
-            operationsToRetry.forEach { pendingWebSocketOperations.remove(it) }
+        operationsToRetry.forEach { pendingWebSocketOperations.remove(it) }
         }
         savePendingOperationsToStorage()
         
@@ -7519,38 +7525,38 @@ class AppViewModel : ViewModel() {
             
             // CRASH FIX: Wrap reaction processing in try-catch to handle malformed JSON gracefully
             try {
-                val reactionList = mutableListOf<MessageReaction>()
-                val keys = reactionsObject.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
+            val reactionList = mutableListOf<MessageReaction>()
+            val keys = reactionsObject.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
                     try {
-                        var count = 0
-                        when (val value = reactionsObject.opt(key)) {
-                            is Number -> count = value.toInt()
-                            is JSONObject -> count = value.optInt("count", 0)
-                            else -> {
-                                // Attempt fallback to optInt
-                                count = reactionsObject.optInt(key, 0)
-                            }
-                        }
-                        if (count > 0 && !key.isNullOrBlank()) {
-                            reactionList.add(
-                                MessageReaction(
-                                    emoji = key,
-                                    count = count,
-                                    users = emptyList()
-                                )
-                            )
+                var count = 0
+                when (val value = reactionsObject.opt(key)) {
+                    is Number -> count = value.toInt()
+                    is JSONObject -> count = value.optInt("count", 0)
+                    else -> {
+                        // Attempt fallback to optInt
+                        count = reactionsObject.optInt(key, 0)
+                    }
+                }
+                if (count > 0 && !key.isNullOrBlank()) {
+                    reactionList.add(
+                        MessageReaction(
+                            emoji = key,
+                            count = count,
+                            users = emptyList()
+                        )
+                    )
                         }
                     } catch (e: Exception) {
                         // Skip this reaction key if there's an error processing it
                         android.util.Log.w("Andromuks", "AppViewModel: Error processing reaction key '$key' for event ${event.eventId}: ${e.message}")
-                    }
                 }
-                if (reactionList.isNotEmpty()) {
+            }
+            if (reactionList.isNotEmpty()) {
                     // Sort reactions by emoji - handle any potential comparison errors
                     try {
-                        aggregatedByEvent[event.eventId] = reactionList.sortedBy { it.emoji }
+                aggregatedByEvent[event.eventId] = reactionList.sortedBy { it.emoji }
                     } catch (e: Exception) {
                         // If sorting fails, use unsorted list
                         android.util.Log.w("Andromuks", "AppViewModel: Error sorting reactions for event ${event.eventId}, using unsorted: ${e.message}")
@@ -7603,8 +7609,8 @@ class AppViewModel : ViewModel() {
             }
             if (entity.aggregatedReactionsJson != null) {
                 try {
-                    val content = json.optJSONObject("content")
-                    if (content != null && !content.has("reactions")) {
+                val content = json.optJSONObject("content")
+                if (content != null && !content.has("reactions")) {
                         // Parse aggregated reactions JSON - handle malformed JSON gracefully
                         val reactionsJson = JSONObject(entity.aggregatedReactionsJson)
                         content.put("reactions", reactionsJson)
@@ -13102,7 +13108,7 @@ class AppViewModel : ViewModel() {
             android.util.Log.i("Andromuks", "AppViewModel: PHASE 5.3 - Command acknowledged by request_id: requestId=$requestId, command=$command, type=${operation.type}, elapsed=${elapsed}ms")
             logActivity("Command Acknowledged - $command (request_id: $requestId)", null)
             synchronized(pendingOperationsLock) {
-                pendingWebSocketOperations.remove(operation)
+            pendingWebSocketOperations.remove(operation)
             }
             savePendingOperationsToStorage()
             if (BuildConfig.DEBUG) {
