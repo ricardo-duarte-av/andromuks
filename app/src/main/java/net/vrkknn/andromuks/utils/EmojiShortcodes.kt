@@ -1,6 +1,7 @@
 package net.vrkknn.andromuks.utils
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -302,15 +303,20 @@ fun EmojiSuggestionList(
     if (suggestions.isEmpty()) return
 
     Surface(
-        modifier = modifier.widthIn(max = 260.dp),
+        modifier = modifier
+            .widthIn(max = 260.dp)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                shape = RoundedCornerShape(16.dp)
+            ),
         shape = RoundedCornerShape(16.dp), // Rounder corners to match user list
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 8.dp  // Same as user list for consistent appearance
     ) {
         LazyColumn(
             modifier = Modifier
-                .height(200.dp) // Same height as user list
-                .background(MaterialTheme.colorScheme.surface),
+                .height(200.dp), // Same height as user list
             contentPadding = PaddingValues(8.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
