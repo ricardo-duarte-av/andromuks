@@ -919,9 +919,9 @@ fun RoomTimelineScreen(
             val markdownStart = match.range.first
             val markdownEnd = match.range.last + 1
             
-            // Check if cursor is within the markdown range (user is deleting from within the markdown)
-            // Or if cursor is right after the markdown and only one character was deleted
-            if (cursor >= markdownStart && cursor <= markdownEnd && deletedLength == 1) {
+            // Check if cursor is strictly within the markdown range (user is deleting from within the markdown)
+            // Only trigger if cursor is inside the markdown, not at the boundary
+            if (cursor >= markdownStart && cursor < markdownEnd && deletedLength == 1) {
                 // User is deleting the custom emoji, remove the entire markdown
                 val beforeMarkdown = oldText.substring(0, markdownStart)
                 val afterMarkdown = oldText.substring(markdownEnd)
