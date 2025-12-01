@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -302,13 +303,15 @@ fun EmojiSuggestionList(
 
     Surface(
         modifier = modifier.widthIn(max = 260.dp),
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(16.dp), // Rounder corners to match user list
         color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 8.dp
+        tonalElevation = 8.dp  // Same as user list for consistent appearance
     ) {
         LazyColumn(
             modifier = Modifier
+                .height(200.dp) // Same height as user list
                 .background(MaterialTheme.colorScheme.surface),
+            contentPadding = PaddingValues(8.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             items(suggestions) { suggestion ->

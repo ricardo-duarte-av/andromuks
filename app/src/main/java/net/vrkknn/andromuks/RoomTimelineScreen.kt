@@ -277,7 +277,7 @@ fun MentionMemberList(
 
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(16.dp), // Rounder corners
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
     ) {
@@ -2336,7 +2336,7 @@ fun RoomTimelineScreen(
                             Modifier.align(Alignment.BottomEnd)
                                 .padding(
                                     end = 16.dp,
-                                    bottom = 80.dp // Position above send button area (text input + padding)
+                                    bottom = 60.dp // Closer to text input
                                 )
                                 .navigationBarsPadding()
                                 .imePadding(), // Above text input and keyboard
@@ -2448,7 +2448,7 @@ fun RoomTimelineScreen(
                             .align(Alignment.BottomStart)
                             .padding(
                                 start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 80.dp  // Above text input
+                                bottom = 60.dp  // Closer to text input
                             )
                             .navigationBarsPadding()
                             .imePadding()
@@ -2519,7 +2519,7 @@ fun RoomTimelineScreen(
                             .align(Alignment.BottomStart)
                             .padding(
                                 start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 80.dp  // Above text input
+                                bottom = 60.dp  // Closer to text input
                             )
                             .navigationBarsPadding()
                             .imePadding()

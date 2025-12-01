@@ -11522,6 +11522,7 @@ class AppViewModel : ViewModel() {
         var updatedMembers = 0
         val isLargeRoom = events.length() > 100
         val profilesToBatchSave = mutableMapOf<String, MemberProfile>()
+        var cacheCleared = false // Flag to only clear cache once when crossing 500 threshold
         
         for (i in 0 until events.length()) {
             val event = events.optJSONObject(i) ?: continue
@@ -11561,13 +11562,14 @@ class AppViewModel : ViewModel() {
                             if (isLargeRoom) {
                                 profilesToBatchSave[stateKey] = newProfile
                                 
-                                // For very large lists, clear caches aggressively
-                                if (updatedMembers > 500) {
+                                // For very large lists, clear caches aggressively (only once)
+                                if (updatedMembers > 500 && !cacheCleared) {
                                     // Clear all caches to prevent OOM
                                     globalProfileCache.clear()
                                     flattenedMemberCache.clear()
                                     roomMemberIndex.clear() // OPTIMIZED: Clear index when clearing cache
-                                    android.util.Log.w("Andromuks", "AppViewModel: Cleared all caches due to large member list ($updatedMembers members)")
+                                    cacheCleared = true
+                                    android.util.Log.w("Andromuks", "AppViewModel: Cleared all caches due to large member list (${updatedMembers}+ members)")
                                 }
                             } else {
                                 // Queue for batch saving for smaller lists

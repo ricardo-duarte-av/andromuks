@@ -265,7 +265,7 @@ fun BubbleMentionMemberList(
 
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(16.dp), // Rounder corners
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 8.dp  // Use tonalElevation for dark mode visibility
     ) {
@@ -2104,7 +2104,7 @@ fun BubbleTimelineScreen(
                             Modifier.align(Alignment.BottomEnd)
                                 .padding(
                                     end = 16.dp,
-                                    bottom = 80.dp // Position above send button area (text input + padding)
+                                    bottom = 60.dp // Closer to text input
                                 )
                                 .navigationBarsPadding(),
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
@@ -2124,7 +2124,7 @@ fun BubbleTimelineScreen(
                             .align(Alignment.BottomStart)
                             .padding(
                                 start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 80.dp  // Above text input
+                                bottom = 60.dp  // Closer to text input
                             )
                             .navigationBarsPadding()
                             .zIndex(9f)
@@ -2194,7 +2194,7 @@ fun BubbleTimelineScreen(
                             .align(Alignment.BottomStart)
                             .padding(
                                 start = 16.dp, // Same as text input padding
-                                bottom = 80.dp // Above text input area
+                                bottom = 60.dp // Closer to text input
                             )
                             .navigationBarsPadding()
                             .zIndex(5f) // Ensure it's above other content
@@ -2284,7 +2284,7 @@ fun BubbleTimelineScreen(
                             .align(Alignment.BottomStart)
                             .padding(
                                 start = 72.dp, // Align with text input (attach button width + spacing)
-                                bottom = 80.dp  // Above text input
+                                bottom = 60.dp  // Closer to text input
                             )
                             .navigationBarsPadding()
                     ) {
