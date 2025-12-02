@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -42,6 +43,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.Placeholder
@@ -76,6 +79,69 @@ import net.vrkknn.andromuks.AppViewModel
 
 
 private val matrixUserRegex = Regex("matrix:(?:/+)?(?:u|user)/(@?.+)")
+
+/**
+ * Shader code for pixelation effect
+ */
+private const val PIXELATE_SHADER_CODE = """
+uniform shader image;
+uniform float pixelSize;
+
+half4 main(float2 coord) {
+    float2 pixelCoord = floor(coord / pixelSize) * pixelSize;
+    return image.eval(pixelCoord);
+}
+"""
+
+/**
+ * Composable for pixelated mask overlay
+ * Uses RuntimeShader to create a pixelation effect (Android API 34+)
+ */
+@Composable
+private fun PixelatedMask(
+    pixelSize: androidx.compose.ui.unit.Dp = 8.dp
+) {
+    val density = LocalDensity.current
+    
+    // RuntimeShader is only available on API 34+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+        val shader = remember {
+            try {
+                android.graphics.RuntimeShader(PIXELATE_SHADER_CODE)
+            } catch (e: Exception) {
+                Log.e("Andromuks", "Failed to create pixelation shader", e)
+                null
+            }
+        }
+        
+        val pixelSizePx = with(density) { pixelSize.toPx() }
+        
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    if (shader != null) {
+                        shader.setFloatUniform("pixelSize", pixelSizePx)
+                        val renderEffect = android.graphics.RenderEffect.createRuntimeShaderEffect(
+                            shader,
+                            "image"
+                        )
+                        this.renderEffect = renderEffect?.asComposeRenderEffect()
+                    }
+                }
+        )
+    } else {
+        // Fallback to blur for older Android versions
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .blur(radius = 10.dp)
+                .background(
+                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                )
+        )
+    }
+}
 
 /**
  * Allowed HTML tags according to Matrix spec for safe rendering
@@ -839,14 +905,14 @@ private fun extractMatrixUserIdsFromNodes(nodes: List<HtmlNode>): Set<String> {
 }
 
 /**
- * Composable for rendering spoiler text with blur effect and tap-to-reveal
- * When revealed, renders the HTML content with full interactivity (links, etc.)
+ * Composable for rendering inline spoiler text with blur effect and tap-to-reveal
+ * This renders spoilers inline within the message text, not as block elements
  */
 @Composable
-private fun SpoilerText(
-    contentNodes: List<HtmlNode>,
-    reason: String?,
+private fun SpoilerInlineBox(
+    nodes: List<HtmlNode>,
     textColor: Color,
+    reason: String?,
     spoilerId: String,
     homeserverUrl: String,
     authToken: String,
@@ -854,11 +920,11 @@ private fun SpoilerText(
     onRoomLinkClick: (RoomLink) -> Unit,
     appViewModel: AppViewModel?
 ) {
-    var isRevealed by remember(spoilerId) { mutableStateOf(false) }
+    var revealed by remember(spoilerId) { mutableStateOf(false) }
     
     Column {
-        // Show reason if present
-        if (reason != null && !isRevealed) {
+        // Show reason if present (only when not revealed)
+        if (!revealed && reason != null) {
             Text(
                 text = reason,
                 style = MaterialTheme.typography.labelSmall,
@@ -868,168 +934,271 @@ private fun SpoilerText(
             )
         }
         
-        // Spoiler content with blur effect
-        Box(
-            modifier = Modifier.clickable { isRevealed = !isRevealed }
-        ) {
-            // Render HTML content
-            val inlineImages = remember { mutableMapOf<String, InlineImageData>() }
-            val inlineMatrixUsers = remember { mutableMapOf<String, InlineMatrixUserChip>() }
-            val inlineSpoilers = remember { mutableMapOf<String, InlineSpoilerData>() }
-            val annotatedString = remember(contentNodes, textColor, isRevealed) {
-                buildAnnotatedString {
-                    contentNodes.forEach {
-                        appendHtmlNode(it, SpanStyle(color = textColor), inlineImages, inlineMatrixUsers, inlineSpoilers)
-                    }
+        // Spoiler content with pixelation effect
+        val density = LocalDensity.current
+        val shader = remember(revealed) {
+            if (!revealed && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                try {
+                    android.graphics.RuntimeShader(PIXELATE_SHADER_CODE)
+                } catch (e: Exception) {
+                    Log.e("Andromuks", "Failed to create pixelation shader", e)
+                    null
                 }
+            } else {
+                null
             }
-            
-            // Render the content
-            if (isRevealed) {
-                // When revealed, render with full HTML support (links work, etc.)
-                val density = LocalDensity.current
-                val chipTextStyle = MaterialTheme.typography.labelLarge
-                val textMeasurer = rememberTextMeasurer()
-                val primaryColor = MaterialTheme.colorScheme.primary
-                
-                val inlineContentMap = remember(annotatedString, inlineImages.toMap(), inlineMatrixUsers.toMap(), onMatrixUserClick, density, chipTextStyle, textMeasurer, primaryColor) {
-                    val map = mutableMapOf<String, InlineTextContent>()
-                    inlineImages.forEach { (id, imageData) ->
-                        val maxHeight = minOf(imageData.height, 32) // Limit to reasonable size
-                        map[id] = InlineTextContent(
-                            Placeholder(
-                                width = maxHeight.sp,
-                                height = maxHeight.sp,
-                                placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                            )
-                        ) {
-                            InlineImage(
-                                src = imageData.src,
-                                alt = imageData.alt,
-                                height = maxHeight,
-                                homeserverUrl = homeserverUrl,
-                                authToken = authToken
-                            )
-                        }
-                    }
-                    inlineMatrixUsers.forEach { (id, chip) ->
-                        val textLayout = textMeasurer.measure(
-                            text = AnnotatedString(chip.displayText),
-                            style = chipTextStyle.copy(color = primaryColor)
-                        )
-                        val textWidthDp = with(density) { textLayout.size.width.toDp() }
-                        val widthSp = with(density) { textWidthDp.value.sp }
-                        val heightSp = with(density) { textLayout.size.height.toDp().value.sp }
-                        map[id] = InlineTextContent(
-                            Placeholder(
-                                width = widthSp,
-                                height = heightSp,
-                                placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                            )
-                        ) {
-                            Text(
-                                text = chip.displayText,
-                                style = chipTextStyle,
-                                color = primaryColor,
-                                modifier = Modifier.clickable { onMatrixUserClick(chip.userId) }
-                            )
-                        }
-                    }
-                    map
-                }
-                
-                var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
-                val context = LocalContext.current
-                
-                Text(
-                    text = annotatedString,
-                    style = MaterialTheme.typography.bodyMedium.copy(color = textColor),
-                    inlineContent = inlineContentMap,
-                    modifier = Modifier.pointerInput(annotatedString) {
-                        awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
-                            val downTime = System.currentTimeMillis()
-                            val downPosition = down.position
-                            
-                            var up: PointerInputChange? = null
-                            var wasMoved = false
-                            
-                            do {
-                                val event = awaitPointerEvent()
-                                event.changes.forEach { change ->
-                                    if (change.pressed) {
-                                        val xDiff = kotlin.math.abs(change.position.x - downPosition.x)
-                                        val yDiff = kotlin.math.abs(change.position.y - downPosition.y)
-                                        if (xDiff > 10 || yDiff > 10) {
-                                            wasMoved = true
+        }
+        
+        val pixelSizePx = with(density) { 3.dp.toPx() }
+        
+        Box(
+            modifier = Modifier
+                .then(
+                    if (!revealed) {
+                        // When not revealed, use pointerInput to detect taps and reveal
+                        // This must come before visual effects to intercept events
+                        Modifier.pointerInput(Unit) {
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val downTime = System.currentTimeMillis()
+                                val downPosition = down.position
+                                
+                                var up: PointerInputChange? = null
+                                var wasMoved = false
+                                
+                                do {
+                                    val event = awaitPointerEvent()
+                                    event.changes.forEach { change ->
+                                        if (change.pressed) {
+                                            val xDiff = kotlin.math.abs(change.position.x - downPosition.x)
+                                            val yDiff = kotlin.math.abs(change.position.y - downPosition.y)
+                                            if (xDiff > 10 || yDiff > 10) {
+                                                wasMoved = true
+                                            }
+                                        } else {
+                                            up = change
                                         }
-                                    } else {
-                                        up = change
                                     }
-                                }
-                            } while (up == null && event.changes.any { it.pressed })
-                            
-                            val upTime = System.currentTimeMillis()
-                            val duration = upTime - downTime
-                            val isTap = !wasMoved && duration < 500
-                            
-                            if (isTap && up != null) {
-                                textLayoutResult?.let { layoutResult ->
-                                    val offset = layoutResult.getOffsetForPosition(downPosition)
-                                    
-                                    val hasMatrixUser = annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset).isNotEmpty()
-                                    val hasRoomLink = annotatedString.getStringAnnotations(tag = "ROOM_LINK", start = offset, end = offset).isNotEmpty()
-                                    val hasUrl = annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset).isNotEmpty()
-                                    
-                                    if (hasMatrixUser || hasRoomLink || hasUrl) {
-                                        up.consume()
-                                        
-                                        annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset)
-                                            .firstOrNull()?.let { annotation ->
-                                                onMatrixUserClick(annotation.item)
-                                                return@awaitEachGesture
-                                            }
-                                        
-                                        annotatedString.getStringAnnotations(tag = "ROOM_LINK", start = offset, end = offset)
-                                            .firstOrNull()?.let { annotation ->
-                                                val roomLink = extractRoomLink(annotation.item)
-                                                if (roomLink != null) {
-                                                    onRoomLinkClick(roomLink)
-                                                    return@awaitEachGesture
-                                                }
-                                            }
-                                        
-                                        annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
-                                            .firstOrNull()?.let { annotation ->
-                                                val url = annotation.item
-                                                try {
-                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                                                    context.startActivity(intent)
-                                                } catch (e: Exception) {
-                                                    Log.e("Andromuks", "Failed to open URL: $url", e)
-                                                }
-                                            }
-                                    }
+                                } while (up == null && event.changes.any { it.pressed })
+                                
+                                val upTime = System.currentTimeMillis()
+                                val duration = upTime - downTime
+                                val isTap = !wasMoved && duration < 500
+                                
+                                if (isTap && up != null) {
+                                    // Consume events to prevent them from reaching child
+                                    down.consume()
+                                    up.consume()
+                                    // Update state directly - this will trigger recomposition
+                                    revealed = true
+                                    return@awaitEachGesture
                                 }
                             }
                         }
-                    },
-                    onTextLayout = { layoutResult ->
-                        textLayoutResult = layoutResult
+                    } else {
+                        Modifier
                     }
                 )
-            } else {
-                // When blurred, render with blur effect
-                // Render the text and apply blur directly to make it visible
-                Text(
-                    text = annotatedString,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = textColor,
-                    modifier = Modifier.blur(radius = 8.dp)
+                .then(
+                    if (!revealed) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE && shader != null) {
+                            // Use pixelation shader on API 34+
+                            Modifier.graphicsLayer {
+                                shader.setFloatUniform("pixelSize", pixelSizePx)
+                                val renderEffect = android.graphics.RenderEffect.createRuntimeShaderEffect(
+                                    shader,
+                                    "image"
+                                )
+                                this.renderEffect = renderEffect?.asComposeRenderEffect()
+                            }
+                        } else {
+                            // Fallback to blur for older Android versions
+                            Modifier.blur(radius = 10.dp)
+                        }
+                    } else {
+                        Modifier
+                    }
                 )
+        ) {
+            // Render HTML content inline - same as normal message segments
+            // Disable interaction when not revealed (but don't block pointer events from parent)
+            HtmlSegment(
+                nodes = nodes,
+                textColor = textColor,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                onMatrixUserClick = onMatrixUserClick,
+                onRoomLinkClick = onRoomLinkClick,
+                appViewModel = appViewModel,
+                allowInteraction = revealed
+            )
+        }
+    }
+}
+
+/**
+ * Helper composable to render HTML nodes as an inline segment
+ * This is used for spoiler content to render it the same way as normal message content
+ */
+@Composable
+private fun HtmlSegment(
+    nodes: List<HtmlNode>,
+    textColor: Color,
+    homeserverUrl: String,
+    authToken: String,
+    onMatrixUserClick: (String) -> Unit,
+    onRoomLinkClick: (RoomLink) -> Unit,
+    appViewModel: AppViewModel?,
+    allowInteraction: Boolean = true
+) {
+    val inlineImages = remember { mutableMapOf<String, InlineImageData>() }
+    val inlineMatrixUsers = remember { mutableMapOf<String, InlineMatrixUserChip>() }
+    val inlineSpoilers = remember { mutableMapOf<String, InlineSpoilerData>() }
+    val annotatedString = remember(nodes, textColor) {
+        buildAnnotatedString {
+            nodes.forEach {
+                appendHtmlNode(it, SpanStyle(color = textColor), inlineImages, inlineMatrixUsers, inlineSpoilers)
             }
         }
     }
+    
+    val density = LocalDensity.current
+    val chipTextStyle = MaterialTheme.typography.labelLarge
+    val textMeasurer = rememberTextMeasurer()
+    val primaryColor = MaterialTheme.colorScheme.primary
+    
+    val inlineContentMap = remember(annotatedString, inlineImages.toMap(), inlineMatrixUsers.toMap(), onMatrixUserClick, density, chipTextStyle, textMeasurer, primaryColor) {
+        val map = mutableMapOf<String, InlineTextContent>()
+        inlineImages.forEach { (id, imageData) ->
+            val maxHeight = minOf(imageData.height, 32)
+            map[id] = InlineTextContent(
+                Placeholder(
+                    width = maxHeight.sp,
+                    height = maxHeight.sp,
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+                )
+            ) {
+                InlineImage(
+                    src = imageData.src,
+                    alt = imageData.alt,
+                    height = maxHeight,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken
+                )
+            }
+        }
+        inlineMatrixUsers.forEach { (id, chip) ->
+            val textLayout = textMeasurer.measure(
+                text = AnnotatedString(chip.displayText),
+                style = chipTextStyle.copy(color = primaryColor)
+            )
+            val textWidthDp = with(density) { textLayout.size.width.toDp() }
+            val widthSp = with(density) { textWidthDp.value.sp }
+            val heightSp = with(density) { textLayout.size.height.toDp().value.sp }
+            map[id] = InlineTextContent(
+                Placeholder(
+                    width = widthSp,
+                    height = heightSp,
+                    placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
+                )
+            ) {
+                Text(
+                    text = chip.displayText,
+                    style = chipTextStyle,
+                    color = primaryColor,
+                    modifier = Modifier.clickable { onMatrixUserClick(chip.userId) }
+                )
+            }
+        }
+        map
+    }
+    
+    var textLayoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
+    val context = LocalContext.current
+    
+    Text(
+        text = annotatedString,
+        style = MaterialTheme.typography.bodyMedium.copy(color = textColor),
+        inlineContent = inlineContentMap,
+        modifier = Modifier.then(
+            if (allowInteraction) {
+                Modifier.pointerInput(annotatedString) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val downTime = System.currentTimeMillis()
+                        val downPosition = down.position
+                        
+                        var up: PointerInputChange? = null
+                        var wasMoved = false
+                        
+                        do {
+                            val event = awaitPointerEvent()
+                            event.changes.forEach { change ->
+                                if (change.pressed) {
+                                    val xDiff = kotlin.math.abs(change.position.x - downPosition.x)
+                                    val yDiff = kotlin.math.abs(change.position.y - downPosition.y)
+                                    if (xDiff > 10 || yDiff > 10) {
+                                        wasMoved = true
+                                    }
+                                } else {
+                                    up = change
+                                }
+                            }
+                        } while (up == null && event.changes.any { it.pressed })
+                        
+                        val upTime = System.currentTimeMillis()
+                        val duration = upTime - downTime
+                        val isTap = !wasMoved && duration < 500
+                        
+                        if (isTap && up != null) {
+                            textLayoutResult?.let { layoutResult ->
+                                val offset = layoutResult.getOffsetForPosition(downPosition)
+                                
+                                val hasMatrixUser = annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset).isNotEmpty()
+                                val hasRoomLink = annotatedString.getStringAnnotations(tag = "ROOM_LINK", start = offset, end = offset).isNotEmpty()
+                                val hasUrl = annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset).isNotEmpty()
+                                
+                                if (hasMatrixUser || hasRoomLink || hasUrl) {
+                                    up.consume()
+                                    
+                                    annotatedString.getStringAnnotations(tag = "MATRIX_USER", start = offset, end = offset)
+                                        .firstOrNull()?.let { annotation ->
+                                            onMatrixUserClick(annotation.item)
+                                            return@awaitEachGesture
+                                        }
+                                    
+                                    annotatedString.getStringAnnotations(tag = "ROOM_LINK", start = offset, end = offset)
+                                        .firstOrNull()?.let { annotation ->
+                                            val roomLink = extractRoomLink(annotation.item)
+                                            if (roomLink != null) {
+                                                onRoomLinkClick(roomLink)
+                                                return@awaitEachGesture
+                                            }
+                                        }
+                                    
+                                    annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                                        .firstOrNull()?.let { annotation ->
+                                            val url = annotation.item
+                                            try {
+                                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                context.startActivity(intent)
+                                            } catch (e: Exception) {
+                                                Log.e("Andromuks", "Failed to open URL: $url", e)
+                                            }
+                                        }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                Modifier
+            }
+        ),
+        onTextLayout = { layoutResult ->
+            textLayoutResult = layoutResult
+        }
+    )
 }
 
 /**
@@ -1209,8 +1378,7 @@ fun HtmlMessageText(
             }
         }
         inlineSpoilers.forEach { (id, spoilerData) ->
-            // Measure the spoiler content to determine placeholder size
-            // Render the HTML nodes to get accurate size measurement
+            // Measure the spoiler content to determine placeholder size for inline rendering
             val tempInlineImages = mutableMapOf<String, InlineImageData>()
             val tempInlineMatrixUsers = mutableMapOf<String, InlineMatrixUserChip>()
             val tempInlineSpoilers = mutableMapOf<String, InlineSpoilerData>()
@@ -1219,9 +1387,8 @@ fun HtmlMessageText(
                     appendHtmlNode(it, SpanStyle(color = color), tempInlineImages, tempInlineMatrixUsers, tempInlineSpoilers)
                 }
             }
-            // Measure with a reasonable max width to get accurate wrapping
-            // Use a large but reasonable width (e.g., 600dp) to allow proper text measurement
-            val maxWidthPx = with(density) { 600.dp.toPx().toInt() }
+            // Measure with a large max width to get natural width
+            val maxWidthPx = with(density) { 1000.dp.toPx().toInt() }
             val textLayout = textMeasurer.measure(
                 text = measuredText,
                 style = bodyTextStyle.copy(color = color),
@@ -1229,8 +1396,7 @@ fun HtmlMessageText(
             )
             val textWidthDp = with(density) { textLayout.size.width.toDp() }
             val textHeightDp = with(density) { textLayout.size.height.toDp() }
-            // Use the actual measured width - this will be the width of the longest line
-            // Add a small padding to ensure the content fits properly
+            // Use measured size with small padding for inline spoilers
             val widthSp = with(density) { (textWidthDp + 4.dp).value.sp }
             val heightSp = with(density) { textHeightDp.value.sp }
             map[id] = InlineTextContent(
@@ -1240,10 +1406,10 @@ fun HtmlMessageText(
                     placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
                 )
             ) {
-                SpoilerText(
-                    contentNodes = spoilerData.contentNodes,
-                    reason = spoilerData.reason,
+                SpoilerInlineBox(
+                    nodes = spoilerData.contentNodes,
                     textColor = color,
+                    reason = spoilerData.reason,
                     spoilerId = id,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
