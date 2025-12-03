@@ -129,6 +129,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.ui.components.AvatarImage
+import net.vrkknn.andromuks.ui.components.BridgeBackgroundLayer
+import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.CustomBubbleTextField
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
@@ -396,6 +398,7 @@ fun RoomTimelineScreen(
     //Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
     val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
+    val currentRoomState = appViewModel.currentRoomState
 
     // Get the room item to check if it's a DM and get proper display name
     val roomItem = appViewModel.getRoomById(roomId)
@@ -1721,7 +1724,7 @@ fun RoomTimelineScreen(
                 ) {
                     // 1. Room Header (always visible at the top, below status bar)
                     RoomHeader(
-                        roomState = appViewModel.currentRoomState,
+                        roomState = currentRoomState,
                         fallbackName = displayRoomName,
                         fallbackAvatarUrl = displayAvatarUrl,
                         homeserverUrl = appViewModel.homeserverUrl,
@@ -1754,6 +1757,13 @@ fun RoomTimelineScreen(
                                 }
                             )
                     ) {
+                        BridgeBackgroundLayer(
+                            bridgeInfo = currentRoomState?.bridgeInfo,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        
                         // CRITICAL FIX: Show "Room loading..." while room is being loaded/processed
                         // This ensures the UI doesn't show incomplete state when navigating to a room
                         // Show loading when: isLoading is true OR timeline is empty and we're waiting for initial load
@@ -3057,13 +3067,22 @@ fun RoomHeader(
                 )
             }
             
-            // Refresh button on the far right
-            IconButton(onClick = onRefreshClick) {
-                Icon(
-                    imageVector = androidx.compose.material.icons.Icons.Filled.Refresh,
-                    contentDescription = "Refresh timeline",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+            val bridgeInfo = roomState?.bridgeInfo
+            if (bridgeInfo != null && bridgeInfo.hasRenderableIcon) {
+                BridgeNetworkBadge(
+                    bridgeInfo = bridgeInfo,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    onClick = onRefreshClick
                 )
+            } else {
+                IconButton(onClick = onRefreshClick) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Filled.Refresh,
+                        contentDescription = "Refresh timeline",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
         }
     }

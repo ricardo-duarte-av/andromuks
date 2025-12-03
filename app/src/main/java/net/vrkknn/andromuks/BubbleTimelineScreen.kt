@@ -128,6 +128,8 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.ui.components.AvatarImage
+import net.vrkknn.andromuks.ui.components.BridgeBackgroundLayer
+import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.CustomBubbleTextField
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
@@ -1573,6 +1575,13 @@ fun BubbleTimelineScreen(
                                 }
                             )
                     ) {
+                        BridgeBackgroundLayer(
+                            bridgeInfo = appViewModel.currentRoomState?.bridgeInfo,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                        
                         if (isLoading) {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
@@ -2853,7 +2862,10 @@ fun BubbleRoomHeader(
                 )
             }
             
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
                 IconButton(onClick = onOpenInApp) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.Launch,
@@ -2861,12 +2873,22 @@ fun BubbleRoomHeader(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                IconButton(onClick = onRefreshClick) {
-                    Icon(
-                        imageVector = Icons.Filled.Refresh,
-                        contentDescription = "Refresh timeline",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                val bridgeInfo = roomState?.bridgeInfo
+                if (bridgeInfo != null && bridgeInfo.hasRenderableIcon) {
+                    BridgeNetworkBadge(
+                        bridgeInfo = bridgeInfo,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onClick = onRefreshClick
                     )
+                } else {
+                    IconButton(onClick = onRefreshClick) {
+                        Icon(
+                            imageVector = Icons.Filled.Refresh,
+                            contentDescription = "Refresh timeline",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
                 IconButton(onClick = onCloseBubble) {
                     Icon(

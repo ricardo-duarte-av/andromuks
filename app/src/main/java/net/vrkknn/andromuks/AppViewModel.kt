@@ -11029,6 +11029,7 @@ class AppViewModel : ViewModel() {
         var isEncrypted = false
         var powerLevels: PowerLevelsInfo? = null
         val pinnedEventIds = mutableListOf<String>()
+        var bridgeInfo: BridgeInfo? = null
         
         // OPTIMIZED: Process events in single pass with early exits
         for (i in 0 until events.length()) {
@@ -11103,6 +11104,12 @@ class AppViewModel : ViewModel() {
                         }
                     }
                 }
+                "m.bridge" -> {
+                    val parsedBridge = parseBridgeInfoEvent(event)
+                    if (parsedBridge != null) {
+                        bridgeInfo = parsedBridge
+                    }
+                }
             }
         }
         
@@ -11115,7 +11122,8 @@ class AppViewModel : ViewModel() {
             avatarUrl = avatarUrl,
             isEncrypted = isEncrypted,
             powerLevels = powerLevels,
-            pinnedEventIds = pinnedEventIds
+            pinnedEventIds = pinnedEventIds,
+            bridgeInfo = bridgeInfo
         )
         
         // ✓ FIX: Only update currentRoomState if this is the currently open room
@@ -11128,6 +11136,73 @@ class AppViewModel : ViewModel() {
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsed room state for $roomId (not current room) - Name: $name")
         }
+    }
+    
+    private fun parseBridgeInfoEvent(event: JSONObject): BridgeInfo? {
+        val content = event.optJSONObject("content") ?: return null
+        val stateKey = event.optString("state_key").takeIf { it.isNotBlank() }
+        val bridgeBot = content.optString("bridgebot").takeIf { it.isNotBlank() }
+        val creator = content.optString("creator").takeIf { it.isNotBlank() }
+        val roomType = content.optString("com.beeper.room_type").takeIf { it.isNotBlank() }
+        val roomTypeV2 = content.optString("com.beeper.room_type.v2").takeIf { it.isNotBlank() }
+        
+        val channelObj = content.optJSONObject("channel")
+        val protocolObj = content.optJSONObject("protocol")
+        
+        val channelInfo = channelObj?.let {
+            val id = it.optString("id").takeIf { value -> value.isNotBlank() }
+            val displayName = it.optString("displayname").takeIf { value -> value.isNotBlank() }
+            val avatarUrl = it.optString("avatar_url").takeIf { value -> value.isNotBlank() }
+            val receiver = it.optString("fi.mau.receiver").takeIf { value -> value.isNotBlank() }
+            
+            if (id != null || displayName != null || avatarUrl != null || receiver != null) {
+                BridgeChannelInfo(
+                    id = id,
+                    displayName = displayName,
+                    avatarUrl = avatarUrl,
+                    receiver = receiver
+                )
+            } else {
+                null
+            }
+        }
+        
+        val protocolInfo = protocolObj?.let {
+            val id = it.optString("id").takeIf { value -> value.isNotBlank() }
+            val displayName = it.optString("displayname").takeIf { value -> value.isNotBlank() }
+            val avatarUrl = it.optString("avatar_url").takeIf { value -> value.isNotBlank() }
+            val externalUrl = it.optString("external_url").takeIf { value -> value.isNotBlank() }
+            
+            if (id != null || displayName != null || avatarUrl != null || externalUrl != null) {
+                BridgeProtocolInfo(
+                    id = id,
+                    displayName = displayName,
+                    avatarUrl = avatarUrl,
+                    externalUrl = externalUrl
+                )
+            } else {
+                null
+            }
+        }
+        
+        if (
+            bridgeBot == null &&
+            creator == null &&
+            channelInfo == null &&
+            protocolInfo == null
+        ) {
+            return null
+        }
+        
+        return BridgeInfo(
+            stateKey = stateKey,
+            bridgeBot = bridgeBot,
+            creator = creator,
+            roomType = roomType,
+            roomTypeV2 = roomTypeV2,
+            channel = channelInfo,
+            protocol = protocolInfo
+        )
     }
     
     private fun handleMessageResponse(requestId: Int, data: Any) {
@@ -11879,7 +11954,8 @@ class AppViewModel : ViewModel() {
                                 topic = topic,
                                 avatarUrl = avatarUrl,
                                 powerLevels = currentRoomState?.powerLevels, // Preserve existing power levels
-                                pinnedEventIds = currentRoomState?.pinnedEventIds ?: emptyList() // Preserve existing pinned events
+                                pinnedEventIds = currentRoomState?.pinnedEventIds ?: emptyList(), // Preserve existing pinned events
+                                bridgeInfo = currentRoomState?.bridgeInfo
                             )
                             // ✓ Safety check: Only update if this is the currently open room
                             if (roomId == currentRoomId) {

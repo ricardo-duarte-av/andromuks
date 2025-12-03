@@ -67,7 +67,8 @@ data class RoomState(
     val avatarUrl: String?,
     val isEncrypted: Boolean = false,
     val powerLevels: PowerLevelsInfo? = null,
-    val pinnedEventIds: List<String> = emptyList()
+    val pinnedEventIds: List<String> = emptyList(),
+    val bridgeInfo: BridgeInfo? = null
 )
 
 /** Power levels information for a room */
