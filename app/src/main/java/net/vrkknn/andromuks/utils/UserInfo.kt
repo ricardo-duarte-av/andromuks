@@ -15,6 +15,7 @@ import android.util.Log
 import android.widget.Toast
 import android.content.ContentValues
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -33,6 +34,7 @@ import androidx.navigation.NavOptionsBuilder
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.RoomItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
+import net.vrkknn.andromuks.ui.components.FullImageDialog
 
 
 import org.json.JSONObject
@@ -111,6 +113,8 @@ fun UserInfoScreen(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    var showFullAvatarDialog by remember { mutableStateOf(false) }
+    var fullAvatarUrl by remember { mutableStateOf<String?>(null) }
     // State to hold user info
     var userProfileInfo by remember { mutableStateOf<UserProfileInfo?>(null) }
     var isLoading by remember { mutableStateOf(true) }
@@ -262,15 +266,52 @@ fun UserInfoScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // User Avatar - made bigger
-                AvatarImage(
-                    mxcUrl = userProfileInfo!!.avatarUrl,
-                    homeserverUrl = appViewModel.homeserverUrl,
-                    authToken = appViewModel.authToken,
-                    fallbackText = userProfileInfo!!.displayName ?: userId,
-                    size = 160.dp,
-                    userId = userId,
-                    displayName = userProfileInfo!!.displayName
-                )
+                Box(
+                    modifier = Modifier
+                        .size(160.dp)
+                        .clickable(enabled = userProfileInfo!!.avatarUrl != null) {
+                            val avatarUrl = userProfileInfo!!.avatarUrl
+                            if (!avatarUrl.isNullOrBlank()) {
+                                val fullUrl = AvatarUtils.getFullImageUrl(
+                                    context,
+                                    avatarUrl,
+                                    appViewModel.homeserverUrl
+                                ) ?: AvatarUtils.getAvatarUrl(
+                                    context,
+                                    avatarUrl,
+                                    appViewModel.homeserverUrl
+                                )
+                                
+                                if (fullUrl != null) {
+                                    fullAvatarUrl = fullUrl
+                                    showFullAvatarDialog = true
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        "Full-size avatar unavailable",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            } else {
+                                Toast.makeText(
+                                    context,
+                                    "User has no avatar",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    AvatarImage(
+                        mxcUrl = userProfileInfo!!.avatarUrl,
+                        homeserverUrl = appViewModel.homeserverUrl,
+                        authToken = appViewModel.authToken,
+                        fallbackText = userProfileInfo!!.displayName ?: userId,
+                        size = 160.dp,
+                        userId = userId,
+                        displayName = userProfileInfo!!.displayName
+                    )
+                }
                 
                 // User Display Name and Matrix ID - reduced spacing
                 Column(
@@ -498,6 +539,15 @@ fun UserInfoScreen(
             encryptionInfo = userProfileInfo!!.encryptionInfo!!,
             userId = userId,
             onDismiss = { showDeviceListDialog = false }
+        )
+    }
+    
+    if (showFullAvatarDialog && fullAvatarUrl != null) {
+        FullImageDialog(
+            imageUrl = fullAvatarUrl!!,
+            authToken = appViewModel.authToken,
+            onDismiss = { showFullAvatarDialog = false },
+            contentDescription = userProfileInfo?.displayName ?: userId
         )
     }
 }
