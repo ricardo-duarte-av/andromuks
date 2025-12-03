@@ -44,6 +44,7 @@ import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.utils.AnimatedInlineReadReceiptAvatars
 import net.vrkknn.andromuks.utils.EmoteEventNarrator
 import net.vrkknn.andromuks.utils.HtmlMessageText
+import net.vrkknn.andromuks.utils.extractSanitizedHtml
 import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.utils.MessageBubbleWithMenu
 import net.vrkknn.andromuks.utils.ReactionBadges
@@ -1135,10 +1136,16 @@ private fun RoomTextMessageContent(
     val isThreadMessage = event.isThreadMessage()
     
     
+    val containsSpoiler = event.containsSpoilerContent()
+
     val bubbleColor =
         if (isThreadMessage) {
             if (actualIsMine) MaterialTheme.colorScheme.tertiaryContainer
             else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+        } else if (containsSpoiler && actualIsMine) {
+            MaterialTheme.colorScheme.tertiaryContainer
+        } else if (containsSpoiler) {
+            MaterialTheme.colorScheme.errorContainer
         } else if (actualIsMine) {
             if (hasBeenEdited) MaterialTheme.colorScheme.secondaryContainer
             else MaterialTheme.colorScheme.primaryContainer
@@ -1151,6 +1158,10 @@ private fun RoomTextMessageContent(
     val textColor =
         if (isThreadMessage) {
             MaterialTheme.colorScheme.tertiary
+        } else if (containsSpoiler && actualIsMine) {
+            MaterialTheme.colorScheme.onTertiaryContainer
+        } else if (containsSpoiler) {
+            MaterialTheme.colorScheme.onErrorContainer
         } else if (actualIsMine) {
             if (hasBeenEdited) MaterialTheme.colorScheme.onSecondaryContainer
             else MaterialTheme.colorScheme.onPrimaryContainer
@@ -2733,5 +2744,23 @@ fun TimelineEventItem(
             }
         }
     }
+}
+
+private fun String?.containsSpoilerMarkers(): Boolean {
+    if (this.isNullOrEmpty()) return false
+    val lower = this.lowercase()
+    return lower.contains("hicli-spoiler") ||
+        lower.contains("data-mx-spoiler") ||
+        this.contains("||")
+}
+
+private fun TimelineEvent.containsSpoilerContent(): Boolean {
+    return content?.optString("formatted_body").containsSpoilerMarkers() ||
+        decrypted?.optString("formatted_body").containsSpoilerMarkers() ||
+        localContent?.optString("sanitized_html").containsSpoilerMarkers() ||
+        extractSanitizedHtml(this).containsSpoilerMarkers() ||
+        content?.optString("body").containsSpoilerMarkers() ||
+        decrypted?.optString("body").containsSpoilerMarkers() ||
+        localContent?.optString("edit_source").containsSpoilerMarkers()
 }
 

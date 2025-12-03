@@ -1,7 +1,6 @@
 package net.vrkknn.andromuks.utils
 
 import net.vrkknn.andromuks.BuildConfig
-import java.security.MessageDigest
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -80,13 +79,6 @@ import net.vrkknn.andromuks.AppViewModel
 
 private val matrixUserRegex = Regex("matrix:(?:/+)?(?:u|user)/(@?.+)")
 
-private val GARBLE_CHARS = (
-    ('a'..'z') + 
-    ('A'..'Z') + 
-    ('0'..'9') + 
-    listOf('!', '@', '#', '$', '%', '^', '&', '*', '?', '~', '+', '=', '<', '>', '(', ')', '{', '}', '[', ']')
-).toCharArray()
-
 private class SpoilerRenderContext(
     private val states: SnapshotStateMap<String, Boolean>
 ) {
@@ -123,33 +115,56 @@ private class SpoilerRenderContext(
     }
 }
 
-/**
- * Garble text deterministically while preserving whitespace and length
- * Uses SHA-256 hash to ensure consistent garbling for the same input
- */
-private fun garble(text: String): String {
-    if (text.isEmpty()) return text
-    
-    val md = MessageDigest.getInstance("SHA-256")
-    // Hash the text to get deterministic bytes
-    val bytes = md.digest(text.toByteArray(Charsets.UTF_8))
+private fun maskSpoilerText(text: String): String {
+    if (text.isEmpty()) return ""
 
-    val result = StringBuilder(text.length)
-    for ((index, c) in text.withIndex()) {
-        if (c.isWhitespace()) {
-            result.append(c)
+    val builder = StringBuilder()
+    var segmentLength = 0
+
+    fun flushSegment() {
+        if (segmentLength <= 0) return
+        builder.append(maskSegment(segmentLength))
+        segmentLength = 0
+    }
+
+    text.forEach { char ->
+        if (char == '\n' || char == '\r') {
+            flushSegment()
+            builder.append(char)
         } else {
-            // Use the byte at position (index % bytes.size) to pick a character
-            // This ensures deterministic garbling while cycling through hash bytes
-            val byteIndex = index % bytes.size
-            val byte = bytes[byteIndex].toInt() and 0xFF
-            // Also incorporate the character's position for better distribution
-            val combined = (byte + index) % GARBLE_CHARS.size
-            val garbledChar = GARBLE_CHARS[combined]
-            result.append(garbledChar)
+            segmentLength++
         }
     }
-    return result.toString()
+
+    flushSegment()
+    return builder.toString()
+}
+
+private fun maskSegment(length: Int): String {
+    if (length <= 0) return ""
+    if (length == 1) return "*"
+    if (length == 2) return "<>"
+    if (length in 3..8) {
+        return buildString {
+            append('<')
+            repeat(length - 2) { append('*') }
+            append('>')
+        }
+    }
+
+    val base = "spoiler"
+    val baseLength = base.length + 2 // includes <>
+    val extra = length - baseLength
+    val leftExtra = (extra + 1) / 2
+    val rightExtra = extra - leftExtra
+
+    return buildString {
+        append('<')
+        repeat(leftExtra) { append('-') }
+        append(base)
+        repeat(rightExtra) { append('-') }
+        append('>')
+    }
 }
 
 /**
@@ -405,20 +420,17 @@ private fun AnnotatedString.Builder.appendHtmlNode(
     baseStyle: SpanStyle,
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
-    spoilerContext: SpoilerRenderContext?,
+    spoilerContext: SpoilerRenderContext? = null,
     hideContent: Boolean = false
 ) {
     when (node) {
         is HtmlNode.Text -> {
             var text = node.content
             // Garble text if requested (for spoilers) - do this FIRST on original text to preserve exact length
-            if (hideContent) {
-                // Garble the original text (preserving all characters including whitespace)
-                text = garble(text)
+            text = if (hideContent) {
+                maskSpoilerText(text)
             } else {
-                // Normalize whitespace: collapse multiple spaces/tabs/newlines into single space
-                // This matches standard HTML rendering behavior
-                text = text.replace(Regex("\\s+"), " ")
+                text.replace(Regex("\\s+"), " ")
             }
             withStyle(baseStyle) { append(text) }
         }
@@ -750,7 +762,7 @@ private fun AnnotatedString.Builder.appendAnchor(
         var displayText = textBuilder.toString().ifBlank { matrixUser }
         // Garble display text if requested (for spoilers)
         if (hideContent) {
-            displayText = garble(displayText)
+            displayText = maskSpoilerText(displayText)
         }
         val chipId = "matrix_user_${inlineMatrixUsers.size}"
         inlineMatrixUsers[chipId] = InlineMatrixUserChip(matrixUser, displayText)
@@ -952,7 +964,7 @@ private fun extractMatrixUserIdsFromNodes(nodes: List<HtmlNode>): Set<String> {
 }
 
 /**
- * Composable for rendering inline spoiler text with garbled text and tap-to-reveal
+ * Composable for rendering inline spoiler text with masked text and tap-to-reveal
  * This renders spoilers inline within the message text, not as block elements
  */
 /**
