@@ -760,10 +760,15 @@ private fun AnnotatedString.Builder.appendAnchor(
         val textBuilder = StringBuilder()
         tag.children.forEach { collectPlainText(it, textBuilder) }
         var displayText = textBuilder.toString().ifBlank { matrixUser }
-        // Garble display text if requested (for spoilers)
+        // For hidden spoilers, render masked text and skip inline content/annotations
         if (hideContent) {
-            displayText = maskSpoilerText(displayText)
+            append(maskSpoilerText(displayText))
+            if (!endsWithWhitespace()) {
+                append(" ")
+            }
+            return
         }
+
         val chipId = "matrix_user_${inlineMatrixUsers.size}"
         inlineMatrixUsers[chipId] = InlineMatrixUserChip(matrixUser, displayText)
         pushStringAnnotation("MATRIX_USER", matrixUser)
