@@ -479,26 +479,29 @@ private fun AnnotatedString.Builder.appendStyledChildren(
 /**
  * Extract spoiler data from a list of HTML nodes (handles sibling spoiler-reason and hicli-spoiler spans)
  */
-private fun extractSpoilerData(nodes: List<HtmlNode>): Pair<String?, List<HtmlNode>?>? {
+private fun extractSpoilerData(nodes: List<HtmlNode>): Pair<String, List<HtmlNode>>? {
     var reason: String? = null
     var contentNodes: List<HtmlNode>? = null
-    
+
     for (node in nodes) {
         if (node is HtmlNode.Tag && node.name == "span") {
             val classAttr = node.attributes["class"] ?: ""
-            
+
             if (classAttr.contains("spoiler-reason")) {
                 val reasonBuilder = StringBuilder()
                 node.children.forEach { collectPlainText(it, reasonBuilder) }
                 reason = reasonBuilder.toString().trim().takeIf { it.isNotEmpty() }
             } else if (classAttr.contains("hicli-spoiler")) {
-                // Store the HTML nodes to preserve structure
                 contentNodes = node.children.takeIf { it.isNotEmpty() }
             }
         }
     }
-    
-    return if (contentNodes != null) Pair(reason, contentNodes) else null
+
+    return if (!reason.isNullOrEmpty() && contentNodes != null) {
+        Pair(reason!!, contentNodes!!)
+    } else {
+        null
+    }
 }
 
 /**
