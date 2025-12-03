@@ -71,49 +71,7 @@ object AvatarUtils {
      * @return The HTTP URL for loading the avatar, or null if conversion fails
      */
     fun mxcToHttpUrl(mxcUrl: String?, homeserverUrl: String): String? {
-        if (mxcUrl.isNullOrBlank()) return null
-        
-        try {
-            // Parse MXC URL: mxc://server/mediaId
-            if (!mxcUrl.startsWith("mxc://")) {
-                Log.w("Andromuks", "AvatarUtils: Invalid MXC URL format: $mxcUrl")
-                return null
-            }
-            
-            val mxcPath = mxcUrl.removePrefix("mxc://")
-            val parts = mxcPath.split("/", limit = 2)
-            if (parts.size != 2) {
-                Log.w("Andromuks", "AvatarUtils: Invalid MXC URL structure: $mxcUrl")
-                return null
-            }
-            
-            val server = parts[0]
-            val mediaId = parts[1]
-            
-            // QUALITY IMPROVEMENT: Use maximum quality avatar settings
-            // Construct HTTP URL: https://gomuks-backend/_gomuks/media/server/mediaId?thumbnail=avatar&size=512
-            // For avatars, we want maximum quality for crystal clear display
-            val httpUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId?thumbnail=avatar&size=512"
-            
-            // Sanitize URL: convert everything before /_gomuks/media/ to lowercase
-            val sanitizedUrl = if (httpUrl.contains("/_gomuks/media/")) {
-                val parts = httpUrl.split("/_gomuks/media/", limit = 2)
-                if (parts.size == 2) {
-                    "${parts[0].lowercase()}/_gomuks/media/${parts[1]}"
-                } else {
-                    httpUrl
-                }
-            } else {
-                httpUrl.lowercase()
-            }
-            
-            //Log.d("Andromuks", "AvatarUtils: Converted MXC URL: $mxcUrl -> $sanitizedUrl")
-            return sanitizedUrl
-            
-        } catch (e: Exception) {
-            Log.e("Andromuks", "AvatarUtils: Error converting MXC URL: $mxcUrl", e)
-            return null
-        }
+        return buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = true)
     }
     
     /**
@@ -143,6 +101,19 @@ object AvatarUtils {
         
         // If we have an MXC URL, convert to HTTP and let AsyncImage handle loading
         return mxcToHttpUrl(mxcUrl, homeserverUrl)
+    }
+
+    /**
+     * Converts an MXC URL to the original media URL without thumbnail parameters.
+     * Useful for full-width backgrounds where we want the source image instead of a downsized avatar.
+     */
+    fun getFullImageUrl(
+        context: Context,
+        mxcUrl: String?,
+        homeserverUrl: String
+    ): String? {
+        if (mxcUrl.isNullOrBlank()) return null
+        return buildMediaUrl(mxcUrl, homeserverUrl, includeAvatarParams = false)
     }
     
     /**
@@ -190,6 +161,47 @@ object AvatarUtils {
             "\"" -> "&quot;"
             "'" -> "&apos;"
             else -> char
+        }
+    }
+
+    private fun buildMediaUrl(
+        mxcUrl: String?,
+        homeserverUrl: String,
+        includeAvatarParams: Boolean
+    ): String? {
+        if (mxcUrl.isNullOrBlank()) return null
+
+        return try {
+            if (!mxcUrl.startsWith("mxc://")) {
+                Log.w("Andromuks", "AvatarUtils: Invalid MXC URL format: $mxcUrl")
+                return null
+            }
+
+            val mxcPath = mxcUrl.removePrefix("mxc://")
+            val parts = mxcPath.split("/", limit = 2)
+            if (parts.size != 2) {
+                Log.w("Andromuks", "AvatarUtils: Invalid MXC URL structure: $mxcUrl")
+                return null
+            }
+
+            val server = parts[0]
+            val mediaId = parts[1]
+            val thumbnailParams = if (includeAvatarParams) "?thumbnail=avatar&size=512" else ""
+            val rawUrl = "$homeserverUrl/_gomuks/media/$server/$mediaId$thumbnailParams"
+
+            if (rawUrl.contains("/_gomuks/media/")) {
+                val split = rawUrl.split("/_gomuks/media/", limit = 2)
+                if (split.size == 2) {
+                    "${split[0].lowercase()}/_gomuks/media/${split[1]}"
+                } else {
+                    rawUrl
+                }
+            } else {
+                rawUrl.lowercase()
+            }
+        } catch (e: Exception) {
+            Log.e("Andromuks", "AvatarUtils: Error converting MXC URL: $mxcUrl", e)
+            null
         }
     }
 }

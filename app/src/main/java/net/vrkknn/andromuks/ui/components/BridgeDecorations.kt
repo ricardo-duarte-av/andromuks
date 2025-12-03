@@ -89,7 +89,7 @@ fun BridgeBackgroundLayer(
     homeserverUrl: String,
     authToken: String,
     modifier: Modifier = Modifier,
-    blurRadius: Dp = 48.dp,
+    blurRadius: Dp = 18.dp,
     alpha: Float = 0.08f
 ) {
     if (bridgeInfo == null) {
@@ -100,7 +100,8 @@ fun BridgeBackgroundLayer(
     val context = LocalContext.current
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
     val imageUrl = remember(avatarSource, homeserverUrl) {
-        AvatarUtils.getAvatarUrl(context, avatarSource, homeserverUrl)
+        AvatarUtils.getFullImageUrl(context, avatarSource, homeserverUrl)
+            ?: AvatarUtils.getAvatarUrl(context, avatarSource, homeserverUrl)
     } ?: return
 
     Box(modifier = modifier.fillMaxSize()) {
