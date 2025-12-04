@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -137,6 +138,40 @@ class AppViewModel : ViewModel() {
         // This ensures callbacks are available before WebSocket connection is established
         // The service can then properly detect that AppViewModel is available
         registerPrimaryCallbacks()
+    }
+    
+    fun promoteToPrimaryIfNeeded(reason: String) {
+        if (instanceRole == InstanceRole.PRIMARY) {
+            return
+        }
+        val currentPrimary = WebSocketService.getPrimaryViewModelId()
+        if (currentPrimary == null) {
+            android.util.Log.i("Andromuks", "AppViewModel: No primary instance detected - promoting $viewModelId ($reason)")
+            markAsPrimaryInstance()
+            startWebSocketService()
+        } else if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: Primary instance already registered ($currentPrimary) - skipping promotion request from $viewModelId ($reason)")
+        }
+    }
+
+    suspend fun awaitRoomDataReadiness(
+        timeoutMs: Long = 15_000L,
+        pollDelayMs: Long = 100L
+    ): Boolean {
+        return withTimeoutOrNull(timeoutMs) {
+            while (true) {
+                val profileReady = currentUserProfile != null || currentUserId.isBlank()
+                val pendingReady = !isProcessingPendingItems
+                val spacesReady = spacesLoaded
+                val syncReady = initialSyncComplete
+                
+                if (profileReady && pendingReady && spacesReady && syncReady) {
+                    break
+                }
+                delay(pollDelayMs)
+            }
+            true
+        } ?: false
     }
     
     /**

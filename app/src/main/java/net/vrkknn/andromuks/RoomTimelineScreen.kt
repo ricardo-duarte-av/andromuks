@@ -399,6 +399,7 @@ fun RoomTimelineScreen(
     val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
     val currentRoomState = appViewModel.currentRoomState
+    var readinessCheckComplete by remember { mutableStateOf(false) }
 
     // Get the room item to check if it's a DM and get proper display name
     val roomItem = appViewModel.getRoomById(roomId)
@@ -1408,6 +1409,14 @@ fun RoomTimelineScreen(
     }
 
     LaunchedEffect(roomId) {
+        readinessCheckComplete = false
+        appViewModel.promoteToPrimaryIfNeeded("room_timeline_$roomId")
+        appViewModel.navigateToRoomWithCache(roomId)
+        val readinessResult = appViewModel.awaitRoomDataReadiness()
+        readinessCheckComplete = true
+        if (!readinessResult && BuildConfig.DEBUG) {
+            Log.w("Andromuks", "RoomTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data")
+        }
         if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Loading timeline for room: $roomId")
         // CRITICAL FIX: Set currentRoomId immediately when screen opens (for all navigation paths)
         // This ensures state is consistent whether opening from RoomListScreen, notification, or shortcut
@@ -1767,7 +1776,7 @@ fun RoomTimelineScreen(
                         // CRITICAL FIX: Show "Room loading..." while room is being loaded/processed
                         // This ensures the UI doesn't show incomplete state when navigating to a room
                         // Show loading when: isLoading is true OR timeline is empty and we're waiting for initial load
-                        val shouldShowLoading = isLoading || (timelineItems.isEmpty() && !hasInitialSnapCompleted)
+        val shouldShowLoading = !readinessCheckComplete || isLoading || (timelineItems.isEmpty() && !hasInitialSnapCompleted)
                         
                         if (shouldShowLoading) {
                             Box(

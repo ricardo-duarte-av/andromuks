@@ -418,6 +418,7 @@ fun BubbleTimelineScreen(
     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: appViewModel instance: $appViewModel")
     val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
+    var readinessCheckComplete by remember { mutableStateOf(false) }
 
     // Get the room item to check if it's a DM and get proper display name
     val roomItem = appViewModel.getRoomById(roomId)
@@ -1319,6 +1320,14 @@ fun BubbleTimelineScreen(
     }
 
     LaunchedEffect(roomId) {
+        readinessCheckComplete = false
+        appViewModel.promoteToPrimaryIfNeeded("bubble_timeline_$roomId")
+        appViewModel.navigateToRoomWithCache(roomId)
+        val readinessResult = appViewModel.awaitRoomDataReadiness()
+        readinessCheckComplete = true
+        if (!readinessResult && BuildConfig.DEBUG) {
+            Log.w("Andromuks", "BubbleTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data")
+        }
         if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Loading timeline for room: $roomId")
         // Reset state for new room
         isLoadingMore = false
@@ -1582,7 +1591,7 @@ fun BubbleTimelineScreen(
                             modifier = Modifier.fillMaxSize()
                         )
                         
-                        if (isLoading) {
+                        if (!readinessCheckComplete || isLoading) {
                             Box(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
