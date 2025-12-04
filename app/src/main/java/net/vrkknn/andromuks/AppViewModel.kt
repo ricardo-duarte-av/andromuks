@@ -156,7 +156,8 @@ class AppViewModel : ViewModel() {
 
     suspend fun awaitRoomDataReadiness(
         timeoutMs: Long = 15_000L,
-        pollDelayMs: Long = 100L
+        pollDelayMs: Long = 100L,
+        requireInitComplete: Boolean = false
     ): Boolean {
         return withTimeoutOrNull(timeoutMs) {
             while (true) {
@@ -164,8 +165,9 @@ class AppViewModel : ViewModel() {
                 val pendingReady = !isProcessingPendingItems
                 val spacesReady = spacesLoaded
                 val syncReady = initialSyncComplete
+                val initReady = !requireInitComplete || initializationComplete
                 
-                if (profileReady && pendingReady && spacesReady && syncReady) {
+                if (profileReady && pendingReady && spacesReady && syncReady && initReady) {
                     break
                 }
                 delay(pollDelayMs)
@@ -5711,6 +5713,10 @@ class AppViewModel : ViewModel() {
     
     fun isWebSocketConnected(): Boolean {
         return WebSocketService.isWebSocketConnected()
+    }
+
+    fun isInitializationComplete(): Boolean {
+        return initializationComplete
     }
 
     fun clearWebSocket(reason: String = "Unknown", closeCode: Int? = null, closeReason: String? = null) {

@@ -1049,6 +1049,7 @@ fun BubbleTimelineScreen(
             }
             items
         }
+    var lastInitialScrollSize by remember(roomId) { mutableStateOf(0) }
 
     // Get member map that observes memberUpdateCounter and includes global cache fallback for TimelineEventItem profile updates
     val memberMap = remember(roomId, appViewModel.memberUpdateCounter, sortedEvents) {
@@ -1074,6 +1075,7 @@ fun BubbleTimelineScreen(
     var hasInitialSnapCompleted by remember { mutableStateOf(false) }
     var lastKnownTimelineEventId by remember { mutableStateOf<String?>(null) }
     var hasCompletedInitialLayout by remember { mutableStateOf(false) }
+    var pendingInitialScroll by remember { mutableStateOf(true) }
     
     // Track scroll position using event ID anchor (more robust than index)
     var anchorEventIdForRestore by remember { mutableStateOf<String?>(null) }
@@ -1318,12 +1320,28 @@ fun BubbleTimelineScreen(
             }
         }
     }
+    
+    LaunchedEffect(timelineItems.size, readinessCheckComplete, pendingInitialScroll) {
+        if (pendingInitialScroll && readinessCheckComplete && timelineItems.isNotEmpty() &&
+            timelineItems.size != lastInitialScrollSize) {
+            coroutineScope.launch {
+                listState.scrollToItem(timelineItems.lastIndex)
+                isAttachedToBottom = true
+                hasInitialSnapCompleted = true
+                pendingInitialScroll = false
+                lastInitialScrollSize = timelineItems.size
+            }
+        }
+    }
 
     LaunchedEffect(roomId) {
         readinessCheckComplete = false
+        pendingInitialScroll = true
+        lastInitialScrollSize = 0
         appViewModel.promoteToPrimaryIfNeeded("bubble_timeline_$roomId")
         appViewModel.navigateToRoomWithCache(roomId)
-        val readinessResult = appViewModel.awaitRoomDataReadiness()
+        val requireInitComplete = !appViewModel.isWebSocketConnected() || !appViewModel.isInitializationComplete()
+        val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete)
         readinessCheckComplete = true
         if (!readinessResult && BuildConfig.DEBUG) {
             Log.w("Andromuks", "BubbleTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data")
