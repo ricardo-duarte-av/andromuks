@@ -28,6 +28,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import net.vrkknn.andromuks.ui.components.ContainedExpressiveLoadingIndicator
 
 /**
  * Dialog to preview selected media and add an optional caption before sending
@@ -337,7 +338,14 @@ fun UploadingDialog(
                     .padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                CircularProgressIndicator()
+                ContainedExpressiveLoadingIndicator(
+                    modifier = Modifier
+                        .size(96.dp),
+                    shape = CircleShape,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    indicatorColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    contentPadding = 12.dp
+                )
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = if (isVideo) "Uploading video..." else "Uploading image...",

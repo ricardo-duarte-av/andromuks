@@ -77,12 +77,7 @@ import androidx.compose.runtime.derivedStateOf
 import kotlinx.coroutines.Dispatchers
 import androidx.compose.ui.Alignment
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -132,6 +127,7 @@ import net.vrkknn.andromuks.ui.components.BridgeBackgroundLayer
 import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
+import net.vrkknn.andromuks.ui.components.ContainedExpressiveLoadingIndicator
 import net.vrkknn.andromuks.utils.CustomBubbleTextField
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EditPreviewInput
@@ -2163,18 +2159,9 @@ fun BubbleTimelineScreen(
                             }
                         }
                         Spacer(modifier = Modifier.width(8.dp))
-                        // Circular send button with rotation animation when sending
+                        // Expressive indicator for uploads/sends
                         val isSending = appViewModel.pendingSendCount > 0
-                        val infiniteTransition = rememberInfiniteTransition(label = "send_rotation")
-                        val rotation by infiniteTransition.animateFloat(
-                            initialValue = 0f,
-                            targetValue = if (isSending) 360f else 0f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(1000, easing = LinearEasing),
-                                repeatMode = RepeatMode.Restart
-                            ),
-                            label = "rotation"
-                        )
+                        val showSendIndicator = isSending || isUploading
                         
                         Button(
                             onClick = {
@@ -2220,15 +2207,29 @@ fun BubbleTimelineScreen(
                             modifier = Modifier.size(buttonHeight), // Fixed height matching single-line text field
                             contentPadding = PaddingValues(0.dp) // No padding for perfect circle
                         ) {
-                            @Suppress("DEPRECATION")
-                            Icon(
-                                imageVector = Icons.Filled.Send,
-                                contentDescription = "Send",
-                                tint =
-                                    if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = if (isSending) Modifier.rotate(rotation) else Modifier
-                            )
+                            if (showSendIndicator) {
+                                ContainedExpressiveLoadingIndicator(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(6.dp),
+                                    shape = CircleShape,
+                                    containerColor =
+                                        if (draft.isNotBlank()) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.surfaceVariant,
+                                    indicatorColor =
+                                        if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    contentPadding = 4.dp
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Filled.Send,
+                                    contentDescription = "Send",
+                                    tint =
+                                        if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
