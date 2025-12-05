@@ -112,6 +112,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.NotificationsOff
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.combinedClickable
@@ -341,6 +342,8 @@ fun RoomListScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
+                ExpressiveLoadingIndicator(modifier = Modifier.size(96.dp))
+                Spacer(modifier = Modifier.height(24.dp))
                 if (!effectiveProfileLoaded) {
                     Text(
                         text = "Loading profile...",

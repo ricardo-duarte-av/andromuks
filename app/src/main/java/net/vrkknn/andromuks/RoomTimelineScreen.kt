@@ -132,6 +132,7 @@ import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.BridgeBackgroundLayer
 import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.utils.CustomBubbleTextField
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EditPreviewInput
@@ -1429,7 +1430,7 @@ fun RoomTimelineScreen(
         lastInitialScrollSize = 0
         appViewModel.promoteToPrimaryIfNeeded("room_timeline_$roomId")
         appViewModel.navigateToRoomWithCache(roomId)
-        val requireInitComplete = !appViewModel.isWebSocketConnected() || !appViewModel.isInitializationComplete()
+        val requireInitComplete = !appViewModel.isWebSocketConnected()
         val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete)
         readinessCheckComplete = true
         if (!readinessResult && BuildConfig.DEBUG) {
@@ -1805,11 +1806,7 @@ fun RoomTimelineScreen(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Center
                                 ) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(48.dp),
-                                        strokeWidth = 3.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
+                                    ExpressiveLoadingIndicator(modifier = Modifier.size(96.dp))
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
                                         text = "Room loading...",
