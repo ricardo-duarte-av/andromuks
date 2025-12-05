@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -218,14 +219,12 @@ fun StickerMessage(
     
     // Check if this is a thread message to apply thread colors
     val isThreadMessage = event?.isThreadMessage() ?: false
-    val stickerBubbleColor = if (isThreadMessage) {
-        // Own thread messages: full opacity for emphasis
-        // Others' thread messages: lighter for distinction
-        if (isMine) MaterialTheme.colorScheme.tertiaryContainer
-        else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
-    }
+    val colorScheme = MaterialTheme.colorScheme
+    val stickerBubbleColor = stickerBubbleColorFor(
+        colorScheme = colorScheme,
+        isMine = isMine,
+        isThreadMessage = isThreadMessage
+    )
     
     // Stickers are displayed without a caption bubble, just the image
     // Match image rendering pattern exactly
@@ -272,6 +271,19 @@ fun StickerMessage(
                 }
             }
         }
+    }
+}
+
+fun stickerBubbleColorFor(
+    colorScheme: ColorScheme,
+    isMine: Boolean,
+    isThreadMessage: Boolean
+): Color {
+    return if (isThreadMessage) {
+        if (isMine) colorScheme.tertiaryContainer
+        else colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+    } else {
+        colorScheme.surfaceVariant
     }
 }
 

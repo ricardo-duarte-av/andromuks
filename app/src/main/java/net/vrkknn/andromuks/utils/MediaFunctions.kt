@@ -39,6 +39,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -350,7 +351,9 @@ fun MediaMessage(
     powerLevels: net.vrkknn.andromuks.PowerLevelsInfo? = null,
     appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
     onBubbleClick: (() -> Unit)? = null,
-    onShowEditHistory: (() -> Unit)? = null
+    onShowEditHistory: (() -> Unit)? = null,
+    bubbleColorOverride: Color? = null,
+    hasBeenEditedOverride: Boolean? = null
 ) {
     var showImageViewer by remember { mutableStateOf(false) }
     var showVideoPlayer by remember { mutableStateOf(false) }
@@ -392,22 +395,16 @@ fun MediaMessage(
     
     // Check if this is a thread message to apply thread colors
     val isThreadMessage = event?.isThreadMessage() ?: false
-    val hasBeenEdited = remember(event?.eventId, appViewModel?.timelineUpdateCounter) {
+    val hasBeenEdited = hasBeenEditedOverride ?: remember(event?.eventId, appViewModel?.timelineUpdateCounter) {
         event?.let { appViewModel?.isMessageEdited(it.eventId) ?: false } ?: false
     }
-    val mediaBubbleColor = if (isThreadMessage) {
-        // Own thread messages: full opacity for emphasis
-        // Others' thread messages: lighter for distinction
-        if (isMine) MaterialTheme.colorScheme.tertiaryContainer
-        else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-    } else {
-        if (hasBeenEdited) {
-            if (isMine) MaterialTheme.colorScheme.secondaryContainer
-            else MaterialTheme.colorScheme.surfaceContainerHighest
-        } else {
-            MaterialTheme.colorScheme.surfaceVariant
-        }
-    }
+    val colorScheme = MaterialTheme.colorScheme
+    val mediaBubbleColor = bubbleColorOverride ?: mediaBubbleColorFor(
+        colorScheme = colorScheme,
+        isMine = isMine,
+        isThreadMessage = isThreadMessage,
+        hasBeenEdited = hasBeenEdited
+    )
     
     if (hasCaption) {
         // With caption: Image inside the caption bubble
@@ -699,6 +696,23 @@ fun MediaMessage(
                 }
             }
         }
+    }
+}
+
+fun mediaBubbleColorFor(
+    colorScheme: ColorScheme,
+    isMine: Boolean,
+    isThreadMessage: Boolean,
+    hasBeenEdited: Boolean
+): Color {
+    return if (isThreadMessage) {
+        if (isMine) colorScheme.tertiaryContainer
+        else colorScheme.tertiaryContainer.copy(alpha = 0.5f)
+    } else if (hasBeenEdited) {
+        if (isMine) colorScheme.secondaryContainer
+        else colorScheme.surfaceContainerHighest
+    } else {
+        colorScheme.surfaceVariant
     }
 }
 

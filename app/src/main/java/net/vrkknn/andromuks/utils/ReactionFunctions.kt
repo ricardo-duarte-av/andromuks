@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.contentColorFor
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.layout.ContentScale
@@ -54,15 +56,18 @@ fun ReactionBadge(
     count: Int,
     homeserverUrl: String,
     authToken: String,
-    onClick: () -> Unit = {}
+    backgroundColor: Color,
+    contentColor: Color,
+    onClick: () -> Unit = {},
+    shape: RoundedCornerShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 12.dp, bottomEnd = 12.dp)
 ) {
     Surface(
-        shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        shape = shape,
+        color = backgroundColor,
         modifier = Modifier
             .height(20.dp)
             .clickable(onClick = onClick),
-        tonalElevation = 2.dp  // Use tonalElevation for dark mode visibility
+        tonalElevation = 0.dp
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -78,7 +83,8 @@ fun ReactionBadge(
                     text = emoji,
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.8f
-                    )
+                    ),
+                    color = contentColor
                 )
             }
             
@@ -88,7 +94,7 @@ fun ReactionBadge(
                     style = MaterialTheme.typography.bodySmall.copy(
                         fontSize = MaterialTheme.typography.bodySmall.fontSize * 0.7f
                     ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = contentColor
                 )
             }
         }
@@ -179,10 +185,31 @@ fun ReactionBadges(
     reactions: List<MessageReaction>,
     homeserverUrl: String,
     authToken: String,
+    isMine: Boolean,
+    bubbleColor: Color? = null,
     onReactionClick: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     if (reactions.isNotEmpty()) {
+        val backgroundColor =
+            bubbleColor ?: if (isMine) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            }
+        val contentColor =
+            bubbleColor?.let { contentColorFor(it) } ?: if (isMine) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+        val badgeShape =
+            RoundedCornerShape(
+                topStart = 0.dp,
+                topEnd = 0.dp,
+                bottomStart = 12.dp,
+                bottomEnd = 12.dp
+            )
         Row(
             modifier = modifier,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -193,7 +220,10 @@ fun ReactionBadges(
                     count = reaction.count,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
-                    onClick = { onReactionClick(reaction.emoji) }
+                    backgroundColor = backgroundColor,
+                    contentColor = contentColor,
+                    onClick = { onReactionClick(reaction.emoji) },
+                    shape = badgeShape
                 )
             }
         }

@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.AnnotatedString
@@ -55,6 +56,8 @@ import net.vrkknn.andromuks.utils.extractStickerFromEvent
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
 import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.RoomLink
+import net.vrkknn.andromuks.utils.mediaBubbleColorFor
+import net.vrkknn.andromuks.utils.stickerBubbleColorFor
 import net.vrkknn.andromuks.BuildConfig
 
 import java.text.SimpleDateFormat
@@ -346,10 +349,24 @@ private fun MediaMessageItem(
     myUserId: String? = null,
     powerLevels: PowerLevelsInfo? = null,
     onBubbleClick: (() -> Unit)? = null,
-    onShowEditHistory: (() -> Unit)? = null
+    onShowEditHistory: (() -> Unit)? = null,
+    precomputedHasBeenEdited: Boolean? = null
 ) {
     // Check if this is a thread message
     val isThreadMessage = event.isThreadMessage()
+    val colorScheme = MaterialTheme.colorScheme
+    val mediaHasBeenEdited =
+        precomputedHasBeenEdited ?: remember(event.eventId, appViewModel?.timelineUpdateCounter) {
+            appViewModel?.isMessageEdited(event.eventId) ?: false
+        }
+    val mediaBubbleColor = remember(mediaHasBeenEdited, isThreadMessage, isMine, colorScheme) {
+        mediaBubbleColorFor(
+            colorScheme = colorScheme,
+            isMine = isMine,
+            isThreadMessage = isThreadMessage,
+            hasBeenEdited = mediaHasBeenEdited
+        )
+    }
     
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -394,7 +411,9 @@ private fun MediaMessageItem(
                     powerLevels = powerLevels,
                     appViewModel = appViewModel,
                     onBubbleClick = onBubbleClick,
-                    onShowEditHistory = onShowEditHistory
+                    onShowEditHistory = onShowEditHistory,
+                    bubbleColorOverride = mediaBubbleColor,
+                    hasBeenEditedOverride = mediaHasBeenEdited
                 )
             }
         } else {
@@ -416,7 +435,9 @@ private fun MediaMessageItem(
                 myUserId = myUserId,
                 powerLevels = powerLevels,
                 appViewModel = appViewModel,
-                onBubbleClick = onBubbleClick
+                onBubbleClick = onBubbleClick,
+                bubbleColorOverride = mediaBubbleColor,
+                hasBeenEditedOverride = mediaHasBeenEdited
             )
         }
     }
@@ -617,14 +638,15 @@ private fun RoomMessageContent(
                 }
                 if (reactions.isNotEmpty()) {
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 28.dp),
+                        modifier = Modifier.fillMaxWidth().padding(start = 28.dp),
                         horizontalArrangement = Arrangement.Start
                     ) {
                         ReactionBadges(
                             eventId = event.eventId,
                             reactions = reactions,
                             homeserverUrl = homeserverUrl,
-                            authToken = authToken,
+                        authToken = authToken,
+                        isMine = actualIsMine,
                             onReactionClick = { emoji ->
                                 appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
                             }
@@ -959,6 +981,20 @@ private fun RoomMediaMessageContent(
                 msgType = msgType
             )
 
+        val mediaIsThreadMessage = event.isThreadMessage()
+        val colorScheme = MaterialTheme.colorScheme
+        val mediaHasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
+            appViewModel?.isMessageEdited(event.eventId) ?: false
+        }
+        val mediaBubbleColor = remember(mediaHasBeenEdited, mediaIsThreadMessage, actualIsMine, colorScheme) {
+            mediaBubbleColorFor(
+                colorScheme = colorScheme,
+                isMine = actualIsMine,
+                isThreadMessage = mediaIsThreadMessage,
+                hasBeenEdited = mediaHasBeenEdited
+            )
+        }
+
         // Display media message with nested reply structure
         MediaMessageItem(
             mediaMessage = mediaMessage,
@@ -987,7 +1023,8 @@ private fun RoomMediaMessageContent(
             } else {
                 null
             },
-            onShowEditHistory = onShowEditHistory
+            onShowEditHistory = onShowEditHistory,
+            precomputedHasBeenEdited = mediaHasBeenEdited
         )
 
         // Add reaction badges for media messages
@@ -996,8 +1033,11 @@ private fun RoomMediaMessageContent(
                 appViewModel.messageReactions[event.eventId] ?: emptyList()
             }
             if (reactions.isNotEmpty()) {
+                val mediaReactionInset = 12.dp
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .reactionHorizontalInset(actualIsMine, mediaReactionInset),
                     horizontalArrangement =
                         if (actualIsMine) Arrangement.End else Arrangement.Start
                 ) {
@@ -1006,6 +1046,8 @@ private fun RoomMediaMessageContent(
                         reactions = reactions,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
+                        isMine = actualIsMine,
+                        bubbleColor = mediaBubbleColor,
                         onReactionClick = { emoji ->
                             appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
                         }
@@ -1322,8 +1364,11 @@ private fun RoomTextMessageContent(
             appViewModel.messageReactions[event.eventId] ?: emptyList()
         }
         if (reactions.isNotEmpty()) {
+            val textReactionInset = 12.dp
             Row(
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .reactionHorizontalInset(actualIsMine, textReactionInset),
                 horizontalArrangement =
                     if (actualIsMine) Arrangement.End else Arrangement.Start
             ) {
@@ -1332,6 +1377,8 @@ private fun RoomTextMessageContent(
                     reactions = reactions,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
+                    isMine = actualIsMine,
+                    bubbleColor = bubbleColor,
                     onReactionClick = { emoji ->
                         appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
                     }
@@ -1418,7 +1465,7 @@ private fun EncryptedMessageContent(
                     }
                     if (reactions.isNotEmpty()) {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp, start = 28.dp),
+                            modifier = Modifier.fillMaxWidth().padding(start = 28.dp),
                             horizontalArrangement = Arrangement.Start
                         ) {
                             ReactionBadges(
@@ -1426,6 +1473,7 @@ private fun EncryptedMessageContent(
                                 reactions = reactions,
                                 homeserverUrl = homeserverUrl,
                                 authToken = authToken,
+                                isMine = actualIsMine,
                                 onReactionClick = { emoji ->
                                     appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
                                 }
@@ -1623,6 +1671,22 @@ private fun EncryptedMessageContent(
                     "TimelineEventItem: Created encrypted MediaMessage - url=${mediaMessage.url}, blurHash=${mediaMessage.info.blurHash}"
                 )
 
+                val encryptedMediaIsThreadMessage = event.isThreadMessage()
+                val colorScheme = MaterialTheme.colorScheme
+                val encryptedMediaHasBeenEdited =
+                    remember(event.eventId, appViewModel?.timelineUpdateCounter) {
+                        appViewModel?.isMessageEdited(event.eventId) ?: false
+                    }
+                val encryptedMediaBubbleColor =
+                    remember(encryptedMediaHasBeenEdited, encryptedMediaIsThreadMessage, actualIsMine, colorScheme) {
+                        mediaBubbleColorFor(
+                            colorScheme = colorScheme,
+                            isMine = actualIsMine,
+                            isThreadMessage = encryptedMediaIsThreadMessage,
+                            hasBeenEdited = encryptedMediaHasBeenEdited
+                        )
+                    }
+
                 // Display encrypted media message with nested reply structure
                 MediaMessageItem(
                     mediaMessage = mediaMessage,
@@ -1646,12 +1710,13 @@ private fun EncryptedMessageContent(
                     appViewModel = appViewModel,
                     myUserId = myUserId,
                     powerLevels = appViewModel?.currentRoomState?.powerLevels,
-                    onBubbleClick = if (event.isThreadMessage()) {
+                    onBubbleClick = if (encryptedMediaIsThreadMessage) {
                         { onThreadClick(event) }
                     } else {
                         null
                     },
-                    onShowEditHistory = onShowEditHistory
+                    onShowEditHistory = onShowEditHistory,
+                    precomputedHasBeenEdited = encryptedMediaHasBeenEdited
                 )
 
                 // Add reaction badges for encrypted media messages
@@ -1660,8 +1725,11 @@ private fun EncryptedMessageContent(
                         appViewModel.messageReactions[event.eventId] ?: emptyList()
                     }
                     if (reactions.isNotEmpty()) {
+                        val mediaReactionInset = 12.dp
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .reactionHorizontalInset(actualIsMine, mediaReactionInset),
                             horizontalArrangement =
                                 if (actualIsMine) Arrangement.End
                                 else Arrangement.Start
@@ -1671,6 +1739,8 @@ private fun EncryptedMessageContent(
                                 reactions = reactions,
                                 homeserverUrl = homeserverUrl,
                                 authToken = authToken,
+                                isMine = actualIsMine,
+                                bubbleColor = encryptedMediaBubbleColor,
                                 onReactionClick = { emoji ->
                                     appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
                                 }
@@ -1745,8 +1815,11 @@ private fun EncryptedMessageContent(
                         appViewModel.messageReactions[event.eventId] ?: emptyList()
                     }
                     if (reactions.isNotEmpty()) {
+                        val fallbackReactionInset = 8.dp
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .reactionHorizontalInset(actualIsMine, fallbackReactionInset),
                             horizontalArrangement =
                                 if (actualIsMine) Arrangement.End
                                 else Arrangement.Start
@@ -1755,7 +1828,9 @@ private fun EncryptedMessageContent(
                                 eventId = event.eventId,
                                 reactions = reactions,
                                 homeserverUrl = homeserverUrl,
-                                authToken = authToken,
+                            authToken = authToken,
+                            isMine = actualIsMine,
+                            bubbleColor = bubbleColor,
                                 onReactionClick = { emoji ->
                                     appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
                                 }
@@ -1974,8 +2049,11 @@ private fun EncryptedMessageContent(
                     appViewModel.messageReactions[event.eventId] ?: emptyList()
                 }
                 if (reactions.isNotEmpty()) {
+                    val encryptedReactionInset = 8.dp
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .reactionHorizontalInset(actualIsMine, encryptedReactionInset),
                         horizontalArrangement =
                             if (actualIsMine) Arrangement.End else Arrangement.Start
                     ) {
@@ -1984,6 +2062,8 @@ private fun EncryptedMessageContent(
                             reactions = reactions,
                             homeserverUrl = homeserverUrl,
                             authToken = authToken,
+                            isMine = actualIsMine,
+                            bubbleColor = bubbleColor,
                             onReactionClick = { emoji ->
                                 appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
                             }
@@ -2051,6 +2131,13 @@ private fun StickerMessageContent(
         "StickerMessageContent: Rendering sticker event ${event.eventId}, isConsecutive=$isConsecutive"
     )
     val stickerMessage = extractStickerFromEvent(event)
+    val stickerIsThreadMessage = event.isThreadMessage()
+    val colorScheme = MaterialTheme.colorScheme
+    val stickerBubbleColor = stickerBubbleColorFor(
+        colorScheme = colorScheme,
+        isMine = actualIsMine,
+        isThreadMessage = stickerIsThreadMessage
+    )
 
     if (stickerMessage != null) {
         if (BuildConfig.DEBUG) Log.d(
@@ -2096,7 +2183,7 @@ private fun StickerMessageContent(
                 myUserId = myUserId,
                 powerLevels = appViewModel?.currentRoomState?.powerLevels,
                 appViewModel = appViewModel,
-                onBubbleClick = if (event.isThreadMessage()) {
+                onBubbleClick = if (stickerIsThreadMessage) {
                     { onThreadClick(event) }
                 } else {
                     null
@@ -2126,8 +2213,11 @@ private fun StickerMessageContent(
                 appViewModel.messageReactions[event.eventId] ?: emptyList()
             }
             if (reactions.isNotEmpty()) {
+                val stickerReactionInset = 12.dp
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .reactionHorizontalInset(actualIsMine, stickerReactionInset),
                     horizontalArrangement =
                         if (actualIsMine) Arrangement.End else Arrangement.Start
                 ) {
@@ -2136,6 +2226,8 @@ private fun StickerMessageContent(
                         reactions = reactions,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
+                        isMine = actualIsMine,
+                        bubbleColor = stickerBubbleColor,
                         onReactionClick = { emoji ->
                             appViewModel?.sendReaction(event.roomId, event.eventId, emoji)
                         }
@@ -2744,6 +2836,17 @@ fun TimelineEventItem(
             }
         }
     }
+}
+
+private fun Modifier.reactionHorizontalInset(
+    isMine: Boolean,
+    inset: Dp
+): Modifier {
+    if (inset == 0.dp) return this
+    return this.padding(
+        start = if (!isMine) inset else 0.dp,
+        end = if (isMine) inset else 0.dp
+    )
 }
 
 private fun String?.containsSpoilerMarkers(): Boolean {
