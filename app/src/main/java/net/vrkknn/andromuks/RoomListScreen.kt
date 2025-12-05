@@ -120,6 +120,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import net.vrkknn.andromuks.utils.RoomJoinerScreen
@@ -1152,11 +1153,21 @@ fun RoomListScreen(
         }
         
         // Pull-to-refresh indicator
-        PullRefreshIndicator(
-            refreshing = refreshing,
-            state = refreshState,
-            modifier = Modifier.align(Alignment.TopCenter)
-        )
+        val pullProgress = refreshState.progress
+        if (refreshing || pullProgress > 0f) {
+            val progressForAlpha = if (refreshing) 1f else pullProgress.coerceIn(0f, 1f)
+            ExpressiveLoadingIndicator(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .size(72.dp)
+                    .graphicsLayer {
+                        alpha = progressForAlpha
+                        val scale = 0.7f + 0.3f * progressForAlpha
+                        scaleX = scale
+                        scaleY = scale
+                    }
+            )
+        }
         
         // RoomJoinerScreen for invites
         if (showRoomJoiner && inviteToJoin != null) {
