@@ -6,14 +6,20 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LoadingIndicatorDefaults
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -75,6 +81,36 @@ fun ContainedExpressiveLoadingIndicator(
                 indicatorColor = indicatorColor
             )
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun ExpressiveStatusRow(
+    text: String,
+    modifier: Modifier = Modifier,
+    indicatorSize: Dp = 32.dp,
+    containerColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+    indicatorColor: Color = MaterialTheme.colorScheme.primary,
+    shape: Shape = CircleShape
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        ContainedExpressiveLoadingIndicator(
+            modifier = Modifier.size(indicatorSize),
+            shape = shape,
+            containerColor = containerColor,
+            indicatorColor = indicatorColor,
+            contentPadding = indicatorSize.coerceAtLeast(8.dp) / 4
+        )
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
     }
 }
 

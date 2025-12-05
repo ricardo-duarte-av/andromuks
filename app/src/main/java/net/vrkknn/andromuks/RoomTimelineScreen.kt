@@ -129,6 +129,7 @@ import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.ui.components.ContainedExpressiveLoadingIndicator
+import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
 import net.vrkknn.andromuks.utils.CustomBubbleTextField
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
 import net.vrkknn.andromuks.utils.EditPreviewInput
@@ -1766,6 +1767,17 @@ fun RoomTimelineScreen(
                             appViewModel.fullRefreshRoomTimeline(roomId)
                         }
                     )
+
+                    AnimatedVisibility(appViewModel.notificationActionInProgress) {
+                        ExpressiveStatusRow(
+                            text = "Completing notification action...",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            indicatorColor = MaterialTheme.colorScheme.primary,
+                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
+                        )
+                    }
 
                     // 2. Timeline (compressible, scrollable content)
                     Box(

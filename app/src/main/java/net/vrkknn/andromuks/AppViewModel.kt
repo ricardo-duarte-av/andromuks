@@ -402,6 +402,10 @@ class AppViewModel : ViewModel() {
     var isProcessingPendingItems by mutableStateOf(false)
         private set
 
+    private var activeNotificationActionCount = 0
+    var notificationActionInProgress by mutableStateOf(false)
+        private set
+    
     // Settings
     var showUnprocessedEvents by mutableStateOf(true)
         private set
@@ -724,6 +728,22 @@ class AppViewModel : ViewModel() {
     
     private val pendingNotificationActions = mutableListOf<PendingNotificationAction>()
     private val notificationActionCompletionCallbacks = mutableMapOf<Int, () -> Unit>()
+    private fun beginNotificationAction() {
+        activeNotificationActionCount++
+        if (!notificationActionInProgress) {
+            notificationActionInProgress = true
+        }
+    }
+    
+    private fun endNotificationAction() {
+        if (activeNotificationActionCount > 0) {
+            activeNotificationActionCount--
+        }
+        if (activeNotificationActionCount == 0) {
+            notificationActionInProgress = false
+        }
+    }
+    
 
     // WebSocket pending operations for retry when connection is restored
     // PHASE 5.1: Enhanced PendingWebSocketOperation with persistence support
@@ -9285,25 +9305,28 @@ class AppViewModel : ViewModel() {
         
         messageRequests[messageRequestId] = roomId
         pendingSendCount++
-        if (onComplete != null) {
-            notificationActionCompletionCallbacks[messageRequestId] = onComplete
-            
-            // Set up timeout to prevent infinite stalling - use IO dispatcher to avoid background throttling
-            // Use shorter timeout when app is in background to handle throttling issues
-            viewModelScope.launch(Dispatchers.IO) {
-                val timeoutMs = if (isAppVisible) 30000L else 10000L // 10s timeout in background
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting message send timeout to ${timeoutMs}ms (app visible: $isAppVisible)")
-                delay(timeoutMs)
-                // Switch to Main dispatcher only for the final callback
-                withContext(Dispatchers.Main) {
-                    if (notificationActionCompletionCallbacks.containsKey(messageRequestId)) {
-                        android.util.Log.w("Andromuks", "AppViewModel: Message send timeout after ${timeoutMs}ms for requestId=$messageRequestId, calling completion callback")
-                        notificationActionCompletionCallbacks.remove(messageRequestId)?.invoke()
-                        // Also clean up from messageRequests and pendingSendCount
-                        messageRequests.remove(messageRequestId)
-                        if (pendingSendCount > 0) {
-                            pendingSendCount--
-                        }
+        beginNotificationAction()
+        val completionWrapper: () -> Unit = {
+            onComplete?.invoke()
+            endNotificationAction()
+        }
+        notificationActionCompletionCallbacks[messageRequestId] = completionWrapper
+        
+        // Set up timeout to prevent infinite stalling - use IO dispatcher to avoid background throttling
+        // Use shorter timeout when app is in background to handle throttling issues
+        viewModelScope.launch(Dispatchers.IO) {
+            val timeoutMs = if (isAppVisible) 30000L else 10000L // 10s timeout in background
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting message send timeout to ${timeoutMs}ms (app visible: $isAppVisible)")
+            delay(timeoutMs)
+            // Switch to Main dispatcher only for the final callback
+            withContext(Dispatchers.Main) {
+                if (notificationActionCompletionCallbacks.containsKey(messageRequestId)) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Message send timeout after ${timeoutMs}ms for requestId=$messageRequestId, calling completion callback")
+                    notificationActionCompletionCallbacks.remove(messageRequestId)?.invoke()
+                    // Also clean up from messageRequests and pendingSendCount
+                    messageRequests.remove(messageRequestId)
+                    if (pendingSendCount > 0) {
+                        pendingSendCount--
                     }
                 }
             }
@@ -9371,23 +9394,26 @@ class AppViewModel : ViewModel() {
         val markReadRequestId = requestIdCounter++
         
         markReadRequests[markReadRequestId] = roomId
-        if (onComplete != null) {
-            notificationActionCompletionCallbacks[markReadRequestId] = onComplete
-            
-            // Set up timeout to prevent infinite stalling - use IO dispatcher to avoid background throttling
-            // Use shorter timeout when app is in background to handle throttling issues
-            viewModelScope.launch(Dispatchers.IO) {
-                val timeoutMs = if (isAppVisible) 30000L else 10000L // 10s timeout in background
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting mark read timeout to ${timeoutMs}ms (app visible: $isAppVisible)")
-                delay(timeoutMs)
-                // Switch to Main dispatcher only for the final callback
-                withContext(Dispatchers.Main) {
-                    if (notificationActionCompletionCallbacks.containsKey(markReadRequestId)) {
-                        android.util.Log.w("Andromuks", "AppViewModel: Mark read timeout after ${timeoutMs}ms for requestId=$markReadRequestId, calling completion callback")
-                        notificationActionCompletionCallbacks.remove(markReadRequestId)?.invoke()
-                        // Also clean up from markReadRequests
-                        markReadRequests.remove(markReadRequestId)
-                    }
+        beginNotificationAction()
+        val completionWrapper: () -> Unit = {
+            onComplete?.invoke()
+            endNotificationAction()
+        }
+        notificationActionCompletionCallbacks[markReadRequestId] = completionWrapper
+        
+        // Set up timeout to prevent infinite stalling - use IO dispatcher to avoid background throttling
+        // Use shorter timeout when app is in background to handle throttling issues
+        viewModelScope.launch(Dispatchers.IO) {
+            val timeoutMs = if (isAppVisible) 30000L else 10000L // 10s timeout in background
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting mark read timeout to ${timeoutMs}ms (app visible: $isAppVisible)")
+            delay(timeoutMs)
+            // Switch to Main dispatcher only for the final callback
+            withContext(Dispatchers.Main) {
+                if (notificationActionCompletionCallbacks.containsKey(markReadRequestId)) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Mark read timeout after ${timeoutMs}ms for requestId=$markReadRequestId, calling completion callback")
+                    notificationActionCompletionCallbacks.remove(markReadRequestId)?.invoke()
+                    // Also clean up from markReadRequests
+                    markReadRequests.remove(markReadRequestId)
                 }
             }
         }

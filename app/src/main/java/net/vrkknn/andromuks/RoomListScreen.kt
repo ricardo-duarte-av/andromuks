@@ -113,6 +113,7 @@ import androidx.compose.material.icons.filled.NotificationsOff
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
+import net.vrkknn.andromuks.ui.components.ExpressiveStatusRow
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.combinedClickable
@@ -388,6 +389,15 @@ fun RoomListScreen(
         }
         return
     }
+    
+    val inlineSyncInProgress = appViewModel.isProcessingPendingItems || !appViewModel.initialSyncComplete || !appViewModel.spacesLoaded
+    val inlineSyncMessage = when {
+        appViewModel.isProcessingPendingItems -> "Processing new events..."
+        !appViewModel.initialSyncComplete -> "Finalizing sync..."
+        !appViewModel.spacesLoaded -> "Loading spaces..."
+        else -> "Refreshing rooms..."
+    }
+    val showNotificationActionIndicator = appViewModel.notificationActionInProgress
     
     // PERFORMANCE: Only recompose when room list actually changes
     // Use derivedStateOf to prevent recomposition when counter increments but rooms are identical
@@ -998,6 +1008,27 @@ fun RoomListScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp)
+                )
+            }
+            
+            AnimatedVisibility(inlineSyncInProgress) {
+                ExpressiveStatusRow(
+                    text = inlineSyncMessage,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    indicatorColor = MaterialTheme.colorScheme.primary
+                )
+            }
+            
+            AnimatedVisibility(showNotificationActionIndicator) {
+                ExpressiveStatusRow(
+                    text = "Completing notification action...",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    indicatorColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
                 )
             }
             
