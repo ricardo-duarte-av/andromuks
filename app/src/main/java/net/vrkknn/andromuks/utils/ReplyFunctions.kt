@@ -1,6 +1,9 @@
 package net.vrkknn.andromuks.utils
 
 import net.vrkknn.andromuks.BuildConfig
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -76,6 +79,7 @@ import androidx.compose.material.icons.filled.History
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReplyInfo
 import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
@@ -605,6 +609,29 @@ fun MessageBubbleWithMenu(
     
     var bubbleBounds by remember { mutableStateOf(Rect.Zero) }
     val hapticFeedback = LocalHapticFeedback.current
+
+    // Highlight animation when this event is the active scroll target
+    val scrollHighlightState = LocalScrollHighlightState.current
+    val isHighlightTarget =
+        scrollHighlightState.requestId > 0 && scrollHighlightState.eventId == event.eventId
+    val highlightAnim = remember(event.eventId) { Animatable(0f) }
+
+    LaunchedEffect(scrollHighlightState.requestId, isHighlightTarget) {
+        if (isHighlightTarget) {
+            highlightAnim.snapTo(1f)
+            highlightAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 5000, easing = FastOutSlowInEasing)
+            )
+        } else if (!isHighlightTarget && highlightAnim.value > 0f) {
+            highlightAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+            )
+        }
+    }
+
+    val highlightValue = highlightAnim.value
     
     // Watch external trigger and show menu when it changes
     LaunchedEffect(externalMenuTrigger) {
@@ -649,6 +676,16 @@ fun MessageBubbleWithMenu(
     
     // Detect dark mode for custom shadow/glow
     val isDarkMode = isSystemInDarkTheme()
+    val highlightColor = MaterialTheme.colorScheme.tertiary
+    val highlightBorder =
+        if (highlightValue > 0.01f) {
+            BorderStroke(
+                width = (2.dp + 3.dp * highlightValue),
+                color = highlightColor.copy(alpha = 0.45f * highlightValue)
+            )
+        } else {
+            null
+        }
     
     Box {
         Surface(
@@ -675,11 +712,13 @@ fun MessageBubbleWithMenu(
                 // In dark mode, add a light glow effect
                 .then(
                     if (isDarkMode) {
+                        val ambientAlpha = 0.15f + 0.25f * highlightValue
+                        val spotAlpha = 0.2f + 0.35f * highlightValue
                         Modifier.shadow(
-                            elevation = 3.dp,
+                            elevation = 3.dp + 3.dp * highlightValue,
                             shape = bubbleShape,
-                            ambientColor = Color.White.copy(alpha = 0.15f), // Light glow in dark mode
-                            spotColor = Color.White.copy(alpha = 0.2f)
+                            ambientColor = Color.White.copy(alpha = ambientAlpha),
+                            spotColor = Color.White.copy(alpha = spotAlpha)
                         )
                     } else {
                         Modifier
@@ -687,8 +726,14 @@ fun MessageBubbleWithMenu(
                 ),
             color = bubbleColor,
             shape = bubbleShape,
-            tonalElevation = 3.dp,  // Provides color changes for elevation
-            shadowElevation = if (isDarkMode) 0.dp else 3.dp  // Shadows in light mode only
+            tonalElevation = 3.dp + (2.dp * highlightValue),  // Provides color changes for elevation
+            shadowElevation =
+                if (isDarkMode) {
+                    0.dp
+                } else {
+                    3.dp + (6.dp * highlightValue)
+                },  // Shadows in light mode only
+            border = highlightBorder
         ) {
             Row(content = content)
         }

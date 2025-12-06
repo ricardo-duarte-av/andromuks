@@ -66,6 +66,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -123,6 +124,8 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.ScrollHighlightState
+import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.BridgeBackgroundLayer
 import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
@@ -453,6 +456,21 @@ fun RoomTimelineScreen(
     
     // Sticker selection state for text input
     var showStickerPickerForText by remember { mutableStateOf(false) }
+
+    // Scroll highlight state for jump-to-message interactions
+    var highlightedEventId by remember(roomId) { mutableStateOf<String?>(null) }
+    var highlightRequestId by remember(roomId) { mutableStateOf(0) }
+
+    // Auto-clear highlight after a short duration
+    LaunchedEffect(highlightRequestId, highlightedEventId) {
+        val currentRequest = highlightRequestId
+        if (highlightedEventId != null && currentRequest > 0) {
+            kotlinx.coroutines.delay(1600)
+            if (highlightRequestId == currentRequest) {
+                highlightedEventId = null
+            }
+        }
+    }
 
     // Media picker state
     var selectedMediaUri by remember { mutableStateOf<Uri?>(null) }
@@ -1425,6 +1443,8 @@ fun RoomTimelineScreen(
         readinessCheckComplete = false
         pendingInitialScroll = true
         lastInitialScrollSize = 0
+        highlightedEventId = null
+        highlightRequestId = 0
         appViewModel.promoteToPrimaryIfNeeded("room_timeline_$roomId")
         appViewModel.navigateToRoomWithCache(roomId)
         val requireInitComplete = !appViewModel.isWebSocketConnected()
@@ -1733,9 +1753,15 @@ fun RoomTimelineScreen(
         }
     }
 
-    AndromuksTheme {
-        Surface {
-            Box(modifier = modifier.fillMaxSize()) {
+    CompositionLocalProvider(
+        LocalScrollHighlightState provides ScrollHighlightState(
+            eventId = highlightedEventId,
+            requestId = highlightRequestId
+        )
+    ) {
+        AndromuksTheme {
+            Surface {
+                Box(modifier = modifier.fillMaxSize()) {
                 Column(
                     modifier =
                         Modifier.fillMaxSize()
@@ -1921,6 +1947,8 @@ fun RoomTimelineScreen(
                                                 if (index >= 0) {
                                                     coroutineScope.launch {
                                                         listState.animateScrollToItem(index)
+                                                        highlightedEventId = eventId
+                                                        highlightRequestId++
                                                     }
                                                 } else {
                                                     // Show toast if message not found
@@ -3020,6 +3048,7 @@ fun RoomTimelineScreen(
                 // Uploading dialog (shows progress during upload)
                 if (isUploading) {
                     UploadingDialog(isVideo = selectedMediaIsVideo)
+                }
                 }
             }
         }

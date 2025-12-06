@@ -66,6 +66,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -122,6 +123,8 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import net.vrkknn.andromuks.LocalScrollHighlightState
+import net.vrkknn.andromuks.ScrollHighlightState
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.BridgeBackgroundLayer
 import net.vrkknn.andromuks.ui.components.BridgeNetworkBadge
@@ -500,6 +503,20 @@ fun BubbleTimelineScreen(
     var showEmojiSuggestionList by remember { mutableStateOf(false) }
     var emojiQuery by remember { mutableStateOf("") }
     var emojiStartIndex by remember { mutableStateOf(-1) }
+
+    // Scroll highlight state for jump-to-message interactions
+    var highlightedEventId by remember(roomId) { mutableStateOf<String?>(null) }
+    var highlightRequestId by remember(roomId) { mutableStateOf(0) }
+
+    LaunchedEffect(highlightRequestId, highlightedEventId) {
+        val currentRequest = highlightRequestId
+        if (highlightedEventId != null && currentRequest > 0) {
+            kotlinx.coroutines.delay(1600)
+            if (highlightRequestId == currentRequest) {
+                highlightedEventId = null
+            }
+        }
+    }
     
     // Text input state (moved here to be accessible by mention handler)
     var draft by remember { mutableStateOf("") }
@@ -1337,6 +1354,8 @@ fun BubbleTimelineScreen(
         readinessCheckComplete = false
         pendingInitialScroll = true
         lastInitialScrollSize = 0
+        highlightedEventId = null
+        highlightRequestId = 0
         appViewModel.promoteToPrimaryIfNeeded("bubble_timeline_$roomId")
         appViewModel.navigateToRoomWithCache(roomId)
         val requireInitComplete = !appViewModel.isWebSocketConnected()
@@ -1548,9 +1567,15 @@ fun BubbleTimelineScreen(
     // Handle Android back key
     BackHandler { onCloseBubble() }
 
-    AndromuksTheme {
-        Surface {
-            Box(modifier = modifier.fillMaxSize()) {
+    CompositionLocalProvider(
+        LocalScrollHighlightState provides ScrollHighlightState(
+            eventId = highlightedEventId,
+            requestId = highlightRequestId
+        )
+    ) {
+        AndromuksTheme {
+            Surface {
+                Box(modifier = modifier.fillMaxSize()) {
                 Column(
                     modifier =
                         Modifier.fillMaxSize()
@@ -1704,6 +1729,8 @@ fun BubbleTimelineScreen(
                                                 if (index >= 0) {
                                                     coroutineScope.launch {
                                                         listState.animateScrollToItem(index)
+                                                        highlightedEventId = eventId
+                                                        highlightRequestId++
                                                     }
                                                 } else {
                                                     // Show toast if message not found
@@ -2829,6 +2856,7 @@ fun BubbleTimelineScreen(
                 // Uploading dialog (shows progress during upload)
                 if (isUploading) {
                     UploadingDialog(isVideo = selectedMediaIsVideo)
+                }
                 }
             }
         }
