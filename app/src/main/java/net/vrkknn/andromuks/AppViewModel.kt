@@ -13297,6 +13297,10 @@ class AppViewModel : ViewModel() {
     fun markRoomAsRead(roomId: String, eventId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsRead called with roomId: '$roomId', eventId: '$eventId'")
         
+        // Optimistically clear unread counts immediately for instant UI feedback
+        // The backend will confirm this in the next sync_complete, but we update UI now
+        optimisticallyClearUnreadCounts(roomId)
+        
         // Try to mark as read immediately
         val result = markRoomAsReadInternal(roomId, eventId)
         
@@ -13312,6 +13316,48 @@ class AppViewModel : ViewModel() {
                     )
                 )
             )
+        }
+    }
+    
+    /**
+     * Optimistically clear unread counts for a room when marking as read.
+     * This provides instant UI feedback before the backend sends updated counts in sync_complete.
+     */
+    private fun optimisticallyClearUnreadCounts(roomId: String) {
+        val existingRoom = roomMap[roomId]
+        if (existingRoom != null && ((existingRoom.unreadCount != null && existingRoom.unreadCount > 0) || 
+            (existingRoom.highlightCount != null && existingRoom.highlightCount > 0))) {
+            // Update room with cleared unread counts
+            val updatedRoom = existingRoom.copy(
+                unreadCount = null,
+                highlightCount = null
+            )
+            roomMap[roomId] = updatedRoom
+            
+            // Update allRooms to reflect the change immediately
+            val updatedAllRooms = allRooms.map { room ->
+                if (room.id == roomId) updatedRoom else room
+            }
+            allRooms = updatedAllRooms
+            
+            // Also update spaces list if needed
+            if (spaceList.isNotEmpty()) {
+                val updatedSpaces = spaceList.map { space ->
+                    val updatedSpaceRooms = space.rooms.map { room ->
+                        if (room.id == roomId) updatedRoom else room
+                    }
+                    space.copy(rooms = updatedSpaceRooms)
+                }
+                setSpaces(updatedSpaces, skipCounterUpdate = false)
+            }
+            
+            // Invalidate cache to force recalculation of sections and badge counts
+            invalidateRoomSectionCache()
+            
+            // Trigger UI update
+            roomListUpdateCounter++
+            
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Optimistically cleared unread counts for room $roomId")
         }
     }
     

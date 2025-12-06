@@ -1871,6 +1871,8 @@ fun RoomListContent(
     hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
     onInviteClick: (RoomInvite) -> Unit
 ) {
+    val context = LocalContext.current
+    
     // Handle Android back key when inside a space
     androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null) {
         if (appViewModel.currentSpaceId != null) {
@@ -1998,6 +2000,26 @@ fun RoomListContent(
                                 // CRITICAL FIX: Set currentRoomId immediately when navigating from room list
                                 // This ensures state is consistent across all navigation paths
                                 appViewModel.setCurrentRoomIdForTimeline(roomIdForNavigation)
+                                
+                                // Mark room as read immediately when opening from room list
+                                // This gives instant feedback by clearing the unread badge
+                                withContext(Dispatchers.IO) {
+                                    try {
+                                        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                                        val eventDao = database.eventDao()
+                                        val lastEvent = eventDao.getMostRecentEventForRoom(roomIdForNavigation)
+                                        if (lastEvent != null) {
+                                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Marking room $roomIdForNavigation as read with last event: ${lastEvent.eventId}")
+                                            withContext(Dispatchers.Main) {
+                                                appViewModel.markRoomAsRead(roomIdForNavigation, lastEvent.eventId)
+                                            }
+                                        } else {
+                                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: No events found for room $roomIdForNavigation, skipping mark as read")
+                                        }
+                                    } catch (e: Exception) {
+                                        android.util.Log.w("Andromuks", "RoomListScreen: Failed to mark room as read when opening: ${e.message}", e)
+                                    }
+                                }
                                 
                                 val prefetchSuccess = appViewModel.prefetchRoomSnapshot(roomIdForNavigation)
                                 if (!prefetchSuccess) {
