@@ -484,7 +484,7 @@ fun RoomListScreen(
         // If nothing changed, skip update - prevents unnecessary recomposition and avatar flashing
     }
     
-    // PERFORMANCE FIX: Only query database for rooms missing previews (most previews come from JSON parsing now)
+    // PERFORMANCE FIX: Query database for rooms missing previews or with stale timestamps
     // Use stable key to prevent unnecessary re-queries on every recomposition
     val roomIdsKey = remember(stableSection.rooms) { 
         stableSection.rooms.map { it.id }.sorted().joinToString(",") 
@@ -503,25 +503,33 @@ fun RoomListScreen(
             try {
                 val database = AndromuksDatabase.getInstance(context)
                 val eventDao = database.eventDao()
+                val summaryDao = database.roomSummaryDao()
                 val summaryMap = mutableMapOf<String, Pair<String?, String?>>()
                 
                 // PERFORMANCE: Only query rooms that don't already have previews from JSON parsing
-                // SpaceRoomParser now populates previews when foregrounded, so most rooms already have previews
-                // Only query missing previews on initial load or edge cases where JSON parsing didn't populate them
+                // or whose database summary indicates newer content (timestamp has advanced).
+                val summariesById = summaryDao.getRoomSummariesByIds(roomIds).associateBy { it.roomId }
                 val roomsNeedingQuery = stableSection.rooms.filter { room ->
-                    room.messagePreview.isNullOrBlank()
+                    val summary = summariesById[room.id]
+                    val currentTimestamp = room.sortingTimestamp ?: 0L
+                    when {
+                        room.messagePreview.isNullOrBlank() -> true
+                        summary == null -> false
+                        summary.lastTimestamp > currentTimestamp -> true
+                        else -> false
+                    }
                 }.map { it.id }
                 
                 // If no rooms need querying, skip database access entirely
                 if (roomsNeedingQuery.isEmpty()) {
                     if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "RoomListScreen: All ${roomIds.size} rooms have previews from JSON parsing - skipping DB query")
+                        android.util.Log.d("Andromuks", "RoomListScreen: All ${roomIds.size} rooms have up-to-date previews - skipping DB query")
                     }
                     return@withContext
                 }
                 
                 if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "RoomListScreen: Querying DB for ${roomsNeedingQuery.size}/${roomIds.size} rooms missing previews (${roomIds.size - roomsNeedingQuery.size} already have previews from JSON)")
+                    android.util.Log.d("Andromuks", "RoomListScreen: Querying DB for ${roomsNeedingQuery.size}/${roomIds.size} rooms needing preview refresh (missing or stale)")
                 }
                 
                 // Query last message for rooms that need it

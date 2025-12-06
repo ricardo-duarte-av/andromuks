@@ -728,25 +728,29 @@ class SyncIngestor(private val context: Context) {
         // 5. Update room summary (last message, unread counts, etc.)
         val unreadMessages = meta?.optInt("unread_messages", 0) ?: 0
         val unreadHighlights = meta?.optInt("unread_highlights", 0) ?: 0
+        val shouldExtractPreview = isAppVisible
+        val existingSummaryForPreview = if (!shouldExtractPreview) {
+            roomSummaryDao.getRoomSummary(roomId)
+        } else {
+            null
+        }
         
-        // BATTERY OPTIMIZATION: Skip summary update when backgrounded (user can't see room list)
-        // When foregrounded, query database for last message instead of scanning JSON
-        if (isAppVisible) {
-            // OPTIMIZATION: Query database for last message instead of scanning JSON
-            // Events are already persisted in Phases 2-3, so we can query efficiently
-            val lastMessageEvent = eventDao.getLastMessageForRoom(roomId)
+        // OPTIMIZATION: Query database for last message instead of scanning JSON
+        // Events are already persisted in Phases 2-3, so we can query efficiently
+        val lastMessageEvent = eventDao.getLastMessageForRoom(roomId)
+        
+        var lastEventId: String? = null
+        var lastTimestamp: Long = 0L
+        var messageSender: String? = existingSummaryForPreview?.messageSender
+        var messagePreview: String? = existingSummaryForPreview?.messagePreview
+        
+        if (lastMessageEvent != null) {
+            // Use last message from database
+            lastEventId = lastMessageEvent.eventId
+            lastTimestamp = lastMessageEvent.timestamp
+            messageSender = lastMessageEvent.sender ?: messageSender
             
-            var lastEventId: String? = null
-            var lastTimestamp: Long = 0L
-            var messageSender: String? = null
-            var messagePreview: String? = null
-            
-            if (lastMessageEvent != null) {
-                // Use last message from database
-                lastEventId = lastMessageEvent.eventId
-                lastTimestamp = lastMessageEvent.timestamp
-                messageSender = lastMessageEvent.sender
-                
+            if (shouldExtractPreview) {
                 // Extract message preview from rawJson
                 try {
                     val eventJson = JSONObject(lastMessageEvent.rawJson)
@@ -754,79 +758,78 @@ class SyncIngestor(private val context: Context) {
                     // E2EE: For encrypted messages (type='m.room.encrypted'), body is in decrypted.content.body
                     // For regular messages (type='m.room.message'), body is in content.body
                     // Backend already decrypts messages, so decrypted content is always available
-                    if (lastMessageEvent.type == "m.room.encrypted") {
-                        // Encrypted message - get body from decrypted content (backend already decrypted it)
+                    messagePreview = if (lastMessageEvent.type == "m.room.encrypted") {
                         val decrypted = eventJson.optJSONObject("decrypted")
-                        messagePreview = decrypted?.optString("body")
+                        decrypted?.optString("body")
                     } else {
-                        // Regular message - get body from content
                         val content = eventJson.optJSONObject("content")
-                        messagePreview = content?.optString("body")
+                        content?.optString("body")
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to extract message preview from rawJson for event ${lastMessageEvent.eventId}: ${e.message}")
                 }
-            } else {
-                // Fallback: Scan sync JSON if database query returned nothing (new room, no messages yet)
-                // This should be rare - only for brand new rooms
-                if (timeline != null && timeline.length() > 0) {
-                    for (i in timeline.length() - 1 downTo 0) {
-                        val timelineEntry = timeline.optJSONObject(i) ?: continue
-                        val eventJson = timelineEntry.optJSONObject("event") ?: continue
+            }
+        } else {
+            // Fallback: Scan sync JSON if database query returned nothing (new room, no messages yet)
+            // This should be rare - only for brand new rooms
+            if (timeline != null && timeline.length() > 0) {
+                for (i in timeline.length() - 1 downTo 0) {
+                    val timelineEntry = timeline.optJSONObject(i) ?: continue
+                    val eventJson = timelineEntry.optJSONObject("event") ?: continue
+                    
+                    val eventType = eventJson.optString("type")
+                    if (eventType == "m.room.message" || eventType == "m.room.encrypted") {
+                        lastEventId = eventJson.optString("event_id")
+                        lastTimestamp = eventJson.optLong("origin_server_ts", 0L)
+                        messageSender = eventJson.optString("sender")?.takeIf { it.isNotBlank() } ?: messageSender
                         
-                        val eventType = eventJson.optString("type")
-                        if (eventType == "m.room.message" || eventType == "m.room.encrypted") {
-                            lastEventId = eventJson.optString("event_id")
-                            lastTimestamp = eventJson.optLong("origin_server_ts", 0L)
-                            messageSender = eventJson.optString("sender")
-                            
+                        if (shouldExtractPreview) {
                             val content = eventJson.optJSONObject("content")
-                            if (content != null) {
-                                messagePreview = content.optString("body")
-                            } else {
-                                val decrypted = eventJson.optJSONObject("decrypted")
-                                messagePreview = decrypted?.optString("body")
-                            }
-                            break
+                            messagePreview = content?.optString("body") ?: eventJson.optJSONObject("decrypted")?.optString("body")
                         }
-                    }
-                }
-                
-                // Fallback to events array if no message in timeline
-                if (lastEventId == null && eventsArray != null) {
-                    for (i in eventsArray.length() - 1 downTo 0) {
-                        val eventJson = eventsArray.optJSONObject(i) ?: continue
-                        val eventType = eventJson.optString("type")
-                        if (eventType == "m.room.message" || eventType == "m.room.encrypted") {
-                            lastEventId = eventJson.optString("event_id")
-                            lastTimestamp = eventJson.optLong("origin_server_ts", 0L)
-                            messageSender = eventJson.optString("sender")
-                            
-                            val content = eventJson.optJSONObject("content")
-                            messagePreview = content?.optString("body") ?: 
-                                eventJson.optJSONObject("decrypted")?.optString("body")
-                            break
-                        }
+                        break
                     }
                 }
             }
             
-            val summary = RoomSummaryEntity(
-                roomId = roomId,
-                lastEventId = lastEventId,
-                lastTimestamp = lastTimestamp,
-                unreadCount = unreadMessages,
-                highlightCount = unreadHighlights,
-                messageSender = messageSender,
-                messagePreview = messagePreview
-            )
-            roomSummaryDao.upsert(summary)
-        } else {
-            // BACKGROUND MODE: Skip summary update to save battery
-            // Summary will be updated when app becomes visible again
-            // Unread counts are still updated from meta (needed for notifications)
-            if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping room summary update for $roomId (app backgrounded)")
+            // Fallback to events array if no message in timeline
+            if (lastEventId == null && eventsArray != null) {
+                for (i in eventsArray.length() - 1 downTo 0) {
+                    val eventJson = eventsArray.optJSONObject(i) ?: continue
+                    val eventType = eventJson.optString("type")
+                    if (eventType == "m.room.message" || eventType == "m.room.encrypted") {
+                        lastEventId = eventJson.optString("event_id")
+                        lastTimestamp = eventJson.optLong("origin_server_ts", 0L)
+                        messageSender = eventJson.optString("sender")?.takeIf { it.isNotBlank() } ?: messageSender
+                        
+                        if (shouldExtractPreview) {
+                            val content = eventJson.optJSONObject("content")
+                            messagePreview = content?.optString("body")
+                                ?: eventJson.optJSONObject("decrypted")?.optString("body")
+                        }
+                        break
+                    }
+                }
+            }
         }
+        
+        if (!shouldExtractPreview && messagePreview.isNullOrBlank()) {
+            messagePreview = existingSummaryForPreview?.messagePreview
+        }
+        if (messageSender.isNullOrBlank()) {
+            messageSender = existingSummaryForPreview?.messageSender
+        }
+        
+        val summary = RoomSummaryEntity(
+            roomId = roomId,
+            lastEventId = lastEventId,
+            lastTimestamp = lastTimestamp,
+            unreadCount = unreadMessages,
+            highlightCount = unreadHighlights,
+            messageSender = messageSender,
+            messagePreview = messagePreview
+        )
+        roomSummaryDao.upsert(summary)
         
         return hasPersistedEvents
     }

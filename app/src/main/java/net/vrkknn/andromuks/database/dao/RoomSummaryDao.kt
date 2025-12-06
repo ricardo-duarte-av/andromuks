@@ -14,6 +14,9 @@ interface RoomSummaryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(summaries: List<RoomSummaryEntity>)
 
+    @Query("SELECT * FROM room_summary WHERE roomId = :roomId LIMIT 1")
+    suspend fun getRoomSummary(roomId: String): RoomSummaryEntity?
+
     @Query("SELECT * FROM room_summary ORDER BY lastTimestamp DESC LIMIT :limit")
     suspend fun getTopRooms(limit: Int): List<RoomSummaryEntity>
     
