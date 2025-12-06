@@ -507,6 +507,9 @@ fun BubbleTimelineScreen(
     // Scroll highlight state for jump-to-message interactions
     var highlightedEventId by remember(roomId) { mutableStateOf<String?>(null) }
     var highlightRequestId by remember(roomId) { mutableStateOf(0) }
+    var pendingNotificationJumpEventId by remember(roomId) {
+        mutableStateOf(appViewModel.consumePendingHighlightEvent(roomId))
+    }
 
     LaunchedEffect(highlightRequestId, highlightedEventId) {
         val currentRequest = highlightRequestId
@@ -1098,6 +1101,39 @@ fun BubbleTimelineScreen(
     var anchorScrollOffsetForRestore by remember { mutableStateOf(0) }
     var pendingScrollRestoration by remember { mutableStateOf(false) }
 
+    LaunchedEffect(
+        pendingNotificationJumpEventId,
+        timelineItems.size,
+        readinessCheckComplete,
+        appViewModel.timelineUpdateCounter
+    ) {
+        val targetEventId = pendingNotificationJumpEventId ?: return@LaunchedEffect
+        if (!readinessCheckComplete || timelineItems.isEmpty()) {
+            return@LaunchedEffect
+        }
+        val targetIndex = timelineItems.indexOfFirst { item ->
+            (item as? BubbleTimelineItem.Event)?.event?.eventId == targetEventId
+        }
+        if (targetIndex >= 0) {
+            listState.scrollToItem(targetIndex)
+            isAttachedToBottom = targetIndex >= timelineItems.lastIndex - 1
+            hasInitialSnapCompleted = true
+            pendingInitialScroll = false
+            highlightedEventId = targetEventId
+            highlightRequestId++
+            pendingNotificationJumpEventId = null
+            if (BuildConfig.DEBUG) Log.d(
+                "Andromuks",
+                "BubbleTimelineScreen: Jumped to notification target event=$targetEventId at index=$targetIndex"
+            )
+        } else if (BuildConfig.DEBUG) {
+            Log.d(
+                "Andromuks",
+                "BubbleTimelineScreen: Pending notification target $targetEventId not yet in timeline (size=${timelineItems.size})"
+            )
+        }
+    }
+
     // Monitor scroll position to detect if user is at bottom or has detached
     // Also trigger automatic pagination when near the top
     LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) {
@@ -1207,11 +1243,22 @@ fun BubbleTimelineScreen(
     var lastKnownTimelineUpdateCounter by remember { mutableStateOf(appViewModel.timelineUpdateCounter) }
     
     // Auto-scroll to bottom only when attached (initial load or new messages while at bottom)
-    LaunchedEffect(timelineItems.size, isLoading, appViewModel.isPaginating, appViewModel.timelineUpdateCounter, appViewModel.bubbleAnimationCompletionCounter) {
+    LaunchedEffect(
+        timelineItems.size,
+        isLoading,
+        appViewModel.isPaginating,
+        appViewModel.timelineUpdateCounter,
+        appViewModel.bubbleAnimationCompletionCounter,
+        pendingNotificationJumpEventId
+    ) {
         if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
             "BubbleTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, timelineUpdateCounter: ${appViewModel.timelineUpdateCounter}, hasInitialSnapCompleted: $hasInitialSnapCompleted"
         )
+
+        if (pendingNotificationJumpEventId != null) {
+            return@LaunchedEffect
+        }
 
         if (isLoading || timelineItems.isEmpty()) {
             return@LaunchedEffect

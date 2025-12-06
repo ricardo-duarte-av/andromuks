@@ -127,6 +127,7 @@ class MainActivity : ComponentActivity() {
                             val directNavigation = intent.getBooleanExtra("direct_navigation", false)
                             val fromNotification = intent.getBooleanExtra("from_notification", false)
                             val matrixUri = intent.data
+                            val notificationEventId = intent.getStringExtra("event_id")
                             
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
                             
@@ -148,7 +149,11 @@ class MainActivity : ComponentActivity() {
                                 // Extract notification timestamp if present
                                 val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
                                 // Store for navigation once WebSocket is connected and spacesLoaded = true
-                                appViewModel.setDirectRoomNavigation(extractedRoomId, notificationTimestamp)
+                                appViewModel.setDirectRoomNavigation(
+                                    roomId = extractedRoomId,
+                                    notificationTimestamp = notificationTimestamp,
+                                    targetEventId = notificationEventId
+                                )
                                 if (!shortcutUserId.isNullOrBlank()) {
                                     appViewModel.reportPersonShortcutUsed(shortcutUserId)
                                 }
@@ -476,6 +481,7 @@ class MainActivity : ComponentActivity() {
         val directNavigation = intent.getBooleanExtra("direct_navigation", false)
         val fromNotification = intent.getBooleanExtra("from_notification", false)
         val matrixUri = intent.data
+        val notificationEventId = intent.getStringExtra("event_id")
         
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
         
@@ -494,12 +500,15 @@ class MainActivity : ComponentActivity() {
             if (::appViewModel.isInitialized) {
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onNewIntent - Direct navigation to room: $roomId")
                 // OPTIMIZATION #1: Direct navigation instead of pending state
-                appViewModel.setDirectRoomNavigation(roomId)
+                val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
+                appViewModel.setDirectRoomNavigation(
+                    roomId = roomId,
+                    notificationTimestamp = notificationTimestamp,
+                    targetEventId = notificationEventId
+                )
                 if (!shortcutUserId.isNullOrBlank()) {
                     appViewModel.reportPersonShortcutUsed(shortcutUserId)
                 }
-                // Extract notification timestamp if present
-                val notificationTimestamp = intent.getLongExtra("notification_timestamp", 0L).takeIf { it > 0 }
                 // Navigate with notification timestamp if available
                 if (notificationTimestamp != null) {
                     appViewModel.navigateToRoomWithCache(roomId, notificationTimestamp)

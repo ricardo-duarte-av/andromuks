@@ -460,6 +460,9 @@ fun RoomTimelineScreen(
     // Scroll highlight state for jump-to-message interactions
     var highlightedEventId by remember(roomId) { mutableStateOf<String?>(null) }
     var highlightRequestId by remember(roomId) { mutableStateOf(0) }
+    var pendingNotificationJumpEventId by remember(roomId) {
+        mutableStateOf(appViewModel.consumePendingHighlightEvent(roomId))
+    }
 
     // Auto-clear highlight after a short duration
     LaunchedEffect(highlightRequestId, highlightedEventId) {
@@ -1296,11 +1299,22 @@ fun RoomTimelineScreen(
     var lastKnownTimelineUpdateCounter by remember { mutableStateOf(appViewModel.timelineUpdateCounter) }
     
     // Auto-scroll to bottom only when attached (initial load or new messages while at bottom)
-    LaunchedEffect(timelineItems.size, isLoading, appViewModel.isPaginating, appViewModel.timelineUpdateCounter, appViewModel.bubbleAnimationCompletionCounter) {
+    LaunchedEffect(
+        timelineItems.size,
+        isLoading,
+        appViewModel.isPaginating,
+        appViewModel.timelineUpdateCounter,
+        appViewModel.bubbleAnimationCompletionCounter,
+        pendingNotificationJumpEventId
+    ) {
         if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
             "RoomTimelineScreen: LaunchedEffect - timelineItems.size: ${timelineItems.size}, isLoading: $isLoading, isPaginating: ${appViewModel.isPaginating}, timelineUpdateCounter: ${appViewModel.timelineUpdateCounter}, hasInitialSnapCompleted: $hasInitialSnapCompleted"
         )
+
+        if (pendingNotificationJumpEventId != null) {
+            return@LaunchedEffect
+        }
 
         if (isLoading || timelineItems.isEmpty()) {
             return@LaunchedEffect
@@ -1726,6 +1740,42 @@ fun RoomTimelineScreen(
     
     // Track when keyboard opens to maintain scroll position at bottom
     var wasAtBottomBeforeKeyboard by remember { mutableStateOf(true) }
+    
+    LaunchedEffect(
+        pendingNotificationJumpEventId,
+        timelineItems.size,
+        readinessCheckComplete,
+        appViewModel.timelineUpdateCounter,
+        pendingScrollRestoration
+    ) {
+        val targetEventId = pendingNotificationJumpEventId ?: return@LaunchedEffect
+        if (!readinessCheckComplete || timelineItems.isEmpty() || pendingScrollRestoration) {
+            return@LaunchedEffect
+        }
+        val targetIndex = timelineItems.indexOfFirst { item ->
+            (item as? TimelineItem.Event)?.event?.eventId == targetEventId
+        }
+        if (targetIndex >= 0) {
+            listState.scrollToItem(targetIndex)
+            isAttachedToBottom = targetIndex >= timelineItems.lastIndex - 1
+            wasAtBottomBeforeKeyboard = isAttachedToBottom
+            hasInitialSnapCompleted = true
+            hasLoadedInitialBatch = true
+            pendingInitialScroll = false
+            highlightedEventId = targetEventId
+            highlightRequestId++
+            pendingNotificationJumpEventId = null
+            if (BuildConfig.DEBUG) Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Jumped to notification target event=$targetEventId at index=$targetIndex"
+            )
+        } else if (BuildConfig.DEBUG) {
+            Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Pending notification target $targetEventId not yet in timeline (size=${timelineItems.size})"
+            )
+        }
+    }
     
     // Smoothly animate scroll to bottom when keyboard opens
     LaunchedEffect(imeBottom) {

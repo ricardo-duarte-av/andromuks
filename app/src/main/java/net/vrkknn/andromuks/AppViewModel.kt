@@ -4662,6 +4662,9 @@ class AppViewModel : ViewModel() {
     
     // Pending bubble navigation from chat bubbles
     private var pendingBubbleNavigation: String? = null
+
+    // Pending highlight targets (e.g., notification taps)
+    private val pendingHighlightEvents = ConcurrentHashMap<String, String>()
     
     // Websocket restart callback
     var onRestartWebSocket: ((String) -> Unit)? = null
@@ -4699,10 +4702,20 @@ class AppViewModel : ViewModel() {
     }
     
     // OPTIMIZATION #1: Direct navigation method (bypasses pending state)
-    fun setDirectRoomNavigation(roomId: String, notificationTimestamp: Long? = null) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: OPTIMIZATION #1 - Set direct room navigation to: $roomId (timestamp: $notificationTimestamp)")
+    fun setDirectRoomNavigation(
+        roomId: String,
+        notificationTimestamp: Long? = null,
+        targetEventId: String? = null
+    ) {
+        if (BuildConfig.DEBUG) android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: OPTIMIZATION #1 - Set direct room navigation to: $roomId (timestamp: $notificationTimestamp, targetEventId: $targetEventId)"
+        )
         directRoomNavigation = roomId
         directRoomNavigationTimestamp = notificationTimestamp
+        if (!targetEventId.isNullOrBlank()) {
+            setPendingHighlightEvent(roomId, targetEventId)
+        }
     }
     
     fun getDirectRoomNavigation(): String? {
@@ -4753,6 +4766,26 @@ class AppViewModel : ViewModel() {
     fun clearPendingBubbleNavigation() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing pending bubble navigation")
         pendingBubbleNavigation = null
+    }
+
+    fun setPendingHighlightEvent(roomId: String, eventId: String?) {
+        if (eventId.isNullOrBlank()) return
+        pendingHighlightEvents[roomId] = eventId
+        if (BuildConfig.DEBUG) android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Stored pending highlight event for $roomId -> $eventId"
+        )
+    }
+
+    fun consumePendingHighlightEvent(roomId: String): String? {
+        val eventId = pendingHighlightEvents.remove(roomId)
+        if (eventId != null && BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Consuming pending highlight event for $roomId -> $eventId"
+            )
+        }
+        return eventId
     }
     
     /**
