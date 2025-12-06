@@ -366,6 +366,7 @@ fun BubbleTimelineScreen(
     modifier: Modifier = Modifier,
     appViewModel: AppViewModel = viewModel(),
     onCloseBubble: () -> Unit = {},
+    onMinimizeBubble: () -> Unit = {},
     onOpenInApp: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -1669,6 +1670,7 @@ fun BubbleTimelineScreen(
                         },
                         onOpenInApp = onOpenInApp,
                         onCloseBubble = onCloseBubble,
+                        onMinimizeBubble = onMinimizeBubble,
                         onRefreshClick = {
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Full refresh button clicked for room $roomId")
                             isRefreshing = true
@@ -1885,7 +1887,7 @@ fun BubbleTimelineScreen(
                     ) {
                     Row(
                         modifier =
-                            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                            Modifier.fillMaxWidth().padding(start = 16.dp, top = 0.dp, end = 16.dp, bottom = 8.dp),
                         verticalAlignment = Alignment.Bottom
                     ) {
                         // Main attach button
@@ -2182,7 +2184,7 @@ fun BubbleTimelineScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     minLines = 1,
                                     maxLines = 5,
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                     onHeightChanged = { height ->
                                         // Only update if text is empty or single-line (to get the minimum height)
                                         val lineCount = draft.lines().size.coerceAtLeast(1)
@@ -2945,6 +2947,7 @@ fun BubbleRoomHeader(
     onHeaderClick: () -> Unit = {},
     onOpenInApp: () -> Unit = {},
     onCloseBubble: () -> Unit = {},
+    onMinimizeBubble: () -> Unit = {},
     onRefreshClick: () -> Unit = {}
 ) {
     // Debug logging
@@ -3036,10 +3039,13 @@ fun BubbleRoomHeader(
                         )
                     }
                 }
-                IconButton(onClick = onCloseBubble) {
+                IconButton(onClick = {
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleRoomHeader: X button clicked - calling onMinimizeBubble")
+                    onMinimizeBubble()
+                }) {
                     Icon(
                         imageVector = Icons.Filled.Close,
-                        contentDescription = "Close bubble",
+                        contentDescription = "Minimize bubble",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }

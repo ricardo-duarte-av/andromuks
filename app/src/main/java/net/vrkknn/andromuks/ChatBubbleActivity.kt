@@ -29,6 +29,7 @@ import androidx.activity.OnBackPressedCallback
 
 class ChatBubbleActivity : ComponentActivity() {
     private lateinit var appViewModel: AppViewModel
+    private var isMinimizing = false
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -133,6 +134,25 @@ class ChatBubbleActivity : ComponentActivity() {
                                 Log.e("Andromuks", "ChatBubbleActivity: onCloseBubble - fallback also failed", e2)
                             }
                         }
+                    },
+                    onMinimizeBubble = {
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onMinimizeBubble called - minimizing bubble")
+                        // Minimize the bubble by finishing with transition (collapses the bubble)
+                        // Do NOT cancel the notification - just finish the activity so the system collapses the bubble
+                        // Note: moveTaskToBack() doesn't work for always-on-top bubbles (WindowManager ignores it)
+                        try {
+                            this@ChatBubbleActivity.finishAfterTransition()
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onMinimizeBubble - finishAfterTransition() called")
+                        } catch (e: Exception) {
+                            Log.e("Andromuks", "ChatBubbleActivity: onMinimizeBubble - finishAfterTransition() failed", e)
+                            // Fallback: try moveTaskToBack (though it may be ignored for always-on-top tasks)
+                            try {
+                                this@ChatBubbleActivity.moveTaskToBack(true)
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: onMinimizeBubble - fallback moveTaskToBack(true) called")
+                            } catch (e2: Exception) {
+                                Log.e("Andromuks", "ChatBubbleActivity: onMinimizeBubble - fallback also failed", e2)
+                            }
+                        }
                     }
                 )
             }
@@ -233,10 +253,24 @@ class ChatBubbleActivity : ComponentActivity() {
     }
     
     override fun finish() {
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: finish() called - minimizing bubble instead of destroying")
-        // Don't call super.finish() to prevent the bubble from being destroyed
-        // Instead, just move to background so it can be reopened
-        moveTaskToBack(true)
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: finish() called - isMinimizing=$isMinimizing")
+        if (isMinimizing) {
+            // If we're minimizing, properly finish the activity to collapse the bubble
+            // The notification will keep the bubble alive so it can be reopened
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: finish() - minimizing, calling super.finish()")
+            super.finish()
+        } else {
+            // For other finish calls, minimize by moving to background
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: finish() - not minimizing, calling moveTaskToBack")
+            moveTaskToBack(true)
+        }
+    }
+    
+    override fun finishAfterTransition() {
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: finishAfterTransition() called - setting isMinimizing flag")
+        // Set flag so that when finish() is called after transition, it properly finishes
+        isMinimizing = true
+        super.finishAfterTransition()
     }
     
     override fun onDestroy() {
@@ -299,7 +333,8 @@ class ChatBubbleActivity : ComponentActivity() {
 fun ChatBubbleNavigation(
     modifier: Modifier,
     onViewModelCreated: (AppViewModel) -> Unit = {},
-    onCloseBubble: () -> Unit = {}
+    onCloseBubble: () -> Unit = {},
+    onMinimizeBubble: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val appViewModel: AppViewModel = viewModel()
@@ -345,6 +380,7 @@ fun ChatBubbleNavigation(
                 modifier = modifier,
                 appViewModel = appViewModel,
                 onCloseBubble = onCloseBubble,
+                onMinimizeBubble = onMinimizeBubble,
                 onOpenInApp = {
                     try {
                         val intent = Intent(context, MainActivity::class.java).apply {
