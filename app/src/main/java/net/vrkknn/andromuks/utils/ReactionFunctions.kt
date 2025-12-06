@@ -23,6 +23,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.Painter
@@ -61,13 +63,30 @@ fun ReactionBadge(
     onClick: () -> Unit = {},
     shape: RoundedCornerShape = RoundedCornerShape(topStart = 0.dp, topEnd = 0.dp, bottomStart = 12.dp, bottomEnd = 12.dp)
 ) {
+    // Detect dark mode for custom shadow/glow
+    val isDarkMode = isSystemInDarkTheme()
+    
     Surface(
         shape = shape,
         color = backgroundColor,
         modifier = Modifier
             .height(20.dp)
-            .clickable(onClick = onClick),
-        tonalElevation = 0.dp
+            .clickable(onClick = onClick)
+            // In dark mode, add a light glow effect
+            .then(
+                if (isDarkMode) {
+                    Modifier.shadow(
+                        elevation = 3.dp,
+                        shape = shape,
+                        ambientColor = Color.White.copy(alpha = 0.15f), // Light glow in dark mode
+                        spotColor = Color.White.copy(alpha = 0.2f)
+                    )
+                } else {
+                    Modifier
+                }
+            ),
+        tonalElevation = 3.dp,  // Provides color changes for elevation
+        shadowElevation = if (isDarkMode) 0.dp else 3.dp  // Shadows in light mode only
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
