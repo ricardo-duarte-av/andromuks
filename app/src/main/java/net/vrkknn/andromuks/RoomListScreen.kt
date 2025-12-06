@@ -73,7 +73,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1896,28 +1899,34 @@ fun RoomListContent(
     val listState = rememberLazyListState()
     
     // NAVIGATION PERFORMANCE: Observe scroll state and trigger prefetching for visible rooms
-    LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) {
-        if (filteredRooms.isNotEmpty()) {
-            // Get visible room IDs for prefetching
-            val visibleItemIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
-            val visibleRoomIds = visibleItemIndices
-                .filter { it < filteredRooms.size }
-                .map { filteredRooms[it].id }
-            
-            // Also prefetch nearby rooms (current visible + 3 items above and below)
-            val nearbyIndices = (listState.firstVisibleItemIndex - 3).coerceAtLeast(0)..
-                (listState.firstVisibleItemIndex + listState.layoutInfo.visibleItemsInfo.size + 3).coerceAtMost(filteredRooms.size - 1)
-            val nearbyRoomIds = nearbyIndices
-                .filter { it >= 0 && it < filteredRooms.size }
-                .map { filteredRooms[it].id }
-                .distinct()
-            
-            // Trigger prefetching if we have rooms to prefetch
-            if (nearbyRoomIds.isNotEmpty()) {
-                appViewModel.prefetchRoomData(nearbyRoomIds, listState.firstVisibleItemIndex)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: NAVIGATION OPTIMIZATION - Triggered prefetch for ${nearbyRoomIds.size} nearby rooms")
-            }
+    LaunchedEffect(listState, filteredRooms) {
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            listState.firstVisibleItemIndex to layoutInfo.visibleItemsInfo.map { it.index }
         }
+            .debounce(150)
+            .collectLatest { (firstVisibleIndex, visibleIndices) ->
+                if (filteredRooms.isEmpty()) return@collectLatest
+                
+                val visibleRoomIds = visibleIndices
+                    .filter { it in filteredRooms.indices }
+                    .map { filteredRooms[it].id }
+                
+                val nearbyRangeStart = (firstVisibleIndex - 3).coerceAtLeast(0)
+                val nearbyRangeEnd = (firstVisibleIndex + visibleIndices.size + 3).coerceAtMost(filteredRooms.size - 1)
+                val nearbyRoomIds = (nearbyRangeStart..nearbyRangeEnd)
+                    .filter { it in filteredRooms.indices }
+                    .map { filteredRooms[it].id }
+                    .distinct()
+                
+                if (nearbyRoomIds.isNotEmpty()) {
+                    appViewModel.prefetchRoomData(nearbyRoomIds, firstVisibleIndex)
+                    if (BuildConfig.DEBUG) android.util.Log.d(
+                        "Andromuks",
+                        "RoomListScreen: NAVIGATION OPTIMIZATION - Triggered prefetch for ${nearbyRoomIds.size} nearby rooms"
+                    )
+                }
+            }
     }
     
     // CRITICAL: Observe roomListUpdateCounter to recompose when invites are added

@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import android.os.Build
@@ -29,7 +30,6 @@ import coil.compose.AsyncImage
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.decode.SvgDecoder
-import coil.ImageLoader
 import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
@@ -38,8 +38,8 @@ import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import androidx.compose.foundation.Image
-import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.runtime.derivedStateOf
+import kotlin.math.max
+import kotlin.math.roundToInt
 
 
 @Composable
@@ -57,6 +57,7 @@ fun AvatarImage(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val density = LocalDensity.current
     
     // Use shared ImageLoader singleton with optimized memory cache
     val imageLoader = remember { ImageLoaderSingleton.get(context) }
@@ -94,6 +95,11 @@ fun AvatarImage(
             val pixelSize = size.value.toInt()
             BlurHashUtils.blurHashToImageBitmap(blurHash, pixelSize, pixelSize)
         } else null
+    }
+    
+    val targetPixelSize = remember(size, density) {
+        val rawPx = with(density) { size.toPx() }.roundToInt()
+        max(rawPx, 64) // request at least 64px to keep clarity when density is low
     }
     
     // Compute fallback info
@@ -155,8 +161,7 @@ fun AvatarImage(
                     model = ImageRequest.Builder(context)
                         .data(avatarUrl)
                         .apply {
-                            // QUALITY IMPROVEMENT: Request higher quality image for better clarity
-                            size(size = 512) // Request 512px for maximum quality
+                            size(targetPixelSize)
                             // Only add auth header for HTTP URLs, not for file:// URIs
                             if (avatarUrl.startsWith("http")) {
                                 addHeader("Cookie", "gomuks_auth=$authToken")
