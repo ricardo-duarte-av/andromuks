@@ -13322,6 +13322,7 @@ class AppViewModel : ViewModel() {
     /**
      * Optimistically clear unread counts for a room when marking as read.
      * This provides instant UI feedback before the backend sends updated counts in sync_complete.
+     * Also updates the database to persist the change across app restarts.
      */
     private fun optimisticallyClearUnreadCounts(roomId: String) {
         val existingRoom = roomMap[roomId]
@@ -13349,6 +13350,32 @@ class AppViewModel : ViewModel() {
                     space.copy(rooms = updatedSpaceRooms)
                 }
                 setSpaces(updatedSpaces, skipCounterUpdate = false)
+            }
+            
+            // CRITICAL: Update database to persist the cleared unread counts across app restarts
+            // The database is the source of truth on app startup, so we must update it
+            appContext?.let { context ->
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                        val roomSummaryDao = database.roomSummaryDao()
+                        val existingSummary = roomSummaryDao.getRoomSummary(roomId)
+                        
+                        if (existingSummary != null) {
+                            // Update the summary with cleared unread counts
+                            val updatedSummary = existingSummary.copy(
+                                unreadCount = 0,
+                                highlightCount = 0
+                            )
+                            roomSummaryDao.upsert(updatedSummary)
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated database room_summary for $roomId - cleared unread counts")
+                        } else {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No room_summary found in database for $roomId, skipping DB update")
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.w("Andromuks", "AppViewModel: Failed to update database when clearing unread counts for $roomId: ${e.message}", e)
+                    }
+                }
             }
             
             // Invalidate cache to force recalculation of sections and badge counts
