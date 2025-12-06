@@ -214,3 +214,4 @@ The **biggest bottleneck** is member event processing during initialization. Eve
 
 **The fix is simple:** Skip member processing entirely during initialization. The member cache is already loaded from the database (678 profiles), so we don't need to process member events until `init_complete` arrives.
 
+

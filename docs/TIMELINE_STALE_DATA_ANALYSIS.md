@@ -98,3 +98,4 @@ Ensure events are always processed even if timing is off.
 
 Periodically check for new events when room is open.
 
+

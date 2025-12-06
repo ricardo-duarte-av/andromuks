@@ -159,3 +159,4 @@ Your idea is sound but can be optimized:
 - ❌ **Don't poll every second:** Use Room Flow or poll less frequently (2-5s)
 - ✅ **Use event-driven:** Room Flow is the best solution
 
+

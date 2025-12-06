@@ -7652,7 +7652,7 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    private fun loadReactionsForRoom(roomId: String, cachedEvents: List<TimelineEvent>) {
+    private fun loadReactionsForRoom(roomId: String, cachedEvents: List<TimelineEvent>, forceReload: Boolean = false) {
         if (cachedEvents.isEmpty()) return
 
         val context = appContext ?: run {
@@ -7660,7 +7660,9 @@ class AppViewModel : ViewModel() {
             return
         }
 
-        if (!roomsWithLoadedReactionsFromDb.add(roomId)) {
+        // CRITICAL FIX: Allow reloading reactions when new events arrive (e.g., from paginate response)
+        // This ensures reactions are restored even after the timeline is rebuilt from paginate response
+        if (!forceReload && !roomsWithLoadedReactionsFromDb.add(roomId)) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reactions for room $roomId already restored from database, skipping")
             return
         }
@@ -8766,6 +8768,11 @@ class AppViewModel : ViewModel() {
                 // Build timeline from chain (this updates timelineEvents)
                 buildTimelineFromChain()
                 
+                // CRITICAL FIX: Restore reactions from database after clearing messageReactions
+                // This ensures reactions are visible when opening a room from cache
+                loadReactionsForRoom(roomId, cachedEvents)
+                applyAggregatedReactionsFromEvents(cachedEvents, "navigateToRoomWithCache")
+                
                 // Set smallest rowId from cached events for pagination
                 val smallestCached = cachedEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
                 if (smallestCached > 0) {
@@ -8810,54 +8817,11 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)")
                 }
                 
-                // CRITICAL FIX: Request fresh timeline data in background to update with latest events
-                // This ensures the timeline shows current data, not just cached/stale data
-                // The cached events are shown immediately for fast UI, but we fetch fresh data to update
-                viewModelScope.launch {
-                    // Small delay to let UI render cached events first
-                    kotlinx.coroutines.delay(100)
+                // DISABLED: No longer automatically requesting fresh timeline data from server
+                // We rely on database and websocket resilience to ensure we have exact copy of events
+                // The websocket will automatically sync any new events via sync_complete messages
                     
-                    // Wait for WebSocket to be ready (it might not be connected yet when opening via notification/shortcut)
-                    var waitCount = 0
-                    val maxWaitAttempts = 50 // Wait up to 5 seconds (50 * 100ms)
-                    while (!isWebSocketConnected() && waitCount < maxWaitAttempts) {
-                        kotlinx.coroutines.delay(100)
-                        waitCount++
-                    }
-                    
-                    if (!isWebSocketConnected()) {
-                        android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected after waiting, cannot request fresh timeline data for $roomId")
-                        return@launch
-                    }
-                    
-                    // Request fresh timeline data without clearing existing timeline
-                    // This will merge new events with existing cached events
-                    // CRITICAL: Always request fresh data when opening via cache-first navigation
-                    // because the cache might be stale (from database after app restart)
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting fresh timeline data in background for $roomId (cache-first navigation)")
-                    
-                    // Always request fresh data to ensure timeline is up-to-date
-                    // The cache is shown immediately for fast UI, but fresh data updates it
-                    val paginateRequestId = requestIdCounter++
-                    backgroundPrefetchRequests[paginateRequestId] = roomId
-                    
-                    val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-                        "room_id" to roomId,
-                        "max_timeline_id" to 0,
-                        "limit" to 200,
-                        "reset" to false
-                    ))
-                    
-                    if (result == WebSocketResult.SUCCESS) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent background paginate request for fresh timeline data (room: $roomId)")
-                        markInitialPaginate(roomId, "cache_first_navigation")
-                    } else {
-                        android.util.Log.w("Andromuks", "AppViewModel: Failed to send background paginate request (room: $roomId, result: $result)")
-                        backgroundPrefetchRequests.remove(paginateRequestId)
-                    }
-                }
-                    
-                    return@launch // Exit early - room is already rendered from cache, fresh data will update in background
+                    return@launch // Exit early - room is already rendered from cache
                 }
             }
             
@@ -14701,6 +14665,12 @@ class AppViewModel : ViewModel() {
         if (roomsPendingDbRehydrate.contains(roomId)) {
             scheduleRoomRehydrateFromDb(roomId)
         }
+        
+        // CRITICAL FIX: Restore reactions from database and apply aggregated reactions from events
+        // This ensures reactions are visible when paginate response rebuilds the timeline
+        // Force reload to ensure reactions are loaded even if they were loaded earlier from cache
+        loadReactionsForRoom(roomId, timelineList, forceReload = true)
+        applyAggregatedReactionsFromEvents(timelineList, "handleInitialTimelineBuild")
         
         // Persist initial paginated events to database
         appContext?.let { context ->
