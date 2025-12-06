@@ -1124,6 +1124,7 @@ fun RoomTimelineScreen(
     var lastKnownTimelineEventId by remember { mutableStateOf<String?>(null) }
     var hasCompletedInitialLayout by remember { mutableStateOf(false) }
     var pendingInitialScroll by remember { mutableStateOf(true) }
+    var hasMarkedAsRead by remember(roomId) { mutableStateOf(false) }
     
     // Track scroll position using event ID anchor (more robust than index)
     var anchorEventIdForRestore by remember { mutableStateOf<String?>(null) }
@@ -1439,6 +1440,22 @@ fun RoomTimelineScreen(
             }
         }
     }
+    
+    // Mark room as read when initial load completes and last message is rendered
+    LaunchedEffect(hasInitialSnapCompleted, timelineItems.size, roomId) {
+        if (hasInitialSnapCompleted && !hasMarkedAsRead && timelineItems.isNotEmpty()) {
+            // Get the last event ID from the timeline (find last Event, not DateDivider)
+            val lastEvent = timelineItems.lastOrNull() as? TimelineItem.Event
+                ?: timelineItems.reversed().firstOrNull { it is TimelineItem.Event } as? TimelineItem.Event
+            val lastEventId = lastEvent?.event?.eventId
+            
+            if (lastEventId != null) {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Marking room $roomId as read with last event: $lastEventId")
+                appViewModel.markRoomAsRead(roomId, lastEventId)
+                hasMarkedAsRead = true
+            }
+        }
+    }
 
     LaunchedEffect(timelineItems.size, readinessCheckComplete, pendingInitialScroll) {
         if (pendingInitialScroll && readinessCheckComplete && timelineItems.isNotEmpty() &&
@@ -1459,6 +1476,7 @@ fun RoomTimelineScreen(
         lastInitialScrollSize = 0
         highlightedEventId = null
         highlightRequestId = 0
+        hasMarkedAsRead = false // Reset mark as read state when room changes
         appViewModel.promoteToPrimaryIfNeeded("room_timeline_$roomId")
         appViewModel.navigateToRoomWithCache(roomId)
         val requireInitComplete = !appViewModel.isWebSocketConnected()
