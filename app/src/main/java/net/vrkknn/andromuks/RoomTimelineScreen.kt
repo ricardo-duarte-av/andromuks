@@ -83,6 +83,10 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
@@ -1742,12 +1746,17 @@ fun RoomTimelineScreen(
     }
 
     // Handle Android back key
-    BackHandler { 
-        // CRITICAL FIX: Clear currentRoomId when navigating back to ensure notifications resume
-        if (appViewModel.currentRoomId == roomId) {
-            appViewModel.clearCurrentRoomId()
+    BackHandler {
+        if (showAttachmentMenu) {
+            // Close attachment menu if open
+            showAttachmentMenu = false
+        } else {
+            // CRITICAL FIX: Clear currentRoomId when navigating back to ensure notifications resume
+            if (appViewModel.currentRoomId == roomId) {
+                appViewModel.clearCurrentRoomId()
+            }
+            navController.popBackStack()
         }
-        navController.popBackStack() 
     }
 
     // Use imePadding for keyboard handling
@@ -2564,31 +2573,69 @@ fun RoomTimelineScreen(
                     }
                 }
                 
-                // Attachment menu overlay
-                if (showAttachmentMenu) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(
-                                start = 16.dp, // Same as text input padding
-                                bottom = 80.dp // Above text input area
-                            )
-                            .navigationBarsPadding()
-                            .imePadding()
-                            .zIndex(5f) // Ensure it's above other content
+                // Attachment menu overlay - horizontal floating action bar above footer
+                AnimatedVisibility(
+                    visible = showAttachmentMenu,
+                    enter = slideInVertically(
+                        initialOffsetY = { it },
+                        animationSpec = spring(
+                            dampingRatio = 0.8f,
+                            stiffness = 300f
+                        )
+                    ) + expandHorizontally(
+                        expandFrom = Alignment.Start,
+                        animationSpec = spring(
+                            dampingRatio = 0.8f,
+                            stiffness = 300f
+                        )
+                    ),
+                    exit = slideOutVertically(
+                        targetOffsetY = { it },
+                        animationSpec = spring(
+                            dampingRatio = 0.9f,
+                            stiffness = 400f
+                        )
+                    ) + shrinkHorizontally(
+                        shrinkTowards = Alignment.Start,
+                        animationSpec = spring(
+                            dampingRatio = 0.9f,
+                            stiffness = 400f
+                        )
+                    ),
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .fillMaxWidth()
+                        .graphicsLayer {
+                            // Position menu right above footer (footer height = buttonHeight + 24.dp padding)
+                            translationY = -with(density) { (buttonHeight + 24.dp).toPx() }
+                        }
+                        .navigationBarsPadding()
+                        .imePadding()
+                        .zIndex(5f) // Ensure it's above other content
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 0.dp,
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        AnimatedVisibility(
-                            visible = showAttachmentMenu,
-                            enter = expandVertically(animationSpec = tween(200)),
-                            exit = shrinkVertically(animationSpec = tween(200))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column {
-                                // Files option (top)
+                            // Files option
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 Surface(
                                     color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
                                     shape = RoundedCornerShape(16.dp),
                                     tonalElevation = 1.dp,
-                                    modifier = Modifier.width(48.dp).height(56.dp)
+                                    modifier = Modifier
+                                        .size(56.dp)
                                 ) {
                                     IconButton(
                                         onClick = {
@@ -2605,13 +2652,24 @@ fun RoomTimelineScreen(
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
-                                
-                                // Audio option (middle)
+                                Text(
+                                    text = "File",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            
+                            // Audio option
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 Surface(
                                     color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
                                     shape = RoundedCornerShape(16.dp),
                                     tonalElevation = 1.dp,
-                                    modifier = Modifier.width(48.dp).height(56.dp)
+                                    modifier = Modifier
+                                        .size(56.dp)
                                 ) {
                                     IconButton(
                                         onClick = {
@@ -2628,13 +2686,24 @@ fun RoomTimelineScreen(
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
-                                
-                                // Image/Video option (bottom, closest to main button)
+                                Text(
+                                    text = "Audio",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            
+                            // Image/Video option
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 Surface(
                                     color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
                                     shape = RoundedCornerShape(16.dp),
                                     tonalElevation = 1.dp,
-                                    modifier = Modifier.width(48.dp).height(56.dp)
+                                    modifier = Modifier
+                                        .size(56.dp)
                                 ) {
                                     IconButton(
                                         onClick = {
@@ -2650,6 +2719,13 @@ fun RoomTimelineScreen(
                                         )
                                     }
                                 }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Image/Video",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1
+                                )
                             }
                         }
                     }
