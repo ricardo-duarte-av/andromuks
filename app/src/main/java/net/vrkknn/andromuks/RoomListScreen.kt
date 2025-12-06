@@ -414,7 +414,7 @@ fun RoomListScreen(
     var roomsWithSummaries by remember { mutableStateOf<Map<String, Pair<String?, String?>>>(emptyMap()) } // roomId -> (messagePreview, messageSender)
     
     // Enrich stableSection with database summaries
-    // FIX: Only create new RoomItem copies if data actually changed
+            // ANTI-FLICKER FIX: Preserve RoomItem instances when only order changes, not data
     val enrichedSection = remember(stableSection, roomsWithSummaries) {
         val enrichedRooms = stableSection.rooms.map { room ->
             val (messagePreview, messageSender) = roomsWithSummaries[room.id] ?: (null to null)
@@ -429,25 +429,28 @@ fun RoomListScreen(
                     messageSender = currentSender
                 )
             } else {
-                // Return same instance if unchanged - prevents unnecessary recomposition
+                // Return same instance if unchanged - prevents unnecessary recomposition and avatar flicker
                 room
             }
         }
         
-        // Only create new RoomSection if any room items actually changed
+        // ANTI-FLICKER FIX: Only create new RoomSection if any room items actually changed
         // Check if all room references are the same (no items were copied)
         val roomsChanged = enrichedRooms.zip(stableSection.rooms).any { (enriched, original) ->
             enriched !== original // Reference inequality means item was copied
         }
         
         if (!roomsChanged && enrichedRooms.size == stableSection.rooms.size) {
-            stableSection // Return same instance if unchanged
+            // No data changed - return same instance even if order might have changed
+            // Instance preservation prevents avatar flicker during reordering
+            stableSection
         } else {
             stableSection.copy(rooms = enrichedRooms)
         }
     }
 
     // PERFORMANCE: Only update section if data actually changed
+    // ANTI-FLICKER FIX: Preserve room instances when only order changes
     LaunchedEffect(roomListUpdateCounter) {
         val newSection = appViewModel.getCurrentRoomSection()
         
@@ -478,11 +481,21 @@ fun RoomListScreen(
             previousSectionType = stableSection.type
             stableSection = newSection
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section type changed from ${previousSectionType} to ${newSection.type}")
-        } else if (roomsChanged || orderChanged || spacesChanged) {
+        } else if (roomsChanged || spacesChanged) {
             // Same section type but data changed - update without animation
+            // ANTI-FLICKER: If only order changed (not data), preserve room instances from old section
+            if (orderChanged && !roomsChanged) {
+                // Only order changed - preserve room instances to prevent avatar flicker
+                val oldRoomsById = stableSection.rooms.associateBy { it.id }
+                val reorderedRooms = newSection.rooms.map { oldRoomsById[it.id] ?: it }
+                stableSection = newSection.copy(rooms = reorderedRooms)
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Order changed only - preserved ${reorderedRooms.size} room instances")
+            } else {
+                // Data changed - update normally
+                stableSection = newSection
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section data changed - rooms:$roomsChanged order:$orderChanged spaces:$spacesChanged")
+            }
             sectionAnimationDirection = 0
-            stableSection = newSection
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section data changed - rooms:$roomsChanged order:$orderChanged spaces:$spacesChanged")
         }
         // If nothing changed, skip update - prevents unnecessary recomposition and avatar flashing
     }

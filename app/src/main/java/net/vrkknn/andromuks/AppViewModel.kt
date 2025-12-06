@@ -3562,16 +3562,27 @@ class AppViewModel : ViewModel() {
             newlyJoinedRoomIds.clear()
         }
         
-        // Update UI with new room order
-        setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)), skipCounterUpdate = true)
-        allRooms = sortedRooms
-        invalidateRoomSectionCache()
+        // ANTI-FLICKER FIX: Only update allRooms if the order actually changed
+        // Compare room IDs to detect order changes without creating new list instances unnecessarily
+        val currentRoomIds = allRooms.map { it.id }
+        val newRoomIds = sortedRooms.map { it.id }
+        val orderChanged = currentRoomIds != newRoomIds
         
-        // Trigger UI update
-        needsRoomListUpdate = true
-        scheduleUIUpdate("roomList")
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PERFORMANCE - Debounced room reorder completed (${sortedRooms.size} rooms)")
+        if (orderChanged || allRooms.size != sortedRooms.size) {
+            // Order changed or size changed - update the list
+            setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = sortedRooms)), skipCounterUpdate = true)
+            allRooms = sortedRooms
+            invalidateRoomSectionCache()
+            
+            // Trigger UI update
+            needsRoomListUpdate = true
+            scheduleUIUpdate("roomList")
+            
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PERFORMANCE - Debounced room reorder completed (${sortedRooms.size} rooms, order changed: $orderChanged)")
+        } else {
+            // Order didn't change - skip update to prevent unnecessary recomposition
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PERFORMANCE - Room reorder skipped (order unchanged, ${sortedRooms.size} rooms)")
+        }
     }
     /**
      * Perform batched UI updates only for changed sections
