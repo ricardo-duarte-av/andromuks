@@ -279,12 +279,11 @@ fun stickerBubbleColorFor(
     isMine: Boolean,
     isThreadMessage: Boolean
 ): Color {
-    return if (isThreadMessage) {
-        if (isMine) colorScheme.tertiaryContainer
-        else colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-    } else {
-        colorScheme.surfaceVariant
-    }
+    return BubblePalette.colors(
+        colorScheme = colorScheme,
+        isMine = isMine,
+        isThreadMessage = isThreadMessage
+    ).container
 }
 
 /**

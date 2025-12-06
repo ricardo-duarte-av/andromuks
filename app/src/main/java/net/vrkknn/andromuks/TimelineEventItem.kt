@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.ColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,6 +59,8 @@ import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.utils.mediaBubbleColorFor
 import net.vrkknn.andromuks.utils.stickerBubbleColorFor
+import net.vrkknn.andromuks.utils.BubblePalette
+import net.vrkknn.andromuks.utils.BubbleColors
 import net.vrkknn.andromuks.BuildConfig
 
 import java.text.SimpleDateFormat
@@ -377,13 +380,20 @@ private fun MediaMessageItem(
         // Thread messages are rendered without nested reply (different color instead)
         if (replyInfo != null && originalEvent != null && !isThreadMessage) {
             Column {
+                val replyPreviewColors = rememberReplyPreviewColors(
+                    colorScheme = colorScheme,
+                    replyInfo = replyInfo,
+                    originalEvent = originalEvent,
+                    myUserId = myUserId,
+                    appViewModel = appViewModel
+                )
                 ReplyPreview(
                     replyInfo = replyInfo,
                     originalEvent = originalEvent,
                     userProfileCache = userProfileCache,
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
-                    isMine = isMine,
+                    previewColors = replyPreviewColors,
                     modifier = Modifier.padding(bottom = 8.dp),
                     onOriginalMessageClick = {
                         onScrollToMessage(replyInfo.eventId)
@@ -822,6 +832,11 @@ private fun RoomMediaMessageContent(
         "TimelineEventItem: Found media message - msgType=$msgType, body=$body"
     )
 
+    val colorScheme = MaterialTheme.colorScheme
+    val mediaHasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
+        appViewModel?.isMessageEdited(event.eventId) ?: false
+    }
+
     // If media message is redacted, show deletion message instead of media
     if (isRedacted) {
         // OPTIMIZED: Display deletion message for media using cached redaction event
@@ -848,12 +863,13 @@ private fun RoomMediaMessageContent(
                 )
             }
 
-        val bubbleColor =
-            if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
-            else MaterialTheme.colorScheme.surfaceVariant
-        val textColor =
-            if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
-            else MaterialTheme.colorScheme.onSurfaceVariant
+        val deletionColors = BubblePalette.colors(
+            colorScheme = colorScheme,
+            isMine = actualIsMine,
+            isRedacted = true
+        )
+        val bubbleColor = deletionColors.container
+        val textColor = deletionColors.content
 
         // Detect dark mode for custom shadow/glow
         val isDarkMode = isSystemInDarkTheme()
@@ -982,10 +998,6 @@ private fun RoomMediaMessageContent(
             )
 
         val mediaIsThreadMessage = event.isThreadMessage()
-        val colorScheme = MaterialTheme.colorScheme
-        val mediaHasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
-            appViewModel?.isMessageEdited(event.eventId) ?: false
-        }
         val mediaBubbleColor = remember(mediaHasBeenEdited, mediaIsThreadMessage, actualIsMine, colorScheme) {
             mediaBubbleColorFor(
                 colorScheme = colorScheme,
@@ -1074,14 +1086,14 @@ private fun RoomMediaMessageContent(
                 )
             }
         
-        val bubbleColor =
-            if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
-            else if (mentionsMe) MaterialTheme.colorScheme.tertiaryContainer
-            else MaterialTheme.colorScheme.surfaceVariant
-        val textColor =
-            if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
-            else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
-            else MaterialTheme.colorScheme.onSurfaceVariant
+        val fallbackColors = BubblePalette.colors(
+            colorScheme = colorScheme,
+            isMine = actualIsMine,
+            isEdited = mediaHasBeenEdited,
+            mentionsMe = mentionsMe
+        )
+        val bubbleColor = fallbackColors.container
+        val textColor = fallbackColors.content
 
         // Detect dark mode for custom shadow/glow
         val isDarkMode = isSystemInDarkTheme()
@@ -1179,39 +1191,26 @@ private fun RoomTextMessageContent(
     
     
     val containsSpoiler = event.containsSpoilerContent()
-
-    val bubbleColor =
-        if (isThreadMessage) {
-            if (actualIsMine) MaterialTheme.colorScheme.tertiaryContainer
-            else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-        } else if (containsSpoiler && actualIsMine) {
-            MaterialTheme.colorScheme.tertiaryContainer
-        } else if (containsSpoiler) {
-            MaterialTheme.colorScheme.errorContainer
-        } else if (actualIsMine) {
-            if (hasBeenEdited) MaterialTheme.colorScheme.secondaryContainer
-            else MaterialTheme.colorScheme.primaryContainer
-        } else if (mentionsMe) {
-            MaterialTheme.colorScheme.tertiaryContainer
-        } else {
-            if (hasBeenEdited) MaterialTheme.colorScheme.surfaceContainerHighest
-            else MaterialTheme.colorScheme.surfaceVariant
-        }
-    val textColor =
-        if (isThreadMessage) {
-            MaterialTheme.colorScheme.tertiary
-        } else if (containsSpoiler && actualIsMine) {
-            MaterialTheme.colorScheme.onTertiaryContainer
-        } else if (containsSpoiler) {
-            MaterialTheme.colorScheme.onErrorContainer
-        } else if (actualIsMine) {
-            if (hasBeenEdited) MaterialTheme.colorScheme.onSecondaryContainer
-            else MaterialTheme.colorScheme.onPrimaryContainer
-        } else if (mentionsMe) {
-            MaterialTheme.colorScheme.onTertiaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        }
+    val colorScheme = MaterialTheme.colorScheme
+    val bubbleColors = remember(
+        event.eventId,
+        actualIsMine,
+        hasBeenEdited,
+        mentionsMe,
+        isThreadMessage,
+        containsSpoiler
+    ) {
+        BubblePalette.colors(
+            colorScheme = colorScheme,
+            isMine = actualIsMine,
+            isEdited = hasBeenEdited,
+            mentionsMe = mentionsMe,
+            isThreadMessage = isThreadMessage,
+            hasSpoiler = containsSpoiler
+        )
+    }
+    val bubbleColor = bubbleColors.container
+    val textColor = bubbleColors.content
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1262,13 +1261,20 @@ private fun RoomTextMessageContent(
                     horizontalAlignment = Alignment.Start
                 ) {
                     // Reply preview
+                    val replyPreviewColors = rememberReplyPreviewColors(
+                        colorScheme = colorScheme,
+                        replyInfo = replyInfo,
+                        originalEvent = originalEvent,
+                        myUserId = myUserId,
+                        appViewModel = appViewModel
+                    )
                     ReplyPreview(
                         replyInfo = replyInfo,
                         originalEvent = originalEvent,
                         userProfileCache = userProfileCache,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
-                        isMine = actualIsMine,
+                        previewColors = replyPreviewColors,
                         modifier =
                             Modifier.padding(bottom = 6.dp)
                                 .align(Alignment.Start),
@@ -1389,6 +1395,45 @@ private fun RoomTextMessageContent(
 }
 
 @Composable
+private fun rememberReplyPreviewColors(
+    colorScheme: ColorScheme,
+    replyInfo: ReplyInfo,
+    originalEvent: TimelineEvent,
+    myUserId: String?,
+    appViewModel: AppViewModel?
+): BubbleColors {
+    val replySenderIsMine = replyInfo.sender == myUserId
+    val replyMentionsMe = !replySenderIsMine && isMentioningUser(originalEvent, myUserId)
+    val replyHasSpoiler = originalEvent.containsSpoilerContent()
+    val replyIsThread = originalEvent.isThreadMessage()
+    val replyIsRedacted = originalEvent.redactedBy != null
+    val replyIsEdited = remember(replyInfo.eventId, appViewModel?.timelineUpdateCounter) {
+        appViewModel?.isMessageEdited(replyInfo.eventId) ?: false
+    }
+
+    return remember(
+        colorScheme,
+        replyInfo.eventId,
+        replySenderIsMine,
+        replyMentionsMe,
+        replyHasSpoiler,
+        replyIsThread,
+        replyIsRedacted,
+        replyIsEdited
+    ) {
+        BubblePalette.colors(
+            colorScheme = colorScheme,
+            isMine = replySenderIsMine,
+            isEdited = replyIsEdited,
+            mentionsMe = replyMentionsMe,
+            isThreadMessage = replyIsThread,
+            hasSpoiler = replyHasSpoiler,
+            isRedacted = replyIsRedacted
+        )
+    }
+}
+
+@Composable
 private fun EncryptedMessageContent(
     event: TimelineEvent,
     timelineEvents: List<TimelineEvent>,
@@ -1428,6 +1473,10 @@ private fun EncryptedMessageContent(
 
     val decryptedType = event.decryptedType
     val decrypted = event.decrypted
+    val encryptedHasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
+        appViewModel?.isMessageEdited(event.eventId) ?: false
+    }
+    val colorScheme = MaterialTheme.colorScheme
     if (decryptedType == "m.room.message") {
         val format = decrypted?.optString("format", "")
         val body =
@@ -1672,7 +1721,6 @@ private fun EncryptedMessageContent(
                 )
 
                 val encryptedMediaIsThreadMessage = event.isThreadMessage()
-                val colorScheme = MaterialTheme.colorScheme
                 val encryptedMediaHasBeenEdited =
                     remember(event.eventId, appViewModel?.timelineUpdateCounter) {
                         appViewModel?.isMessageEdited(event.eventId) ?: false
@@ -1767,14 +1815,14 @@ private fun EncryptedMessageContent(
                         )
                     }
                 
-                val bubbleColor =
-                    if (actualIsMine) MaterialTheme.colorScheme.primaryContainer
-                    else if (mentionsMe) MaterialTheme.colorScheme.tertiaryContainer
-                    else MaterialTheme.colorScheme.surfaceVariant
-                val textColor =
-                    if (actualIsMine) MaterialTheme.colorScheme.onPrimaryContainer
-                    else if (mentionsMe) MaterialTheme.colorScheme.onTertiaryContainer
-                    else MaterialTheme.colorScheme.onSurfaceVariant
+                val fallbackColors = BubblePalette.colors(
+                    colorScheme = colorScheme,
+                    isMine = actualIsMine,
+                    isEdited = encryptedHasBeenEdited,
+                    mentionsMe = mentionsMe
+                )
+                val bubbleColor = fallbackColors.container
+                val textColor = fallbackColors.content
 
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1858,43 +1906,32 @@ private fun EncryptedMessageContent(
                     )
                 }
             
-            // Check if message has been edited (O(1) lookup)
-            val hasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
-                appViewModel?.isMessageEdited(event.eventId) ?: false
-            }
+            val hasBeenEdited = encryptedHasBeenEdited
             
             // Check if this is a thread message
             val isThreadMessage = event.isThreadMessage()
             
             
-            val bubbleColor =
-                if (isThreadMessage) {
-                    // Thread messages use Material3 tertiary colors (typically purple/violet)
-                    // Own messages: fuller opacity for emphasis
-                    // Others' messages: lighter for distinction
-                    if (actualIsMine) MaterialTheme.colorScheme.tertiaryContainer
-                    else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-                } else if (actualIsMine) {
-                    if (hasBeenEdited) MaterialTheme.colorScheme.secondaryContainer
-                    else MaterialTheme.colorScheme.primaryContainer
-                } else if (mentionsMe) {
-                    MaterialTheme.colorScheme.tertiaryContainer
-                } else {
-                    if (hasBeenEdited) MaterialTheme.colorScheme.surfaceContainerHighest
-                    else MaterialTheme.colorScheme.surfaceVariant
-                }
-            val textColor =
-                if (isThreadMessage) {
-                    // Thread messages use tertiary color for text
-                    MaterialTheme.colorScheme.tertiary
-                } else if (actualIsMine) {
-                    if (hasBeenEdited) MaterialTheme.colorScheme.onSecondaryContainer
-                    else MaterialTheme.colorScheme.onPrimaryContainer
-                } else if (mentionsMe) {
-                    MaterialTheme.colorScheme.onTertiaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                }
+            val containsSpoiler = event.containsSpoilerContent()
+            val bubbleColors = remember(
+                event.eventId,
+                actualIsMine,
+                hasBeenEdited,
+                mentionsMe,
+                isThreadMessage,
+                containsSpoiler
+            ) {
+                BubblePalette.colors(
+                    colorScheme = colorScheme,
+                    isMine = actualIsMine,
+                    isEdited = hasBeenEdited,
+                    mentionsMe = mentionsMe,
+                    isThreadMessage = isThreadMessage,
+                    hasSpoiler = containsSpoiler
+                )
+            }
+            val bubbleColor = bubbleColors.container
+            val textColor = bubbleColors.content
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1945,6 +1982,13 @@ private fun EncryptedMessageContent(
                             modifier = Modifier.padding(8.dp),
                             horizontalAlignment = Alignment.Start
                         ) {
+                            val replyPreviewColors = rememberReplyPreviewColors(
+                                colorScheme = colorScheme,
+                                replyInfo = replyInfo,
+                                originalEvent = originalEvent,
+                                myUserId = myUserId,
+                                appViewModel = appViewModel
+                            )
                             // Reply preview (clickable original message)
                             ReplyPreview(
                                 replyInfo = replyInfo,
@@ -1952,7 +1996,7 @@ private fun EncryptedMessageContent(
                                 userProfileCache = userProfileCache,
                                 homeserverUrl = homeserverUrl,
                                 authToken = authToken,
-                                isMine = actualIsMine,
+                                previewColors = replyPreviewColors,
                                 modifier =
                                     Modifier.padding(bottom = 6.dp)
                                         .align(Alignment.Start),

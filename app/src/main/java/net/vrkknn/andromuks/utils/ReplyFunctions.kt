@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Row
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +53,7 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -97,7 +100,7 @@ import net.vrkknn.andromuks.utils.supportsHtmlRendering
  * @param userProfileCache Map of user IDs to MemberProfile objects for display names
  * @param homeserverUrl Base URL of the Matrix homeserver (unused but kept for consistency)
  * @param authToken Authentication token (unused but kept for consistency)
- * @param isMine Whether this reply was sent by the current user (affects styling)
+ * @param previewColors Bubble color palette for the original message (used for tinting)
  * @param modifier Modifier to apply to the reply preview container
  * @param onOriginalMessageClick Callback function called when the original message is clicked
  */
@@ -108,7 +111,7 @@ fun ReplyPreview(
     userProfileCache: Map<String, MemberProfile>,
     homeserverUrl: String,
     authToken: String,
-    isMine: Boolean,
+    previewColors: BubbleColors,
     modifier: Modifier = Modifier,
     onOriginalMessageClick: () -> Unit = {},
     timelineEvents: List<TimelineEvent> = emptyList(),
@@ -159,48 +162,65 @@ fun ReplyPreview(
     val memberProfile = userProfileCache[originalSender]
     val senderName = memberProfile?.displayName ?: originalSender
     
-    // Replied-to message bubble (no outer wrapper - the parent MessageBubbleWithMenu provides the main bubble)
-    // Use a semi-transparent overlay to blend with the outer bubble color
-    Surface(
+    val colorScheme = MaterialTheme.colorScheme
+    Row(
         modifier = modifier
-            .wrapContentWidth(Alignment.Start)
-            .clickable { onOriginalMessageClick() },
-        shape = RoundedCornerShape(8.dp),
-        //color = MaterialTheme.colorScheme.surface.copy(alpha = 0.1f),
-        tonalElevation = 1.dp  // Use tonalElevation for dark mode visibility
+            .height(IntrinsicSize.Min)
+            .wrapContentWidth(Alignment.Start),
+        verticalAlignment = Alignment.Top
     ) {
-        Column(
-            modifier = Modifier.padding(6.dp)
+        Box(
+            modifier = Modifier
+                .width(4.dp)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
+                .background(previewColors.stripe)
+        )
+        Surface(
+            modifier = Modifier
+                .wrapContentWidth(Alignment.Start)
+                .clickable { onOriginalMessageClick() },
+            shape = RoundedCornerShape(
+                topStart = 0.dp,
+                topEnd = 10.dp,
+                bottomEnd = 10.dp,
+                bottomStart = 0.dp
+            ),
+            color = BubblePalette.replyPreviewBackground(colorScheme, previewColors),
+            tonalElevation = 1.dp,
+            border = BorderStroke(1.dp, previewColors.stripe.copy(alpha = 0.25f))
         ) {
-            // Sender name
-            Text(
-                text = senderName,
-                style = MaterialTheme.typography.labelMedium,
-                color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(originalSender),
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(bottom = 2.dp)
-            )
-            
-            // Original message content - use HTML if available
-            if (latestOriginalEvent != null && supportsHtmlRendering(latestOriginalEvent)) {
-                HtmlMessageText(
-                    event = latestOriginalEvent,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier,
-                    onMatrixUserClick = onMatrixUserClick,
-                    appViewModel = appViewModel
-                )
-            } else {
+            Column(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+            ) {
                 Text(
-                    text = originalBody,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9
+                    text = senderName,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = previewColors.accent,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(bottom = 2.dp)
                 )
+
+                if (latestOriginalEvent != null && supportsHtmlRendering(latestOriginalEvent)) {
+                    HtmlMessageText(
+                        event = latestOriginalEvent,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        color = previewColors.content,
+                        modifier = Modifier,
+                        onMatrixUserClick = onMatrixUserClick,
+                        appViewModel = appViewModel
+                    )
+                } else {
+                    Text(
+                        text = originalBody,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = previewColors.content,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        lineHeight = MaterialTheme.typography.bodyMedium.lineHeight * 0.9
+                    )
+                }
             }
         }
     }

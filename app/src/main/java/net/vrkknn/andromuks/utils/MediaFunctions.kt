@@ -62,6 +62,7 @@ import net.vrkknn.andromuks.utils.AdvancedExoPlayerManager
 import net.vrkknn.andromuks.utils.ProgressiveImageLoader
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.DownloadDeduplicationManager
+import net.vrkknn.andromuks.utils.BubblePalette
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.compose.runtime.rememberCoroutineScope
 import java.text.SimpleDateFormat
@@ -705,15 +706,12 @@ fun mediaBubbleColorFor(
     isThreadMessage: Boolean,
     hasBeenEdited: Boolean
 ): Color {
-    return if (isThreadMessage) {
-        if (isMine) colorScheme.tertiaryContainer
-        else colorScheme.tertiaryContainer.copy(alpha = 0.5f)
-    } else if (hasBeenEdited) {
-        if (isMine) colorScheme.secondaryContainer
-        else colorScheme.surfaceContainerHighest
-    } else {
-        colorScheme.surfaceVariant
-    }
+    return BubblePalette.colors(
+        colorScheme = colorScheme,
+        isMine = isMine,
+        isEdited = hasBeenEdited,
+        isThreadMessage = isThreadMessage
+    ).container
 }
 
 /**
