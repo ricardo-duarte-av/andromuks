@@ -500,7 +500,8 @@ fun RoomListScreen(
         // If nothing changed, skip update - prevents unnecessary recomposition and avatar flashing
     }
     
-    // PERFORMANCE FIX: Query database for rooms missing previews or with stale timestamps
+    // CRITICAL FIX: Always query database for last message per room
+    // The DB is the source of truth and may have newer messages than what's in JSON parsing
     // Use stable key to prevent unnecessary re-queries on every recomposition
     val roomIdsKey = remember(stableSection.rooms) { 
         stableSection.rooms.map { it.id }.sorted().joinToString(",") 
@@ -519,37 +520,15 @@ fun RoomListScreen(
             try {
                 val database = AndromuksDatabase.getInstance(context)
                 val eventDao = database.eventDao()
-                val summaryDao = database.roomSummaryDao()
                 val summaryMap = mutableMapOf<String, Pair<String?, String?>>()
                 
-                // PERFORMANCE: Only query rooms that don't already have previews from JSON parsing
-                // or whose database summary indicates newer content (timestamp has advanced).
-                val summariesById = summaryDao.getRoomSummariesByIds(roomIds).associateBy { it.roomId }
-                val roomsNeedingQuery = stableSection.rooms.filter { room ->
-                    val summary = summariesById[room.id]
-                    val currentTimestamp = room.sortingTimestamp ?: 0L
-                    when {
-                        room.messagePreview.isNullOrBlank() -> true
-                        summary == null -> false
-                        summary.lastTimestamp > currentTimestamp -> true
-                        else -> false
-                    }
-                }.map { it.id }
-                
-                // If no rooms need querying, skip database access entirely
-                if (roomsNeedingQuery.isEmpty()) {
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "RoomListScreen: All ${roomIds.size} rooms have up-to-date previews - skipping DB query")
-                    }
-                    return@withContext
-                }
-                
                 if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "RoomListScreen: Querying DB for ${roomsNeedingQuery.size}/${roomIds.size} rooms needing preview refresh (missing or stale)")
+                    android.util.Log.d("Andromuks", "RoomListScreen: Querying DB for last messages for all ${roomIds.size} rooms")
                 }
                 
-                // Query last message for rooms that need it
-                for (roomId in roomsNeedingQuery) {
+                // CRITICAL FIX: Always query DB for all rooms - DB is the source of truth
+                // This ensures we always show the latest message, even if JSON parsing has stale data
+                for (roomId in roomIds) {
                         try {
                             val lastEvent = eventDao.getLastMessageForRoom(roomId)
                             if (lastEvent != null) {
@@ -654,7 +633,9 @@ fun RoomListScreen(
                     }
                     
                     if (hasChanges) {
-                        // Merge new summaries with existing ones (preserve JSON-parsed previews for rooms not queried)
+                        // Merge new summaries with existing ones
+                        // DB results overwrite any JSON-parsed previews (DB is source of truth)
+                        // Rooms without messages in DB will keep their JSON-parsed previews as fallback
                         roomsWithSummaries = roomsWithSummaries.toMutableMap().apply {
                             putAll(summaryMap) // Overwrite with new DB results
                         }
@@ -664,7 +645,7 @@ fun RoomListScreen(
                         }
                     } else {
                         if (BuildConfig.DEBUG) {
-                            android.util.Log.d("Andromuks", "RoomListScreen: Summaries unchanged, skipping update (queried ${summaryMap.size}/${roomsNeedingQuery.size} rooms)")
+                            android.util.Log.d("Andromuks", "RoomListScreen: Summaries unchanged, skipping update (queried ${summaryMap.size}/${roomIds.size} rooms)")
                         }
                     }
                 } catch (e: Exception) {
