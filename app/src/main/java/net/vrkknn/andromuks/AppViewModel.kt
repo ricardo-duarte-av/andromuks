@@ -9456,6 +9456,31 @@ class AppViewModel : ViewModel() {
         // Track this outgoing request
         reactionRequests[reactionRequestId] = roomId
         
+        // For custom emojis, extract MXC URL from formatted string for reaction key
+        // Reactions should use ONLY the mxc:// URL, not the full markup
+        val reactionKey = if (emoji.startsWith("![:") && emoji.contains("mxc://")) {
+            // Extract MXC URL from format: ![:name:](mxc://url "Emoji: :name:")
+            val mxcStart = emoji.indexOf("mxc://")
+            if (mxcStart >= 0) {
+                val mxcEnd = emoji.indexOf("\"", mxcStart)
+                if (mxcEnd > mxcStart) {
+                    emoji.substring(mxcStart, mxcEnd).trim()
+                } else {
+                    // Fallback: extract until closing parenthesis or end of string
+                    val parenEnd = emoji.indexOf(")", mxcStart)
+                    if (parenEnd > mxcStart) {
+                        emoji.substring(mxcStart, parenEnd).trim()
+                    } else {
+                        emoji.substring(mxcStart).trim()
+                    }
+                }
+            } else {
+                emoji
+            }
+        } else {
+            emoji
+        }
+        
         val commandData = mapOf(
             "room_id" to roomId,
             "type" to "m.reaction",
@@ -9463,7 +9488,7 @@ class AppViewModel : ViewModel() {
                 "m.relates_to" to mapOf(
                     "rel_type" to "m.annotation",
                     "event_id" to eventId,
-                    "key" to emoji
+                    "key" to reactionKey
                 )
             ),
             "disable_encryption" to false,
