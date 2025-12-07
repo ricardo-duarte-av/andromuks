@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Andromuks</string>
+    <string name="car_app_placeholder_message">Andromuks is available via phone notifications while you drive.</string>
+    <string name="car_action_close">Close</string>
 </resources>

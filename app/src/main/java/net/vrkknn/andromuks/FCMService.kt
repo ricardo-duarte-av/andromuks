@@ -591,7 +591,7 @@ class FCMService : FirebaseMessagingService() {
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Required for Android Auto
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setSound(android.net.Uri.parse("android.resource://" + packageName + "/" + soundResource))
             .build()

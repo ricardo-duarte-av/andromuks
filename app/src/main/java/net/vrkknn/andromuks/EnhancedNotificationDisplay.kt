@@ -139,10 +139,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val soundResource = if (isGroupRoom) R.raw.descending else R.raw.bright
             
             // Create native Android notification channel
+            // Use IMPORTANCE_HIGH for Android Auto compatibility
             val channel = NotificationChannel(
                 conversationChannelId,
                 roomName,
-                NotificationManager.IMPORTANCE_DEFAULT
+                NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Notifications for $roomName"
                 enableVibration(true)
@@ -501,7 +502,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setContentIntent(createRoomIntent(notificationData))
                 .setAutoCancel(true)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Required for Android Auto
                 .setGroup(notificationData.roomId) // Group by room
                 .setGroupSummary(false)
                 .apply {
@@ -551,9 +552,24 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         })
                     }
                     // Add reply action
-                    addAction(createReplyAction(notificationData))
+                    val replyAction = createReplyAction(notificationData)
+                    addAction(replyAction)
                     // Add mark as read action
-                    addAction(createMarkReadAction(notificationData))
+                    val markReadAction = createMarkReadAction(notificationData)
+                    addAction(markReadAction)
+                    
+                    // Android Auto: surface the conversation via CarExtender/UnreadConversation
+                    extend(
+                        NotificationCompat.CarExtender()
+                            .setUnreadConversation(
+                                createUnreadConversation(
+                                    notificationData = notificationData,
+                                    messagingStyle = messagingStyle,
+                                    replyAction = replyAction,
+                                    markReadAction = markReadAction
+                                )
+                            )
+                    )
                 }
                 .build()
             
@@ -766,6 +782,44 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             "Mark Read",
             markReadPendingIntent
         ).build()
+    }
+
+    /**
+     * Create UnreadConversation for Android Auto from the latest MessagingStyle messages.
+     * This allows DHU/Android Auto to announce and reply via voice using the same actions.
+     */
+    private fun createUnreadConversation(
+        notificationData: NotificationData,
+        messagingStyle: MessagingStyle,
+        replyAction: NotificationCompat.Action,
+        markReadAction: NotificationCompat.Action
+    ): NotificationCompat.CarExtender.UnreadConversation {
+        val conversationTitle = when {
+            notificationData.roomName != null && notificationData.roomName != notificationData.senderDisplayName ->
+                notificationData.roomName
+            else -> notificationData.senderDisplayName ?: notificationData.roomId
+        } ?: "Conversation"
+
+        // Limit to a few recent messages for car UI
+        val latestMessages = messagingStyle.messages.takeLast(5)
+
+        val builder = NotificationCompat.CarExtender.UnreadConversation.Builder(conversationTitle)
+            .setLatestTimestamp(
+                latestMessages.lastOrNull()?.timestamp
+                    ?: notificationData.timestamp
+                    ?: System.currentTimeMillis()
+            )
+            .setReadPendingIntent(markReadAction.actionIntent)
+            .setReplyAction(
+                replyAction.actionIntent,
+                RemoteInput.Builder(KEY_REPLY_TEXT).setLabel("Reply").build()
+            )
+
+        latestMessages.forEach { msg ->
+            builder.addMessage(msg.text?.toString() ?: "")
+        }
+
+        return builder.build()
     }
     
     /**
@@ -1178,7 +1232,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setContentIntent(existingNotification.notification.contentIntent)
                 .setAutoCancel(true)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Required for Android Auto
                 .setGroup(roomId)
                 .setGroupSummary(false)
                 .setShortcutId(shortcutId)

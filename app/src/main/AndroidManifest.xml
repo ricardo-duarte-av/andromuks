@@ -23,6 +23,8 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.WRITE_CONTACTS" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <!-- Car App Library binding permission for Android Auto host (not enforced in debug builds) -->
+    <uses-permission android:name="androidx.car.app.CAR_APP_SERVICE" />
     
 
     <application
@@ -149,6 +151,46 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="matrix_notifications" />
+
+        <!-- Car App Library minimum API (application-level for hosts that read here) -->
+        <meta-data
+            android:name="androidx.car.app.minCarApiLevel"
+            android:value="7" />
+
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
+        <!-- Car App Library entry point for projected Android Auto -->
+        <service
+            android:name=".car.AndromuksCarAppService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="androidx.car.app.CarAppService" />
+                <!-- Messaging category per supported Android Auto app types -->
+                <category android:name="androidx.car.app.category.MESSAGING" />
+            </intent-filter>
+            <meta-data
+                android:name="androidx.car.app.hosts"
+                android:resource="@xml/host_validator" />
+            <meta-data
+                android:name="androidx.car.app.minCarApiLevel"
+                android:value="7" />
+            <meta-data
+                android:name="com.google.android.gms.car.application"
+                android:resource="@xml/automotive_app_desc" />
+        </service>
+
+        <!-- Debug notification tester (only active in debug builds) -->
+        <receiver
+            android:name="net.vrkknn.andromuks.DebugNotificationReceiver"
+            android:exported="true"
+            android:enabled="true"
+            tools:ignore="ExportedReceiver">
+            <intent-filter>
+                <action android:name="net.vrkknn.andromuks.DEBUG_POST_NOTIFICATION" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<host-validation xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Google Android Auto / DHU -->
+    <package android:name="com.google.android.projection.gearhead" />
+    <!-- Google Play Services fallback host -->
+    <package android:name="com.google.android.gms" />
+    <!-- AAOS emulator / reference host -->
+    <package android:name="com.android.car.carlauncher" />
+</host-validation>
+
