@@ -1,5 +1,6 @@
 package net.vrkknn.andromuks
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -118,6 +119,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     setAllowBubbles(true)
                 }
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             
             notificationManager.createNotificationChannel(conversationChannel)
@@ -138,6 +140,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // Choose sound based on room type
             val soundResource = if (isGroupRoom) R.raw.descending else R.raw.bright
             
+            // If a channel already exists but is lower than HIGH, recreate it to bump importance.
+            notificationManager.getNotificationChannel(conversationChannelId)?.let { existing ->
+                if (existing.importance < NotificationManager.IMPORTANCE_HIGH) {
+                    notificationManager.deleteNotificationChannel(conversationChannelId)
+                }
+            }
+
             // Create native Android notification channel
             // Use IMPORTANCE_HIGH for Android Auto compatibility
             val channel = NotificationChannel(
@@ -150,6 +159,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 enableLights(true)
                 setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + soundResource), null)
                 setAllowBubbles(true)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             
             // Set conversation ID for Android 11+ conversation features
@@ -746,7 +756,12 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             R.mipmap.ic_launcher,
             "Reply",
             replyPendingIntent
-        ).addRemoteInput(remoteInput).build()
+        )
+            .setAllowGeneratedReplies(true)
+            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_REPLY)
+            .setShowsUserInterface(false)
+            .addRemoteInput(remoteInput)
+            .build()
     }
     
     /**
@@ -769,7 +784,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             data.roomId.hashCode() + 2,
             markReadIntent,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
             } else {
                 PendingIntent.FLAG_UPDATE_CURRENT
             }
@@ -781,7 +796,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             R.mipmap.ic_launcher,
             "Mark Read",
             markReadPendingIntent
-        ).build()
+        )
+            .setSemanticAction(NotificationCompat.Action.SEMANTIC_ACTION_MARK_AS_READ)
+            .setShowsUserInterface(false)
+            .build()
     }
 
     /**
