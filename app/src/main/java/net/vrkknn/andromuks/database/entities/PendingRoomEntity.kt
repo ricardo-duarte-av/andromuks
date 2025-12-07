@@ -14,7 +14,7 @@ import androidx.room.PrimaryKey
 )
 data class PendingRoomEntity(
     @PrimaryKey val roomId: String,
-    val roomJson: String, // Full room JSON from sync_complete
+    val roomJson: String, // Full room JSON from sync_complete (compressed + Base64)
     val timestamp: Long = System.currentTimeMillis() // When it was deferred
 )
 

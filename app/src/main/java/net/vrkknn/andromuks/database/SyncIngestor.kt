@@ -1,12 +1,16 @@
 package net.vrkknn.andromuks.database
 
 import android.content.Context
+import android.database.sqlite.SQLiteBlobTooBigException
+import android.database.sqlite.SQLiteException
+import android.util.Base64
 import android.util.Log
 import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
+import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.database.dao.AccountDataDao
 import net.vrkknn.andromuks.database.dao.EventDao
 import net.vrkknn.andromuks.database.dao.PendingRoomDao
@@ -27,9 +31,12 @@ import net.vrkknn.andromuks.database.entities.RoomSummaryEntity
 import net.vrkknn.andromuks.database.entities.SpaceEntity
 import net.vrkknn.andromuks.database.entities.SpaceRoomEntity
 import net.vrkknn.andromuks.database.entities.SyncMetaEntity
-import net.vrkknn.andromuks.TimelineEvent
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.GZIPInputStream
+import java.util.zip.GZIPOutputStream
 
 /**
  * SyncIngestor - Persists sync_complete messages to Room database
@@ -81,6 +88,54 @@ class SyncIngestor(private val context: Context) {
         
         // Threshold adjustment factor (reduce by this percentage if processing too slow)
         private const val THRESHOLD_REDUCTION_FACTOR = 0.7f // Reduce by 30%
+    }
+    
+    /**
+     * Compress pending room JSON before storing to shrink rows and avoid CursorWindow limits.
+     * Falls back to raw JSON if compression fails.
+     */
+    private fun compressPendingRoomJson(rawJson: String): String {
+        return try {
+            val byteStream = ByteArrayOutputStream()
+            GZIPOutputStream(byteStream).use { it.write(rawJson.toByteArray(Charsets.UTF_8)) }
+            Base64.encodeToString(byteStream.toByteArray(), Base64.NO_WRAP)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to compress pending room JSON, storing raw", e)
+            rawJson
+        }
+    }
+    
+    /**
+     * Decompress pending room JSON; if the payload is not compressed, return as-is.
+     */
+    private fun decompressPendingRoomJson(stored: String): String {
+        return try {
+            val compressed = Base64.decode(stored, Base64.NO_WRAP)
+            GZIPInputStream(ByteArrayInputStream(compressed)).use { input ->
+                input.readBytes().toString(Charsets.UTF_8)
+            }
+        } catch (_: Exception) {
+            // Not compressed (legacy rows) or failed to decode; use raw content
+            stored
+        }
+    }
+    
+    /**
+     * Safely load pending rooms. If a legacy oversized row trips CursorWindow limits,
+     * clear the table to keep the app running.
+     */
+    private suspend fun loadPendingRoomsSafely(): List<PendingRoomEntity> {
+        return try {
+            pendingRoomDao.getAllPendingRooms()
+        } catch (e: SQLiteBlobTooBigException) {
+            Log.e(TAG, "Pending rooms contained oversized rows; clearing pending_rooms to recover", e)
+            pendingRoomDao.deleteAll()
+            emptyList()
+        } catch (e: SQLiteException) {
+            Log.e(TAG, "Failed to load pending rooms, clearing to recover", e)
+            pendingRoomDao.deleteAll()
+            emptyList()
+        }
     }
     
     private data class EventPersistCandidate(
@@ -283,7 +338,7 @@ class SyncIngestor(private val context: Context) {
         
         // BATTERY OPTIMIZATION: Process any pending rooms from previous syncs (if app was killed)
         // This ensures rooms are not lost even if app is killed while backgrounded
-        val pendingRooms = pendingRoomDao.getAllPendingRooms()
+        val pendingRooms = loadPendingRoomsSafely()
         if (pendingRooms.isNotEmpty()) {
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "SyncIngestor: Found ${pendingRooms.size} pending rooms from previous syncs, processing them now")
@@ -305,7 +360,7 @@ class SyncIngestor(private val context: Context) {
                     
                     for (pendingRoom in pendingRoomsToProcess) {
                         try {
-                            val roomObj = JSONObject(pendingRoom.roomJson)
+                        val roomObj = JSONObject(decompressPendingRoomJson(pendingRoom.roomJson))
                             val hadEvents = processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
                             if (hadEvents) {
                                 roomsWithEvents.add(pendingRoom.roomId)
@@ -363,7 +418,7 @@ class SyncIngestor(private val context: Context) {
                     }
                     
                     // Load all pending rooms to process
-                    val pendingRooms = pendingRoomDao.getAllPendingRooms()
+                    val pendingRooms = loadPendingRoomsSafely()
                     val pendingRoomIds = pendingRooms.map { it.roomId }.toSet()
                     
                     // Combine pending rooms + current sync rooms (avoid duplicates)
@@ -381,7 +436,7 @@ class SyncIngestor(private val context: Context) {
                         // Process pending rooms first
                         for (pendingRoom in pendingRooms) {
                             try {
-                                val roomObj = JSONObject(pendingRoom.roomJson)
+                                val roomObj = JSONObject(decompressPendingRoomJson(pendingRoom.roomJson))
                                 val hadEvents = processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
                                 if (hadEvents) {
                                     roomsWithEvents.add(pendingRoom.roomId)
@@ -443,7 +498,7 @@ class SyncIngestor(private val context: Context) {
                     val roomObj = roomsJson.optJSONObject(roomId) ?: return@mapNotNull null
                     PendingRoomEntity(
                         roomId = roomId,
-                        roomJson = roomObj.toString(),
+                        roomJson = compressPendingRoomJson(roomObj.toString()),
                         timestamp = System.currentTimeMillis()
                     )
                 }
@@ -1485,7 +1540,7 @@ class SyncIngestor(private val context: Context) {
      */
     suspend fun rushProcessPendingItems() = withContext(Dispatchers.IO) {
         // Process pending rooms first
-        val pendingRooms = pendingRoomDao.getAllPendingRooms()
+        val pendingRooms = loadPendingRoomsSafely()
         if (pendingRooms.isNotEmpty()) {
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "SyncIngestor: Rushing processing of ${pendingRooms.size} pending rooms")
@@ -1503,7 +1558,7 @@ class SyncIngestor(private val context: Context) {
                 
                 for (pendingRoom in pendingRooms) {
                     try {
-                        val roomObj = JSONObject(pendingRoom.roomJson)
+                        val roomObj = JSONObject(decompressPendingRoomJson(pendingRoom.roomJson))
                         // Process with isAppVisible = true since we're rushing (app is now visible)
                         processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible = true)
                     } catch (e: Exception) {
