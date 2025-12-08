@@ -1454,6 +1454,16 @@ fun RoomListItem(
             null
         }
     }
+    // If we still don't have a profile display name, opportunistically request it so the
+    // UI can re-render with the proper display name instead of the raw userId.
+    val requestedProfile = remember(room.id, room.messageSender) { mutableStateOf(false) }
+    LaunchedEffect(room.id, room.messageSender, senderDisplayName) {
+        val senderId = room.messageSender
+        if (senderId != null && senderDisplayName == senderId && !requestedProfile.value) {
+            requestedProfile.value = true
+            appViewModel.requestUserProfileOnDemand(senderId, room.id)
+        }
+    }
     
     // Wrapping box for the entire item
     Box(
