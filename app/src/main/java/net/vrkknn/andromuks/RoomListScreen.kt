@@ -137,18 +137,10 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.FlowPreview
-import kotlinx.coroutines.Job
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.MediaCache
 
 private const val ROOM_LIST_VERBOSE_LOGGING = false
-private enum class LoadingBlocker { Profile, Pending, Spaces, InitialSync }
-private data class LoadingInputs(
-    val profileLoaded: Boolean,
-    val processingPending: Boolean,
-    val spacesLoaded: Boolean,
-    val initialSyncComplete: Boolean
-)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
@@ -182,67 +174,11 @@ fun RoomListScreen(
     val me = uiState.currentUserProfile
     val profileLoaded = me != null || uiState.currentUserId.isBlank()
     
-    // Unified loading gate timeouts handled by a single state machine.
-    var profileTimedOut by remember { mutableStateOf(false) }
-    var pendingTimedOut by remember { mutableStateOf(false) }
-    var spacesTimedOut by remember { mutableStateOf(false) }
-    var initialSyncTimedOut by remember { mutableStateOf(false) }
-    var currentTimeoutBlocker by remember { mutableStateOf<LoadingBlocker?>(null) }
-    var timeoutJob by remember { mutableStateOf<Job?>(null) }
-
-    LaunchedEffect(Unit) {
-        snapshotFlow {
-            LoadingInputs(
-                profileLoaded = uiState.currentUserProfile != null || uiState.currentUserId.isBlank(),
-                processingPending = uiState.isProcessingPendingItems,
-                spacesLoaded = uiState.spacesLoaded,
-                initialSyncComplete = uiState.initialSyncComplete
-            )
-        }.collectLatest { inputs ->
-            // Reset timeouts when states resolve
-            if (inputs.profileLoaded) profileTimedOut = false
-            if (!inputs.processingPending) pendingTimedOut = false
-            if (inputs.spacesLoaded) spacesTimedOut = false
-            if (inputs.initialSyncComplete) initialSyncTimedOut = false
-
-            val nextBlocker = when {
-                !inputs.profileLoaded && !profileTimedOut -> LoadingBlocker.Profile
-                inputs.processingPending && !pendingTimedOut -> LoadingBlocker.Pending
-                !inputs.spacesLoaded && !spacesTimedOut -> LoadingBlocker.Spaces
-                !inputs.initialSyncComplete && !initialSyncTimedOut -> LoadingBlocker.InitialSync
-                else -> null
-            }
-
-            if (nextBlocker != currentTimeoutBlocker) {
-                timeoutJob?.cancel()
-                currentTimeoutBlocker = nextBlocker
-                if (nextBlocker != null) {
-                    val duration = when (nextBlocker) {
-                        LoadingBlocker.Profile -> 5_000L
-                        LoadingBlocker.Pending -> 3_000L
-                        LoadingBlocker.Spaces -> 10_000L
-                        LoadingBlocker.InitialSync -> 15_000L
-                    }
-                    timeoutJob = launch {
-                        delay(duration)
-                        when (nextBlocker) {
-                            LoadingBlocker.Profile -> profileTimedOut = true
-                            LoadingBlocker.Pending -> pendingTimedOut = true
-                            LoadingBlocker.Spaces -> spacesTimedOut = true
-                            LoadingBlocker.InitialSync -> initialSyncTimedOut = true
-                        }
-                    }
-                } else {
-                    timeoutJob = null
-                }
-            }
-        }
-    }
-
-    val effectiveProfileLoaded = profileLoaded || profileTimedOut
-    val shouldBlockForPending = uiState.isProcessingPendingItems && !pendingTimedOut
-    val effectiveSpacesLoaded = uiState.spacesLoaded || spacesTimedOut
-    val effectiveInitialSyncComplete = uiState.initialSyncComplete || initialSyncTimedOut
+    // Simplified gating: rely on actual states, no timeout fallbacks.
+    val effectiveProfileLoaded = profileLoaded
+    val shouldBlockForPending = uiState.isProcessingPendingItems
+    val effectiveSpacesLoaded = uiState.spacesLoaded
+    val effectiveInitialSyncComplete = uiState.initialSyncComplete
     
     // Prepare room list data while the loading screen is visible so we avoid flicker
     val roomListUpdateCounter = uiState.roomListUpdateCounter
