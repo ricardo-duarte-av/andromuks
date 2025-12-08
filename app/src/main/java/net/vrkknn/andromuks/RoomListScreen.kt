@@ -1791,31 +1791,30 @@ fun RoomListContent(
     // NAVIGATION PERFORMANCE: Add scroll state for prefetching
     // NAVIGATION PERFORMANCE: Observe scroll state and trigger prefetching for visible rooms
     LaunchedEffect(listState, filteredRooms) {
+        val prefetchedIds = mutableSetOf<String>()
         snapshotFlow {
             val layoutInfo = listState.layoutInfo
             listState.firstVisibleItemIndex to layoutInfo.visibleItemsInfo.map { it.index }
         }
-            .debounce(150)
+            .debounce(280)
             .collectLatest { (firstVisibleIndex, visibleIndices) ->
                 if (filteredRooms.isEmpty()) return@collectLatest
                 
-                val visibleRoomIds = visibleIndices
-                    .filter { it in filteredRooms.indices }
-                    .map { filteredRooms[it].id }
-                
-                val nearbyRangeStart = (firstVisibleIndex - 3).coerceAtLeast(0)
-                val nearbyRangeEnd = (firstVisibleIndex + visibleIndices.size + 3).coerceAtMost(filteredRooms.size - 1)
+                val nearbyRangeStart = (firstVisibleIndex - 10).coerceAtLeast(0)
+                val nearbyRangeEnd = (firstVisibleIndex + visibleIndices.size + 10).coerceAtMost(filteredRooms.size - 1)
                 val nearbyRoomIds = (nearbyRangeStart..nearbyRangeEnd)
                     .filter { it in filteredRooms.indices }
                     .map { filteredRooms[it].id }
+                    .filter { it !in prefetchedIds }
                     .distinct()
                 
                 if (nearbyRoomIds.isNotEmpty()) {
+                    prefetchedIds.addAll(nearbyRoomIds)
                     appViewModel.prefetchRoomData(nearbyRoomIds, firstVisibleIndex)
                     if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "RoomListScreen: NAVIGATION OPTIMIZATION - Triggered prefetch for ${nearbyRoomIds.size} nearby rooms"
+                            "RoomListScreen: NAVIGATION OPTIMIZATION - Prefetch ${nearbyRoomIds.size} rooms (window ±10, deduped)"
                         )
                     }
                 }
