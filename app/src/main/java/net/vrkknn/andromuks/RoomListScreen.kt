@@ -137,10 +137,18 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.MediaCache
 
 private const val ROOM_LIST_VERBOSE_LOGGING = false
+private enum class LoadingBlocker { Profile, Pending, Spaces, InitialSync }
+private data class LoadingInputs(
+    val profileLoaded: Boolean,
+    val processingPending: Boolean,
+    val spacesLoaded: Boolean,
+    val initialSyncComplete: Boolean
+)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
@@ -173,190 +181,67 @@ fun RoomListScreen(
     val me = appViewModel.currentUserProfile
     val profileLoaded = me != null || appViewModel.currentUserId.isBlank()
     
-    // COLD START FIX: Track profile loading state with timeout
-    var profileLoadStartTime by remember { mutableStateOf<Long?>(null) }
-    var profileLoadTimeout by remember { mutableStateOf(false) }
-    
-    // Attempt to load profile if missing (on cold start, onAppBecameVisible might not be called yet)
-    LaunchedEffect(appViewModel.currentUserId, me) {
-        if (me == null && appViewModel.currentUserId.isNotBlank()) {
-            if (profileLoadStartTime == null) {
-                profileLoadStartTime = System.currentTimeMillis()
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "RoomListScreen: Profile missing, attempting to load - userId: ${appViewModel.currentUserId}")
-                }
-                // Try to load profile (this will check cache first, then request from server)
-                appViewModel.ensureCurrentUserProfileLoaded()
-            }
-        } else if (me != null) {
-            // Profile loaded, reset timeout
-            profileLoadStartTime = null
-            profileLoadTimeout = false
-        }
-    }
-    
-    // COLD START FIX: Add timeout fallback for profile loading (5 seconds)
-    // If profile doesn't load within 5 seconds, show UI anyway to prevent infinite loading
-    LaunchedEffect(profileLoadStartTime) {
-        if (profileLoadStartTime != null && me == null) {
-            kotlinx.coroutines.delay(5000) // 5 second timeout
-            if (appViewModel.currentUserProfile == null) {
-                android.util.Log.w("Andromuks", "RoomListScreen: Profile loading timeout (5s) - allowing UI to show anyway")
-                profileLoadTimeout = true
-            }
-        }
-    }
-    
-    // Use timeout override: if profile timeout expired, treat as loaded to prevent infinite loading
-    val effectiveProfileLoaded = profileLoaded || profileLoadTimeout
-    
-    // CRITICAL FIX #2: Wait for pending items to be processed before showing RoomListScreen
-    // This ensures database has the latest messages when we query for room summaries
-    // Use a local state that tracks both the flag and a timeout override
-    var shouldBlockForPending by remember { mutableStateOf(appViewModel.isProcessingPendingItems) }
-    var processingStartTime by remember { mutableStateOf<Long?>(null) }
-    
-    // Observe changes to isProcessingPendingItems from AppViewModel
-    LaunchedEffect(appViewModel.isProcessingPendingItems) {
-        val currentlyProcessing = appViewModel.isProcessingPendingItems
-        shouldBlockForPending = currentlyProcessing
-        if (currentlyProcessing) {
-            processingStartTime = System.currentTimeMillis()
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: Pending processing started")
-            }
-        } else {
-            processingStartTime = null
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: Pending processing completed")
-            }
-        }
-    }
-    
-    // CRITICAL: Add timeout fallback - don't block forever if something goes wrong
-    // If processing takes more than 3 seconds, allow UI to show anyway (safety mechanism)
-    LaunchedEffect(shouldBlockForPending, processingStartTime) {
-        if (shouldBlockForPending && processingStartTime != null) {
-            kotlinx.coroutines.delay(3000) // 3 second timeout
-            val elapsed = System.currentTimeMillis() - (processingStartTime ?: 0L)
-            if (appViewModel.isProcessingPendingItems && elapsed >= 3000) {
-                android.util.Log.w("Andromuks", "RoomListScreen: Pending items processing timeout (3s) - allowing UI to show anyway")
-                shouldBlockForPending = false // Override to allow UI to show
-            }
-        }
-    }
-    
-    // CRITICAL FIX #3: Wait for spaces to be loaded before showing room list
-    // This ensures roomMap is populated and getCurrentRoomSection() returns complete data
-    // Prevents empty tabs (Favs, Direct) when AppViewModel was destroyed and recreated
-    var spacesLoadStartTime by remember { mutableStateOf<Long?>(null) }
-    var spacesLoadTimeout by remember { mutableStateOf(false) }
-    
-    // Track if we've started monitoring spaces loading
-    var spacesMonitoringStarted by remember { mutableStateOf(false) }
-    
-    // Start monitoring spaces loading on first render
+    // Unified loading gate timeouts handled by a single state machine.
+    var profileTimedOut by remember { mutableStateOf(false) }
+    var pendingTimedOut by remember { mutableStateOf(false) }
+    var spacesTimedOut by remember { mutableStateOf(false) }
+    var initialSyncTimedOut by remember { mutableStateOf(false) }
+    var currentTimeoutBlocker by remember { mutableStateOf<LoadingBlocker?>(null) }
+    var timeoutJob by remember { mutableStateOf<Job?>(null) }
+
     LaunchedEffect(Unit) {
-        if (!spacesMonitoringStarted) {
-            spacesMonitoringStarted = true
-            if (!appViewModel.spacesLoaded) {
-                spacesLoadStartTime = System.currentTimeMillis()
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "RoomListScreen: Spaces not loaded on first render, starting timeout...")
+        snapshotFlow {
+            LoadingInputs(
+                profileLoaded = appViewModel.currentUserProfile != null || appViewModel.currentUserId.isBlank(),
+                processingPending = appViewModel.isProcessingPendingItems,
+                spacesLoaded = appViewModel.spacesLoaded,
+                initialSyncComplete = appViewModel.initialSyncComplete
+            )
+        }.collectLatest { inputs ->
+            // Reset timeouts when states resolve
+            if (inputs.profileLoaded) profileTimedOut = false
+            if (!inputs.processingPending) pendingTimedOut = false
+            if (inputs.spacesLoaded) spacesTimedOut = false
+            if (inputs.initialSyncComplete) initialSyncTimedOut = false
+
+            val nextBlocker = when {
+                !inputs.profileLoaded && !profileTimedOut -> LoadingBlocker.Profile
+                inputs.processingPending && !pendingTimedOut -> LoadingBlocker.Pending
+                !inputs.spacesLoaded && !spacesTimedOut -> LoadingBlocker.Spaces
+                !inputs.initialSyncComplete && !initialSyncTimedOut -> LoadingBlocker.InitialSync
+                else -> null
+            }
+
+            if (nextBlocker != currentTimeoutBlocker) {
+                timeoutJob?.cancel()
+                currentTimeoutBlocker = nextBlocker
+                if (nextBlocker != null) {
+                    val duration = when (nextBlocker) {
+                        LoadingBlocker.Profile -> 5_000L
+                        LoadingBlocker.Pending -> 3_000L
+                        LoadingBlocker.Spaces -> 10_000L
+                        LoadingBlocker.InitialSync -> 15_000L
+                    }
+                    timeoutJob = launch {
+                        delay(duration)
+                        when (nextBlocker) {
+                            LoadingBlocker.Profile -> profileTimedOut = true
+                            LoadingBlocker.Pending -> pendingTimedOut = true
+                            LoadingBlocker.Spaces -> spacesTimedOut = true
+                            LoadingBlocker.InitialSync -> initialSyncTimedOut = true
+                        }
+                    }
+                } else {
+                    timeoutJob = null
                 }
-            } else {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "RoomListScreen: Spaces already loaded on first render")
-                }
             }
         }
     }
-    
-    // Observe changes to spacesLoaded from AppViewModel
-    LaunchedEffect(appViewModel.spacesLoaded) {
-        if (!appViewModel.spacesLoaded) {
-            if (spacesLoadStartTime == null) {
-                spacesLoadStartTime = System.currentTimeMillis()
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "RoomListScreen: Spaces not loaded yet, waiting...")
-                }
-            }
-        } else {
-            // Spaces loaded, reset timeout
-            spacesLoadStartTime = null
-            spacesLoadTimeout = false
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: Spaces loaded - room list ready")
-            }
-        }
-    }
-    
-    // Add timeout fallback for spaces loading (10 seconds)
-    // If spaces don't load within 10 seconds, show UI anyway to prevent infinite loading
-    // This handles cases where WebSocket never connects or init_complete never arrives
-    // CRITICAL: Use a separate LaunchedEffect that only depends on spacesLoadStartTime to prevent cancellation
-    LaunchedEffect(spacesLoadStartTime) {
-        if (spacesLoadStartTime != null && !spacesLoadTimeout) {
-            val startTime = spacesLoadStartTime!!
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: Starting 10s timeout for spaces loading (startTime: $startTime)")
-            }
-            kotlinx.coroutines.delay(10000) // 10 second timeout
-            // Check again after delay - only trigger timeout if still waiting and startTime hasn't changed
-            if (spacesLoadStartTime == startTime && !appViewModel.spacesLoaded && !spacesLoadTimeout) {
-                android.util.Log.w("Andromuks", "RoomListScreen: Spaces loading timeout (10s) - allowing UI to show anyway")
-                spacesLoadTimeout = true
-            } else if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: Timeout completed but spaces already loaded or timeout cancelled (spacesLoaded: ${appViewModel.spacesLoaded}, timeout: $spacesLoadTimeout, startTime match: ${spacesLoadStartTime == startTime})")
-            }
-        }
-    }
-    
-    // Use timeout override: if spaces timeout expired, treat as loaded to prevent infinite loading
-    val effectiveSpacesLoaded = appViewModel.spacesLoaded || spacesLoadTimeout
-    
-    // CRITICAL FIX #5: Wait for initial sync to complete before showing UI
-    // This ensures all initial sync_complete messages (received before init_complete) are processed
-    // This way the room list will have: avatars, proper order, unread badges, last message time, sender, and message
-    var initialSyncComplete by remember { mutableStateOf(appViewModel.initialSyncComplete) }
-    var initialSyncWaitStartTime by remember { mutableStateOf<Long?>(null) }
-    var initialSyncWaitTimeout by remember { mutableStateOf(false) }
-    
-    // Observe initial sync completion status
-    LaunchedEffect(appViewModel.initialSyncComplete) {
-        initialSyncComplete = appViewModel.initialSyncComplete
-        if (initialSyncComplete) {
-            initialSyncWaitStartTime = null
-            initialSyncWaitTimeout = false
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: Initial sync complete - UI ready with all room data")
-            }
-        }
-    }
-    
-    // Start timeout tracking if initial sync is not complete
-    LaunchedEffect(Unit) {
-        if (!initialSyncComplete && initialSyncWaitStartTime == null) {
-            initialSyncWaitStartTime = System.currentTimeMillis()
-            if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "RoomListScreen: Waiting for initial sync to complete...")
-            }
-        }
-    }
-    
-    // Add timeout fallback for initial sync completion (15 seconds)
-    // If initial sync doesn't complete within 15 seconds, show UI anyway to prevent infinite loading
-    LaunchedEffect(initialSyncWaitStartTime) {
-        if (initialSyncWaitStartTime != null && !initialSyncComplete && !initialSyncWaitTimeout) {
-            val startTime = initialSyncWaitStartTime!!
-            kotlinx.coroutines.delay(15000) // 15 second timeout
-            if (initialSyncWaitStartTime == startTime && !appViewModel.initialSyncComplete && !initialSyncWaitTimeout) {
-                android.util.Log.w("Andromuks", "RoomListScreen: Initial sync completion timeout (15s) - allowing UI to show anyway")
-                initialSyncWaitTimeout = true
-                initialSyncComplete = true // Allow UI to show
-            }
-        }
-    }
+
+    val effectiveProfileLoaded = profileLoaded || profileTimedOut
+    val shouldBlockForPending = appViewModel.isProcessingPendingItems && !pendingTimedOut
+    val effectiveSpacesLoaded = appViewModel.spacesLoaded || spacesTimedOut
+    val effectiveInitialSyncComplete = appViewModel.initialSyncComplete || initialSyncTimedOut
     
     // Prepare room list data while the loading screen is visible so we avoid flicker
     val roomListUpdateCounter = appViewModel.roomListUpdateCounter
@@ -455,7 +340,7 @@ fun RoomListScreen(
         !effectiveProfileLoaded ||
         shouldBlockForPending ||
         !effectiveSpacesLoaded ||
-        (!initialSyncComplete && !initialSyncWaitTimeout) ||
+        (!effectiveInitialSyncComplete) ||
         !initialRoomSummariesReady
     )
 
@@ -509,7 +394,7 @@ fun RoomListScreen(
                         modifier = Modifier.padding(top = if (shouldBlockForPending) 8.dp else 0.dp)
                     )
                 }
-                if (!initialSyncComplete && !initialSyncWaitTimeout && effectiveProfileLoaded && !shouldBlockForPending && effectiveSpacesLoaded) {
+                if (!effectiveInitialSyncComplete && effectiveProfileLoaded && !shouldBlockForPending && effectiveSpacesLoaded) {
                     Text(
                         text = "Loading rooms...",
                         style = MaterialTheme.typography.bodyLarge,
@@ -879,9 +764,9 @@ fun RoomListScreen(
             .joinToString(",")
     }
     
-    LaunchedEffect(messageSendersKey, initialSyncComplete) {
+    LaunchedEffect(messageSendersKey, effectiveInitialSyncComplete) {
         // Wait for initial sync completion before requesting profiles
-        if (!initialSyncComplete) {
+        if (!effectiveInitialSyncComplete) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d("Andromuks", "RoomListScreen: OPPORTUNISTIC PROFILE LOADING - Deferred until initial sync completes")
             }
