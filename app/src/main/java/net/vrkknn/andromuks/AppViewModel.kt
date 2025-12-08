@@ -1,8 +1,12 @@
 package net.vrkknn.andromuks
 
 import net.vrkknn.andromuks.BuildConfig
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -82,6 +86,20 @@ data class VersionedMessage(
     val versions: List<MessageVersion>,  // Sorted by timestamp (newest first)
     val redactedBy: String? = null,
     val redactionEvent: TimelineEvent? = null
+)
+
+data class RoomListUiState(
+    val currentUserProfile: UserProfile?,
+    val currentUserId: String,
+    val imageAuthToken: String,
+    val isProcessingPendingItems: Boolean,
+    val spacesLoaded: Boolean,
+    val initialSyncComplete: Boolean,
+    val roomListUpdateCounter: Int,
+    val roomSummaryUpdateCounter: Int,
+    val currentSpaceId: String?,
+    val notificationActionInProgress: Boolean,
+    val timestampUpdateCounter: Int
 )
 
 /**
@@ -15005,4 +15023,25 @@ class AppViewModel : ViewModel() {
         val isFavourite: Boolean = false,
         val isLowPriority: Boolean = false
     )
+}
+
+@Composable
+fun AppViewModel.rememberRoomListUiState(): State<RoomListUiState> {
+    return remember {
+        derivedStateOf {
+            RoomListUiState(
+                currentUserProfile = currentUserProfile,
+                currentUserId = currentUserId,
+                imageAuthToken = imageAuthToken,
+                isProcessingPendingItems = isProcessingPendingItems,
+                spacesLoaded = spacesLoaded,
+                initialSyncComplete = initialSyncComplete,
+                roomListUpdateCounter = roomListUpdateCounter,
+                roomSummaryUpdateCounter = roomSummaryUpdateCounter,
+                currentSpaceId = currentSpaceId,
+                notificationActionInProgress = notificationActionInProgress,
+                timestampUpdateCounter = timestampUpdateCounter
+            )
+        }
+    }
 }

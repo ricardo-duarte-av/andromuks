@@ -161,7 +161,8 @@ fun RoomListScreen(
     val hapticFeedback = LocalHapticFeedback.current
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
-    val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
+    val uiState by appViewModel.rememberRoomListUiState()
+    val imageToken = uiState.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     var coldStartRefreshing by remember { mutableStateOf(false) }
     var initialLoadComplete by remember { mutableStateOf(false) }
     val listStates = remember { mutableMapOf<RoomSectionType, LazyListState>() }
@@ -178,8 +179,8 @@ fun RoomListScreen(
     }
     
     // CRITICAL FIX #1: Check if profile is loaded before showing UI
-    val me = appViewModel.currentUserProfile
-    val profileLoaded = me != null || appViewModel.currentUserId.isBlank()
+    val me = uiState.currentUserProfile
+    val profileLoaded = me != null || uiState.currentUserId.isBlank()
     
     // Unified loading gate timeouts handled by a single state machine.
     var profileTimedOut by remember { mutableStateOf(false) }
@@ -192,10 +193,10 @@ fun RoomListScreen(
     LaunchedEffect(Unit) {
         snapshotFlow {
             LoadingInputs(
-                profileLoaded = appViewModel.currentUserProfile != null || appViewModel.currentUserId.isBlank(),
-                processingPending = appViewModel.isProcessingPendingItems,
-                spacesLoaded = appViewModel.spacesLoaded,
-                initialSyncComplete = appViewModel.initialSyncComplete
+                profileLoaded = uiState.currentUserProfile != null || uiState.currentUserId.isBlank(),
+                processingPending = uiState.isProcessingPendingItems,
+                spacesLoaded = uiState.spacesLoaded,
+                initialSyncComplete = uiState.initialSyncComplete
             )
         }.collectLatest { inputs ->
             // Reset timeouts when states resolve
@@ -239,12 +240,12 @@ fun RoomListScreen(
     }
 
     val effectiveProfileLoaded = profileLoaded || profileTimedOut
-    val shouldBlockForPending = appViewModel.isProcessingPendingItems && !pendingTimedOut
-    val effectiveSpacesLoaded = appViewModel.spacesLoaded || spacesTimedOut
-    val effectiveInitialSyncComplete = appViewModel.initialSyncComplete || initialSyncTimedOut
+    val shouldBlockForPending = uiState.isProcessingPendingItems && !pendingTimedOut
+    val effectiveSpacesLoaded = uiState.spacesLoaded || spacesTimedOut
+    val effectiveInitialSyncComplete = uiState.initialSyncComplete || initialSyncTimedOut
     
     // Prepare room list data while the loading screen is visible so we avoid flicker
-    val roomListUpdateCounter = appViewModel.roomListUpdateCounter
+    val roomListUpdateCounter = uiState.roomListUpdateCounter
     var stableSection by remember { mutableStateOf(appViewModel.getCurrentRoomSection()) }
     var previousSectionType by remember { mutableStateOf(stableSection.type) }
     var sectionAnimationDirection by remember { mutableStateOf(0) }
@@ -255,14 +256,14 @@ fun RoomListScreen(
     val roomSummaryReadyCache = remember { mutableStateMapOf<String, Boolean>() }
 
     // Batched last-message query with caching keyed by section and room IDs hash to avoid per-room queries.
-    val roomIdsHash = remember(stableSection.type, appViewModel.currentSpaceId, roomListUpdateCounter) {
+    val roomIdsHash = remember(stableSection.type, uiState.currentSpaceId, roomListUpdateCounter) {
         stableSection.rooms.fold(1) { acc, room -> (31 * acc) + room.id.hashCode() }
     }
-    val sectionCacheKey = remember(stableSection.type, appViewModel.currentSpaceId, roomIdsHash) {
-        "${stableSection.type}:${appViewModel.currentSpaceId ?: "none"}:$roomIdsHash"
+    val sectionCacheKey = remember(stableSection.type, uiState.currentSpaceId, roomIdsHash) {
+        "${stableSection.type}:${uiState.currentSpaceId ?: "none"}:$roomIdsHash"
     }
 
-    LaunchedEffect(sectionCacheKey, roomListUpdateCounter, appViewModel.roomSummaryUpdateCounter) {
+    LaunchedEffect(sectionCacheKey, roomListUpdateCounter, uiState.roomSummaryUpdateCounter) {
         initialRoomSummariesReady = false
 
         val cached = roomSummaryCache[sectionCacheKey]
@@ -415,14 +416,14 @@ fun RoomListScreen(
         return
     }
     
-    val inlineSyncInProgress = appViewModel.isProcessingPendingItems || !appViewModel.initialSyncComplete || !appViewModel.spacesLoaded
+    val inlineSyncInProgress = uiState.isProcessingPendingItems || !uiState.initialSyncComplete || !uiState.spacesLoaded
     val inlineSyncMessage = when {
-        appViewModel.isProcessingPendingItems -> "Processing new events..."
-        !appViewModel.initialSyncComplete -> "Finalizing sync..."
-        !appViewModel.spacesLoaded -> "Loading spaces..."
+        uiState.isProcessingPendingItems -> "Processing new events..."
+        !uiState.initialSyncComplete -> "Finalizing sync..."
+        !uiState.spacesLoaded -> "Loading spaces..."
         else -> "Refreshing rooms..."
     }
-    val showNotificationActionIndicator = appViewModel.notificationActionInProgress
+    val showNotificationActionIndicator = uiState.notificationActionInProgress
     
     // Enrich stableSection with database summaries
             // ANTI-FLICKER FIX: Preserve RoomItem instances when only order changes, not data
@@ -581,7 +582,7 @@ fun RoomListScreen(
         val directRoomId = appViewModel.getDirectRoomNavigation()
         val pendingRoomId = appViewModel.getPendingRoomNavigation()
         
-        if ((directRoomId != null || pendingRoomId != null) && appViewModel.spacesLoaded) {
+        if ((directRoomId != null || pendingRoomId != null) && uiState.spacesLoaded) {
             // Poll WebSocket connection status (check every 100ms, max 100 times = 10 seconds)
             var websocketConnected = appViewModel.isWebSocketConnected()
             var pollCount = 0
@@ -622,11 +623,11 @@ fun RoomListScreen(
     }
     
     // Also check when spacesLoaded changes to true
-    LaunchedEffect(appViewModel.spacesLoaded) {
+    LaunchedEffect(uiState.spacesLoaded) {
         val directRoomId = appViewModel.getDirectRoomNavigation()
         val pendingRoomId = appViewModel.getPendingRoomNavigation()
         
-        if ((directRoomId != null || pendingRoomId != null) && appViewModel.spacesLoaded) {
+        if ((directRoomId != null || pendingRoomId != null) && uiState.spacesLoaded) {
             // Poll WebSocket connection status (check every 100ms, max 100 times = 10 seconds)
             var websocketConnected = appViewModel.isWebSocketConnected()
             var pollCount = 0
@@ -699,7 +700,7 @@ fun RoomListScreen(
     }
     
     // Get timestamp update counter from AppViewModel
-    val timestampUpdateTrigger = appViewModel.timestampUpdateCounter
+    val timestampUpdateTrigger = uiState.timestampUpdateCounter
     
     // Pull-to-refresh state
     var refreshing by remember { mutableStateOf(false) }
@@ -715,8 +716,8 @@ fun RoomListScreen(
     
     // Handle refreshing state reset
     // Wait for spacesLoaded to become true after full refresh
-    LaunchedEffect(appViewModel.spacesLoaded, refreshing) {
-        if (refreshing && appViewModel.spacesLoaded) {
+    LaunchedEffect(uiState.spacesLoaded, refreshing) {
+        if (refreshing && uiState.spacesLoaded) {
             delay(500) // Short delay to show the refresh animation
             refreshing = false
         }
