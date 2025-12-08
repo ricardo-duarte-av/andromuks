@@ -139,8 +139,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.FlowPreview
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.MediaCache
-import java.util.LinkedHashMap
-
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
 fun RoomListScreen(
@@ -400,119 +398,24 @@ fun RoomListScreen(
             withContext(Dispatchers.IO) {
                 try {
                     val database = AndromuksDatabase.getInstance(context)
-                    val eventDao = database.eventDao()
-                    val events = eventDao.getLastMessagesForRooms(roomIds)
-                    val summaryMap = LinkedHashMap<String, Triple<String?, String?, Long?>>()
+                    val summaryDao = database.roomSummaryDao()
+                    val summaries = summaryDao.getRoomSummariesByIds(roomIds)
+                    val summaryMap = mutableMapOf<String, Triple<String?, String?, Long?>>()
 
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
-                            "RoomListScreen: Batched query for last messages for ${roomIds.size} rooms"
+                            "RoomListScreen: Using room_summary for ${summaries.size}/${roomIds.size} rooms"
                         )
                     }
 
-                    for (event in events) {
+                    for (summary in summaries) {
                         if (!isActive) throw CancellationException()
-                        // Only keep the newest per room (query is sorted newest-first per room)
-                        if (summaryMap.containsKey(event.roomId)) continue
-
-                        val roomId = event.roomId
-                        var messagePreview: String? = null
-                        val messageSender = event.sender
-                        var fallbackTimestamp: Long? = null
-                        var unsignedAgeTs: Long? = null
-
-                        try {
-                            val eventJson = org.json.JSONObject(event.rawJson)
-                            fallbackTimestamp = eventJson.optLong("origin_server_ts").takeIf { it > 0 }
-                            unsignedAgeTs = eventJson.optJSONObject("unsigned")?.optLong("age_ts")?.takeIf { it > 0 }
-                            if (event.type == "m.room.encrypted") {
-                                val decryptedType = event.decryptedType ?: eventJson.optString("decrypted_type")
-                                if (decryptedType == "m.room.message" || decryptedType == "m.text") {
-                                    val decrypted = eventJson.optJSONObject("decrypted")
-                                    val relatesTo = decrypted?.optJSONObject("m.relates_to")
-                                    val isEdit = relatesTo?.optString("rel_type") == "m.replace"
-                                    messagePreview = if (isEdit) {
-                                        decrypted?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
-                                    } else {
-                                        decrypted?.optString("body")?.takeIf { it.isNotBlank() }
-                                    }
-                                    if (BuildConfig.DEBUG && messagePreview.isNullOrBlank()) {
-                                        val decryptedKeys = decrypted?.keys()?.asSequence()?.toList()?.joinToString() ?: "null"
-                                        android.util.Log.w(
-                                            "Andromuks",
-                                            "RoomListScreen: Encrypted message ${event.eventId} has no body - decrypted keys: $decryptedKeys, isEdit: $isEdit"
-                                        )
-                                    }
-                                }
-                            } else if (event.type == "m.room.message") {
-                                val content = eventJson.optJSONObject("content")
-                                val relatesTo = content?.optJSONObject("m.relates_to")
-                                val isEdit = relatesTo?.optString("rel_type") == "m.replace"
-                                messagePreview = if (isEdit) {
-                                    content.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
-                                } else {
-                                    content?.optString("body")?.takeIf { it.isNotBlank() }
-                                }
-                                if (messagePreview.isNullOrBlank()) {
-                                    val msgtype = content?.optString("msgtype", "")
-                                    messagePreview = when (msgtype) {
-                                        "m.image" -> "\ud83d\udcf7 Image"
-                                        "m.video" -> "\ud83c\udfa5 Video"
-                                        "m.audio" -> "\ud83c\udfb5 Audio"
-                                        "m.file" -> "\ud83d\udcce File"
-                                        "m.location" -> "\ud83d\udccd Location"
-                                        else -> null
-                                    }
-                                }
-                                if (BuildConfig.DEBUG && messagePreview.isNullOrBlank()) {
-                                    val contentKeys = content?.keys()?.asSequence()?.toList()?.joinToString() ?: "null"
-                                    android.util.Log.w(
-                                        "Andromuks",
-                                        "RoomListScreen: Message ${event.eventId} has no body - content keys: $contentKeys, msgtype: ${content?.optString("msgtype")}, isEdit: $isEdit"
-                                    )
-                                }
-                            }
-
-                            if (BuildConfig.DEBUG && messagePreview.isNullOrBlank()) {
-                                val rawJsonPreview = event.rawJson.take(500)
-                                android.util.Log.w(
-                                    "Andromuks",
-                                    "RoomListScreen: No preview extracted for ${event.eventId} (type=${event.type}) - rawJson: $rawJsonPreview"
-                                )
-                            }
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            android.util.Log.w(
-                                "Andromuks",
-                                "RoomListScreen: Failed to parse event JSON for room $roomId",
-                                e
-                            )
-                        }
-
-                        var resolvedTimestamp = when {
-                            event.timestamp > 0 -> event.timestamp
-                            fallbackTimestamp != null -> fallbackTimestamp
-                            unsignedAgeTs != null -> System.currentTimeMillis() - unsignedAgeTs
-                            else -> null
-                        }
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.d(
-                                "Andromuks",
-                                "RoomListScreen: Last message for $roomId - eventId: ${event.eventId}, resolvedTs: ${resolvedTimestamp ?: 0L}, timelineRowId: ${event.timelineRowId}, type: ${event.type}, sender: ${event.sender}"
-                            )
-                        }
-                        // Fallback: if still null, grab DB max timestamp to ensure time display/sort
-                        if (resolvedTimestamp == null) {
-                            resolvedTimestamp = try {
-                                eventDao.getLastEventTimestamp(roomId)
-                            } catch (_: Exception) { null }
-                        }
-
-                        summaryMap[roomId] = Triple(messagePreview, messageSender, resolvedTimestamp)
+                        val ts = summary.lastTimestamp.takeIf { it > 0 }
+                        summaryMap[summary.roomId] = Triple(summary.messagePreview, summary.messageSender, ts)
                     }
 
+                    // Any rooms missing summaries will simply be absent; UI will fall back to existing data.
                     summaryMap.toMap()
                 } catch (ce: CancellationException) {
                     null // cancelled cleanly
