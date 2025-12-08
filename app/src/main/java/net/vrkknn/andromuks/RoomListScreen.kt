@@ -130,8 +130,14 @@ import androidx.compose.ui.window.DialogProperties
 import net.vrkknn.andromuks.utils.RoomJoinerScreen
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.database.AndromuksDatabase
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.isActive
+import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.MediaCache
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
@@ -145,6 +151,17 @@ fun RoomListScreen(
     val sharedPreferences = remember(context) { context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE) }
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
+    var coldStartRefreshing by remember { mutableStateOf(false) }
+
+    // Ensure cached data and pending items are applied after cold start/activity recreation.
+    LaunchedEffect(Unit) {
+        coldStartRefreshing = true
+        appViewModel.checkAndProcessPendingItemsOnStartup(context)
+        appViewModel.refreshUIFromCache()
+        // Ensure a sort after cache restore/cold start so room order reflects latest DB data.
+        appViewModel.forceRoomListSort()
+        coldStartRefreshing = false
+    }
     
     // CRITICAL FIX #1: Check if profile is loaded before showing UI
     val me = appViewModel.currentUserProfile
@@ -335,8 +352,164 @@ fun RoomListScreen(
         }
     }
     
+    // Prepare room list data while the loading screen is visible so we avoid flicker
+    val roomListUpdateCounter = appViewModel.roomListUpdateCounter
+    var stableSection by remember { mutableStateOf(appViewModel.getCurrentRoomSection()) }
+    var previousSectionType by remember { mutableStateOf(stableSection.type) }
+    var sectionAnimationDirection by remember { mutableStateOf(0) }
+    var roomsWithSummaries by remember { mutableStateOf<Map<String, Pair<String?, String?>>>(emptyMap()) } // roomId -> (messagePreview, messageSender)
+    var initialRoomSummariesReady by remember { mutableStateOf(false) }
+    var lastRoomSectionSignature by remember { mutableStateOf("") }
+
+    // CRITICAL FIX: Always query database for last message per room while the loading UI is showing
+    // so that avatars/order/previews are ready before we show the list
+    val roomIdsKey = remember(stableSection.rooms) { 
+        stableSection.rooms.map { it.id }.sorted().joinToString(",") 
+    }
+    
+    LaunchedEffect(roomIdsKey, appViewModel.roomSummaryUpdateCounter) {
+        val roomIds = stableSection.rooms.map { it.id }
+        initialRoomSummariesReady = false
+        if (roomIds.isEmpty()) {
+            roomsWithSummaries = emptyMap()
+            initialRoomSummariesReady = true
+            return@LaunchedEffect
+        }
+
+        val summaryResult = try {
+            withContext(Dispatchers.IO) {
+                try {
+                    val database = AndromuksDatabase.getInstance(context)
+                    val eventDao = database.eventDao()
+                    val summaryMap = mutableMapOf<String, Pair<String?, String?>>()
+
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "RoomListScreen: Querying DB for last messages for all ${roomIds.size} rooms"
+                        )
+                    }
+
+                    for (roomId in roomIds) {
+                        if (!isActive) throw CancellationException()
+                        try {
+                            val lastEvent = eventDao.getLastMessageForRoom(roomId)
+                            if (lastEvent != null) {
+                                if (BuildConfig.DEBUG) {
+                                    android.util.Log.d(
+                                        "Andromuks",
+                                        "RoomListScreen: Last message for $roomId - eventId: ${lastEvent.eventId}, timestamp: ${lastEvent.timestamp}, timelineRowId: ${lastEvent.timelineRowId}, type: ${lastEvent.type}, sender: ${lastEvent.sender}"
+                                    )
+                                }
+                                var messagePreview: String? = null
+                                val messageSender = lastEvent.sender
+
+                                try {
+                                    val eventJson = org.json.JSONObject(lastEvent.rawJson)
+                                    if (lastEvent.type == "m.room.encrypted") {
+                                        val decryptedType = lastEvent.decryptedType ?: eventJson.optString("decrypted_type")
+                                        if (decryptedType == "m.room.message" || decryptedType == "m.text") {
+                                            val decrypted = eventJson.optJSONObject("decrypted")
+                                            val relatesTo = decrypted?.optJSONObject("m.relates_to")
+                                            val isEdit = relatesTo?.optString("rel_type") == "m.replace"
+                                            messagePreview = if (isEdit) {
+                                                decrypted?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
+                                            } else {
+                                                decrypted?.optString("body")?.takeIf { it.isNotBlank() }
+                                            }
+                                            if (BuildConfig.DEBUG && messagePreview.isNullOrBlank()) {
+                                                val decryptedKeys = decrypted?.keys()?.asSequence()?.toList()?.joinToString() ?: "null"
+                                                android.util.Log.w(
+                                                    "Andromuks",
+                                                    "RoomListScreen: Encrypted message ${lastEvent.eventId} has no body - decrypted keys: $decryptedKeys, isEdit: $isEdit"
+                                                )
+                                            }
+                                        }
+                                    } else if (lastEvent.type == "m.room.message") {
+                                        val content = eventJson.optJSONObject("content")
+                                        val relatesTo = content?.optJSONObject("m.relates_to")
+                                        val isEdit = relatesTo?.optString("rel_type") == "m.replace"
+                                        messagePreview = if (isEdit) {
+                                            content.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
+                                        } else {
+                                            content?.optString("body")?.takeIf { it.isNotBlank() }
+                                        }
+                                        if (messagePreview.isNullOrBlank()) {
+                                            val msgtype = content?.optString("msgtype", "")
+                                            messagePreview = when (msgtype) {
+                                                "m.image" -> "\ud83d\udcf7 Image"
+                                                "m.video" -> "\ud83c\udfa5 Video"
+                                                "m.audio" -> "\ud83c\udfb5 Audio"
+                                                "m.file" -> "\ud83d\udcce File"
+                                                "m.location" -> "\ud83d\udccd Location"
+                                                else -> null
+                                            }
+                                        }
+                                        if (BuildConfig.DEBUG && messagePreview.isNullOrBlank()) {
+                                            val contentKeys = content?.keys()?.asSequence()?.toList()?.joinToString() ?: "null"
+                                            android.util.Log.w(
+                                                "Andromuks",
+                                                "RoomListScreen: Message ${lastEvent.eventId} has no body - content keys: $contentKeys, msgtype: ${content?.optString("msgtype")}, isEdit: $isEdit"
+                                            )
+                                        }
+                                    }
+
+                                    if (BuildConfig.DEBUG && messagePreview.isNullOrBlank()) {
+                                        val rawJsonPreview = lastEvent.rawJson.take(500)
+                                        android.util.Log.w(
+                                            "Andromuks",
+                                            "RoomListScreen: No preview extracted for ${lastEvent.eventId} (type=${lastEvent.type}) - rawJson: $rawJsonPreview"
+                                        )
+                                    }
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    android.util.Log.w(
+                                        "Andromuks",
+                                        "RoomListScreen: Failed to parse event JSON for room $roomId",
+                                        e
+                                    )
+                                }
+
+                                summaryMap[roomId] = messagePreview to messageSender
+                            }
+                        } catch (ce: CancellationException) {
+                            throw ce
+                        } catch (e: Exception) {
+                            android.util.Log.w("Andromuks", "RoomListScreen: Failed to get last message for room $roomId", e)
+                        }
+                    }
+
+                    summaryMap to true
+                } catch (ce: CancellationException) {
+                    null // cancelled cleanly
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "RoomListScreen: Error querying DB for room summaries", e)
+                    emptyMap<String, Pair<String?, String?>>() to true
+                }
+            }
+        } catch (ce: CancellationException) {
+            null
+        }
+
+        if (summaryResult != null) {
+            roomsWithSummaries = summaryResult.first
+            initialRoomSummariesReady = summaryResult.second
+        }
+    }
+
+    // Consider the room list "settled" once we receive two identical signatures in a row.
+    // This prevents showing the list until sorting/unread counts stop bouncing.
+    // Keep previous signature for potential future analytics; no gating on it to unblock UI.
+    LaunchedEffect(stableSection.rooms, roomsWithSummaries) {
+        lastRoomSectionSignature = stableSection.rooms.joinToString("|") { room ->
+            val summary = roomsWithSummaries[room.id]
+            "${room.id}:${room.unreadCount}:${room.highlightCount}:${summary?.first ?: room.messagePreview}"
+        }
+    }
+
     // Show loading screen if profile is missing, pending items are being processed, spaces are not loaded, or initial sync is not complete (unless timeout expired)
-    if (!effectiveProfileLoaded || shouldBlockForPending || !effectiveSpacesLoaded || (!initialSyncComplete && !initialSyncWaitTimeout)) {
+    if (coldStartRefreshing || !effectiveProfileLoaded || shouldBlockForPending || !effectiveSpacesLoaded || (!initialSyncComplete && !initialSyncWaitTimeout) || !initialRoomSummariesReady) {
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -388,6 +561,14 @@ fun RoomListScreen(
                         modifier = Modifier.padding(top = if (shouldBlockForPending || !effectiveSpacesLoaded) 8.dp else 0.dp)
                     )
                 }
+                if (coldStartRefreshing) {
+                    Text(
+                        text = "Refreshing rooms...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
             }
         }
         return
@@ -401,17 +582,6 @@ fun RoomListScreen(
         else -> "Refreshing rooms..."
     }
     val showNotificationActionIndicator = appViewModel.notificationActionInProgress
-    
-    // PERFORMANCE: Only recompose when room list actually changes
-    // Use derivedStateOf to prevent recomposition when counter increments but rooms are identical
-    val roomListUpdateCounter = appViewModel.roomListUpdateCounter
-    var stableSection by remember { mutableStateOf(appViewModel.getCurrentRoomSection()) }
-    var previousSectionType by remember { mutableStateOf(stableSection.type) }
-    var sectionAnimationDirection by remember { mutableStateOf(0) }
-    
-    // BATTERY OPTIMIZATION: Query database for last messages directly in RoomListScreen
-    // This ensures fresh data and removes dependency on sync parsing
-    var roomsWithSummaries by remember { mutableStateOf<Map<String, Pair<String?, String?>>>(emptyMap()) } // roomId -> (messagePreview, messageSender)
     
     // Enrich stableSection with database summaries
             // ANTI-FLICKER FIX: Preserve RoomItem instances when only order changes, not data
@@ -498,160 +668,6 @@ fun RoomListScreen(
             sectionAnimationDirection = 0
         }
         // If nothing changed, skip update - prevents unnecessary recomposition and avatar flashing
-    }
-    
-    // CRITICAL FIX: Always query database for last message per room
-    // The DB is the source of truth and may have newer messages than what's in JSON parsing
-    // Use stable key to prevent unnecessary re-queries on every recomposition
-    val roomIdsKey = remember(stableSection.rooms) { 
-        stableSection.rooms.map { it.id }.sorted().joinToString(",") 
-    }
-    
-    LaunchedEffect(roomIdsKey, appViewModel.roomSummaryUpdateCounter) {
-        val roomIds = stableSection.rooms.map { it.id }
-        if (roomIds.isEmpty()) {
-            roomsWithSummaries = emptyMap()
-            return@LaunchedEffect
-        }
-        
-        // FIX: Use withContext instead of coroutineScope.launch to avoid "rememberCoroutineScope left the composition" errors
-        // LaunchedEffect already provides a coroutine scope, so we can switch dispatchers directly
-        withContext(Dispatchers.IO) {
-            try {
-                val database = AndromuksDatabase.getInstance(context)
-                val eventDao = database.eventDao()
-                val summaryMap = mutableMapOf<String, Pair<String?, String?>>()
-                
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "RoomListScreen: Querying DB for last messages for all ${roomIds.size} rooms")
-                }
-                
-                // CRITICAL FIX: Always query DB for all rooms - DB is the source of truth
-                // This ensures we always show the latest message, even if JSON parsing has stale data
-                for (roomId in roomIds) {
-                        try {
-                            val lastEvent = eventDao.getLastMessageForRoom(roomId)
-                            if (lastEvent != null) {
-                                if (BuildConfig.DEBUG) {
-                                    android.util.Log.d("Andromuks", "RoomListScreen: Last message for $roomId - eventId: ${lastEvent.eventId}, timestamp: ${lastEvent.timestamp}, timelineRowId: ${lastEvent.timelineRowId}, type: ${lastEvent.type}, sender: ${lastEvent.sender}")
-                                }
-                                var messagePreview: String? = null
-                                val messageSender = lastEvent.sender
-                                
-                                // Extract message preview from rawJson (same logic as SyncIngestor)
-                                try {
-                                    val eventJson = org.json.JSONObject(lastEvent.rawJson)
-                                    
-                                    // E2EE: For encrypted messages (type='m.room.encrypted'), body is in decrypted.body
-                                    // For regular messages (type='m.room.message'), body is in content.body
-                                    if (lastEvent.type == "m.room.encrypted") {
-                                        // Encrypted message - check decryptedType first (like SpaceRoomParser does)
-                                        val decryptedType = lastEvent.decryptedType ?: eventJson.optString("decrypted_type")
-                                        if (decryptedType == "m.room.message" || decryptedType == "m.text") {
-                                            val decrypted = eventJson.optJSONObject("decrypted")
-                                            
-                                            // Check if this is an edit (show new content instead of original)
-                                            val relatesTo = decrypted?.optJSONObject("m.relates_to")
-                                            val isEdit = relatesTo?.optString("rel_type") == "m.replace"
-                                            
-                                            if (isEdit) {
-                                                // This is an edit - get body from m.new_content
-                                                val newContent = decrypted.optJSONObject("m.new_content")
-                                                messagePreview = newContent?.optString("body")?.takeIf { it.isNotBlank() }
-                                            } else {
-                                                // Regular encrypted message
-                                                messagePreview = decrypted?.optString("body")?.takeIf { it.isNotBlank() }
-                                            }
-                                            
-                                            if (BuildConfig.DEBUG && messagePreview.isNullOrBlank()) {
-                                                val decryptedKeys = decrypted?.keys()?.asSequence()?.toList()?.joinToString() ?: "null"
-                                                android.util.Log.w("Andromuks", "RoomListScreen: Encrypted message ${lastEvent.eventId} has no body - decrypted keys: $decryptedKeys, isEdit: $isEdit")
-                                            }
-                                        }
-                                    } else if (lastEvent.type == "m.room.message") {
-                                        // Regular message - check if it's an edit first
-                                        val content = eventJson.optJSONObject("content")
-                                        val relatesTo = content?.optJSONObject("m.relates_to")
-                                        val isEdit = relatesTo?.optString("rel_type") == "m.replace"
-                                        
-                                        if (isEdit) {
-                                            // This is an edit - get body from m.new_content
-                                            val newContent = content.optJSONObject("m.new_content")
-                                            messagePreview = newContent?.optString("body")?.takeIf { it.isNotBlank() }
-                                        } else {
-                                            // Regular message - get body from content
-                                            messagePreview = content?.optString("body")?.takeIf { it.isNotBlank() }
-                                        }
-                                        
-                                        // Handle non-text messages (images, files, etc.) that might have a fallback
-                                        if (messagePreview.isNullOrBlank()) {
-                                            val msgtype = content?.optString("msgtype", "")
-                                            when {
-                                                msgtype == "m.image" -> messagePreview = "📷 Image"
-                                                msgtype == "m.video" -> messagePreview = "🎥 Video"
-                                                msgtype == "m.audio" -> messagePreview = "🎵 Audio"
-                                                msgtype == "m.file" -> messagePreview = "📎 File"
-                                                msgtype == "m.location" -> messagePreview = "📍 Location"
-                                            }
-                                        }
-                                        
-                                        if (BuildConfig.DEBUG && messagePreview.isNullOrBlank()) {
-                                            val contentKeys = content?.keys()?.asSequence()?.toList()?.joinToString() ?: "null"
-                                            android.util.Log.w("Andromuks", "RoomListScreen: Message ${lastEvent.eventId} has no body - content keys: $contentKeys, msgtype: ${content?.optString("msgtype")}, isEdit: $isEdit")
-                                        }
-                                    }
-                                    
-                                    // DEBUG: Log full JSON structure if extraction fails
-                                    if (BuildConfig.DEBUG && messagePreview.isNullOrBlank()) {
-                                        val jsonKeys = eventJson.keys().asSequence().toList().joinToString()
-                                        android.util.Log.d("Andromuks", "RoomListScreen: Failed to extract body for event ${lastEvent.eventId} (type=${lastEvent.type}, decryptedType=${lastEvent.decryptedType}) - rawJson keys: $jsonKeys")
-                                        android.util.Log.d("Andromuks", "RoomListScreen: rawJson sample (first 500 chars): ${lastEvent.rawJson.take(500)}")
-                                    }
-                                } catch (e: Exception) {
-                                    android.util.Log.w("Andromuks", "RoomListScreen: Failed to extract message preview from event ${lastEvent.eventId}: ${e.message}", e)
-                                    if (BuildConfig.DEBUG) {
-                                        android.util.Log.d("Andromuks", "RoomListScreen: Exception details - rawJson length: ${lastEvent.rawJson.length}, type: ${lastEvent.type}")
-                                    }
-                                }
-                                
-                                summaryMap[roomId] = messagePreview to messageSender
-                                if (BuildConfig.DEBUG && appViewModel.roomSummaryUpdateCounter > 0) {
-                                    android.util.Log.d("Andromuks", "RoomListScreen: Found last message for room $roomId - sender: $messageSender, preview: ${messagePreview?.take(50)}")
-                                }
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.w("Andromuks", "RoomListScreen: Error querying last message for room $roomId: ${e.message}")
-                        }
-                    }
-                    
-                    // FIX: Only update roomsWithSummaries if values actually changed
-                    val hasChanges = summaryMap.any { entry ->
-                        val roomId = entry.key
-                        val (newPreview, newSender) = entry.value
-                        val (oldPreview, oldSender) = roomsWithSummaries[roomId] ?: (null to null)
-                        newPreview != oldPreview || newSender != oldSender
-                    }
-                    
-                    if (hasChanges) {
-                        // Merge new summaries with existing ones
-                        // DB results overwrite any JSON-parsed previews (DB is source of truth)
-                        // Rooms without messages in DB will keep their JSON-parsed previews as fallback
-                        roomsWithSummaries = roomsWithSummaries.toMutableMap().apply {
-                            putAll(summaryMap) // Overwrite with new DB results
-                        }
-                        
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.d("Andromuks", "RoomListScreen: Updated summaries for ${summaryMap.size} rooms")
-                        }
-                    } else {
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.d("Andromuks", "RoomListScreen: Summaries unchanged, skipping update (queried ${summaryMap.size}/${roomIds.size} rooms)")
-                        }
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "RoomListScreen: Error querying last messages from events: ${e.message}", e)
-                }
-            }
     }
     
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: stableSection = ${stableSection.type}, roomListUpdateCounter = $roomListUpdateCounter, rooms.size = ${stableSection.rooms.size}")
@@ -2001,10 +2017,9 @@ fun RoomListContent(
                                 // This ensures state is consistent across all navigation paths
                                 appViewModel.setCurrentRoomIdForTimeline(roomIdForNavigation)
                                 
-                                // Mark room as read immediately when opening from room list
-                                // This gives instant feedback by clearing the unread badge
-                                withContext(Dispatchers.IO) {
-                                    try {
+                                // Mark as read in background (fire-and-forget)
+                                launch(Dispatchers.IO) {
+                                    runCatching {
                                         val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
                                         val eventDao = database.eventDao()
                                         val lastEvent = eventDao.getMostRecentEventForRoom(roomIdForNavigation)
@@ -2013,23 +2028,25 @@ fun RoomListContent(
                                             withContext(Dispatchers.Main) {
                                                 appViewModel.markRoomAsRead(roomIdForNavigation, lastEvent.eventId)
                                             }
-                                        } else {
-                                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: No events found for room $roomIdForNavigation, skipping mark as read")
                                         }
-                                    } catch (e: Exception) {
-                                        android.util.Log.w("Andromuks", "RoomListScreen: Failed to mark room as read when opening: ${e.message}", e)
+                                    }.onFailure {
+                                        android.util.Log.w("Andromuks", "RoomListScreen: Failed to mark room as read when opening: ${it.message}", it)
                                     }
                                 }
-                                
-                                val prefetchSuccess = appViewModel.prefetchRoomSnapshot(roomIdForNavigation)
-                                if (!prefetchSuccess) {
-                                    android.util.Log.w(
-                                        "Andromuks",
-                                        "RoomListScreen: Prefetch snapshot failed or timed out for $roomIdForNavigation, falling back to existing cache"
-                                    )
-                                }
+
+                                // Navigate immediately; prefetch runs best-effort.
                                 appViewModel.navigateToRoomWithCache(roomIdForNavigation)
                                 navController.navigate("room_timeline/$roomIdForNavigation")
+
+                                launch(Dispatchers.IO) {
+                                    val prefetchSuccess = appViewModel.prefetchRoomSnapshot(roomIdForNavigation)
+                                    if (!prefetchSuccess) {
+                                        android.util.Log.w(
+                                            "Andromuks",
+                                            "RoomListScreen: Prefetch snapshot failed or timed out for $roomIdForNavigation, falling back to existing cache"
+                                        )
+                                    }
+                                }
                             } finally {
                                 roomOpenInProgress = null
                             }

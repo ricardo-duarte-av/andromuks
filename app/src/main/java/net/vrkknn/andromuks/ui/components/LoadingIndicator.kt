@@ -1,11 +1,14 @@
 package net.vrkknn.andromuks.ui.components
 
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -20,8 +23,6 @@ import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LoadingIndicatorDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -36,22 +37,25 @@ fun ExpressiveLoadingIndicator(
     modifier: Modifier = Modifier,
     indicatorColor: Color = LoadingIndicatorDefaults.indicatorColor
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "expressive_loading_transition")
-    val animatedProgress by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1600, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "expressive_loading_progress"
-    )
+    var progress by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(Unit) {
+        var start = 0L
+        withFrameNanos { start = it }
+        while (true) {
+            withFrameNanos { now ->
+                val elapsedMs = (now - start) / 1_000_000f
+                // Loop the value to prevent runaway growth and avoid visible resets.
+                progress = (elapsedMs % 1600f) / 1600f
+            }
+        }
+    }
 
     LoadingIndicator(
-        progress = { animatedProgress },
+        progress = { progress },
         modifier = modifier,
         color = indicatorColor,
-        polygons = LoadingIndicatorDefaults.DeterminateIndicatorPolygons
+        // Use the looping polygon set to avoid visible resets at the end of each cycle
+        polygons = LoadingIndicatorDefaults.IndeterminateIndicatorPolygons
     )
 }
 
