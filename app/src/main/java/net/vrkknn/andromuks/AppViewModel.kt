@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import net.vrkknn.andromuks.SpaceItem
@@ -112,6 +113,10 @@ enum class WebSocketResult {
 }
 
 class AppViewModel : ViewModel() {
+    // Tracks which sender profiles have been processed per room to avoid duplicate fetches.
+    // Used by RoomListScreen opportunistic profile loading.
+    val processedSendersByRoom = mutableStateMapOf<String, MutableSet<String>>()
+
     companion object {
         // File name for user profile disk cache (used in SharedPreferences)
         private const val PROFILE_CACHE_FILE = "user_profiles_cache.json"

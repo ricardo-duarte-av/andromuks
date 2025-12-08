@@ -744,7 +744,7 @@ fun RoomListScreen(
     // This ensures proper display names and avatars are loaded for room list message previews
     // CRITICAL FIX: Only request profiles when initial sync is complete (WebSocket is connected and all initial data is loaded)
     // PERFORMANCE FIX: Track processed message senders to avoid duplicate requests and excessive logging
-    val processedMessageSenders = remember { mutableSetOf<String>() }
+    val processedMessageSenders = remember { mutableStateMapOf<String, Boolean>() }
     
     // Create a stable key based on actual message senders (not rooms list) to prevent excessive re-runs
     val messageSendersKey = remember(stableSection.rooms) {
@@ -773,7 +773,7 @@ fun RoomListScreen(
         }
         
         // Only process if we have new message senders that haven't been processed yet
-        val newSenders = messageSenders.filter { it !in processedMessageSenders }
+        val newSenders = messageSenders.filter { sender -> processedMessageSenders[sender] != true }
         
         if (newSenders.isNotEmpty()) {
             if (BuildConfig.DEBUG) android.util.Log.d(
@@ -791,11 +791,12 @@ fun RoomListScreen(
             }
             
             // Mark as processed
-            processedMessageSenders.addAll(newSenders)
+            newSenders.forEach { sender -> processedMessageSenders[sender] = true }
         }
         
         // Clean up processed senders that are no longer in the current list
-        processedMessageSenders.removeAll { it !in messageSenders }
+        val toRemove = processedMessageSenders.keys.filter { it !in messageSenders }
+        toRemove.forEach { processedMessageSenders.remove(it) }
     }
     
     Box(
