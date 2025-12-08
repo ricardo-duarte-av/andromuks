@@ -101,74 +101,117 @@ class BootstrapLoader(private val context: Context) {
                 }
             }
             
-            // CRITICAL FIX: Always load latest message preview and sender from database events
-            // This ensures room list shows current data even when WebSocket doesn't send sync_complete
-            // The database is kept up-to-date by SyncIngestor as long as WebSocket is connected
+            // CRITICAL FIX: Always load latest message preview/sender/timestamp directly from the last message row.
+            // If no message row is available, fall back to summary and DB max(timestamp).
             var messagePreview: String? = null
             var messageSender: String? = null
+            var messageTimestampFromEvents: Long? = null
+            var lastEventTimestampFallback: Long? = null
             try {
-                // Get the most recent events and find the last message
-                // Use a reasonable limit to avoid loading too many events
-                val recentEvents = eventDao.getEventsForRoomDesc(summary.roomId, 50)
-                for (eventEntity in recentEvents) {
-                    try {
-                        val eventJson = JSONObject(eventEntity.rawJson)
-                        val eventType = eventJson.optString("type")
-                        
-                        if (eventType == "m.room.message" || eventType == "m.room.encrypted") {
-                            // Extract message preview
-                            val content = eventJson.optJSONObject("content")
-                            if (content != null) {
-                                val body = content.optString("body")?.takeIf { it.isNotBlank() }
-                                if (body != null) {
-                                    messagePreview = body
-                                    messageSender = eventJson.optString("sender")?.takeIf { it.isNotBlank() }
-                                    if (BuildConfig.DEBUG) Log.d(TAG, "Room ${summary.roomId}: Loaded message preview from DB events: '${messagePreview.take(50)}...', sender: $messageSender")
-                                    break
-                                }
-                            }
-                            
-                            // For encrypted messages, check decrypted content
-                            if (messagePreview.isNullOrBlank() && eventType == "m.room.encrypted") {
-                                val decrypted = eventJson.optJSONObject("decrypted")
-                                val body = decrypted?.optString("body")?.takeIf { it.isNotBlank() }
-                                if (body != null) {
-                                    messagePreview = body
-                                    messageSender = eventJson.optString("sender")?.takeIf { it.isNotBlank() }
-                                    if (BuildConfig.DEBUG) Log.d(TAG, "Room ${summary.roomId}: Loaded encrypted message preview from DB events: '${messagePreview.take(50)}...', sender: $messageSender")
-                                    break
-                                }
-                            }
+                val lastMsg = eventDao.getLastMessageForRoom(summary.roomId)
+                if (lastMsg != null && lastMsg.timestamp > 0) {
+                    val eventJson = JSONObject(lastMsg.rawJson)
+                    val eventType = lastMsg.type
+                    var preview: String? = null
+                    if (eventType == "m.room.encrypted") {
+                        val decrypted = eventJson.optJSONObject("decrypted")
+                        preview = decrypted?.optString("body")?.takeIf { it.isNotBlank() }
+                        // Handle edits
+                        val relatesTo = decrypted?.optJSONObject("m.relates_to")
+                        val isEdit = relatesTo?.optString("rel_type") == "m.replace"
+                        if (isEdit) {
+                            preview = decrypted?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
                         }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to parse event for room ${summary.roomId}: ${e.message}")
+                    } else if (eventType == "m.room.message") {
+                        val content = eventJson.optJSONObject("content")
+                        val relatesTo = content?.optJSONObject("m.relates_to")
+                        val isEdit = relatesTo?.optString("rel_type") == "m.replace"
+                        preview = if (isEdit) {
+                            content?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
+                        } else {
+                            content?.optString("body")?.takeIf { it.isNotBlank() }
+                        }
+                    }
+                    if (preview.isNullOrBlank()) {
+                        // Basic media fallback
+                        val content = eventJson.optJSONObject("content")
+                        val msgtype = content?.optString("msgtype", "")
+                        preview = when (msgtype) {
+                            "m.image" -> "\uD83D\uDCF7 Image"
+                            "m.video" -> "\uD83C\uDFA5 Video"
+                            "m.audio" -> "\uD83C\uDFB5 Audio"
+                            "m.file" -> "\uD83D\uDCCE File"
+                            "m.location" -> "\uD83D\uDCCD Location"
+                            else -> null
+                        }
+                    }
+                    messagePreview = preview
+                    messageSender = lastMsg.sender
+                    messageTimestampFromEvents = lastMsg.timestamp
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            TAG,
+                            "Room ${summary.roomId}: Loaded last message from DB: preview='${messagePreview?.take(50)}', sender=$messageSender, ts=${lastMsg.timestamp}, rowId=${lastMsg.timelineRowId}"
+                        )
+                    }
+                } else {
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Room ${summary.roomId}: No last message row found with timestamp>0, falling back to summary")
+                    // Try to at least capture the latest event timestamp (any type) to keep sorting correct
+                    try {
+                        val latestAny = eventDao.getEventsForRoomDesc(summary.roomId, 1).firstOrNull()
+                        if (latestAny != null && latestAny.timestamp > 0) {
+                            messageTimestampFromEvents = latestAny.timestamp
+                            if (BuildConfig.DEBUG) Log.d(
+                                TAG,
+                                "Room ${summary.roomId}: Using latest event timestamp for sorting (type=${latestAny.type}, ts=${latestAny.timestamp}, rowId=${latestAny.timelineRowId})"
+                            )
+                        }
+                    } catch (_: Exception) {
                     }
                 }
-                
-                // If no message found in events, fall back to summary (might be stale but better than nothing)
+
+                // If still missing preview/sender, fall back to summary
                 if (messagePreview.isNullOrBlank()) {
                     messagePreview = summary.messagePreview
                     messageSender = summary.messageSender
-                    if (!messagePreview.isNullOrBlank()) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Room ${summary.roomId}: Using message preview from summary (no recent events in DB): '${messagePreview.take(50)}...'")
-                    }
+                }
+
+                // If we did not capture a timestamp above, fetch MAX(timestamp)
+                if (messageTimestampFromEvents == null) {
+                    lastEventTimestampFallback = eventDao.getLastEventTimestamp(summary.roomId)
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "Failed to get last message event for room ${summary.roomId}: ${e.message}")
-                // Fall back to summary if DB query fails
+                Log.w(TAG, "Failed to load last message for room ${summary.roomId}: ${e.message}")
                 messagePreview = summary.messagePreview
                 messageSender = summary.messageSender
+                try {
+                    lastEventTimestampFallback = eventDao.getLastEventTimestamp(summary.roomId)
+                } catch (_: Exception) {}
             }
             
             // BUG FIX #1: Always include unreadCount and highlightCount (even if 0) for proper badge display
             // Also ensure sortingTimestamp is set (either from summary or from last event)
+            // If we did not capture a timestamp from the event rows, fetch MAX(timestamp) as a fallback
+            if (messageTimestampFromEvents == null) {
+                try {
+                    lastEventTimestampFallback = eventDao.getLastEventTimestamp(summary.roomId)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to fetch fallback lastEventTimestamp for room ${summary.roomId}: ${e.message}")
+                }
+            }
+
             val room = RoomItem(
                 id = summary.roomId,
                 name = roomState?.name ?: summary.roomId,
                 avatarUrl = roomState?.avatarUrl,
                 messagePreview = messagePreview,
                 messageSender = messageSender,
-                sortingTimestamp = sortingTimestamp.takeIf { it > 0 }, // Only set if > 0 (for time diff display)
+                sortingTimestamp = (
+                    messageTimestampFromEvents
+                        ?: lastEventTimestampFallback
+                        ?: sortingTimestamp
+                        ?: summary.lastTimestamp
+                ).takeIf { it != null && it > 0 },
                 unreadCount = summary.unreadCount.takeIf { it > 0 }, // Only show if > 0 for badge
                 highlightCount = summary.highlightCount.takeIf { it > 0 }, // Only show if > 0 for badge
                 isDirectMessage = roomState?.isDirect ?: false,

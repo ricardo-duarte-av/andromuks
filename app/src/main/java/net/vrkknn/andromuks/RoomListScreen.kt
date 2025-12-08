@@ -46,7 +46,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
@@ -136,6 +135,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.FlowPreview
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.MediaCache
 
@@ -152,6 +152,9 @@ fun RoomListScreen(
     val authToken = remember(sharedPreferences) { sharedPreferences.getString("gomuks_auth_token", "") ?: "" }
     val imageToken = appViewModel.imageAuthToken.takeIf { it.isNotBlank() } ?: authToken
     var coldStartRefreshing by remember { mutableStateOf(false) }
+    var initialLoadComplete by remember { mutableStateOf(false) }
+    val listStates = remember { mutableMapOf<RoomSectionType, LazyListState>() }
+    var missingTimestampsHydrated by remember { mutableStateOf(false) }
 
     // Ensure cached data and pending items are applied after cold start/activity recreation.
     LaunchedEffect(Unit) {
@@ -357,7 +360,7 @@ fun RoomListScreen(
     var stableSection by remember { mutableStateOf(appViewModel.getCurrentRoomSection()) }
     var previousSectionType by remember { mutableStateOf(stableSection.type) }
     var sectionAnimationDirection by remember { mutableStateOf(0) }
-    var roomsWithSummaries by remember { mutableStateOf<Map<String, Pair<String?, String?>>>(emptyMap()) } // roomId -> (messagePreview, messageSender)
+    var roomsWithSummaries by remember { mutableStateOf<Map<String, Triple<String?, String?, Long?>>>(emptyMap()) } // roomId -> (messagePreview, messageSender, messageTimestamp)
     var initialRoomSummariesReady by remember { mutableStateOf(false) }
     var lastRoomSectionSignature by remember { mutableStateOf("") }
 
@@ -376,12 +379,12 @@ fun RoomListScreen(
             return@LaunchedEffect
         }
 
-        val summaryResult = try {
+        val summaryResult: Pair<Map<String, Triple<String?, String?, Long?>>, Boolean>? = try {
             withContext(Dispatchers.IO) {
                 try {
                     val database = AndromuksDatabase.getInstance(context)
                     val eventDao = database.eventDao()
-                    val summaryMap = mutableMapOf<String, Pair<String?, String?>>()
+                val summaryMap = mutableMapOf<String, Triple<String?, String?, Long?>>()
 
                     if (BuildConfig.DEBUG) {
                         android.util.Log.d(
@@ -395,17 +398,15 @@ fun RoomListScreen(
                         try {
                             val lastEvent = eventDao.getLastMessageForRoom(roomId)
                             if (lastEvent != null) {
-                                if (BuildConfig.DEBUG) {
-                                    android.util.Log.d(
-                                        "Andromuks",
-                                        "RoomListScreen: Last message for $roomId - eventId: ${lastEvent.eventId}, timestamp: ${lastEvent.timestamp}, timelineRowId: ${lastEvent.timelineRowId}, type: ${lastEvent.type}, sender: ${lastEvent.sender}"
-                                    )
-                                }
                                 var messagePreview: String? = null
                                 val messageSender = lastEvent.sender
+                                var fallbackTimestamp: Long? = null
+                                var unsignedAgeTs: Long? = null
 
-                                try {
+                            try {
                                     val eventJson = org.json.JSONObject(lastEvent.rawJson)
+                                fallbackTimestamp = eventJson.optLong("origin_server_ts").takeIf { it > 0 }
+                                unsignedAgeTs = eventJson.optJSONObject("unsigned")?.optLong("age_ts")?.takeIf { it > 0 }
                                     if (lastEvent.type == "m.room.encrypted") {
                                         val decryptedType = lastEvent.decryptedType ?: eventJson.optString("decrypted_type")
                                         if (decryptedType == "m.room.message" || decryptedType == "m.text") {
@@ -471,7 +472,26 @@ fun RoomListScreen(
                                     )
                                 }
 
-                                summaryMap[roomId] = messagePreview to messageSender
+                            var resolvedTimestamp = when {
+                                lastEvent.timestamp > 0 -> lastEvent.timestamp
+                                fallbackTimestamp != null -> fallbackTimestamp
+                                unsignedAgeTs != null -> System.currentTimeMillis() - unsignedAgeTs
+                                else -> null
+                            }
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d(
+                                    "Andromuks",
+                                    "RoomListScreen: Last message for $roomId - eventId: ${lastEvent.eventId}, resolvedTs: ${resolvedTimestamp ?: 0L}, timelineRowId: ${lastEvent.timelineRowId}, type: ${lastEvent.type}, sender: ${lastEvent.sender}"
+                                )
+                            }
+                            // Fallback: if still null, grab DB max timestamp to ensure time display/sort
+                            if (resolvedTimestamp == null) {
+                                resolvedTimestamp = try {
+                                    eventDao.getLastEventTimestamp(roomId)
+                                } catch (_: Exception) { null }
+                            }
+
+                            summaryMap[roomId] = Triple(messagePreview, messageSender, resolvedTimestamp)
                             }
                         } catch (ce: CancellationException) {
                             throw ce
@@ -480,12 +500,12 @@ fun RoomListScreen(
                         }
                     }
 
-                    summaryMap to true
+                    summaryMap.toMap() to true
                 } catch (ce: CancellationException) {
                     null // cancelled cleanly
                 } catch (e: Exception) {
                     android.util.Log.e("Andromuks", "RoomListScreen: Error querying DB for room summaries", e)
-                    emptyMap<String, Pair<String?, String?>>() to true
+                    emptyMap<String, Triple<String?, String?, Long?>>() to true
                 }
             }
         } catch (ce: CancellationException) {
@@ -504,12 +524,27 @@ fun RoomListScreen(
     LaunchedEffect(stableSection.rooms, roomsWithSummaries) {
         lastRoomSectionSignature = stableSection.rooms.joinToString("|") { room ->
             val summary = roomsWithSummaries[room.id]
-            "${room.id}:${room.unreadCount}:${room.highlightCount}:${summary?.first ?: room.messagePreview}"
+            "${room.id}:${room.unreadCount}:${room.highlightCount}:${summary?.first ?: room.messagePreview}:${summary?.third ?: room.sortingTimestamp}"
         }
     }
 
     // Show loading screen if profile is missing, pending items are being processed, spaces are not loaded, or initial sync is not complete (unless timeout expired)
-    if (coldStartRefreshing || !effectiveProfileLoaded || shouldBlockForPending || !effectiveSpacesLoaded || (!initialSyncComplete && !initialSyncWaitTimeout) || !initialRoomSummariesReady) {
+    val showLoadingOverlay = !initialLoadComplete && (
+        coldStartRefreshing ||
+        !effectiveProfileLoaded ||
+        shouldBlockForPending ||
+        !effectiveSpacesLoaded ||
+        (!initialSyncComplete && !initialSyncWaitTimeout) ||
+        !initialRoomSummariesReady
+    )
+
+    LaunchedEffect(showLoadingOverlay) {
+        if (!showLoadingOverlay) {
+            initialLoadComplete = true
+        }
+    }
+
+    if (showLoadingOverlay) {
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -587,35 +622,66 @@ fun RoomListScreen(
             // ANTI-FLICKER FIX: Preserve RoomItem instances when only order changes, not data
     val enrichedSection = remember(stableSection, roomsWithSummaries) {
         val enrichedRooms = stableSection.rooms.map { room ->
-            val (messagePreview, messageSender) = roomsWithSummaries[room.id] ?: (null to null)
-            
-            // Only create new copy if preview/sender actually changed
+            val summary = roomsWithSummaries[room.id]
+            val messagePreview = summary?.first
+            val messageSender = summary?.second
+            val messageTimestamp = summary?.third
+
             val currentPreview = messagePreview ?: room.messagePreview
             val currentSender = messageSender ?: room.messageSender
-            
-            if (currentPreview != room.messagePreview || currentSender != room.messageSender) {
+            val currentTimestamp = messageTimestamp ?: room.sortingTimestamp
+
+            if (currentPreview != room.messagePreview || currentSender != room.messageSender || currentTimestamp != room.sortingTimestamp) {
                 room.copy(
                     messagePreview = currentPreview,
-                    messageSender = currentSender
+                    messageSender = currentSender,
+                    sortingTimestamp = currentTimestamp
                 )
             } else {
-                // Return same instance if unchanged - prevents unnecessary recomposition and avatar flicker
                 room
             }
         }
-        
-        // ANTI-FLICKER FIX: Only create new RoomSection if any room items actually changed
-        // Check if all room references are the same (no items were copied)
-        val roomsChanged = enrichedRooms.zip(stableSection.rooms).any { (enriched, original) ->
-            enriched !== original // Reference inequality means item was copied
+
+        val sortedRooms = enrichedRooms.sortedWith(
+            compareByDescending<RoomItem> { it.sortingTimestamp ?: 0L }
+                .thenByDescending { it.highlightCount ?: 0 }
+                .thenByDescending { it.unreadCount ?: 0 }
+                .thenBy { it.name }
+        )
+
+        val oldById = stableSection.rooms.associateBy { it.id }
+        val contentChanged = sortedRooms.any { room ->
+            val old = oldById[room.id]
+            old == null || old.messagePreview != room.messagePreview ||
+                    old.messageSender != room.messageSender ||
+                    old.sortingTimestamp != room.sortingTimestamp
         }
-        
-        if (!roomsChanged && enrichedRooms.size == stableSection.rooms.size) {
-            // No data changed - return same instance even if order might have changed
-            // Instance preservation prevents avatar flicker during reordering
+        val orderChanged = stableSection.rooms.map { it.id } != sortedRooms.map { it.id }
+
+        if (!contentChanged && !orderChanged && sortedRooms.size == stableSection.rooms.size) {
             stableSection
         } else {
-            stableSection.copy(rooms = enrichedRooms)
+            stableSection.copy(rooms = sortedRooms)
+        }
+    }
+
+    // One-time hydration: if any rooms lack timestamps, prefetch a small batch from server for all of them.
+    LaunchedEffect(initialLoadComplete, enrichedSection.rooms.map { it.id to it.sortingTimestamp }) {
+        if (!initialLoadComplete || missingTimestampsHydrated) return@LaunchedEffect
+
+        val missingTsRooms = enrichedSection.rooms
+            .filter { (it.sortingTimestamp ?: 0L) <= 0L }
+
+        if (missingTsRooms.isNotEmpty()) {
+            missingTimestampsHydrated = true
+            // Run sequentially to avoid hammering; this is a one-time bootstrap hydrate.
+            withContext(Dispatchers.IO) {
+                for (room in missingTsRooms) {
+                    runCatching {
+                        appViewModel.prefetchRoomSnapshot(room.id, limit = 10, timeoutMs = 4000L)
+                    }
+                }
+            }
         }
     }
 
@@ -1069,40 +1135,39 @@ fun RoomListScreen(
                     .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             ) {
-                AnimatedContent(
-                    targetState = sectionAnimationDirection to enrichedSection,
-                    transitionSpec = {
-                        val direction = targetState.first
-                        val enter = if (direction > 0) {
-                            slideInHorizontally(
-                                initialOffsetX = { it },
-                                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
-                            )
-                        } else if (direction < 0) {
-                            slideInHorizontally(
-                                initialOffsetX = { -it },
-                                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
-                            )
-                        } else {
-                            fadeIn(animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing))
-                        }
-                        val exit = if (direction > 0) {
-                            slideOutHorizontally(
-                                targetOffsetX = { -it },
-                                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
-                            )
-                        } else if (direction < 0) {
-                            slideOutHorizontally(
-                                targetOffsetX = { it },
-                                animationSpec = tween(durationMillis = 250, easing = FastOutSlowInEasing)
-                            )
-                        } else {
-                            fadeOut(animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing))
-                        }
-                        enter togetherWith exit
-                    },
-                    label = "SectionTransition"
-                ) { (_, targetSection) ->
+            AnimatedContent(
+                targetState = sectionAnimationDirection to enrichedSection,
+                transitionSpec = {
+                    val direction = targetState.first
+                    val enter = when {
+                        direction > 0 -> slideInHorizontally(
+                            initialOffsetX = { it },
+                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing))
+                        direction < 0 -> slideInHorizontally(
+                            initialOffsetX = { -it },
+                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing))
+                        else -> fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
+                                scaleIn(initialScale = 0.98f, animationSpec = tween(220, easing = FastOutSlowInEasing))
+                    }
+                    val exit = when {
+                        direction > 0 -> slideOutHorizontally(
+                            targetOffsetX = { -it / 2 },
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
+                        direction < 0 -> slideOutHorizontally(
+                            targetOffsetX = { it / 2 },
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
+                        else -> fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)) +
+                                scaleOut(targetScale = 0.99f, animationSpec = tween(180, easing = FastOutSlowInEasing))
+                    }
+                    enter togetherWith exit
+                },
+                label = "SectionTransition"
+            ) { (_, targetSection) ->
+                    val currentListState = listStates.getOrPut(targetSection.type) { LazyListState() }
                     when (targetSection.type) {
                         RoomSectionType.HOME -> {
                             RoomListContent(
@@ -1113,6 +1178,7 @@ fun RoomListScreen(
                                 navController = navController,
                                 timestampUpdateTrigger = timestampUpdateTrigger,
                                 hapticFeedback = hapticFeedback,
+                                listState = currentListState,
                                 onInviteClick = { invite ->
                                     inviteToJoin = invite
                                     showRoomJoiner = true
@@ -1129,6 +1195,7 @@ fun RoomListScreen(
                                     navController = navController,
                                     timestampUpdateTrigger = timestampUpdateTrigger,
                                     hapticFeedback = hapticFeedback,
+                                    listState = currentListState,
                                     onInviteClick = { invite ->
                                         inviteToJoin = invite
                                         showRoomJoiner = true
@@ -1140,7 +1207,8 @@ fun RoomListScreen(
                                     searchQuery = searchQuery,
                                     appViewModel = appViewModel,
                                     authToken = authToken,
-                                    navController = navController
+                                    navController = navController,
+                                    listState = currentListState
                                 )
                             }
                         }
@@ -1153,6 +1221,7 @@ fun RoomListScreen(
                                 navController = navController,
                                 timestampUpdateTrigger = timestampUpdateTrigger,
                                 hapticFeedback = hapticFeedback,
+                                listState = currentListState,
                                 onInviteClick = { invite ->
                                     inviteToJoin = invite
                                     showRoomJoiner = true
@@ -1168,6 +1237,7 @@ fun RoomListScreen(
                                 navController = navController,
                                 timestampUpdateTrigger = timestampUpdateTrigger,
                                 hapticFeedback = hapticFeedback,
+                                listState = currentListState,
                                 onInviteClick = { invite ->
                                     inviteToJoin = invite
                                     showRoomJoiner = true
@@ -1183,6 +1253,7 @@ fun RoomListScreen(
                                 navController = navController,
                                 timestampUpdateTrigger = timestampUpdateTrigger,
                                 hapticFeedback = hapticFeedback,
+                                listState = currentListState,
                                 onInviteClick = { invite ->
                                     inviteToJoin = invite
                                     showRoomJoiner = true
@@ -1875,7 +1946,7 @@ fun TabButton(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, FlowPreview::class)
 @Composable
 fun RoomListContent(
     rooms: List<RoomItem>,
@@ -1885,6 +1956,7 @@ fun RoomListContent(
     navController: NavController,
     timestampUpdateTrigger: Int,
     hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
+    listState: LazyListState,
     onInviteClick: (RoomInvite) -> Unit
 ) {
     val context = LocalContext.current
@@ -1908,8 +1980,6 @@ fun RoomListContent(
     }
     
     // NAVIGATION PERFORMANCE: Add scroll state for prefetching
-    val listState = rememberLazyListState()
-    
     // NAVIGATION PERFORMANCE: Observe scroll state and trigger prefetching for visible rooms
     LaunchedEffect(listState, filteredRooms) {
         snapshotFlow {
@@ -2081,10 +2151,12 @@ fun SpacesListContent(
     searchQuery: String,
     appViewModel: AppViewModel,
     authToken: String,
-    navController: NavController
+    navController: NavController,
+    listState: LazyListState
 ) {
     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "SpacesListContent: Displaying ${spaces.size} spaces")
     LazyColumn(
+        state = listState,
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Top,
         contentPadding = androidx.compose.foundation.layout.PaddingValues(

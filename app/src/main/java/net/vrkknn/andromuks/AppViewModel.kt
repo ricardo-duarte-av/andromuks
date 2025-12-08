@@ -111,7 +111,7 @@ class AppViewModel : ViewModel() {
         private var viewModelCounter = 0
         
         // PHASE 5.1: Constants for outgoing message queue
-        private const val MAX_QUEUE_SIZE = 100 // Maximum queue size
+        private const val MAX_QUEUE_SIZE = 800 // Maximum queue size (raised to cover bulk pagination hydrates)
         private const val MAX_MESSAGE_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
     }
     
@@ -1214,8 +1214,9 @@ class AppViewModel : ViewModel() {
         // BUG FIX: Use size + content hash for reliable cache invalidation
         // Content hash is based on room IDs and key properties to detect actual changes
         val currentSize = roomsToUse.size
-        val currentContentHash = roomsToUse.joinToString("|") { 
-            "${it.id}:${it.isDirectMessage}:${it.isFavourite}:${it.unreadCount}:${it.highlightCount}" 
+        val currentContentHash = roomsToUse.joinToString("|") {
+            // Include sortingTimestamp so cached sections reorder when last message changes
+            "${it.id}:${it.isDirectMessage}:${it.isFavourite}:${it.unreadCount}:${it.highlightCount}:${it.sortingTimestamp ?: 0L}"
         }
         
         // Check if we need to update cache
