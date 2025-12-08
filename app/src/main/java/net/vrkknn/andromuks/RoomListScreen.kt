@@ -425,8 +425,7 @@ fun RoomListScreen(
     }
     val showNotificationActionIndicator = uiState.notificationActionInProgress
     
-    // Enrich stableSection with database summaries
-            // ANTI-FLICKER FIX: Preserve RoomItem instances when only order changes, not data
+    // Enrich stableSection with database summaries without re-sorting (sorting handled in AppViewModel)
     val enrichedSection = remember(stableSection, roomsWithSummaries) {
         val enrichedRooms = stableSection.rooms.map { room ->
             val summary = roomsWithSummaries[room.id]
@@ -449,26 +448,18 @@ fun RoomListScreen(
             }
         }
 
-        val sortedRooms = enrichedRooms.sortedWith(
-            compareByDescending<RoomItem> { it.sortingTimestamp ?: 0L }
-                .thenByDescending { it.highlightCount ?: 0 }
-                .thenByDescending { it.unreadCount ?: 0 }
-                .thenBy { it.name }
-        )
-
         val oldById = stableSection.rooms.associateBy { it.id }
-        val contentChanged = sortedRooms.any { room ->
+        val contentChanged = enrichedRooms.any { room ->
             val old = oldById[room.id]
             old == null || old.messagePreview != room.messagePreview ||
                     old.messageSender != room.messageSender ||
                     old.sortingTimestamp != room.sortingTimestamp
         }
-        val orderChanged = stableSection.rooms.map { it.id } != sortedRooms.map { it.id }
 
-        if (!contentChanged && !orderChanged && sortedRooms.size == stableSection.rooms.size) {
+        if (!contentChanged && enrichedRooms.size == stableSection.rooms.size) {
             stableSection
         } else {
-            stableSection.copy(rooms = sortedRooms)
+            stableSection.copy(rooms = enrichedRooms)
         }
     }
 
