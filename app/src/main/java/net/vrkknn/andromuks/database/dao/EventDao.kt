@@ -134,6 +134,23 @@ interface EventDao {
         LIMIT 1
     """)
     suspend fun getLastMessageForRoom(roomId: String): EventEntity?
+
+    /**
+     * Batched variant for fetching last message events for multiple rooms at once.
+     * Returns rows ordered by roomId then newest-first so the caller can pick the first per room.
+     * This avoids one query per room in the room list.
+     */
+    @Query("""
+        SELECT * FROM events 
+        WHERE roomId IN (:roomIds)
+            AND (
+              type = 'm.room.message' 
+              OR (type = 'm.room.encrypted' AND (decryptedType = 'm.room.message' OR decryptedType = 'm.text'))
+            )
+            AND timestamp > 0
+        ORDER BY roomId ASC, timestamp DESC, timelineRowId DESC, eventId DESC
+    """)
+    suspend fun getLastMessagesForRooms(roomIds: List<String>): List<EventEntity>
 }
 
 
