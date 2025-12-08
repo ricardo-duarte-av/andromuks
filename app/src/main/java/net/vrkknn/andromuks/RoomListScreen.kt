@@ -139,6 +139,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.FlowPreview
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.MediaCache
+
+private const val ROOM_LIST_VERBOSE_LOGGING = false
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
 fun RoomListScreen(
@@ -402,7 +405,7 @@ fun RoomListScreen(
                     val summaries = summaryDao.getRoomSummariesByIds(roomIds)
                     val summaryMap = mutableMapOf<String, Triple<String?, String?, Long?>>()
 
-                    if (BuildConfig.DEBUG) {
+                    if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
                         android.util.Log.d(
                             "Andromuks",
                             "RoomListScreen: Using room_summary for ${summaries.size}/${roomIds.size} rooms"
@@ -1932,10 +1935,12 @@ fun RoomListContent(
                 
                 if (nearbyRoomIds.isNotEmpty()) {
                     appViewModel.prefetchRoomData(nearbyRoomIds, firstVisibleIndex)
-                    if (BuildConfig.DEBUG) android.util.Log.d(
-                        "Andromuks",
-                        "RoomListScreen: NAVIGATION OPTIMIZATION - Triggered prefetch for ${nearbyRoomIds.size} nearby rooms"
-                    )
+                    if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
+                        android.util.Log.d(
+                            "Andromuks",
+                            "RoomListScreen: NAVIGATION OPTIMIZATION - Triggered prefetch for ${nearbyRoomIds.size} nearby rooms"
+                        )
+                    }
                 }
             }
     }
