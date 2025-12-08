@@ -4058,7 +4058,7 @@ class AppViewModel : ViewModel() {
         populateMemberCacheFromSync(syncJson)
         val newMemberStateHash = generateMemberStateHash()
         val memberStateChanged = newMemberStateHash != oldMemberStateHash
-        
+
         // Process account_data for recent emojis and m.direct
         val data = syncJson.optJSONObject("data")
         val accountData = data?.optJSONObject("account_data")
@@ -4092,10 +4092,23 @@ class AppViewModel : ViewModel() {
         populateMemberCacheFromSync(syncJson)
         val newMemberStateHash = generateMemberStateHash()
         val memberStateChanged = newMemberStateHash != oldMemberStateHash
-        
-        // Process account_data for recent emojis and m.direct
+        val hasRoomChanges = syncResult.updatedRooms.isNotEmpty() ||
+                syncResult.newRooms.isNotEmpty() ||
+                syncResult.removedRoomIds.isNotEmpty()
         val data = syncJson.optJSONObject("data")
         val accountData = data?.optJSONObject("account_data")
+        val accountDataChanged = accountData?.length() ?: 0 > 0
+        if (!hasRoomChanges && !accountDataChanged && !memberStateChanged) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: processParsedSyncResult - no changes detected (rooms/account/member), skipping UI work"
+                )
+            }
+            return
+        }
+        
+        // Process account_data for recent emojis and m.direct
         if (accountData != null) {
             processAccountData(accountData)
         }
