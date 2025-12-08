@@ -1576,6 +1576,8 @@ class AppViewModel : ViewModel() {
         val currentTime = System.currentTimeMillis()
         val operationsToRetry = mutableListOf<PendingWebSocketOperation>()
         val operationsToRemove = mutableListOf<PendingWebSocketOperation>()
+        // Take a snapshot to avoid ConcurrentModificationException while iterating
+        val operationsSnapshot = synchronized(pendingOperationsLock) { pendingWebSocketOperations.toList() }
         
         // QUEUE FLUSHING FIX: Don't retry immediately after reconnection - give backend time to stabilize
         // Wait at least 5 seconds after reconnection before retrying
@@ -1583,7 +1585,7 @@ class AppViewModel : ViewModel() {
         val timeSinceReconnection = if (lastReconnectionTime > 0) currentTime - lastReconnectionTime else Long.MAX_VALUE
         val isInStabilizationPeriod = timeSinceReconnection < stabilizationPeriodMs
         
-        pendingWebSocketOperations.forEach { operation ->
+        operationsSnapshot.forEach { operation ->
             if (!operation.acknowledged && currentTime >= operation.acknowledgmentTimeout) {
                 // QUEUE FLUSHING FIX: If we're in stabilization period, extend timeout instead of retrying
                 if (isInStabilizationPeriod && operation.retryCount == 0) {
@@ -1613,10 +1615,14 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Remove failed/retried operations
-        operationsToRemove.forEach { pendingWebSocketOperations.remove(it) }
+        // Remove failed/retried operations (guarded)
+        if (operationsToRemove.isNotEmpty()) {
+            synchronized(pendingOperationsLock) {
+                operationsToRemove.forEach { pendingWebSocketOperations.remove(it) }
+            }
+        }
         
-        // Add retried operations back with updated retry count
+        // Add retried operations back with updated retry count (addPendingOperation already syncs)
         operationsToRetry.forEach { addPendingOperation(it) }
         
         // Retry the operations

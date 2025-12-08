@@ -675,13 +675,14 @@ fun RoomListScreen(
         if (missingTsRooms.isNotEmpty()) {
             missingTimestampsHydrated = true
             // Run sequentially to avoid hammering; this is a one-time bootstrap hydrate.
-            withContext(Dispatchers.IO) {
-                for (room in missingTsRooms) {
-                    runCatching {
-                        appViewModel.prefetchRoomSnapshot(room.id, limit = 10, timeoutMs = 4000L)
-                    }
-                }
-            }
+            // Disabled, did not solve the problem and is expensive
+            //withContext(Dispatchers.IO) {
+            //    for (room in missingTsRooms) {
+            //        runCatching {
+            //            appViewModel.prefetchRoomSnapshot(room.id, limit = 20, timeoutMs = 4000L)
+            //        }
+            //    }
+            //}
         }
     }
 
