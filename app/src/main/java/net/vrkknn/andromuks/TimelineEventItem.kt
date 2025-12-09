@@ -78,7 +78,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import org.json.JSONObject
 
 private val AvatarGap = 4.dp
-private val AvatarPlaceholderWidth = 24.dp + AvatarGap
+private val AvatarColumnWidth = 32.dp // Wider column to prevent timestamp wrapping
+private val AvatarPlaceholderWidth = AvatarColumnWidth + AvatarGap
 private val ReadReceiptGap = 4.dp
 
 /** Check if a message mentions a specific user */
@@ -2601,7 +2602,7 @@ fun TimelineEventItem(
         if (!actualIsMine && !isConsecutive && !isEmoteMessage) {
             // For first messages, show avatar with timestamp below it
             Column(
-                modifier = Modifier.width(24.dp), // Avatar width
+                modifier = Modifier.width(AvatarColumnWidth), // Avatar width (wider to fit timestamp)
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(modifier = Modifier.clickable { onUserClick(event.sender) }) {
@@ -2637,8 +2638,7 @@ fun TimelineEventItem(
             }
             Spacer(modifier = Modifier.width(AvatarGap))
         } else if (!actualIsMine && isConsecutive && !isEmoteMessage) {
-            // Keep the same horizontal footprint as the avatar+gap (24dp + 4dp) used for first messages
-            // so consecutive bubbles line up vertically with the first bubble in the group.
+            // Keep the same horizontal footprint as the avatar+gap used for first messages
             val timestampText = if (editedBy != null) {
                 "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
             } else {
@@ -2650,7 +2650,7 @@ fun TimelineEventItem(
                 Modifier
             }
             Box(
-                modifier = Modifier.width(AvatarPlaceholderWidth),
+                modifier = Modifier.width(AvatarColumnWidth),
                 contentAlignment = Alignment.BottomCenter
             ) {
                 Text(
@@ -2660,6 +2660,7 @@ fun TimelineEventItem(
                     modifier = timestampModifier
                 )
             }
+            Spacer(modifier = Modifier.width(AvatarGap))
         }
 
         // Event content
@@ -2776,35 +2777,13 @@ fun TimelineEventItem(
             )
         }
 
-        // For our consecutive messages: show timestamp to the right of the bubble
-        if (actualIsMine && isConsecutive && !isEmoteMessage) {
-            Spacer(modifier = Modifier.width(8.dp))
-            val timestampText = if (editedBy != null) {
-                "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
-            } else {
-                formatTimestamp(event.timestamp)
-            }
-            val timestampModifier = if (editedBy != null && appViewModel != null) {
-                Modifier.clickable { openEditHistory() }
-            } else {
-                Modifier
-            }
-            Text(
-                text = timestampText,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = timestampModifier
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-        }
-
-        // For our messages: show avatar with timestamp on the right side
+        // For our messages: mirror the "others" structure to the right side
         if (actualIsMine && !isConsecutive && !isEmoteMessage) {
-            // Spacer between display name (in Column) and avatar
-            Spacer(modifier = Modifier.width(2.dp))
-            // Avatar with timestamp below it on the right side
+            // Gap between bubble and avatar (same as AvatarGap)
+            Spacer(modifier = Modifier.width(AvatarGap))
+            // Avatar with timestamp below it on the right side, same width as others
             Column(
-                modifier = Modifier.width(40.dp), // Wide enough for timestamp "HH:mm"
+                modifier = Modifier.width(AvatarColumnWidth),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(modifier = Modifier.clickable { onUserClick(event.sender) }) {
@@ -2816,11 +2795,9 @@ fun TimelineEventItem(
                         size = 24.dp,
                         userId = event.sender,
                         displayName = displayName,
-                        // AVATAR LOADING OPTIMIZATION: Enable lazy loading for timeline performance
                         isVisible = true // Timeline items are visible when rendered
                     )
                 }
-                // Timestamp below avatar (smaller font)
                 val timestampText = if (editedBy != null) {
                     "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
                 } else {
@@ -2838,11 +2815,32 @@ fun TimelineEventItem(
                     modifier = timestampModifier
                 )
             }
-        }
-        
-        // Only add ReadReceiptGap for consecutive messages (non-consecutive already has avatar on right edge)
-        if (actualIsMine && isConsecutive) {
-            Spacer(modifier = Modifier.width(ReadReceiptGap))
+            // Trailing gap to mirror the left-side inset on others
+            Spacer(modifier = Modifier.width(AvatarGap))
+        } else if (actualIsMine && isConsecutive && !isEmoteMessage) {
+            // Maintain the same footprint (AvatarColumnWidth + AvatarGap) for consecutive own messages
+            Spacer(modifier = Modifier.width(AvatarGap))
+            Box(
+                modifier = Modifier.width(AvatarPlaceholderWidth),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                val timestampText = if (editedBy != null) {
+                    "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
+                } else {
+                    formatTimestamp(event.timestamp)
+                }
+                val timestampModifier = if (editedBy != null && appViewModel != null) {
+                    Modifier.clickable { openEditHistory() }
+                } else {
+                    Modifier
+                }
+                Text(
+                    text = timestampText,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = timestampModifier
+                )
+            }
         }
     }
 
