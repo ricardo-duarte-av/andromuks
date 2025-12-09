@@ -15,10 +15,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -701,6 +704,11 @@ private fun RoomMessageContent(
                  // new content)
         }
 
+    // Check if message has been edited (O(1) lookup) - placed early so downstream renderers can use it
+    val hasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
+        appViewModel?.isMessageEdited(event.eventId) ?: false
+    }
+
     // Check if this is a reply message
     val replyInfo = event.getReplyInfo()
     val originalEvent =
@@ -786,6 +794,7 @@ private fun RoomMessageContent(
             editedBy = editedBy,
             appViewModel = appViewModel,
             myUserId = myUserId,
+            hasBeenEdited = hasBeenEdited,
             onScrollToMessage = onScrollToMessage,
             onReply = onReply,
             onReact = onReact,
@@ -1155,6 +1164,7 @@ private fun RoomTextMessageContent(
     editedBy: TimelineEvent?,
     appViewModel: AppViewModel?,
     myUserId: String?,
+    hasBeenEdited: Boolean,
     onScrollToMessage: (String) -> Unit,
     onReply: (TimelineEvent) -> Unit,
     onReact: (TimelineEvent) -> Unit,
@@ -1181,11 +1191,6 @@ private fun RoomTextMessageContent(
                 bottomStart = 12.dp
             )
         }
-    
-    // Check if message has been edited (O(1) lookup)
-    val hasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
-        appViewModel?.isMessageEdited(event.eventId) ?: false
-    }
     
     // Check if this is a thread message
     val isThreadMessage = event.isThreadMessage()
@@ -1288,20 +1293,77 @@ private fun RoomTextMessageContent(
                     )
 
                     // Reply message content
-                    AdaptiveMessageText(
-                        event = event,
-                        body = finalBody,
-                        format = format,
-                        userProfileCache = userProfileCache,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        appViewModel = appViewModel,
-                        roomId = event.roomId,
-                        textColor = textColor,
-                        onUserClick = onUserClick,
-                        onMatrixUserClick = onUserClick,
-                        onRoomLinkClick = onRoomLinkClick
-                    )
+                    val messageBody: @Composable () -> Unit = {
+                            // Render text bubble with optional edit icon
+                            val messageBody: @Composable () -> Unit = {
+                                AdaptiveMessageText(
+                                    event = event,
+                                    body = finalBody,
+                                    format = format,
+                                    userProfileCache = userProfileCache,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    appViewModel = appViewModel,
+                                    roomId = event.roomId,
+                                    textColor = textColor,
+                                    onUserClick = onUserClick,
+                                    onMatrixUserClick = onUserClick,
+                                    onRoomLinkClick = onRoomLinkClick
+                                )
+                            }
+                            if (hasBeenEdited) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (actualIsMine) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Edit,
+                                            contentDescription = "Edited",
+                                            tint = colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        messageBody()
+                                    } else {
+                                        messageBody()
+                                        Icon(
+                                            imageVector = Icons.Outlined.Edit,
+                                            contentDescription = "Edited",
+                                            tint = colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            } else {
+                                messageBody()
+                            }
+                    }
+                    if (hasBeenEdited) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (actualIsMine) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Edit,
+                                    contentDescription = "Edited",
+                                    tint = colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                messageBody()
+                            } else {
+                                messageBody()
+                                Icon(
+                                    imageVector = Icons.Outlined.Edit,
+                                    contentDescription = "Edited",
+                                    tint = colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        messageBody()
+                    }
                 }
             }
         } else {
@@ -1329,21 +1391,49 @@ private fun RoomTextMessageContent(
                 Box(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                 ) {
-                    // Text message content
-                    AdaptiveMessageText(
-                        event = event,
-                        body = finalBody,
-                        format = format,
-                        userProfileCache = userProfileCache,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        appViewModel = appViewModel,
-                        roomId = event.roomId,
-                        textColor = textColor,
-                        onUserClick = onUserClick,
-                        onMatrixUserClick = onUserClick,
-                        onRoomLinkClick = onRoomLinkClick
-                    )
+                    // Text message content with optional edit icon
+                    val messageBody: @Composable () -> Unit = {
+                        AdaptiveMessageText(
+                            event = event,
+                            body = finalBody,
+                            format = format,
+                            userProfileCache = userProfileCache,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            appViewModel = appViewModel,
+                            roomId = event.roomId,
+                            textColor = textColor,
+                            onUserClick = onUserClick,
+                            onMatrixUserClick = onUserClick,
+                            onRoomLinkClick = onRoomLinkClick
+                        )
+                    }
+                    if (hasBeenEdited) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            if (actualIsMine) {
+                                Icon(
+                                    imageVector = Icons.Outlined.Edit,
+                                    contentDescription = "Edited",
+                                    tint = colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                messageBody()
+                            } else {
+                                messageBody()
+                                Icon(
+                                    imageVector = Icons.Outlined.Edit,
+                                    contentDescription = "Edited",
+                                    tint = colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
+                        }
+                    } else {
+                        messageBody()
+                    }
                 }
             }
         }
@@ -2010,21 +2100,49 @@ private fun EncryptedMessageContent(
                             )
 
                             // Reply message content with inline timestamp
-                            // finalBody already contains deletion message if redacted
-                            AdaptiveMessageText(
-                                event = event,
-                                body = finalBody,
-                                format = format,
-                                userProfileCache = userProfileCache,
-                                homeserverUrl = homeserverUrl,
-                                authToken = authToken,
-                                appViewModel = appViewModel,
-                                roomId = event.roomId,
-                                textColor = textColor,
-                                onUserClick = onUserClick,
-                                onMatrixUserClick = onUserClick,
-                                onRoomLinkClick = onRoomLinkClick
-                            )
+                            // Render text bubble with optional edit icon (encrypted)
+                            val messageBody: @Composable () -> Unit = {
+                                AdaptiveMessageText(
+                                    event = event,
+                                    body = body,
+                                    format = format,
+                                    userProfileCache = userProfileCache,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    appViewModel = appViewModel,
+                                    roomId = event.roomId,
+                                    textColor = textColor,
+                                    onUserClick = onUserClick,
+                                    onMatrixUserClick = onUserClick,
+                                    onRoomLinkClick = onRoomLinkClick
+                                )
+                            }
+                            if (encryptedHasBeenEdited) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (actualIsMine) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Edit,
+                                            contentDescription = "Edited",
+                                            tint = colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        messageBody()
+                                    } else {
+                                        messageBody()
+                                        Icon(
+                                            imageVector = Icons.Outlined.Edit,
+                                            contentDescription = "Edited",
+                                            tint = colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            } else {
+                                messageBody()
+                            }
                         }
                     }
                 } else {
@@ -2053,20 +2171,49 @@ private fun EncryptedMessageContent(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                         ) {
                             // finalBody already contains deletion message if redacted
-                            AdaptiveMessageText(
-                                event = event,
-                                body = finalBody,
-                                format = format,
-                                userProfileCache = userProfileCache,
-                                homeserverUrl = homeserverUrl,
-                                authToken = authToken,
-                                appViewModel = appViewModel,
-                                roomId = event.roomId,
-                                textColor = textColor,
-                                onUserClick = onUserClick,
-                                onMatrixUserClick = onUserClick,
-                                onRoomLinkClick = onRoomLinkClick
-                            )
+                            // Render text bubble with optional edit icon (encrypted)
+                            val messageBody: @Composable () -> Unit = {
+                                AdaptiveMessageText(
+                                    event = event,
+                                    body = body,
+                                    format = format,
+                                    userProfileCache = userProfileCache,
+                                    homeserverUrl = homeserverUrl,
+                                    authToken = authToken,
+                                    appViewModel = appViewModel,
+                                    roomId = event.roomId,
+                                    textColor = textColor,
+                                    onUserClick = onUserClick,
+                                    onMatrixUserClick = onUserClick,
+                                    onRoomLinkClick = onRoomLinkClick
+                                )
+                            }
+                            if (encryptedHasBeenEdited) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    if (actualIsMine) {
+                                        Icon(
+                                            imageVector = Icons.Outlined.Edit,
+                                            contentDescription = "Edited",
+                                            tint = colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                        messageBody()
+                                    } else {
+                                        messageBody()
+                                        Icon(
+                                            imageVector = Icons.Outlined.Edit,
+                                            contentDescription = "Edited",
+                                            tint = colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(14.dp)
+                                        )
+                                    }
+                                }
+                            } else {
+                                messageBody()
+                            }
                         }
                     }
                 }
