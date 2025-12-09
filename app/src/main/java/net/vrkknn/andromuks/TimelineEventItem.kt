@@ -2637,7 +2637,8 @@ fun TimelineEventItem(
             }
             Spacer(modifier = Modifier.width(AvatarGap))
         } else if (!actualIsMine && isConsecutive && !isEmoteMessage) {
-            // Timestamp to the left of the bubble for others' consecutive messages
+            // Keep the same horizontal footprint as the avatar+gap (24dp + 4dp) used for first messages
+            // so consecutive bubbles line up vertically with the first bubble in the group.
             val timestampText = if (editedBy != null) {
                 "${formatTimestamp(event.timestamp)} (edited at ${formatTimestamp(editedBy.timestamp)})"
             } else {
@@ -2648,13 +2649,17 @@ fun TimelineEventItem(
             } else {
                 Modifier
             }
-            Text(
-                text = timestampText,
-                style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = timestampModifier
-            )
-            Spacer(modifier = Modifier.width(4.dp))
+            Box(
+                modifier = Modifier.width(AvatarPlaceholderWidth),
+                contentAlignment = Alignment.BottomCenter
+            ) {
+                Text(
+                    text = timestampText,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = timestampModifier
+                )
+            }
         }
 
         // Event content

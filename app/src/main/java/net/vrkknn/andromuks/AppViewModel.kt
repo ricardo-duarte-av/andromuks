@@ -5508,6 +5508,9 @@ class AppViewModel : ViewModel() {
     private val pendingRoomStateRequests = mutableSetOf<String>() // roomId that have pending state requests
     private val reactionRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val markReadRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    // Track last sent mark_read command per room to prevent duplicates
+    // Key: roomId, Value: eventId that was last sent
+    private val lastMarkReadSent = mutableMapOf<String, String>() // roomId -> eventId
     private val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
     private val readReceiptsLock = Any() // Synchronization lock for readReceipts access
     private val roomsWithLoadedReceiptsFromDb = mutableSetOf<String>() // Track which rooms had receipts restored from DB
@@ -13655,6 +13658,19 @@ class AppViewModel : ViewModel() {
     
     fun markRoomAsRead(roomId: String, eventId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsRead called with roomId: '$roomId', eventId: '$eventId'")
+        
+        // DEDUPLICATION: Check if we've already sent this exact mark_read command
+        // This prevents hundreds of duplicate commands when LaunchedEffect restarts
+        val lastSentEventId = lastMarkReadSent[roomId]
+        if (lastSentEventId == eventId) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping duplicate mark_read for room $roomId with event $eventId (already sent)")
+            // Still optimistically clear unread counts even if we skip the command
+            optimisticallyClearUnreadCounts(roomId)
+            return
+        }
+        
+        // Track this command to prevent duplicates
+        lastMarkReadSent[roomId] = eventId
         
         // Optimistically clear unread counts immediately for instant UI feedback
         // The backend will confirm this in the next sync_complete, but we update UI now

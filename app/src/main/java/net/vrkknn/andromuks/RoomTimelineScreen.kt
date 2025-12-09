@@ -1601,7 +1601,10 @@ fun RoomTimelineScreen(
     }
     
     // Mark room as read when initial load completes and last message is rendered
-    LaunchedEffect(hasInitialSnapCompleted, timelineItems.size, roomId) {
+    // CRITICAL: Only depend on hasInitialSnapCompleted and roomId - NOT timelineItems.size
+    // Including timelineItems.size causes the effect to restart on every timeline change,
+    // leading to hundreds of duplicate mark_read commands
+    LaunchedEffect(hasInitialSnapCompleted, roomId) {
         if (hasInitialSnapCompleted && !hasMarkedAsRead && timelineItems.isNotEmpty()) {
             // Get the last event ID from the timeline (find last Event, not DateDivider)
             val lastEvent = timelineItems.lastOrNull() as? TimelineItem.Event
