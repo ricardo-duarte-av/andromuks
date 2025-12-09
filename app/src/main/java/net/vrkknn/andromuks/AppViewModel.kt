@@ -3078,6 +3078,19 @@ class AppViewModel : ViewModel() {
         }
     }
     /**
+     * Helper to merge message versions without duplicates and keep newest-first ordering.
+     */
+    private fun mergeVersionsDistinct(
+        existing: List<MessageVersion>,
+        extra: MessageVersion? = null
+    ): List<MessageVersion> {
+        return (if (extra != null) existing + extra else existing)
+            .groupBy { it.eventId }           // de-dupe by eventId
+            .map { (_, versions) -> versions.maxByOrNull { it.timestamp } ?: versions.first() } // keep newest per id
+            .sortedByDescending { it.timestamp }
+    }
+
+    /**
      * OPTIMIZED: Process events to build version cache (O(n) where n = number of events)
      * This replaces the old chain-following approach with direct version storage
      */
@@ -3131,9 +3144,8 @@ class AppViewModel : ViewModel() {
                                 isOriginal = false
                             )
                             
-                            // Merge and sort versions (newest first)
-                            val updatedVersions = (versioned.versions + newVersion)
-                                .sortedByDescending { it.timestamp }
+                            // Merge and sort versions (newest first) without duplicates
+                            val updatedVersions = mergeVersionsDistinct(versioned.versions, newVersion)
                             
                             // MEMORY MANAGEMENT: Limit versions per message to prevent memory leaks
                             val limitedVersions = if (updatedVersions.size > MAX_MESSAGE_VERSIONS_PER_EVENT) {
@@ -3177,9 +3189,11 @@ class AppViewModel : ViewModel() {
                             isOriginal = true
                         )
                         
-                        // Merge with existing edits and sort
-                        val updatedVersions = (existing.versions.filter { !it.isOriginal } + originalVersion)
-                            .sortedByDescending { it.timestamp }
+                        // Merge with existing edits and sort (de-duped)
+                        val updatedVersions = mergeVersionsDistinct(
+                            existing.versions.filter { !it.isOriginal },
+                            originalVersion
+                        )
                         
                         messageVersions[event.eventId] = existing.copy(
                             originalEvent = event,

@@ -84,3 +84,4 @@ This should be sufficient for Android Auto to detect and show notifications. The
 3. If you need CarAppService, fix the library dependency issues first
 4. CarExtender is deprecated - modern Android Auto uses MessagingStyle directly
 
+

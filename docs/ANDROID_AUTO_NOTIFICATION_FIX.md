@@ -53,3 +53,4 @@ After this change, notifications should:
 - Notification channels are already properly configured with IMPORTANCE_HIGH
 - All notifications already use CATEGORY_MESSAGE which is required for Android Auto
 
+
