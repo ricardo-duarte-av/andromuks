@@ -41,6 +41,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.collectAsState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.KeyboardArrowDown
@@ -427,7 +428,21 @@ fun BubbleTimelineScreen(
     val myUserId = appViewModel.currentUserId.ifBlank { storedUserId }
     val homeserverUrl = appViewModel.homeserverUrl
     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: appViewModel instance: $appViewModel")
-    val timelineEvents = appViewModel.timelineEvents
+    // Prefer renderable (pre-resolved) stream; fall back to legacy timeline if empty.
+    val renderableEvents by appViewModel.renderableTimelineFlow(roomId, limit = 300).collectAsState(initial = emptyList())
+    // Opportunistically hydrate missing reply/thread targets (capped in VM)
+    LaunchedEffect(renderableEvents) {
+        if (renderableEvents.isNotEmpty()) {
+            appViewModel.hydrateMissingRenderableReferences(roomId, renderableEvents, maxFetch = 32)
+        }
+    }
+    val timelineEvents = remember(renderableEvents) {
+        if (renderableEvents.isNotEmpty()) {
+            appViewModel.renderablesToTimelineEvents(renderableEvents)
+        } else {
+            appViewModel.timelineEvents
+        }
+    }
     val isLoading = appViewModel.isTimelineLoading
     var readinessCheckComplete by remember { mutableStateOf(false) }
 

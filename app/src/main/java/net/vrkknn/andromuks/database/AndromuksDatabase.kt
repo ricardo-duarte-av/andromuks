@@ -13,6 +13,7 @@ import net.vrkknn.andromuks.database.dao.ReceiptDao
 import net.vrkknn.andromuks.database.dao.RoomMemberDao
 import net.vrkknn.andromuks.database.dao.RoomStateDao
 import net.vrkknn.andromuks.database.dao.RoomSummaryDao
+import net.vrkknn.andromuks.database.dao.RenderableEventDao
 import net.vrkknn.andromuks.database.dao.SpaceDao
 import net.vrkknn.andromuks.database.dao.SpaceRoomDao
 import net.vrkknn.andromuks.database.dao.SyncMetaDao
@@ -25,6 +26,7 @@ import net.vrkknn.andromuks.database.entities.ReceiptEntity
 import net.vrkknn.andromuks.database.entities.RoomMemberEntity
 import net.vrkknn.andromuks.database.entities.RoomStateEntity
 import net.vrkknn.andromuks.database.entities.RoomSummaryEntity
+import net.vrkknn.andromuks.database.entities.RenderableEventEntity
 import net.vrkknn.andromuks.database.entities.SpaceEntity
 import net.vrkknn.andromuks.database.entities.SpaceRoomEntity
 import net.vrkknn.andromuks.database.entities.SyncMetaEntity
@@ -42,9 +44,10 @@ import net.vrkknn.andromuks.database.entities.SyncMetaEntity
         InviteEntity::class,
         ReactionEntity::class,
         PendingRoomEntity::class,
-        RoomMemberEntity::class
+        RoomMemberEntity::class,
+        RenderableEventEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 abstract class AndromuksDatabase : RoomDatabase() {
@@ -60,6 +63,7 @@ abstract class AndromuksDatabase : RoomDatabase() {
     abstract fun reactionDao(): ReactionDao
     abstract fun pendingRoomDao(): PendingRoomDao
     abstract fun roomMemberDao(): RoomMemberDao
+    abstract fun renderableEventDao(): RenderableEventDao
 
     companion object {
         @Volatile private var instance: AndromuksDatabase? = null

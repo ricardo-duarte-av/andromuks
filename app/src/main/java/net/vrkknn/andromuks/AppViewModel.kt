@@ -17,7 +17,6 @@ import net.vrkknn.andromuks.utils.SpaceRoomParser
 import net.vrkknn.andromuks.utils.ReceiptFunctions
 import net.vrkknn.andromuks.utils.processReactionEvent
 import net.vrkknn.andromuks.database.entities.EventEntity
-import org.json.JSONObject
 import okhttp3.WebSocket
 import org.json.JSONArray
 import kotlinx.coroutines.CompletableDeferred
@@ -35,6 +34,10 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.firstOrNull
+import org.json.JSONObject
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import android.content.Context
@@ -46,6 +49,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.io.File
 import java.util.Collections
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
+import net.vrkknn.andromuks.database.entities.RenderableEventEntity
 
 data class MemberProfile(
     val displayName: String?,
@@ -524,6 +528,9 @@ class AppViewModel : ViewModel() {
     var allSpaces by mutableStateOf(listOf<SpaceItem>())
         private set
     
+    // Track known space room IDs (top-level and nested) so we can filter them from room lists.
+    private val knownSpaceIds = mutableSetOf<String>()
+    
     // PERFORMANCE: Cached room sections to avoid expensive filtering on every recomposition
     private var cachedDirectChatRooms by mutableStateOf<List<RoomItem>>(emptyList())
         private set
@@ -560,6 +567,39 @@ class AppViewModel : ViewModel() {
     private fun invalidateRoomSectionCache() {
         lastAllRoomsSize = -1 // Force cache recalculation on next access
         lastAllRoomsContentHash = ""
+    }
+    
+    /**
+     * Returns the set of known space room IDs.
+     * Uses allSpaces when available, otherwise falls back to spaceList.
+     */
+    private fun currentSpaceIds(): Set<String> {
+        val ids = mutableSetOf<String>()
+        if (allSpaces.isNotEmpty()) ids.addAll(allSpaces.map { it.id })
+        else if (spaceList.isNotEmpty()) ids.addAll(spaceList.map { it.id })
+        ids.addAll(knownSpaceIds)
+        return ids
+    }
+    
+    /**
+     * Registers newly discovered space IDs (top-level or nested) for filtering.
+     */
+    fun registerSpaceIds(spaceIds: Collection<String>) {
+        if (spaceIds.isEmpty()) return
+        val added = knownSpaceIds.addAll(spaceIds)
+        if (added) {
+            invalidateRoomSectionCache()
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Registered ${spaceIds.size} space IDs (total=${knownSpaceIds.size})")
+        }
+    }
+    
+    /**
+     * Filters out rooms that correspond to spaces.
+     * Home/unread/direct sections should never show space shells.
+     */
+    private fun filterOutSpaces(rooms: List<RoomItem>, spaceIds: Set<String> = currentSpaceIds()): List<RoomItem> {
+        if (spaceIds.isEmpty()) return rooms
+        return rooms.filter { it.id !in spaceIds }
     }
     
     // Current selected section
@@ -989,6 +1029,8 @@ class AppViewModel : ViewModel() {
         invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
         allSpaces = emptyList()
         spaceList = emptyList()
+        knownSpaceIds.clear()
+        storedSpaceEdges = null
         spacesLoaded = false
         personsApi?.clear()
         synchronized(readReceiptsLock) {
@@ -1233,14 +1275,17 @@ class AppViewModel : ViewModel() {
         } else {
             allRooms
         }
+        val spaceIds = currentSpaceIds()
+        val roomsWithoutSpaces = filterOutSpaces(roomsToUse, spaceIds)
         
         // BUG FIX: Use size + content hash for reliable cache invalidation
         // Content hash is based on room IDs and key properties to detect actual changes
-        val currentSize = roomsToUse.size
-        val currentContentHash = roomsToUse.joinToString("|") {
+        val currentSize = roomsWithoutSpaces.size
+        val spaceIdsHash = if (spaceIds.isEmpty()) "none" else spaceIds.sorted().joinToString(",")
+        val currentContentHash = roomsWithoutSpaces.joinToString("|") {
             // Include sortingTimestamp so cached sections reorder when last message changes
             "${it.id}:${it.isDirectMessage}:${it.isFavourite}:${it.unreadCount}:${it.highlightCount}:${it.sortingTimestamp ?: 0L}"
-        }
+        } + "|spaces:$spaceIdsHash"
         
         // Check if we need to update cache
         if (currentSize == lastAllRoomsSize && currentContentHash == lastAllRoomsContentHash) {
@@ -1252,19 +1297,19 @@ class AppViewModel : ViewModel() {
         
         // PERFORMANCE: Always pre-compute badge counts (needed for tab bar badges)
         // This is fast even for large room lists (O(n) single pass)
-        updateBadgeCounts(roomsToUse)
+        updateBadgeCounts(roomsWithoutSpaces)
         
         // BUG FIX: Always update cached sections when allRooms changes, not just when accessed
         // This ensures tabs show correct data even if user hasn't visited them recently
         // The filtering is fast (O(n)) and ensures UI consistency
-        cachedDirectChatRooms = roomsToUse.filter { it.isDirectMessage }
-        cachedUnreadRooms = roomsToUse.filter { 
+        cachedDirectChatRooms = roomsWithoutSpaces.filter { it.isDirectMessage }
+        cachedUnreadRooms = roomsWithoutSpaces.filter { 
             (it.unreadCount != null && it.unreadCount > 0) || 
             (it.highlightCount != null && it.highlightCount > 0) 
         }
-        cachedFavouriteRooms = roomsToUse.filter { it.isFavourite }
+        cachedFavouriteRooms = roomsWithoutSpaces.filter { it.isFavourite }
         
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated cached sections - allRooms: ${roomsToUse.size}, DMs: ${cachedDirectChatRooms.size}, Unread: ${cachedUnreadRooms.size}, Favourites: ${cachedFavouriteRooms.size}")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated cached sections - allRooms(raw): ${roomsToUse.size}, spaces filtered: ${roomsWithoutSpaces.size}, DMs: ${cachedDirectChatRooms.size}, Unread: ${cachedUnreadRooms.size}, Favourites: ${cachedFavouriteRooms.size}")
         
     }
     
@@ -1409,11 +1454,12 @@ class AppViewModel : ViewModel() {
         } else {
             allRooms
         }
+        val roomsWithoutSpaces = filterOutSpaces(roomsToUse)
         
         return when (selectedSection) {
             RoomSectionType.HOME -> RoomSection(
                 type = RoomSectionType.HOME,
-                rooms = roomsToUse
+                rooms = roomsWithoutSpaces
             )
             RoomSectionType.SPACES -> {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SPACES section - currentSpaceId = $currentSpaceId, allSpaces.size = ${allSpaces.size}")
@@ -4626,6 +4672,25 @@ class AppViewModel : ViewModel() {
     fun storeSpaceEdges(spaceEdges: JSONObject) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Storing space edges for later processing")
         storedSpaceEdges = spaceEdges
+        
+        // Register edge keys as space IDs so filtering remains accurate even before processing edges.
+        val edgeIds = mutableSetOf<String>()
+        val edgeKeys = spaceEdges.keys()
+        while (edgeKeys.hasNext()) {
+            val id = edgeKeys.next()
+            if (!id.isNullOrBlank()) {
+                edgeIds.add(id)
+            }
+        }
+        if (edgeIds.isNotEmpty()) {
+            registerSpaceIds(edgeIds)
+        }
+        
+        // If initialization is already complete (e.g., after a pull-to-refresh reconnection),
+        // process edges immediately so Spaces tab gets populated without waiting for another init cycle.
+        if (initializationComplete) {
+            populateSpaceEdges()
+        }
     }
     
     /**
@@ -7309,6 +7374,10 @@ class AppViewModel : ViewModel() {
         val eventChainSizeBeforeBuild = eventChainMap.size
         buildTimelineFromChain()
         
+        // Persist a render-ready projection so UI can avoid re-walking chains on room open.
+        // This runs asynchronously and does not block the UI.
+        persistRenderableEvents(roomId, timelineEvents)
+
         if (BuildConfig.DEBUG) android.util.Log.d(
             "Andromuks",
             "AppViewModel: Built timeline with ${timelineEvents.size} events from ${cachedEvents.size} cached events " +
@@ -7411,6 +7480,235 @@ class AppViewModel : ViewModel() {
         }
 
         // No forward paginate on open; all additional history must be user-triggered
+    }
+
+    /**
+     * Convert resolved TimelineEvents into render-ready rows and persist to the renderable_events table.
+     * This avoids recomputing relations/edits/redactions at UI time.
+     */
+    private fun persistRenderableEvents(roomId: String, events: List<TimelineEvent>) {
+        val context = appContext?.applicationContext ?: return
+        if (events.isEmpty()) return
+
+        val renderables = events.map { event ->
+            // Choose decrypted type when available for display.
+            val finalType = event.decryptedType ?: event.type
+
+            // Prefer decrypted content for msg/body if present.
+            val contentForBody = when {
+                event.decryptedType == "m.room.message" -> event.decrypted
+                else -> event.content
+            }
+
+            val msgType = contentForBody?.optString("msgtype")?.takeIf { it.isNotBlank() }
+            val body = contentForBody?.optString("body")?.takeIf { it.isNotBlank() }
+            val formattedBody = contentForBody
+                ?.optJSONObject("formatted_body")
+                ?.toString()
+                ?: contentForBody
+                    ?.optString("formatted_body")
+                    ?.takeIf { it.isNotBlank() }
+
+            val replyTo = event.getReplyInfo()?.eventId
+            val threadRoot = event.getThreadInfo()?.threadRootEventId
+            val aggregatedReactionsJson = event.aggregatedReactions?.toString()
+
+            RenderableEventEntity(
+                eventId = event.eventId,
+                roomId = event.roomId,
+                timelineRowId = event.timelineRowid,
+                timestamp = event.timestamp,
+                sender = event.sender,
+                eventType = finalType,
+                msgType = msgType,
+                body = body,
+                formattedBody = formattedBody,
+                isRedacted = event.redactedBy != null,
+                isEdited = false, // TODO: enrich using version metadata
+                replyToEventId = replyTo,
+                threadRootEventId = threadRoot,
+                aggregatedReactionsJson = aggregatedReactionsJson,
+                parentPreviewJson = null, // TODO: populate lightweight parent preview
+                contentJson = contentForBody?.toString(),
+                decryptedType = event.decryptedType
+            )
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                db.renderableEventDao().upsert(renderables)
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to persist renderable events for $roomId", e)
+            }
+        }
+    }
+
+    /**
+     * Renderable timeline stream for UI: newest-first slice, reordered ascending for display.
+     */
+    fun renderableTimelineFlow(roomId: String, limit: Int = 200): Flow<List<RenderableEventEntity>> {
+        val context = appContext?.applicationContext ?: return emptyFlow()
+        return net.vrkknn.andromuks.database.AndromuksDatabase
+            .getInstance(context)
+            .renderableEventDao()
+            .streamLatestForRoomDesc(roomId, limit)
+            .map { list -> list.sortedBy { it.timelineRowId } }
+    }
+
+    /**
+     * Snapshot helper: latest renderable events (ascending) for initial bind or tests.
+     */
+    suspend fun getRenderableTimeline(roomId: String, limit: Int = 200): List<RenderableEventEntity> {
+        val context = appContext?.applicationContext ?: return emptyList()
+        return withContext(Dispatchers.IO) {
+            val desc = net.vrkknn.andromuks.database.AndromuksDatabase
+                .getInstance(context)
+                .renderableEventDao()
+                .streamLatestForRoomDesc(roomId, limit)
+                .firstOrNull()
+                ?: emptyList()
+            desc.sortedBy { it.timelineRowId }
+        }
+    }
+
+    /**
+     * Convert pre-resolved renderable rows into TimelineEvents for legacy UI consumers.
+     * This avoids walking edit/redaction chains at display time.
+     */
+    fun renderablesToTimelineEvents(renderables: List<RenderableEventEntity>): List<TimelineEvent> {
+        return renderables.map { entity ->
+            val contentJson = entity.contentJson?.let { JSONObject(it) } ?: JSONObject()
+
+            // Ensure relations are present in content for reply/thread helpers.
+            if (entity.replyToEventId != null) {
+                val relatesTo = contentJson.optJSONObject("m.relates_to") ?: JSONObject().also {
+                    contentJson.put("m.relates_to", it)
+                }
+                val inReply = relatesTo.optJSONObject("m.in_reply_to") ?: JSONObject().also {
+                    relatesTo.put("m.in_reply_to", it)
+                }
+                inReply.put("event_id", entity.replyToEventId)
+            }
+            if (entity.threadRootEventId != null) {
+                val relatesTo = contentJson.optJSONObject("m.relates_to") ?: JSONObject().also {
+                    contentJson.put("m.relates_to", it)
+                }
+                relatesTo.put("rel_type", "m.thread")
+                relatesTo.put("event_id", entity.threadRootEventId)
+            }
+
+            val aggregatedReactions = entity.aggregatedReactionsJson?.let { JSONObject(it) }
+
+            TimelineEvent(
+                rowid = entity.timelineRowId,
+                timelineRowid = entity.timelineRowId,
+                roomId = entity.roomId,
+                eventId = entity.eventId,
+                sender = entity.sender,
+                type = entity.eventType,
+                timestamp = entity.timestamp,
+                content = contentJson,
+                stateKey = null,
+                decrypted = null,
+                decryptedType = entity.decryptedType,
+                unsigned = null,
+                redactedBy = entity.isRedacted.takeIf { it }?.let { "renderable_redaction" },
+                localContent = null,
+                relationType = entity.threadRootEventId?.let { "m.thread" },
+                relatesTo = entity.threadRootEventId,
+                aggregatedReactions = aggregatedReactions
+            )
+        }
+    }
+
+    /**
+     * Find missing referenced events (reply targets, thread roots) that aren't in the renderable table
+     * and hydrate them from the DB in capped batches to avoid thrash.
+     */
+    fun hydrateMissingRenderableReferences(
+        roomId: String,
+        renderables: List<RenderableEventEntity>,
+        maxFetch: Int = 32
+    ) {
+        val context = appContext?.applicationContext ?: return
+        if (renderables.isEmpty() || maxFetch <= 0) return
+
+        // Collect unique referenced IDs
+        val referencedIds = buildSet {
+            renderables.forEach { r ->
+                r.replyToEventId?.let { add(it) }
+                r.threadRootEventId?.let { add(it) }
+            }
+        }
+        if (referencedIds.isEmpty()) return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                val renderableDao = db.renderableEventDao()
+
+                // Check which references are missing
+                val existing = renderableDao.getByIds(referencedIds.toList()).map { it.eventId }.toSet()
+                val missing = (referencedIds - existing).take(maxFetch)
+                if (missing.isEmpty()) return@launch
+
+                // Fetch missing targets from raw events
+                val eventDao = db.eventDao()
+                val missingEntities = missing.mapNotNull { id ->
+                    eventDao.getEventById(roomId, id)
+                }
+
+                if (missingEntities.isEmpty()) return@launch
+
+                // Convert to TimelineEvent then to RenderableEventEntity
+                val missingTimeline = missingEntities.mapNotNull { eventEntityToTimelineEvent(it) }
+                if (missingTimeline.isEmpty()) return@launch
+
+                val renderableMissing = missingTimeline.map { event ->
+                    // Derive minimal renderable row
+                    val contentForBody = when {
+                        event.decryptedType == "m.room.message" -> event.decrypted
+                        else -> event.content
+                    }
+                    val msgType = contentForBody?.optString("msgtype")?.takeIf { it.isNotBlank() }
+                    val body = contentForBody?.optString("body")?.takeIf { it.isNotBlank() }
+                    val formattedBody = contentForBody
+                        ?.optJSONObject("formatted_body")
+                        ?.toString()
+                        ?: contentForBody
+                            ?.optString("formatted_body")
+                            ?.takeIf { it.isNotBlank() }
+                    val replyTo = event.getReplyInfo()?.eventId
+                    val threadRoot = event.getThreadInfo()?.threadRootEventId
+                    val aggregatedReactionsJson = event.aggregatedReactions?.toString()
+
+                    RenderableEventEntity(
+                        eventId = event.eventId,
+                        roomId = event.roomId,
+                        timelineRowId = event.timelineRowid,
+                        timestamp = event.timestamp,
+                        sender = event.sender,
+                        eventType = event.decryptedType ?: event.type,
+                        msgType = msgType,
+                        body = body,
+                        formattedBody = formattedBody,
+                        isRedacted = event.redactedBy != null,
+                        isEdited = false,
+                        replyToEventId = replyTo,
+                        threadRootEventId = threadRoot,
+                        aggregatedReactionsJson = aggregatedReactionsJson,
+                        parentPreviewJson = null,
+                        contentJson = contentForBody?.toString(),
+                        decryptedType = event.decryptedType
+                    )
+                }
+
+                renderableDao.upsert(renderableMissing)
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "hydrateMissingRenderableReferences: error", e)
+            }
+        }
     }
 
     private fun loadReceiptsForCachedEvents(roomId: String, cachedEvents: List<TimelineEvent>) {
@@ -7759,6 +8057,9 @@ class AppViewModel : ViewModel() {
                         messageReactions = updated
                         reactionUpdateCounter++
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored reactions for ${reactionsByEvent.size} events in room $roomId")
+                    // Persist renderable cache with updated reactions for this room
+                    val roomEvents = timelineEvents.filter { it.roomId == roomId }
+                    persistRenderableEvents(roomId, roomEvents)
                     } else {
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Database reactions already match in-memory state for room $roomId")
                     }
@@ -7845,6 +8146,13 @@ class AppViewModel : ViewModel() {
                 "Andromuks",
                 "AppViewModel: Applied aggregated reactions from $source for ${aggregatedByEvent.size} events"
             )
+            // Keep renderable cache in sync so reactions remain visible after switching to renderable stream.
+            val roomId = events.firstOrNull()?.roomId
+            if (!roomId.isNullOrBlank()) {
+                // Only persist for this room; use current timelineEvents snapshot.
+                val roomEvents = timelineEvents.filter { it.roomId == roomId }
+                persistRenderableEvents(roomId, roomEvents)
+            }
         }
     }
 
@@ -8185,6 +8493,9 @@ class AppViewModel : ViewModel() {
                 if (dbEvents.isNotEmpty()) {
                     val dbLatest = dbEvents.maxByOrNull { it.timestamp }
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${dbEvents.size} events from database for $roomId (latest: ${dbLatest?.eventId}@${dbLatest?.timestamp})")
+
+                    // BACKFILL: Seed renderable cache from DB snapshot so UI can avoid recomputing relations on open.
+                    persistRenderableEvents(roomId, dbEvents)
                     
                     // Process events through chain processing (builds timeline structure)
                     processCachedEvents(roomId, dbEvents, openingFromNotification)
@@ -12814,6 +13125,11 @@ class AppViewModel : ViewModel() {
             }
             
             this.timelineEvents = limitedTimelineEvents
+            // Persist renderable projection whenever the timeline is rebuilt.
+            val renderRoomId = limitedTimelineEvents.firstOrNull()?.roomId ?: currentRoomId
+            if (!renderRoomId.isNullOrBlank()) {
+                persistRenderableEvents(renderRoomId, limitedTimelineEvents)
+            }
             timelineUpdateCounter++
             updateCounter++ // Keep for backward compatibility temporarily
         } catch (e: Exception) {
