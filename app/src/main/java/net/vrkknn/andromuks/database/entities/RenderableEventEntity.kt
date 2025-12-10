@@ -48,6 +48,12 @@ data class RenderableEventEntity(
     /** Resolved content payload (media info, stickers, etc.) as JSON. */
     val contentJson: String?,
     /** Decrypted type if message was encrypted; useful for UI hints. */
-    val decryptedType: String?
+    val decryptedType: String?,
+    /** Local echo tracking: matrix transaction id (if client-originated). */
+    val transactionId: String? = null,
+    /** Local echo status: PENDING/SENT/FAILED when applicable. */
+    val localEchoStatus: String? = null,
+    /** Local echo error message when FAILED. */
+    val localEchoError: String? = null
 )
 

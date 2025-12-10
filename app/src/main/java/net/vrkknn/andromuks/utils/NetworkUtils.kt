@@ -555,11 +555,19 @@ fun connectToWebsocket(
                             }
                         }
                     }
-                    "send_complete" -> {
+            "send_complete" -> {
                         val data = jsonObject.optJSONObject("data")
                         val event = data?.optJSONObject("event")
                         val error = data?.optString("error")
-                        
+                Log.d("Andromuks", "NetworkUtils: send_complete received (reqId=${jsonObject.optInt("request_id")}) event=$event error=$error")
+                if (event == null) {
+                    Log.w("Andromuks", "NetworkUtils: send_complete missing event payload")
+                }
+                val txn = event?.optString("transaction_id")
+                if (!txn.isNullOrBlank()) {
+                    Log.d("Andromuks", "NetworkUtils: send_complete txn_id=$txn eventId=${event.optString("event_id")} room=${event.optString("room_id")} send_error=${event.optString("send_error")}")
+                }
+
                         // PHASE 5.3: Track Matrix server delivery confirmation
                         // send_complete has negative request_id (spontaneous from server)
                         // Match to original message by transaction_id in event data
@@ -579,6 +587,8 @@ fun connectToWebsocket(
                                     // Also process the event for UI updates
                                     viewModel.processSendCompleteEvent(event)
                                 }
+                    } else {
+                        Log.w("Andromuks", "NetworkUtils: send_complete had null event, nothing to distribute")
                             }
                         }
                     }
@@ -727,6 +737,30 @@ fun connectToWebsocket(
                                     WebSocketService.getServiceScope().launch(Dispatchers.IO) {
                                         for (viewModel in WebSocketService.getRegisteredViewModels()) {
                                             viewModel.handleResponse(requestId, data ?: Any())
+                                        }
+                                    }
+                                }
+                                "send_complete" -> {
+                                    val data = jsonObject.optJSONObject("data")
+                                    val event = data?.optJSONObject("event")
+                                    val error = data?.optString("error")
+                                    Log.d("Andromuks", "NetworkUtils: send_complete (compressed) received (reqId=${jsonObject.optInt("request_id")}) event=$event error=$error")
+                                    if (event == null) {
+                                        Log.w("Andromuks", "NetworkUtils: send_complete (compressed) missing event payload")
+                                    }
+                                    val txn = event?.optString("transaction_id")
+                                    if (!txn.isNullOrBlank()) {
+                                        Log.d("Andromuks", "NetworkUtils: send_complete (compressed) txn_id=$txn eventId=${event.optString("event_id")} room=${event.optString("room_id")} send_error=${event.optString("send_error")}")
+                                    }
+
+                                    WebSocketService.getServiceScope().launch(Dispatchers.IO) {
+                                        if (event != null) {
+                                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                                viewModel.handleSendComplete(event, error)
+                                                viewModel.processSendCompleteEvent(event)
+                                            }
+                                        } else {
+                                            Log.w("Andromuks", "NetworkUtils: send_complete (compressed) had null event, nothing to distribute")
                                         }
                                     }
                                 }

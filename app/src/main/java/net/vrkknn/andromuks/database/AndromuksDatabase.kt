@@ -50,7 +50,7 @@ import net.vrkknn.andromuks.database.entities.SyncMetaEntity
         RenderableEventEntity::class,
         RoomListSummaryEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 abstract class AndromuksDatabase : RoomDatabase() {

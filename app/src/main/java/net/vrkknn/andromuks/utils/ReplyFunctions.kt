@@ -76,6 +76,8 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Reply
 import androidx.compose.material.icons.filled.TagFaces
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Info
+import net.vrkknn.andromuks.LocalEchoStatus
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReplyInfo
 import net.vrkknn.andromuks.TimelineEvent
@@ -244,6 +246,8 @@ fun Modifier.messageBubbleMenu(
     onDelete: () -> Unit
 ): Modifier {
     var showMenu by remember { mutableStateOf(false) }
+    var showErrorDialog by remember { mutableStateOf(false) }
+    var errorDialogText by remember { mutableStateOf<String?>(null) }
     
     return this
         .clickable { 
@@ -606,9 +610,21 @@ fun MessageBubbleWithMenu(
     content: @Composable RowScope.() -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
+    var showErrorDialog by remember { mutableStateOf(false) }
+    var errorDialogText by remember { mutableStateOf<String?>(null) }
     
     var bubbleBounds by remember { mutableStateOf(Rect.Zero) }
     val hapticFeedback = LocalHapticFeedback.current
+
+    // Local echo status (pending/failed) for coloring and menu options
+    val localEchoStatus = remember(event.eventId, appViewModel?.updateCounter) {
+        appViewModel?.getLocalEchoStatus(event.eventId)
+    }
+    val localEchoError = remember(event.eventId, appViewModel?.updateCounter) {
+        appViewModel?.getLocalEchoError(event.eventId)
+    }
+    val isFailedEcho = localEchoStatus == LocalEchoStatus.FAILED
+    val isPendingEcho = localEchoStatus == LocalEchoStatus.PENDING || (localEchoStatus == null && event.eventId.startsWith("~txn_"))
 
     // Highlight animation when this event is the active scroll target
     val scrollHighlightState = LocalScrollHighlightState.current
@@ -687,6 +703,13 @@ fun MessageBubbleWithMenu(
             null
         }
     
+    // Adjust bubble color based on local echo state
+    val bubbleColorAdjusted = when {
+        isFailedEcho -> MaterialTheme.colorScheme.errorContainer
+        isPendingEcho -> MaterialTheme.colorScheme.surfaceVariant
+        else -> bubbleColor
+    }
+
     Box {
         Surface(
             modifier = modifier
@@ -724,7 +747,7 @@ fun MessageBubbleWithMenu(
                         Modifier
                     }
                 ),
-            color = bubbleColor,
+            color = bubbleColorAdjusted,
             shape = bubbleShape,
             tonalElevation = 3.dp + (2.dp * highlightValue),  // Provides color changes for elevation
             shadowElevation =
@@ -811,95 +834,140 @@ fun MessageBubbleWithMenu(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            // React button
-                            IconButton(
-                                onClick = {
-                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: React clicked")
-                                    showMenu = false
-                                    onReact()
-                                },
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.TagFaces,
-                                    contentDescription = "React",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            
-                            // Reply button
-                            IconButton(
-                                onClick = {
-                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Reply clicked")
-                                    showMenu = false
-                                    onReply()
-                                },
-                                modifier = Modifier.size(40.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Reply,
-                                    contentDescription = "Reply",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            
-                            // Edit button (only show for our own messages)
-                            if (canEdit) {
+                            if (isFailedEcho && localEchoError != null) {
+                                // Info button for failed local echo
                                 IconButton(
                                     onClick = {
-                                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit clicked")
                                         showMenu = false
-                                        onEdit()
+                                        errorDialogText = localEchoError
+                                        showErrorDialog = true
                                     },
                                     modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Edit,
-                                        contentDescription = "Edit",
-                                        tint = MaterialTheme.colorScheme.primary
+                                        imageVector = Icons.Filled.Info,
+                                        contentDescription = "Error info",
+                                        tint = MaterialTheme.colorScheme.error
                                     )
                                 }
-                            }
-                            
-                            // Delete button (only show if we have permission)
-                            if (canDelete) {
+                                // Delete failed echo
                                 IconButton(
                                     onClick = {
-                                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Delete clicked")
                                         showMenu = false
-                                        onDelete()
+                                        appViewModel?.deleteLocalEcho(event.eventId)
                                     },
                                     modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete",
+                                        contentDescription = "Delete failed message",
                                         tint = MaterialTheme.colorScheme.error
                                     )
                                 }
-                            }
-                            
-                            // Edit History button (only show if message has been edited)
-                            if (hasBeenEdited && onShowEditHistory != null) {
+                            } else {
+                                // React button
                                 IconButton(
                                     onClick = {
-                                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit History clicked")
+                                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: React clicked")
                                         showMenu = false
-                                        onShowEditHistory()
+                                        onReact()
                                     },
                                     modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Filled.History,
-                                        contentDescription = "View Edit History",
+                                        imageVector = Icons.Filled.TagFaces,
+                                        contentDescription = "React",
                                         tint = MaterialTheme.colorScheme.primary
                                     )
+                                }
+                                
+                                // Reply button
+                                IconButton(
+                                    onClick = {
+                                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Reply clicked")
+                                        showMenu = false
+                                        onReply()
+                                    },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Reply,
+                                        contentDescription = "Reply",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                
+                                // Edit button (only show for our own messages)
+                                if (canEdit) {
+                                    IconButton(
+                                        onClick = {
+                                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit clicked")
+                                            showMenu = false
+                                            onEdit()
+                                        },
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Edit,
+                                            contentDescription = "Edit",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                                
+                                // Delete button (only show if we have permission)
+                                if (canDelete) {
+                                    IconButton(
+                                        onClick = {
+                                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Delete clicked")
+                                            showMenu = false
+                                            onDelete()
+                                        },
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Delete,
+                                            contentDescription = "Delete",
+                                            tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                                
+                                // Edit History button (only show if message has been edited)
+                                if (hasBeenEdited && onShowEditHistory != null) {
+                                    IconButton(
+                                        onClick = {
+                                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Edit History clicked")
+                                            showMenu = false
+                                            onShowEditHistory()
+                                        },
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.History,
+                                            contentDescription = "View Edit History",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+        }
+
+        if (showErrorDialog && errorDialogText != null) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { showErrorDialog = false },
+                title = { Text("Send failed") },
+                text = { Text(errorDialogText ?: "") },
+                confirmButton = {
+                    TextButton(onClick = { showErrorDialog = false }) {
+                        Text("Close")
+                    }
+                }
+            )
         }
     }
 }
