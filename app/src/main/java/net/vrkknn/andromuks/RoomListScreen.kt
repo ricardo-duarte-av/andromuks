@@ -199,6 +199,7 @@ fun RoomListScreen(
         "${stableSection.type}:${uiState.currentSpaceId ?: "none"}:$roomIdsHash"
     }
 
+    // Observe room summaries via Flow backed by room_list_summary
     LaunchedEffect(sectionCacheKey, roomListUpdateCounter, uiState.roomSummaryUpdateCounter) {
         initialRoomSummariesReady = false
 
@@ -219,45 +220,22 @@ fun RoomListScreen(
             return@LaunchedEffect
         }
 
-        val summaryResult: Map<String, Triple<String?, String?, Long?>>? = try {
-            withContext(Dispatchers.IO) {
-                try {
-                    val database = AndromuksDatabase.getInstance(context)
-                    val summaryDao = database.roomSummaryDao()
-                    val summaries = summaryDao.getRoomSummariesByIds(roomIds)
-                    val summaryMap = mutableMapOf<String, Triple<String?, String?, Long?>>()
-
-                    if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
-                        android.util.Log.d(
-                            "Andromuks",
-                            "RoomListScreen: Using room_summary for ${summaries.size}/${roomIds.size} rooms"
-                        )
-                    }
-
-                    for (summary in summaries) {
-                        if (!isActive) throw CancellationException()
-                        val ts = summary.lastTimestamp.takeIf { it > 0 }
-                        summaryMap[summary.roomId] = Triple(summary.messagePreview, summary.messageSender, ts)
-                    }
-
-                    // Any rooms missing summaries will simply be absent; UI will fall back to existing data.
-                    summaryMap.toMap()
-                } catch (ce: CancellationException) {
-                    null // cancelled cleanly
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "RoomListScreen: Error querying DB for room summaries", e)
-                    emptyMap<String, Triple<String?, String?, Long?>>()
-                }
+        val summariesFlow = appViewModel.roomListSummariesFlow(roomIds)
+        summariesFlow.collect { summaries ->
+            val summaryMap = summaries.associate { summary ->
+                val ts = summary.lastMessageTimestamp
+                summary.roomId to Triple(summary.lastMessagePreview, summary.lastMessageSenderUserId, ts)
             }
-        } catch (ce: CancellationException) {
-            null
-        }
-
-        if (summaryResult != null) {
-            roomsWithSummaries = summaryResult
-            roomSummaryCache[sectionCacheKey] = summaryResult
+            roomsWithSummaries = summaryMap
+            roomSummaryCache[sectionCacheKey] = summaryMap
             roomSummaryReadyCache[sectionCacheKey] = true
             initialRoomSummariesReady = true
+            if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "Andromuks",
+                    "RoomListScreen: Using room_list_summary for ${summaries.size}/${roomIds.size} rooms"
+                )
+            }
         }
     }
 

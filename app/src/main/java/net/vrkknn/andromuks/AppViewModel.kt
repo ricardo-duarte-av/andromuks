@@ -17,6 +17,7 @@ import net.vrkknn.andromuks.utils.SpaceRoomParser
 import net.vrkknn.andromuks.utils.ReceiptFunctions
 import net.vrkknn.andromuks.utils.processReactionEvent
 import net.vrkknn.andromuks.database.entities.EventEntity
+import net.vrkknn.andromuks.database.entities.RoomListSummaryEntity
 import okhttp3.WebSocket
 import org.json.JSONArray
 import kotlinx.coroutines.CompletableDeferred
@@ -7555,6 +7556,7 @@ class AppViewModel : ViewModel() {
             try {
                 val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
                 db.renderableEventDao().upsert(renderables)
+                updateRoomListSummaryFromRenderables(db, roomId, renderables)
             } catch (e: Exception) {
                 android.util.Log.e("Andromuks", "AppViewModel: Failed to persist renderable events for $roomId", e)
             }
@@ -7637,6 +7639,43 @@ class AppViewModel : ViewModel() {
                 aggregatedReactions = aggregatedReactions
             )
         }
+    }
+
+    /**
+     * Update room list summary from renderable head for a room.
+     */
+    private suspend fun updateRoomListSummaryFromRenderables(
+        db: net.vrkknn.andromuks.database.AndromuksDatabase,
+        roomId: String,
+        renderables: List<RenderableEventEntity>
+    ) {
+        if (renderables.isEmpty()) return
+
+        // Pick the latest event that is render-worthy (skip pure redactions/reactions if present).
+        val latest = renderables
+            .sortedByDescending { it.timestamp }
+            .firstOrNull { r ->
+                // Exclude redaction-only rows
+                !(r.isRedacted && (r.body.isNullOrBlank()))
+            } ?: renderables.maxByOrNull { it.timestamp } ?: return
+
+        val preview = latest.body ?: latest.formattedBody ?: latest.eventType
+
+        val roomMeta = getRoomById(roomId)
+        val summary = RoomListSummaryEntity(
+            roomId = roomId,
+            displayName = roomMeta?.name ?: currentRoomState?.name,
+            avatarMxc = roomMeta?.avatarUrl ?: currentRoomState?.avatarUrl,
+            lastMessageEventId = latest.eventId,
+            lastMessageSenderUserId = latest.sender,
+            lastMessagePreview = preview,
+            lastMessageTimestamp = latest.timestamp,
+            unreadCount = roomMeta?.unreadCount ?: 0,
+            highlightCount = roomMeta?.highlightCount ?: 0,
+            isLowPriority = roomMeta?.isLowPriority ?: false
+        )
+
+        db.roomListSummaryDao().upsert(summary)
     }
 
     /**
@@ -15408,4 +15447,25 @@ fun AppViewModel.rememberRoomListUiState(): State<RoomListUiState> {
             )
         }
     }
+}
+
+/**
+ * Stream room list summaries for a given set of room IDs.
+ */
+fun AppViewModel.roomListSummariesFlow(roomIds: List<String>): kotlinx.coroutines.flow.Flow<List<RoomListSummaryEntity>> {
+    val context = this.getAppContext() ?: return kotlinx.coroutines.flow.emptyFlow()
+    if (roomIds.isEmpty()) return kotlinx.coroutines.flow.emptyFlow()
+    return net.vrkknn.andromuks.database.AndromuksDatabase
+        .getInstance(context)
+        .roomListSummaryDao()
+        .getRoomSummariesByIdsFlow(roomIds)
+}
+
+// Helper to safely access application context from extensions
+fun AppViewModel.getAppContext(): android.content.Context? = try {
+    val field = AppViewModel::class.java.getDeclaredField("appContext")
+    field.isAccessible = true
+    (field.get(this) as? android.content.Context)?.applicationContext
+} catch (e: Exception) {
+    null
 }
