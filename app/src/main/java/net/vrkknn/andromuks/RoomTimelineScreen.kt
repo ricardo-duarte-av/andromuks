@@ -455,6 +455,16 @@ fun RoomTimelineScreen(
             roomItem?.avatarUrl ?: appViewModel.currentRoomState?.avatarUrl
         }
 
+    // Permission to send messages based on power levels
+    val canSendMessage = remember(currentRoomState, myUserId) {
+        val pl = currentRoomState?.powerLevels ?: return@remember true
+        val me = myUserId
+        if (me.isNullOrBlank()) return@remember true
+        val myPl = pl.users[me] ?: pl.usersDefault
+        val required = pl.events["m.room.message"] ?: pl.eventsDefault
+        myPl >= required
+    }
+
     if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
         "RoomTimelineScreen: Timeline events count: ${timelineEvents.size}, isLoading: $isLoading"
@@ -2284,7 +2294,8 @@ fun RoomTimelineScreen(
                             modifier = Modifier.width(48.dp).height(buttonHeight)
                         ) {
                             IconButton(
-                                onClick = { showAttachmentMenu = !showAttachmentMenu },
+                                enabled = canSendMessage,
+                                onClick = { if (canSendMessage) showAttachmentMenu = !showAttachmentMenu },
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 Icon(
@@ -2474,6 +2485,7 @@ fun RoomTimelineScreen(
                                 CustomBubbleTextField(
                                     value = textFieldValue,
                                     onValueChange = { newValue: TextFieldValue ->
+                                        if (!canSendMessage) return@CustomBubbleTextField
                                         // First, handle custom emoji deletion (backspace on :name:)
                                         val afterDeletion = handleCustomEmojiDeletion(textFieldValue, newValue)
                                         
@@ -2536,7 +2548,14 @@ fun RoomTimelineScreen(
                                             showEmojiSuggestionList = false
                                         }
                                     },
-                                    placeholder = { Text("Type a message...") },
+                                    placeholder = {
+                                        Text(
+                                            text = if (canSendMessage) "Type a message..." else "You don't have permission to send messages",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontStyle = FontStyle.Italic,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    },
                                     modifier = Modifier.fillMaxWidth(),
                                     minLines = 1,
                                     maxLines = 5,
@@ -2585,6 +2604,14 @@ fun RoomTimelineScreen(
                                     ),
                                     keyboardActions = KeyboardActions(
                                         onSend = {
+                                            if (!canSendMessage) {
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    "You don't have permission to send messages",
+                                                    android.widget.Toast.LENGTH_SHORT
+                                                ).show()
+                                                return@KeyboardActions
+                                            }
                                             if (draft.isNotBlank()) {
                                                 // Send edit if editing a message
                                                 if (editingEvent != null) {
@@ -2628,6 +2655,14 @@ fun RoomTimelineScreen(
                         
                         Button(
                             onClick = {
+                                if (!canSendMessage) {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        "You don't have permission to send messages",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                    return@Button
+                                }
                                 if (draft.isNotBlank()) {
                                     // Send edit if editing a message
                                     if (editingEvent != null) {
@@ -2659,7 +2694,7 @@ fun RoomTimelineScreen(
                                     draft = "" // Clear the input after sending
                                 }
                             },
-                            enabled = draft.isNotBlank(),
+                            enabled = draft.isNotBlank() && canSendMessage,
                             shape = CircleShape, // Perfect circle
                             colors =
                                 ButtonDefaults.buttonColors(

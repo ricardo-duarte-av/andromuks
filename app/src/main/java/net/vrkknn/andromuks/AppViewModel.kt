@@ -11939,10 +11939,23 @@ class AppViewModel : ViewModel() {
                             mutableMapOf()
                         }
                         
+                        val eventsObj = content.optJSONObject("events")
+                        val eventsMap = if (eventsObj != null) {
+                            mutableMapOf<String, Int>().apply {
+                                eventsObj.keys()?.forEach { ev ->
+                                    put(ev, eventsObj.optInt(ev, 0))
+                                }
+                            }
+                        } else {
+                            mutableMapOf()
+                        }
+                        
                         powerLevels = PowerLevelsInfo(
                             users = usersMap,
                             usersDefault = content.optInt("users_default", 0),
-                            redact = content.optInt("redact", 50)
+                            redact = content.optInt("redact", 50),
+                            events = eventsMap,
+                            eventsDefault = content.optInt("events_default", 0)
                         )
                     }
                 }

@@ -76,7 +76,9 @@ data class RoomState(
 data class PowerLevelsInfo(
     val users: Map<String, Int>,
     val usersDefault: Int,
-    val redact: Int
+    val redact: Int,
+    val events: Map<String, Int> = emptyMap(),
+    val eventsDefault: Int = 0
 )
 
 @Immutable
