@@ -677,15 +677,16 @@ fun MessageBubbleWithMenu(
         0
     }
     val redactPowerLevel = powerLevels?.redact ?: 50
+    val canRedactMessage = myPowerLevel >= redactPowerLevel
     
     // Determine which buttons to show
-    val canEdit = isMine // Only allow editing our own messages
+    val canEdit = isMine && canRedactMessage // require redact level to edit our own messages
     val canDelete = if (isMine) {
-        // Users can ALWAYS delete their own messages (Matrix spec)
-        true
+        // Require redact permission to delete our own messages
+        canRedactMessage
     } else {
         // For others' messages, check if our power level is above theirs AND we have redact permission
-        myPowerLevel > senderPowerLevel && myPowerLevel >= redactPowerLevel
+        myPowerLevel > senderPowerLevel && canRedactMessage
     }
     
     //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: isMine=$isMine, myPL=$myPowerLevel, senderPL=$senderPowerLevel, redactPL=$redactPowerLevel, canEdit=$canEdit, canDelete=$canDelete")
