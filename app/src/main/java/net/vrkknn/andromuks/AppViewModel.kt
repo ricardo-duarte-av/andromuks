@@ -7545,10 +7545,8 @@ class AppViewModel : ViewModel() {
             val finalType = event.decryptedType ?: event.type
 
             // Prefer decrypted content for msg/body if present.
-            val contentForBody = when {
-                event.decryptedType == "m.room.message" -> event.decrypted
-                else -> event.content
-            }
+            // Use decrypted content when available (covers encrypted stickers/files/etc.)
+            val contentForBody = event.decrypted ?: event.content
 
             val msgType = contentForBody?.optString("msgtype")?.takeIf { it.isNotBlank() }
             val body = contentForBody?.optString("body")?.takeIf { it.isNotBlank() }
@@ -11428,10 +11426,8 @@ class AppViewModel : ViewModel() {
         localEchoError: String? = null,
         transactionId: String? = null
     ): RenderableEventEntity {
-        val contentForBody = when {
-            event.decryptedType == "m.room.message" -> event.decrypted
-            else -> event.content
-        }
+        // Prefer decrypted content for any decryptedType (messages, stickers, files, etc.)
+        val contentForBody = event.decrypted ?: event.content
         val msgType = contentForBody?.optString("msgtype")?.takeIf { it.isNotBlank() }
         val body = contentForBody?.optString("body")?.takeIf { it.isNotBlank() }
         val formattedBody = contentForBody
