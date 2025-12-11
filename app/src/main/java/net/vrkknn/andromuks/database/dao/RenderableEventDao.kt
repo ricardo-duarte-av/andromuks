@@ -33,6 +33,9 @@ interface RenderableEventDao {
     @Query("SELECT * FROM renderable_events WHERE eventId IN (:eventIds)")
     suspend fun getByIds(eventIds: List<String>): List<RenderableEventEntity>
 
+    @Query("DELETE FROM renderable_events WHERE transactionId = :txnId OR eventId = :txnId")
+    suspend fun deleteByTransactionId(txnId: String)
+
     @Query("DELETE FROM renderable_events WHERE roomId = :roomId")
     suspend fun deleteRoom(roomId: String)
 

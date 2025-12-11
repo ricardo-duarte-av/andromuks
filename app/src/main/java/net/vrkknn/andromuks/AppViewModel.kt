@@ -7540,6 +7540,27 @@ class AppViewModel : ViewModel() {
         val context = appContext?.applicationContext ?: return
         if (events.isEmpty()) return
 
+        // If real events arrive with a transaction_id, reconcile pending echoes and drop temp rows
+        val tempIdsToDelete = mutableListOf<String>()
+        val txnIdsToDelete = mutableListOf<String>()
+        events.forEach { event ->
+            val txn = event.localContent?.optString("transaction_id")?.takeIf { it.isNotBlank() }
+            if (txn != null) {
+                pendingLocalEchoes.remove(txn)?.let { echo ->
+                    tempIdsToDelete.add(echo.tempEventId)
+                    // Remove temp from in-memory timeline
+                    timelineEvents = timelineEvents.filterNot { it.eventId == echo.tempEventId }
+                }
+                txnIdsToDelete.add(txn)
+                // Also drop any timeline entries that still carry this txn id
+                timelineEvents = timelineEvents.filterNot {
+                    it.localContent?.optString("transaction_id") == txn ||
+                        it.eventId == txn ||
+                        (it.eventId.startsWith("~") && it.eventId.contains(txn))
+                }
+            }
+        }
+
         val renderables = events.map { event ->
             // Choose decrypted type when available for display.
             val finalType = event.decryptedType ?: event.type
@@ -7599,6 +7620,12 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                if (tempIdsToDelete.isNotEmpty()) {
+                    db.renderableEventDao().deleteByIds(tempIdsToDelete)
+                }
+                txnIdsToDelete.forEach { txnId ->
+                    db.renderableEventDao().deleteByTransactionId(txnId)
+                }
                 db.renderableEventDao().upsert(renderables)
                 updateRoomListSummaryFromRenderables(db, roomId, renderables)
             } catch (e: Exception) {
@@ -7640,9 +7667,21 @@ class AppViewModel : ViewModel() {
      * This avoids walking edit/redaction chains at display time.
      */
     fun renderablesToTimelineEvents(renderables: List<RenderableEventEntity>): List<TimelineEvent> {
+        // Drop temp echoes if a real event with the same transaction_id exists.
+        val realByTxn = renderables
+            .filter { !it.eventId.startsWith("~") && !it.transactionId.isNullOrBlank() }
+            .associateBy { it.transactionId }
+        val filtered = renderables.filter { entity ->
+            val txn = entity.transactionId
+            if (entity.eventId.startsWith("~") && !txn.isNullOrBlank()) {
+                val real = realByTxn[txn]
+                real != null && real.eventId != entity.eventId
+            } else true
+        }
+
         // Rehydrate pending local echoes from persisted renderables so UI still shows
         // failed/pending states after app restart.
-        renderables.forEach { entity ->
+        filtered.forEach { entity ->
             val status = entity.localEchoStatus
             if (!status.isNullOrBlank()) {
                 val txnKey = entity.transactionId ?: entity.eventId
@@ -7666,7 +7705,7 @@ class AppViewModel : ViewModel() {
             }
         }
 
-        return renderables.map { entity ->
+        return filtered.map { entity ->
             val contentJson = entity.contentJson?.let { JSONObject(it) } ?: JSONObject()
 
             // Ensure relations are present in content for reply/thread helpers.
@@ -7864,7 +7903,9 @@ class AppViewModel : ViewModel() {
         val tempEventId = eventObj.optString("event_id", "")
         val body = eventObj.optJSONObject("content")?.optString("body", "") ?: ""
         val ts = eventObj.optLong("timestamp", System.currentTimeMillis())
-        val sendError = eventObj.optString("send_error", "").takeIf { it.isNotBlank() }
+        val sendErrorRaw = eventObj.optString("send_error", "").takeIf { it.isNotBlank() }
+        val isTransientAckError = sendErrorRaw?.equals("not sent", ignoreCase = true) == true
+        val sendError = if (isTransientAckError) null else sendErrorRaw
         val senderId = currentUserId.ifBlank { eventObj.optString("sender", currentUserId) }
         val roomFromObj = eventObj.optString("room_id", fallbackRoomId)
 
@@ -11287,7 +11328,9 @@ class AppViewModel : ViewModel() {
                 val tempEventId = obj.optString("event_id", "")
                 val body = obj.optJSONObject("content")?.optString("body", "") ?: ""
                 val ts = obj.optLong("timestamp", System.currentTimeMillis())
-                val sendError = obj.optString("send_error", "").takeIf { it.isNotBlank() }
+                val sendErrorRaw = obj.optString("send_error", "").takeIf { it.isNotBlank() }
+                val isTransientAckError = sendErrorRaw?.equals("not sent", ignoreCase = true) == true
+                val sendError = if (isTransientAckError) null else sendErrorRaw
                 val senderId = currentUserId.ifBlank { obj.optString("sender", currentUserId) }
                 val roomFromObj = obj.optString("room_id", roomId)
 
@@ -11348,10 +11391,13 @@ class AppViewModel : ViewModel() {
         }
 
         // Local echo resolution: mark pending echo as sent/failed
-        val eventSendError = eventData.optString("send_error", "").takeIf { it.isNotBlank() }
+        val eventSendErrorRaw = eventData.optString("send_error", "").takeIf { it.isNotBlank() }
+        val isTransientAckError = eventSendErrorRaw?.equals("not sent", ignoreCase = true) == true
+        val eventSendError = if (isTransientAckError) null else eventSendErrorRaw
         val effectiveError = eventSendError ?: error?.takeIf { it.isNotBlank() }
 
-        pendingLocalEchoes[transactionId]?.let { echo ->
+        val pendingEcho = pendingLocalEchoes[transactionId]
+        pendingEcho?.let { echo ->
             val isSuccess = effectiveError.isNullOrEmpty()
             val updated = echo.copy(
                 status = if (isSuccess) LocalEchoStatus.SENT else LocalEchoStatus.FAILED,
@@ -11367,6 +11413,23 @@ class AppViewModel : ViewModel() {
                 val realEventId = eventData.optString("event_id", "")
                 if (realEventId.isNotBlank()) {
                     reconcileLocalEcho(transactionId, realEventId, updated.roomId, eventData, LocalEchoStatus.SENT, updated.errorMessage)
+                }
+            }
+        } ?: run {
+            // If no pending echo, but the real event already exists (from sync), skip creating a failed echo
+            val context = appContext?.applicationContext
+            if (context != null) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                        val realEventId = eventData.optString("event_id", "")
+                        val existingRenderable = realEventId.takeIf { it.isNotBlank() }?.let { db.renderableEventDao().getById(it) }
+                        if (existingRenderable != null) {
+                            // The real event already exists; drop any temp by txn id if still around
+                            db.renderableEventDao().deleteByTransactionId(transactionId)
+                        }
+                    } catch (_: Exception) {
+                    }
                 }
             }
         }
