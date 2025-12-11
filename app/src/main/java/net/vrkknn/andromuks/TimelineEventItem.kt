@@ -720,6 +720,88 @@ private fun RoomMessageContent(
     if (msgType == "m.sticker") {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TimelineEventItem: Detected m.sticker message in m.room.message event ${event.eventId}, isConsecutive=$isConsecutive")
         val stickerMessage = extractStickerFromEvent(event)
+        val isRedacted = event.redactedBy != null
+        val redactionEvent = if (isRedacted && appViewModel != null) appViewModel.getRedactionEvent(event.eventId) else null
+
+        if (isRedacted) {
+            val deletionMessage =
+                net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
+                    redactionEvent,
+                    userProfileCache
+                )
+
+            val bubbleShape =
+                if (actualIsMine) {
+                    RoundedCornerShape(
+                        topStart = 12.dp,
+                        topEnd = 2.dp,
+                        bottomEnd = 12.dp,
+                        bottomStart = 12.dp
+                    )
+                } else {
+                    RoundedCornerShape(
+                        topStart = 2.dp,
+                        topEnd = 12.dp,
+                        bottomEnd = 12.dp,
+                        bottomStart = 12.dp
+                    )
+                }
+
+            val deletionColors = BubblePalette.colors(
+                colorScheme = MaterialTheme.colorScheme,
+                isMine = actualIsMine,
+                isRedacted = true
+            )
+            val bubbleColor = deletionColors.container
+            val textColor = deletionColors.content
+            val isDarkMode = isSystemInDarkTheme()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    if (actualIsMine) Arrangement.End else Arrangement.Start
+            ) {
+                MessageBubbleWithMenu(
+                    event = event,
+                    bubbleColor = bubbleColor,
+                    bubbleShape = bubbleShape,
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .then(
+                            if (isDarkMode) {
+                                Modifier.shadow(
+                                    elevation = 3.dp,
+                                    shape = bubbleShape,
+                                    ambientColor = Color.White.copy(alpha = 0.15f),
+                                    spotColor = Color.White.copy(alpha = 0.2f)
+                                )
+                            } else {
+                                Modifier
+                            }
+                        ),
+                    isMine = actualIsMine,
+                    myUserId = myUserId,
+                    powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                    onReply = { onReply(event) },
+                    onReact = { onReact(event) },
+                    onEdit = { onEdit(event) },
+                    onDelete = { onDelete(event) },
+                    appViewModel = appViewModel,
+                    onBubbleClick = { onThreadClick(event) },
+                    onShowEditHistory = null
+                ) {
+                    Text(
+                        text = deletionMessage,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = textColor,
+                        fontStyle = FontStyle.Italic,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                    )
+                }
+            }
+            return
+        }
+
         if (stickerMessage != null) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "TimelineEventItem: Successfully extracted sticker, rendering StickerMessageContent with isConsecutive=$isConsecutive")
             StickerMessageContent(
@@ -874,7 +956,7 @@ private fun RoomMediaMessageContent(
             }
 
         val deletionColors = BubblePalette.colors(
-            colorScheme = colorScheme,
+            colorScheme = MaterialTheme.colorScheme,
             isMine = actualIsMine,
             isRedacted = true
         )
@@ -2327,6 +2409,104 @@ private fun StickerMessageContent(
         "Andromuks",
         "StickerMessageContent: Rendering sticker event ${event.eventId}, isConsecutive=$isConsecutive"
     )
+
+    // Show deletion bubble if redacted
+    if (event.redactedBy != null) {
+        val redactionEvent = appViewModel?.getRedactionEvent(event.eventId)
+        val deletionMessage =
+            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
+                redactionEvent,
+                userProfileCache
+            )
+
+        val bubbleShape =
+            if (actualIsMine) {
+                RoundedCornerShape(
+                    topStart = 12.dp,
+                    topEnd = 2.dp,
+                    bottomEnd = 12.dp,
+                    bottomStart = 12.dp
+                )
+            } else {
+                RoundedCornerShape(
+                    topStart = 2.dp,
+                    topEnd = 12.dp,
+                    bottomEnd = 12.dp,
+                    bottomStart = 12.dp
+                )
+            }
+
+        val deletionColors = BubblePalette.colors(
+            colorScheme = MaterialTheme.colorScheme,
+            isMine = actualIsMine,
+            isRedacted = true
+        )
+        val bubbleColor = deletionColors.container
+        val textColor = deletionColors.content
+        val isDarkMode = isSystemInDarkTheme()
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement =
+                if (actualIsMine) Arrangement.End else Arrangement.Start,
+            verticalAlignment = Alignment.Top
+        ) {
+            if (actualIsMine && readReceipts.isNotEmpty()) {
+                AnimatedInlineReadReceiptAvatars(
+                    receipts = readReceipts,
+                    userProfileCache = userProfileCache,
+                    homeserverUrl = homeserverUrl,
+                    authToken = authToken,
+                    appViewModel = appViewModel,
+                    messageSender = event.sender,
+                    eventId = event.eventId,
+                    roomId = event.roomId,
+                    onUserClick = onUserClick
+                )
+                Spacer(modifier = Modifier.width(ReadReceiptGap))
+            }
+
+            MessageBubbleWithMenu(
+                event = event,
+                bubbleColor = bubbleColor,
+                bubbleShape = bubbleShape,
+                modifier = Modifier
+                    .padding(top = 4.dp)
+                    .then(
+                        if (isDarkMode) {
+                            Modifier.shadow(
+                                elevation = 3.dp,
+                                shape = bubbleShape,
+                                ambientColor = Color.White.copy(alpha = 0.15f),
+                                spotColor = Color.White.copy(alpha = 0.2f)
+                            )
+                        } else {
+                            Modifier
+                        }
+                    ),
+                isMine = actualIsMine,
+                myUserId = myUserId,
+                powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                onReply = { onReply(event) },
+                onReact = { onReact(event) },
+                onEdit = { onEdit(event) },
+                onDelete = { onDelete(event) },
+                appViewModel = appViewModel,
+                onBubbleClick = { onThreadClick(event) },
+                onShowEditHistory = null
+            ) {
+                Text(
+                    text = deletionMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = textColor,
+                    fontStyle = FontStyle.Italic,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                )
+            }
+        }
+        return
+    }
+
     val stickerMessage = extractStickerFromEvent(event)
     val stickerIsThreadMessage = event.isThreadMessage()
     val colorScheme = MaterialTheme.colorScheme
