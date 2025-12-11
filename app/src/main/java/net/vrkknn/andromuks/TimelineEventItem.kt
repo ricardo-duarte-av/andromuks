@@ -886,38 +886,43 @@ private fun RoomMediaMessageContent(
         
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement =
-                if (actualIsMine) Arrangement.End else Arrangement.Start
+            horizontalArrangement = if (actualIsMine) Arrangement.End else Arrangement.Start
         ) {
-            Surface(
-                color = bubbleColor,
-                shape = bubbleShape,
-                tonalElevation = 3.dp,  // Provides color changes for elevation
-                shadowElevation = if (isDarkMode) 0.dp else 3.dp,  // Shadows in light mode only
+            MessageBubbleWithMenu(
+                event = event,
+                bubbleColor = bubbleColor,
+                bubbleShape = bubbleShape,
                 modifier = Modifier
                     .padding(top = 4.dp)
-                    // In dark mode, add a light glow effect
                     .then(
                         if (isDarkMode) {
                             Modifier.shadow(
                                 elevation = 3.dp,
                                 shape = bubbleShape,
-                                ambientColor = Color.White.copy(alpha = 0.15f), // Light glow in dark mode
+                                ambientColor = Color.White.copy(alpha = 0.15f),
                                 spotColor = Color.White.copy(alpha = 0.2f)
                             )
                         } else {
                             Modifier
                         }
-                    )
+                    ),
+                isMine = actualIsMine,
+                myUserId = myUserId,
+                powerLevels = appViewModel?.currentRoomState?.powerLevels,
+                onReply = { onReply(event) },
+                onReact = { onReact(event) },
+                onEdit = { onEdit(event) },
+                onDelete = { onDelete(event) },
+                appViewModel = appViewModel,
+                onBubbleClick = { onThreadClick(event) },
+                onShowEditHistory = null
             ) {
                 Text(
                     text = deletionMessage,
                     style = MaterialTheme.typography.bodyMedium,
                     color = textColor,
-                    fontStyle =
-                        FontStyle.Italic, // Make deletion messages italic
-                    modifier =
-                        Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                    fontStyle = FontStyle.Italic, // Make deletion messages italic
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
                 )
             }
         }

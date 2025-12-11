@@ -7568,6 +7568,7 @@ class AppViewModel : ViewModel() {
                 it.tempEventId == event.eventId || it.txnId == event.localContent?.optString("transaction_id")
             }
 
+            val isRedacted = event.redactedBy != null
             RenderableEventEntity(
                 eventId = event.eventId,
                 roomId = event.roomId,
@@ -7578,7 +7579,7 @@ class AppViewModel : ViewModel() {
                 msgType = msgType,
                 body = body,
                 formattedBody = formattedBody,
-                isRedacted = event.redactedBy != null,
+                isRedacted = isRedacted,
                 isEdited = false, // TODO: enrich using version metadata
                 replyToEventId = replyTo,
                 threadRootEventId = threadRoot,
@@ -7588,7 +7589,12 @@ class AppViewModel : ViewModel() {
                 decryptedType = event.decryptedType,
                 transactionId = localEcho?.txnId,
                 localEchoStatus = localEcho?.status?.name,
-                localEchoError = localEcho?.errorMessage
+                localEchoError = localEcho?.errorMessage,
+                deletedBody = if (isRedacted) body else null,
+                deletedFormattedBody = if (isRedacted) formattedBody else null,
+                deletedMsgType = if (isRedacted) msgType else null,
+                deletedContentJson = if (isRedacted) contentForBody?.toString() else null,
+                redactionReason = if (isRedacted) redactionCache[event.eventId]?.content?.optString("reason")?.takeIf { it.isNotBlank() } else null
             )
         }
 
@@ -7684,6 +7690,31 @@ class AppViewModel : ViewModel() {
             }
 
             val aggregatedReactions = entity.aggregatedReactionsJson?.let { JSONObject(it) }
+            val localContent = JSONObject()
+            if (!entity.deletedBody.isNullOrBlank()) {
+                localContent.put("deleted_body", entity.deletedBody)
+            }
+            if (!entity.deletedFormattedBody.isNullOrBlank()) {
+                localContent.put("deleted_formatted_body", entity.deletedFormattedBody)
+            }
+            if (!entity.deletedMsgType.isNullOrBlank()) {
+                localContent.put("deleted_msgtype", entity.deletedMsgType)
+            }
+            if (!entity.deletedContentJson.isNullOrBlank()) {
+                localContent.put("deleted_content_json", entity.deletedContentJson)
+            }
+            if (!entity.redactionReason.isNullOrBlank()) {
+                localContent.put("redaction_reason", entity.redactionReason)
+            }
+            if (!entity.transactionId.isNullOrBlank()) {
+                localContent.put("transaction_id", entity.transactionId)
+            }
+            if (!entity.localEchoStatus.isNullOrBlank()) {
+                localContent.put("local_echo_status", entity.localEchoStatus)
+            }
+            if (!entity.localEchoError.isNullOrBlank()) {
+                localContent.put("local_echo_error", entity.localEchoError)
+            }
 
             TimelineEvent(
                 rowid = entity.timelineRowId,
@@ -7699,7 +7730,7 @@ class AppViewModel : ViewModel() {
                 decryptedType = entity.decryptedType,
                 unsigned = null,
                 redactedBy = entity.isRedacted.takeIf { it }?.let { "renderable_redaction" },
-                localContent = null,
+                localContent = if (localContent.length() > 0) localContent else null,
                 relationType = entity.threadRootEventId?.let { "m.thread" },
                 relatesTo = entity.threadRootEventId,
                 aggregatedReactions = aggregatedReactions
@@ -7805,7 +7836,11 @@ class AppViewModel : ViewModel() {
             decryptedType = "m.room.message",
             transactionId = echo.txnId,
             localEchoStatus = echo.status.name,
-            localEchoError = echo.errorMessage
+            localEchoError = echo.errorMessage,
+            deletedBody = null,
+            deletedFormattedBody = null,
+            deletedMsgType = null,
+            redactionReason = null
         )
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -7868,79 +7903,204 @@ class AppViewModel : ViewModel() {
         val context = appContext?.applicationContext ?: return
         if (renderables.isEmpty() || maxFetch <= 0) return
 
-        // Collect unique referenced IDs
-        val referencedIds = buildSet {
-            renderables.forEach { r ->
-                r.replyToEventId?.let { add(it) }
-                r.threadRootEventId?.let { add(it) }
-            }
-        }
-        if (referencedIds.isEmpty()) return
-
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
                 val renderableDao = db.renderableEventDao()
-
-                // Check which references are missing
-                val existing = renderableDao.getByIds(referencedIds.toList()).map { it.eventId }.toSet()
-                val missing = (referencedIds - existing).take(maxFetch)
-                if (missing.isEmpty()) return@launch
-
-                // Fetch missing targets from raw events
                 val eventDao = db.eventDao()
-                val missingEntities = missing.mapNotNull { id ->
-                    eventDao.getEventById(roomId, id)
+
+                // ---------- 1) Hydrate missing reply/thread targets ----------
+                val referencedIds = buildSet {
+                    renderables.forEach { r ->
+                        r.replyToEventId?.let { add(it) }
+                        r.threadRootEventId?.let { add(it) }
+                    }
+                }
+                if (referencedIds.isNotEmpty()) {
+                    // Check which references are missing
+                    val existing = renderableDao.getByIds(referencedIds.toList()).map { it.eventId }.toSet()
+                    val missing = (referencedIds - existing).take(maxFetch)
+                    if (missing.isNotEmpty()) {
+                        // Fetch missing targets from raw events
+                        val missingEntities = missing.mapNotNull { id ->
+                            eventDao.getEventById(roomId, id)
+                        }
+
+                        // Convert to TimelineEvent then to RenderableEventEntity
+                        val missingTimeline = missingEntities.mapNotNull { eventEntityToTimelineEvent(it) }
+                        if (missingTimeline.isNotEmpty()) {
+                            val renderableMissing = missingTimeline.map { event ->
+                                // Derive minimal renderable row
+                                val contentForBody = when {
+                                    event.decryptedType == "m.room.message" -> event.decrypted
+                                    else -> event.content
+                                }
+                                val msgType = contentForBody?.optString("msgtype")?.takeIf { it.isNotBlank() }
+                                val body = contentForBody?.optString("body")?.takeIf { it.isNotBlank() }
+                                val formattedBody = contentForBody
+                                    ?.optJSONObject("formatted_body")
+                                    ?.toString()
+                                    ?: contentForBody
+                                        ?.optString("formatted_body")
+                                        ?.takeIf { it.isNotBlank() }
+                                val replyTo = event.getReplyInfo()?.eventId
+                                val threadRoot = event.getThreadInfo()?.threadRootEventId
+                                val aggregatedReactionsJson = event.aggregatedReactions?.toString()
+
+                                RenderableEventEntity(
+                                    eventId = event.eventId,
+                                    roomId = event.roomId,
+                                    timelineRowId = event.timelineRowid,
+                                    timestamp = event.timestamp,
+                                    sender = event.sender,
+                                    eventType = event.decryptedType ?: event.type,
+                                    msgType = msgType,
+                                    body = body,
+                                    formattedBody = formattedBody,
+                                    isRedacted = event.redactedBy != null,
+                                    isEdited = false,
+                                    replyToEventId = replyTo,
+                                    threadRootEventId = threadRoot,
+                                    aggregatedReactionsJson = aggregatedReactionsJson,
+                                    parentPreviewJson = null,
+                                    contentJson = contentForBody?.toString(),
+                                    decryptedType = event.decryptedType
+                                )
+                            }
+
+                            renderableDao.upsert(renderableMissing)
+                        }
+                    }
                 }
 
-                if (missingEntities.isEmpty()) return@launch
-
-                // Convert to TimelineEvent then to RenderableEventEntity
-                val missingTimeline = missingEntities.mapNotNull { eventEntityToTimelineEvent(it) }
-                if (missingTimeline.isEmpty()) return@launch
-
-                val renderableMissing = missingTimeline.map { event ->
-                    // Derive minimal renderable row
-                    val contentForBody = when {
-                        event.decryptedType == "m.room.message" -> event.decrypted
-                        else -> event.content
+                // ---------- 2) Backfill missing deleted snapshots for redacted events ----------
+                val needsSnapshot = renderables
+                    .filter { r ->
+                        r.isRedacted &&
+                            r.deletedBody.isNullOrBlank() &&
+                            r.deletedFormattedBody.isNullOrBlank() &&
+                            r.deletedMsgType.isNullOrBlank() &&
+                            r.deletedContentJson.isNullOrBlank()
                     }
-                    val msgType = contentForBody?.optString("msgtype")?.takeIf { it.isNotBlank() }
-                    val body = contentForBody?.optString("body")?.takeIf { it.isNotBlank() }
-                    val formattedBody = contentForBody
-                        ?.optJSONObject("formatted_body")
-                        ?.toString()
-                        ?: contentForBody
-                            ?.optString("formatted_body")
-                            ?.takeIf { it.isNotBlank() }
-                    val replyTo = event.getReplyInfo()?.eventId
-                    val threadRoot = event.getThreadInfo()?.threadRootEventId
-                    val aggregatedReactionsJson = event.aggregatedReactions?.toString()
+                    .take(maxFetch)
 
-                    RenderableEventEntity(
-                        eventId = event.eventId,
-                        roomId = event.roomId,
-                        timelineRowId = event.timelineRowid,
-                        timestamp = event.timestamp,
-                        sender = event.sender,
-                        eventType = event.decryptedType ?: event.type,
-                        msgType = msgType,
-                        body = body,
-                        formattedBody = formattedBody,
-                        isRedacted = event.redactedBy != null,
-                        isEdited = false,
-                        replyToEventId = replyTo,
-                        threadRootEventId = threadRoot,
-                        aggregatedReactionsJson = aggregatedReactionsJson,
-                        parentPreviewJson = null,
-                        contentJson = contentForBody?.toString(),
-                        decryptedType = event.decryptedType
+                if (needsSnapshot.isNotEmpty()) {
+                    val updated = needsSnapshot.mapNotNull { r ->
+                        val raw = eventDao.getEventById(roomId, r.eventId) ?: return@mapNotNull null
+                        val event = eventEntityToTimelineEvent(raw) ?: return@mapNotNull null
+                        val contentForBody = when {
+                            event.decryptedType == "m.room.message" -> event.decrypted
+                            else -> event.content
+                        }
+                        val msgType = contentForBody?.optString("msgtype")?.takeIf { it.isNotBlank() }
+                        val body = contentForBody?.optString("body")?.takeIf { it.isNotBlank() }
+                        val formattedBody = contentForBody
+                            ?.optJSONObject("formatted_body")
+                            ?.toString()
+                            ?: contentForBody
+                                ?.optString("formatted_body")
+                                ?.takeIf { it.isNotBlank() }
+                        r.copy(
+                            deletedBody = body,
+                            deletedFormattedBody = formattedBody,
+                            deletedMsgType = msgType,
+                            deletedContentJson = contentForBody?.toString(),
+                            redactionReason = r.redactionReason
+                                ?: redactionCache[event.eventId]?.content?.optString("reason")?.takeIf { it.isNotBlank() }
+                                ?: event.content?.optString("reason")?.takeIf { it.isNotBlank() }
+                        )
+                    }
+                    if (updated.isNotEmpty()) {
+                        renderableDao.upsert(updated)
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "hydrateMissingRenderableReferences: error", e)
+            }
+        }
+    }
+
+    /**
+     * Load an original event (and minimal context) from on-disk DB for deleted-content preview.
+     * Returns the event with redaction cleared so it renders as originally sent.
+     */
+    suspend fun loadOriginalEventWithContext(
+        roomId: String,
+        eventId: String
+    ): SingleEventLoadResult {
+        val context = appContext?.applicationContext
+            ?: return SingleEventLoadResult(null, error = "Missing application context")
+
+        return withContext(Dispatchers.IO) {
+            try {
+                val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                val renderableDao = db.renderableEventDao()
+                val eventDao = db.eventDao()
+
+                var target: TimelineEvent? = null
+
+                // 1) Prefer renderable snapshot (has deletedContentJson/deleted* fields)
+                val renderable = renderableDao.getById(eventId)
+                if (renderable != null) {
+                    val contentJsonStr = renderable.deletedContentJson ?: renderable.contentJson
+                    val contentObj = contentJsonStr?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
+
+                    val localContent = JSONObject()
+                    renderable.deletedBody?.let { localContent.put("deleted_body", it) }
+                    renderable.deletedFormattedBody?.let { localContent.put("deleted_formatted_body", it) }
+                    renderable.deletedMsgType?.let { localContent.put("deleted_msgtype", it) }
+                    renderable.redactionReason?.let { localContent.put("redaction_reason", it) }
+
+                    target = TimelineEvent(
+                        rowid = renderable.timelineRowId,
+                        timelineRowid = renderable.timelineRowId,
+                        roomId = renderable.roomId,
+                        eventId = renderable.eventId,
+                        sender = renderable.sender,
+                        type = renderable.eventType,
+                        timestamp = renderable.timestamp,
+                        content = contentObj,
+                        stateKey = null,
+                        decrypted = null,
+                        decryptedType = renderable.decryptedType,
+                        unsigned = null,
+                        redactedBy = null, // clear redaction so it renders
+                        localContent = if (localContent.length() > 0) localContent else null,
+                        relationType = renderable.threadRootEventId?.let { "m.thread" },
+                        relatesTo = renderable.threadRootEventId,
+                        aggregatedReactions = renderable.aggregatedReactionsJson?.let { runCatching { JSONObject(it) }.getOrNull() }
                     )
                 }
 
-                renderableDao.upsert(renderableMissing)
+                // 2) Fallback: raw event from DB
+                if (target == null) {
+                    val raw = eventDao.getEventById(roomId, eventId)
+                    if (raw != null) {
+                        target = eventEntityToTimelineEvent(raw)?.copy(redactedBy = null)
+                    }
+                }
+
+                if (target == null) {
+                    return@withContext SingleEventLoadResult(null, error = "Original event not found")
+                }
+
+                // 3) Minimal context: reply target and thread root if present
+                val contextEvents = mutableListOf<TimelineEvent>()
+                val contextIds = buildList {
+                    target?.getReplyInfo()?.eventId?.let { add(it) }
+                    target?.getThreadInfo()?.threadRootEventId?.let { add(it) }
+                }.distinct()
+
+                contextIds.forEach { id ->
+                    val raw = eventDao.getEventById(roomId, id)
+                    val te = raw?.let { eventEntityToTimelineEvent(it) }
+                    if (te != null) contextEvents.add(te)
+                }
+
+                SingleEventLoadResult(target, contextEvents)
             } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "hydrateMissingRenderableReferences: error", e)
+                android.util.Log.e("Andromuks", "loadOriginalEventWithContext: failed for $eventId in $roomId", e)
+                SingleEventLoadResult(null, error = e.message)
             }
         }
     }
@@ -11296,6 +11456,13 @@ class AppViewModel : ViewModel() {
         }
         val txn = transactionId ?: existing?.transactionId
 
+        val redactionReason = if (event.redactedBy != null) {
+            redactionCache[event.eventId]?.content?.optString("reason")?.takeIf { it.isNotBlank() }
+                ?: event.content?.optString("reason")?.takeIf { it.isNotBlank() }
+        } else {
+            null
+        }
+
         return RenderableEventEntity(
             eventId = event.eventId,
             roomId = event.roomId,
@@ -11316,7 +11483,12 @@ class AppViewModel : ViewModel() {
             decryptedType = event.decryptedType,
             transactionId = txn,
             localEchoStatus = statusString,
-            localEchoError = errorString
+            localEchoError = errorString,
+            deletedBody = if (event.redactedBy != null) existing?.deletedBody ?: body else null,
+            deletedFormattedBody = if (event.redactedBy != null) existing?.deletedFormattedBody ?: formattedBody else null,
+            deletedMsgType = if (event.redactedBy != null) existing?.deletedMsgType ?: msgType else null,
+            deletedContentJson = if (event.redactedBy != null) existing?.deletedContentJson ?: contentForBody?.toString() else null,
+            redactionReason = if (event.redactedBy != null) (existing?.redactionReason ?: redactionReason) else existing?.redactionReason
         )
     }
     
@@ -15825,6 +15997,12 @@ data class LocalEcho(
     val timestamp: Long,
     val status: LocalEchoStatus = LocalEchoStatus.PENDING,
     val errorMessage: String? = null
+)
+
+data class SingleEventLoadResult(
+    val event: TimelineEvent?,
+    val contextEvents: List<TimelineEvent> = emptyList(),
+    val error: String? = null
 )
 
 /**

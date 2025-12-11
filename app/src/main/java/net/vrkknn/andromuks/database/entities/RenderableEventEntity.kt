@@ -54,6 +54,16 @@ data class RenderableEventEntity(
     /** Local echo status: PENDING/SENT/FAILED when applicable. */
     val localEchoStatus: String? = null,
     /** Local echo error message when FAILED. */
-    val localEchoError: String? = null
+    val localEchoError: String? = null,
+    /** Snapshot of message content before redaction (plain). */
+    val deletedBody: String? = null,
+    /** Snapshot of message content before redaction (formatted/HTML). */
+    val deletedFormattedBody: String? = null,
+    /** Snapshot of message msgtype before redaction. */
+    val deletedMsgType: String? = null,
+    /** Snapshot of full content JSON before redaction (for media). */
+    val deletedContentJson: String? = null,
+    /** Redaction reason if provided. */
+    val redactionReason: String? = null
 )
 

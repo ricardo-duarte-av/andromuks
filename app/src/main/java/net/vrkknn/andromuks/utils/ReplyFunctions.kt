@@ -1,12 +1,15 @@
 package net.vrkknn.andromuks.utils
 
 import net.vrkknn.andromuks.BuildConfig
+import kotlinx.coroutines.launch
+import net.vrkknn.andromuks.utils.SingleEventRendererDialog
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.Card
@@ -43,6 +46,8 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.RowScope
@@ -58,6 +63,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +73,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
@@ -248,6 +255,9 @@ fun Modifier.messageBubbleMenu(
     var showMenu by remember { mutableStateOf(false) }
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorDialogText by remember { mutableStateOf<String?>(null) }
+    var showDeletedDialog by remember { mutableStateOf(false) }
+    var deletedDialogText by remember { mutableStateOf<String?>(null) }
+    var deletedReason by remember { mutableStateOf<String?>(null) }
     
     return this
         .clickable { 
@@ -589,7 +599,7 @@ fun DeleteMessageDialog(
  * Message bubble wrapper with popup menu functionality.
  * Provides long press/click to show menu with React, Reply, Edit, Delete options.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubbleWithMenu(
     event: TimelineEvent,
@@ -612,19 +622,68 @@ fun MessageBubbleWithMenu(
     var showMenu by remember { mutableStateOf(false) }
     var showErrorDialog by remember { mutableStateOf(false) }
     var errorDialogText by remember { mutableStateOf<String?>(null) }
+    var showDeletedDialog by remember { mutableStateOf(false) }
+    var deletedDialogText by remember { mutableStateOf<String?>(null) }
+    var deletedReason by remember { mutableStateOf<String?>(null) }
     
     var bubbleBounds by remember { mutableStateOf(Rect.Zero) }
     val hapticFeedback = LocalHapticFeedback.current
+    val coroutineScope = rememberCoroutineScope()
+    var deletedLoading by remember { mutableStateOf(false) }
+    var deletedError by remember { mutableStateOf<String?>(null) }
+    var loadedDeletedEvent by remember { mutableStateOf<TimelineEvent?>(null) }
+    var loadedDeletedContext by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
 
     // Local echo status (pending/failed) for coloring and menu options
+    val isRedacted = event.redactedBy != null
     val localEchoStatus = remember(event.eventId, appViewModel?.updateCounter) {
-        appViewModel?.getLocalEchoStatus(event.eventId)
+        if (isRedacted) null else appViewModel?.getLocalEchoStatus(event.eventId)
     }
     val localEchoError = remember(event.eventId, appViewModel?.updateCounter) {
-        appViewModel?.getLocalEchoError(event.eventId)
+        if (isRedacted) null else appViewModel?.getLocalEchoError(event.eventId)
     }
-    val isFailedEcho = localEchoStatus == LocalEchoStatus.FAILED
-    val isPendingEcho = localEchoStatus == LocalEchoStatus.PENDING || (localEchoStatus == null && event.eventId.startsWith("~txn_"))
+    val isFailedEcho = !isRedacted && localEchoStatus == LocalEchoStatus.FAILED
+    val isPendingEcho = !isRedacted && (localEchoStatus == LocalEchoStatus.PENDING || (localEchoStatus == null && event.eventId.startsWith("~txn_")))
+    val deletedBody = event.localContent?.optString("deleted_body")?.takeIf { it.isNotBlank() }
+    val deletedFormattedBody = event.localContent?.optString("deleted_formatted_body")?.takeIf { it.isNotBlank() }
+    val deletedMsgType = event.localContent?.optString("deleted_msgtype")?.takeIf { it.isNotBlank() }
+    val deletedContentJson = event.localContent?.optString("deleted_content_json")?.takeIf { it.isNotBlank() }
+    val redactionReason = event.localContent?.optString("redaction_reason")?.takeIf { it.isNotBlank() }
+    val deletedContentSummary = remember(event.eventId, deletedBody, deletedFormattedBody, deletedMsgType, deletedContentJson) {
+        when {
+            deletedFormattedBody != null -> deletedFormattedBody
+            deletedBody != null -> deletedBody
+            deletedContentJson != null -> {
+                val obj = runCatching { org.json.JSONObject(deletedContentJson) }.getOrNull()
+                val url = obj?.optString("url")?.takeIf { it.isNotBlank() }
+                val fileName = obj
+                    ?.optJSONObject("info")
+                    ?.optString("name")
+                    ?.takeIf { it.isNotBlank() }
+                    ?: obj?.optString("body")?.takeIf { it.isNotBlank() }
+                val mime = obj
+                    ?.optJSONObject("info")
+                    ?.optString("mimetype")
+                    ?.takeIf { it.isNotBlank() }
+                    ?: obj?.optString("mimetype")?.takeIf { it.isNotBlank() }
+                val msgTypeLabel = deletedMsgType ?: obj?.optString("msgtype")?.takeIf { it.isNotBlank() }
+                listOfNotNull(
+                    msgTypeLabel?.let { "Deleted content ($it)" },
+                    fileName?.let { "Name: $it" },
+                    mime?.let { "MIME: $it" },
+                    url?.let { "URL: $it" }
+                ).joinToString("\n").ifBlank { "Deleted content (no preview available)" }
+            }
+            deletedMsgType != null -> "Deleted content (${deletedMsgType})"
+            else -> null
+        }
+    }
+    val hasDeletedSnapshot = event.redactedBy != null && (
+        deletedBody != null ||
+            deletedFormattedBody != null ||
+            deletedMsgType != null ||
+            deletedContentJson != null
+        )
 
     // Highlight animation when this event is the active scroll target
     val scrollHighlightState = LocalScrollHighlightState.current
@@ -719,20 +778,19 @@ fun MessageBubbleWithMenu(
                     bubbleBounds = layoutCoordinates.boundsInWindow()
                     //android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Bubble bounds: $bubbleBounds")
                 }
-                .pointerInput(showMenu) {
-                    detectTapGestures(
-                        onLongPress = { 
-                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Long press detected")
-                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                            showMenu = true 
-                        },
-                        onTap = {
-                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Regular tap detected")
-                            // If there's a bubble click handler (e.g., for threads), call it
-                            onBubbleClick?.invoke()
-                        }
-                    )
-                }
+                .combinedClickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {
+                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Regular tap detected")
+                        onBubbleClick?.invoke()
+                    },
+                    onLongClick = {
+                        if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Long press detected")
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        showMenu = true
+                    }
+                )
                 // In dark mode, add a light glow effect
                 .then(
                     if (isDarkMode) {
@@ -866,6 +924,39 @@ fun MessageBubbleWithMenu(
                                     )
                                 }
                             } else {
+                                if (hasDeletedSnapshot) {
+                                    IconButton(
+                                        onClick = {
+                                            showMenu = false
+                                            deletedDialogText = deletedContentSummary
+                                            deletedReason = redactionReason
+                                            deletedError = null
+                                            loadedDeletedEvent = null
+                                            loadedDeletedContext = emptyList()
+                                            showDeletedDialog = true
+                                            if (appViewModel != null) {
+                                                deletedLoading = true
+                                                coroutineScope.launch {
+                                                    val result = appViewModel.loadOriginalEventWithContext(
+                                                        roomId = event.roomId,
+                                                        eventId = event.eventId
+                                                    )
+                                                    deletedLoading = false
+                                                    loadedDeletedEvent = result.event
+                                                    loadedDeletedContext = result.contextEvents
+                                                    deletedError = result.error
+                                                }
+                                            }
+                                        },
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Info,
+                                            contentDescription = "Show deleted content",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
                                 // React button
                                 IconButton(
                                     onClick = {
@@ -969,6 +1060,70 @@ fun MessageBubbleWithMenu(
                     }
                 }
             )
+        }
+        if (showDeletedDialog) {
+            when {
+                deletedLoading -> {
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { showDeletedDialog = false },
+                        title = { Text("Loading original message") },
+                        text = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                Text("Fetching from local database…")
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showDeletedDialog = false }) {
+                                Text("Close")
+                            }
+                        }
+                    )
+                }
+                loadedDeletedEvent != null -> {
+                    SingleEventRendererDialog(
+                        event = loadedDeletedEvent,
+                        contextEvents = loadedDeletedContext,
+                        appViewModel = appViewModel,
+                        homeserverUrl = appViewModel?.homeserverUrl ?: "",
+                        authToken = appViewModel?.authToken ?: "",
+                        onDismiss = { showDeletedDialog = false },
+                        error = deletedError
+                    )
+                }
+                else -> {
+                    val fallbackText = deletedError ?: deletedDialogText ?: "Original message not found"
+                    androidx.compose.material3.AlertDialog(
+                        onDismissRequest = { showDeletedDialog = false },
+                        title = { Text("Deleted message") },
+                        text = {
+                            Column {
+                                Text(
+                                    text = fallbackText,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                deletedReason?.let { reason ->
+                                    Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        text = "Reason: $reason",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontStyle = FontStyle.Italic
+                                    )
+                                }
+                            }
+                        },
+                        confirmButton = {
+                            TextButton(onClick = { showDeletedDialog = false }) {
+                                Text("Close")
+                            }
+                        }
+                    )
+                }
+            }
         }
     }
 }
