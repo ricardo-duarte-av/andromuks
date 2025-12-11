@@ -1693,7 +1693,10 @@ class AppViewModel : ViewModel() {
         }
         
         // Add retried operations back with updated retry count (addPendingOperation already syncs)
-        operationsToRetry.forEach { addPendingOperation(it) }
+        // Skip command_* operations here because sendWebSocketCommand() will re-track them with the new request_id.
+        operationsToRetry
+            .filterNot { it.type.startsWith("command_") }
+            .forEach { addPendingOperation(it) }
         
         // Retry the operations
         if (operationsToRetry.isNotEmpty()) {
@@ -1726,6 +1729,22 @@ class AppViewModel : ViewModel() {
                         @Suppress("UNCHECKED_CAST")
                         val data = operation.data["data"] as? Map<String, Any>
                         if (requestId != null && data != null) {
+                            // SAFETY GUARD: prevent duplicate mark_read storms when acknowledgments never arrive
+                            if (command == "mark_read") {
+                                val roomId = data["room_id"] as? String
+                                val eventId = data["event_id"] as? String
+                                if (roomId != null && eventId != null) {
+                                    val lastSent = lastMarkReadSent[roomId]
+                                    if (lastSent == eventId) {
+                                        android.util.Log.w(
+                                            "Andromuks",
+                                            "AppViewModel: Skipping retry for duplicate mark_read for room $roomId event $eventId"
+                                        )
+                                        return@forEach
+                                    }
+                                    lastMarkReadSent[roomId] = eventId
+                                }
+                            }
                             // Generate new request_id for retry (can't reuse old one)
                             val newRequestId = requestIdCounter++
                             android.util.Log.w("Andromuks", "AppViewModel: Retrying command '$command' with new request_id: $newRequestId (was: $requestId)")
@@ -6511,6 +6530,22 @@ class AppViewModel : ViewModel() {
                                 val data = operation.data["data"] as? Map<String, Any>
                                 
                                 if (requestId != null && data != null) {
+                                    // SAFETY GUARD: prevent duplicate mark_read storms when acknowledgments never arrive
+                                    if (command == "mark_read") {
+                                        val roomId = data["room_id"] as? String
+                                        val eventId = data["event_id"] as? String
+                                        if (roomId != null && eventId != null) {
+                                            val lastSent = lastMarkReadSent[roomId]
+                                            if (lastSent == eventId) {
+                                                android.util.Log.w(
+                                                    "Andromuks",
+                                                    "AppViewModel: Skipping retry for duplicate mark_read for room $roomId event $eventId"
+                                                )
+                                                return@forEachIndexed
+                                            }
+                                            lastMarkReadSent[roomId] = eventId
+                                        }
+                                    }
                                     // Generate new request_id for retry (can't reuse old one)
                                     val newRequestId = requestIdCounter++
                                     android.util.Log.w("Andromuks", "AppViewModel: Retrying command '$command' with new request_id: $newRequestId (was: $requestId, attempt ${operation.retryCount + 1})")
