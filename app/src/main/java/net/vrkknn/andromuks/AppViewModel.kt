@@ -7740,7 +7740,13 @@ class AppViewModel : ViewModel() {
             }
         }
 
+        // Map each renderable row back to a TimelineEvent. Where possible, hydrate
+        // missing fields (e.g., unsigned/prev_content for state diffs) from the
+        // existing in-memory timeline cache so narrator components can compute
+        // accurate change descriptions.
         return filtered.map { entity ->
+            // Look up the original timeline event (if present) to reuse metadata
+            val cached = timelineEvents.firstOrNull { it.eventId == entity.eventId }
             val contentJson = entity.contentJson?.let { JSONObject(it) } ?: JSONObject()
 
             // Ensure relations are present in content for reply/thread helpers.
@@ -7797,15 +7803,16 @@ class AppViewModel : ViewModel() {
                 type = entity.eventType,
                 timestamp = entity.timestamp,
                 content = contentJson,
-                stateKey = null,
-                decrypted = null,
-                decryptedType = entity.decryptedType,
-                unsigned = null,
-                redactedBy = entity.isRedacted.takeIf { it }?.let { "renderable_redaction" },
-                localContent = if (localContent.length() > 0) localContent else null,
-                relationType = entity.threadRootEventId?.let { "m.thread" },
-                relatesTo = entity.threadRootEventId,
-                aggregatedReactions = aggregatedReactions
+                stateKey = cached?.stateKey,
+                decrypted = cached?.decrypted,
+                decryptedType = entity.decryptedType ?: cached?.decryptedType,
+                unsigned = cached?.unsigned,
+                redactedBy = entity.isRedacted.takeIf { it }?.let { "renderable_redaction" }
+                    ?: cached?.redactedBy,
+                localContent = if (localContent.length() > 0) localContent else cached?.localContent,
+                relationType = entity.threadRootEventId?.let { "m.thread" } ?: cached?.relationType,
+                relatesTo = entity.threadRootEventId ?: cached?.relatesTo,
+                aggregatedReactions = aggregatedReactions ?: cached?.aggregatedReactions
             )
         }
     }
