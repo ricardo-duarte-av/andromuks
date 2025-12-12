@@ -639,11 +639,18 @@ fun MessageBubbleWithMenu(
     val localEchoStatus = remember(event.eventId, appViewModel?.updateCounter) {
         if (isRedacted) null else appViewModel?.getLocalEchoStatus(event.eventId)
     }
+    val localEchoStatusFromContent = remember(event.eventId) {
+        event.localContent
+            ?.optString("local_echo_status")
+            ?.takeIf { it.isNotBlank() }
+            ?.let { runCatching { LocalEchoStatus.valueOf(it) }.getOrNull() }
+    }
+    val effectiveEchoStatus = localEchoStatus ?: localEchoStatusFromContent
     val localEchoError = remember(event.eventId, appViewModel?.updateCounter) {
         if (isRedacted) null else appViewModel?.getLocalEchoError(event.eventId)
     }
-    val isFailedEcho = !isRedacted && localEchoStatus == LocalEchoStatus.FAILED
-    val isPendingEcho = !isRedacted && (localEchoStatus == LocalEchoStatus.PENDING || (localEchoStatus == null && event.eventId.startsWith("~txn_")))
+    val isPendingEcho = !isRedacted && (effectiveEchoStatus == LocalEchoStatus.PENDING || (effectiveEchoStatus == null && event.eventId.startsWith("~txn_")))
+    val isFailedEcho = !isRedacted && effectiveEchoStatus == LocalEchoStatus.FAILED
     val deletedBody = event.localContent?.optString("deleted_body")?.takeIf { it.isNotBlank() }
     val deletedFormattedBody = event.localContent?.optString("deleted_formatted_body")?.takeIf { it.isNotBlank() }
     val deletedMsgType = event.localContent?.optString("deleted_msgtype")?.takeIf { it.isNotBlank() }
@@ -765,8 +772,8 @@ fun MessageBubbleWithMenu(
     
     // Adjust bubble color based on local echo state
     val bubbleColorAdjusted = when {
+        isPendingEcho -> MaterialTheme.colorScheme.tertiaryContainer // warning tone, softer than error
         isFailedEcho -> MaterialTheme.colorScheme.errorContainer
-        isPendingEcho -> MaterialTheme.colorScheme.surfaceVariant
         else -> bubbleColor
     }
 

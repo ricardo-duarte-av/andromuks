@@ -16,6 +16,7 @@ import net.vrkknn.andromuks.database.dao.EventDao
 import net.vrkknn.andromuks.database.dao.PendingRoomDao
 import net.vrkknn.andromuks.database.dao.ReactionDao
 import net.vrkknn.andromuks.database.dao.ReceiptDao
+import net.vrkknn.andromuks.database.dao.RoomListSummaryDao
 import net.vrkknn.andromuks.database.dao.RoomStateDao
 import net.vrkknn.andromuks.database.dao.RoomSummaryDao
 import net.vrkknn.andromuks.database.dao.SpaceDao
@@ -26,6 +27,7 @@ import net.vrkknn.andromuks.database.entities.EventEntity
 import net.vrkknn.andromuks.database.entities.PendingRoomEntity
 import net.vrkknn.andromuks.database.entities.ReactionEntity
 import net.vrkknn.andromuks.database.entities.ReceiptEntity
+import net.vrkknn.andromuks.database.entities.RoomListSummaryEntity
 import net.vrkknn.andromuks.database.entities.RoomStateEntity
 import net.vrkknn.andromuks.database.entities.RoomSummaryEntity
 import net.vrkknn.andromuks.database.entities.SpaceEntity
@@ -53,6 +55,7 @@ class SyncIngestor(private val context: Context) {
     private val roomStateDao = database.roomStateDao()
     private val receiptDao = database.receiptDao()
     private val reactionDao = database.reactionDao()
+    private val roomListSummaryDao = database.roomListSummaryDao()
     private val roomSummaryDao = database.roomSummaryDao()
     private val syncMetaDao = database.syncMetaDao()
     private val spaceDao = database.spaceDao()
@@ -867,8 +870,37 @@ class SyncIngestor(private val context: Context) {
                 }
             }
         }
+
+        // If DB-based preview failed (encrypted without decrypted payload in rawJson), re-scan current sync JSON to refresh preview/sender
+        if (lastEventId != null && (messagePreview.isNullOrBlank() || messageSender.isNullOrBlank())) {
+            fun scanForEventDetails(): Pair<String?, String?> {
+                // Prefer timeline (newest at end) then eventsArray
+                val sources = listOfNotNull(timeline, eventsArray)
+                for (src in sources) {
+                    for (i in src.length() - 1 downTo 0) {
+                        val obj = src.optJSONObject(i) ?: continue
+                        val evt = obj.optJSONObject("event") ?: obj // timeline has nested "event"
+                        if (evt == null) continue
+                        if (evt.optString("event_id") != lastEventId) continue
+                        val sender = evt.optString("sender").takeIf { it.isNotBlank() }
+                        val body = evt.optJSONObject("content")?.optString("body")
+                            ?: evt.optJSONObject("decrypted")?.optString("body")
+                        return sender to body
+                    }
+                }
+                return null to null
+            }
+            val (scannedSender, scannedBody) = scanForEventDetails()
+            if (!scannedSender.isNullOrBlank()) {
+                messageSender = scannedSender
+            }
+            if (!scannedBody.isNullOrBlank()) {
+                messagePreview = scannedBody
+            }
+        }
         
-        if (!shouldExtractPreview && messagePreview.isNullOrBlank()) {
+        // Fallback to existing summary values if we failed to extract (keeps older preview/sender instead of null)
+        if (messagePreview.isNullOrBlank()) {
             messagePreview = existingSummaryForPreview?.messagePreview
         }
         if (messageSender.isNullOrBlank()) {
@@ -885,6 +917,41 @@ class SyncIngestor(private val context: Context) {
             messagePreview = messagePreview
         )
         roomSummaryDao.upsert(summary)
+
+        // ALSO feed the room_list_summary table that the room list UI reads.
+        // Limit to message-bearing events so joins/reactions do not overwrite previews.
+        val lastMessageType = lastMessageEvent?.type ?: eventsArray?.let { arr ->
+            // If we fell back to eventsArray for lastEventId, try to recover its type
+            var foundType: String? = null
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val evt = obj.optJSONObject("event") ?: obj
+                if (evt.optString("event_id") == lastEventId) {
+                    foundType = evt.optString("type")
+                    break
+                }
+            }
+            foundType
+        }
+        val isMessageType = lastMessageType == "m.room.message" || lastMessageType == "m.room.encrypted"
+        if (isMessageType && lastEventId != null) {
+            val displayName = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: existingState?.name
+            val avatarMxc = meta?.optString("avatar")?.takeIf { it.isNotBlank() } ?: existingState?.avatarUrl
+            val isLowPriorityFlag = meta?.optBoolean("is_low_priority") ?: existingState?.isLowPriority ?: false
+            val listSummary = RoomListSummaryEntity(
+                roomId = roomId,
+                displayName = displayName,
+                avatarMxc = avatarMxc,
+                lastMessageEventId = lastEventId,
+                lastMessageSenderUserId = messageSender,
+                lastMessagePreview = messagePreview,
+                lastMessageTimestamp = lastTimestamp,
+                unreadCount = unreadMessages,
+                highlightCount = unreadHighlights,
+                isLowPriority = isLowPriorityFlag
+            )
+            roomListSummaryDao.upsert(listSummary)
+        }
         
         return hasPersistedEvents
     }

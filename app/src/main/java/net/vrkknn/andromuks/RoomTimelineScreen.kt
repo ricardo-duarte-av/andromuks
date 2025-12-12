@@ -185,7 +185,11 @@ sealed class TimelineItem {
         val isConsecutive: Boolean = false,
         val hasPerMessageProfile: Boolean = false
     ) : TimelineItem() {
-        override val stableKey: String get() = event.eventId
+        override val stableKey: String
+            get() = event.transactionId
+                ?: event.localContent?.optString("transaction_id")?.takeIf { it.isNotBlank() }
+                ?: event.unsigned?.optString("transaction_id")?.takeIf { it.isNotBlank() }
+                ?: event.eventId
     }
 
     data class DateDivider(val date: String) : TimelineItem() {

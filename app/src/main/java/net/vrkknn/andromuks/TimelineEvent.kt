@@ -21,7 +21,8 @@ data class TimelineEvent(
     val localContent: JSONObject? = null,
     val relationType: String? = null, // "m.thread" for thread messages
     val relatesTo: String? = null, // Thread root event ID for thread messages
-    val aggregatedReactions: JSONObject? = null
+    val aggregatedReactions: JSONObject? = null,
+    val transactionId: String? = null
 ) {
     companion object {
         fun fromJson(json: JSONObject): TimelineEvent {
@@ -33,6 +34,7 @@ data class TimelineEvent(
             if (aggregatedReactions != null && content != null && !content.has("reactions")) {
                 content.put("reactions", aggregatedReactions)
             }
+            val transactionId = json.optString("transaction_id").takeIf { it.isNotBlank() }
             
             return TimelineEvent(
                 rowid = json.optLong("rowid", 0),
@@ -51,7 +53,8 @@ data class TimelineEvent(
                 localContent = json.optJSONObject("local_content"),
                 relationType = json.optString("relation_type")?.takeIf { it.isNotBlank() },
                 relatesTo = json.optString("relates_to")?.takeIf { it.isNotBlank() },
-                aggregatedReactions = aggregatedReactions
+                aggregatedReactions = aggregatedReactions,
+                transactionId = transactionId
             )
         }
     }

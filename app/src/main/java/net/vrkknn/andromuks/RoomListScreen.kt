@@ -190,6 +190,7 @@ fun RoomListScreen(
     var lastRoomSectionSignature by remember { mutableStateOf("") }
     val roomSummaryCache = remember { mutableStateMapOf<String, Map<String, Triple<String?, String?, Long?>>>() }
     val roomSummaryReadyCache = remember { mutableStateMapOf<String, Boolean>() }
+    val roomSummaryCounterCache = remember { mutableStateMapOf<String, Int>() } // tracks which counter the cache corresponds to
 
     // Batched last-message query with caching keyed by section and room IDs hash to avoid per-room queries.
     val roomIdsHash = remember(stableSection.type, uiState.currentSpaceId, roomListUpdateCounter) {
@@ -203,9 +204,16 @@ fun RoomListScreen(
     LaunchedEffect(sectionCacheKey, roomListUpdateCounter, uiState.roomSummaryUpdateCounter) {
         initialRoomSummariesReady = false
 
+        // Invalidate ready flag if the cached counter is stale
+        val cachedCounter = roomSummaryCounterCache[sectionCacheKey]
+        if (cachedCounter != null && cachedCounter != uiState.roomSummaryUpdateCounter) {
+            roomSummaryReadyCache[sectionCacheKey] = false
+        }
+
         val cached = roomSummaryCache[sectionCacheKey]
         val cachedReady = roomSummaryReadyCache[sectionCacheKey] == true
-        if (cached != null && cachedReady) {
+        val countersMatch = cachedCounter == uiState.roomSummaryUpdateCounter
+        if (cached != null && cachedReady && countersMatch) {
             roomsWithSummaries = cached
             initialRoomSummariesReady = true
             return@LaunchedEffect
@@ -229,6 +237,7 @@ fun RoomListScreen(
             roomsWithSummaries = summaryMap
             roomSummaryCache[sectionCacheKey] = summaryMap
             roomSummaryReadyCache[sectionCacheKey] = true
+            roomSummaryCounterCache[sectionCacheKey] = uiState.roomSummaryUpdateCounter
             initialRoomSummariesReady = true
             if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
                 android.util.Log.d(
