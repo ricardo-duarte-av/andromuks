@@ -75,6 +75,8 @@ import coil.compose.AsyncImage
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.ImageLoader
+import coil.size.Size
+import coil.size.Precision
 import java.io.File
 import java.security.MessageDigest
 import java.net.URL
@@ -1631,8 +1633,11 @@ private fun ImageViewerDialog(
     
     val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
         scale = (scale * zoomChange).coerceIn(0.5f, 5f)
-        offsetX = (offsetX + offsetChange.x).coerceIn(-1000f, 1000f)
-        offsetY = (offsetY + offsetChange.y).coerceIn(-1000f, 1000f)
+        // Keep pan speed consistent regardless of zoom level by scaling the offset
+        val panScale = scale
+        val maxPan = 4000f * scale
+        offsetX = (offsetX + offsetChange.x * panScale).coerceIn(-maxPan, maxPan)
+        offsetY = (offsetY + offsetChange.y * panScale).coerceIn(-maxPan, maxPan)
     }
     
             Dialog(
@@ -1693,6 +1698,9 @@ private fun ImageViewerDialog(
                             addHeader("Cookie", "gomuks_auth=$authToken")
                         }
                     }
+                    // Load at full resolution to avoid any downscaling artifacts in the viewer
+                    .size(Size.ORIGINAL)
+                    .precision(Precision.EXACT)
                     .memoryCachePolicy(CachePolicy.ENABLED)
                     .diskCachePolicy(CachePolicy.ENABLED)
                     .build(),
