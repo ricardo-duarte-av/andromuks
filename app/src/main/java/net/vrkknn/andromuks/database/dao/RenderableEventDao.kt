@@ -21,7 +21,7 @@ interface RenderableEventDao {
     @Query("SELECT * FROM renderable_events WHERE roomId = :roomId ORDER BY timelineRowId ASC")
     fun streamForRoomAsc(roomId: String): Flow<List<RenderableEventEntity>>
 
-    @Query("SELECT * FROM renderable_events WHERE roomId = :roomId ORDER BY timelineRowId DESC LIMIT :limit")
+    @Query("SELECT * FROM renderable_events WHERE roomId = :roomId ORDER BY timestamp DESC, timelineRowId DESC LIMIT :limit")
     fun streamLatestForRoomDesc(roomId: String, limit: Int): Flow<List<RenderableEventEntity>>
 
     @Query("DELETE FROM renderable_events WHERE eventId IN (:eventIds)")
@@ -39,7 +39,7 @@ interface RenderableEventDao {
     @Query("DELETE FROM renderable_events WHERE roomId = :roomId")
     suspend fun deleteRoom(roomId: String)
 
-    @Query("SELECT * FROM renderable_events WHERE roomId = :roomId ORDER BY timestamp DESC LIMIT 1")
+    @Query("SELECT * FROM renderable_events WHERE roomId = :roomId ORDER BY timestamp DESC, timelineRowId DESC LIMIT 1")
     suspend fun getLatestForRoom(roomId: String): RenderableEventEntity?
 }
 
