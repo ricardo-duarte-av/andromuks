@@ -4,7 +4,6 @@ import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +44,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import net.vrkknn.andromuks.TimelineEvent
@@ -999,15 +999,10 @@ private fun MediaContent(
                                         Modifier.fillMaxSize()
                                     }
                                 )
-                                .pointerInput(Unit) {
-                                    detectTapGestures(
-                                        onTap = { onImageClick() },
-                                        onLongPress = {
-                                            // Trigger menu on long press
-                                            onImageLongPress?.invoke()
-                                        }
-                                    )
-                                },
+                                .combinedClickable(
+                                    onClick = { onImageClick() },
+                                    onLongClick = { onImageLongPress?.invoke() }
+                                ),
                             placeholder = blurHashPainter,
                             error = blurHashPainter,
                             onSuccess = {
@@ -1089,15 +1084,12 @@ private fun MediaContent(
                                     contentDescription =
                                         "Video thumbnail: ${mediaMessage.filename}",
                                     modifier =
-                                        Modifier.fillMaxSize().pointerInput(Unit) {
-                                            detectTapGestures(
-                                                onTap = { onImageClick() },
-                                                onLongPress = {
-                                                    // Trigger menu on long press
-                                                    onImageLongPress?.invoke()
-                                                }
-                                            )
-                                        },
+                                        Modifier
+                                            .fillMaxSize()
+                                            .combinedClickable(
+                                                onClick = { onImageClick() },
+                                                onLongClick = { onImageLongPress?.invoke() }
+                                            ),
                                     placeholder = thumbnailBlurHashPainter,
                                     error = thumbnailBlurHashPainter,
                                     onSuccess = {
@@ -1148,15 +1140,10 @@ private fun MediaContent(
                                     verticalArrangement = Arrangement.Center,
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .pointerInput(Unit) {
-                                            detectTapGestures(
-                                                onTap = { onImageClick() },
-                                                onLongPress = {
-                                                    // Trigger menu on long press
-                                                    onImageLongPress?.invoke()
-                                                }
-                                            )
-                                        }
+                                        .combinedClickable(
+                                            onClick = { onImageClick() },
+                                            onLongClick = { onImageLongPress?.invoke() }
+                                        )
                                 ) {
                                     Text(
                                         text = "🎥",
