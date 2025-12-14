@@ -20,6 +20,9 @@ interface RoomListSummaryDao {
     @Query("SELECT * FROM room_list_summary WHERE roomId IN (:roomIds)")
     fun getRoomSummariesByIdsFlow(roomIds: List<String>): kotlinx.coroutines.flow.Flow<List<RoomListSummaryEntity>>
 
+    @Query("DELETE FROM room_list_summary")
+    suspend fun deleteAll()
+
     @Query("SELECT * FROM room_list_summary")
     suspend fun getAll(): List<RoomListSummaryEntity>
 }

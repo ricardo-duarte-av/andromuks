@@ -592,8 +592,9 @@ class AppViewModel : ViewModel() {
                     val (spaceIdsFromDb, childSpaceIdsFromDb) = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
                         val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
                         val spaceIds = db.spaceDao().getAllSpaces().map { it.spaceId }.toSet()
+                        // Only treat a child as a space if it itself is recorded as a space.
                         val childSpaceIds = db.spaceRoomDao().getAllRoomsForAllSpaces()
-                            .mapNotNull { rel -> rel.childId.takeIf { it.startsWith("!") && it.length > 1 } }
+                            .mapNotNull { rel -> rel.childId.takeIf { it in spaceIds } }
                             .toSet()
                         spaceIds to childSpaceIds
                     }
@@ -1081,6 +1082,30 @@ class AppViewModel : ViewModel() {
         val preservedRunId = currentRunId
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: State reset complete - run_id preserved: $preservedRunId")
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: FORCE REFRESH - lastReceivedSyncId cleared to 0, will reconnect with run_id but NO last_received_id (full payload)")
+        
+        // Rehydrate UI from DB immediately so room/space info is available while we wait for fresh sync payloads.
+        viewModelScope.launch(Dispatchers.IO) {
+            val ctx = appContext?.applicationContext ?: return@launch
+            runCatching {
+                val bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(ctx)
+                val bootstrap = bootstrapLoader.loadBootstrap()
+                if (bootstrap.isValid) {
+                    val rooms = bootstrap.rooms
+                    val spacesFromDb = bootstrapLoader.loadSpacesFromDb(rooms.associateBy { it.id })
+                    withContext(Dispatchers.Main) {
+                        roomMap.clear()
+                        rooms.forEach { roomMap[it.id] = it }
+                        allRooms = rooms
+                        invalidateRoomSectionCache()
+                        allSpaces = spacesFromDb
+                        spaceList = spacesFromDb
+                        spacesLoaded = true
+                    }
+                }
+            }.onFailure {
+                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Bootstrap reload after full refresh failed: ${it.message}", it)
+            }
+        }
         
         // 5. Trigger reconnection (will use run_id but not last_received_id since it's 0)
         onRestartWebSocket?.invoke("Full refresh")
@@ -3983,12 +4008,71 @@ class AppViewModel : ViewModel() {
         // Return the summary update job so caller can wait for it
         return summaryUpdateJob
     }
+    
+    /**
+     * Handles server-directed clear_state=true: purge in-memory derived state and database summaries/state
+     * while keeping events/profile/media intact.
+     */
+    private fun handleClearStateReset() {
+        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: clear_state=true received - clearing derived room/space state (events preserved)")
+        clearDerivedStateInMemory()
+        
+        val context = appContext?.applicationContext ?: return
+        if (syncIngestor == null) {
+            syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
+        }
+        
+        runCatching {
+            kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                syncIngestor?.handleClearStateSignal()
+            }
+        }.onFailure {
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Failed to clear DB derived state on clear_state: ${it.message}", it)
+        }
+    }
+    
+    /**
+     * Clears in-memory derived room/space state so subsequent syncs repopulate from scratch.
+     * Events, profile info, and media cache remain untouched.
+     */
+    private fun clearDerivedStateInMemory() {
+        roomMap.clear()
+        allRooms = emptyList()
+        invalidateRoomSectionCache()
+        allSpaces = emptyList()
+        spaceList = emptyList()
+        knownSpaceIds.clear()
+        cachedDbSpaceIds = emptySet()
+        cachedDbSpaceChildSpaceIds = emptySet()
+        storedSpaceEdges = null
+        spacesLoaded = false
+        newlyJoinedRoomIds.clear()
+        loadedSections.clear()
+        
+        synchronized(readReceiptsLock) {
+            readReceipts.clear()
+        }
+        roomsWithLoadedReceiptsFromDb.clear()
+        roomsWithLoadedReactionsFromDb.clear()
+        lastKnownDbLatestEventId.clear()
+        messageReactions = emptyMap()
+        
+        // Force room list refresh to reflect cleared state until new data arrives
+        needsRoomListUpdate = true
+        scheduleUIUpdate("roomList")
+    }
 
     /**
      * PERFORMANCE OPTIMIZATION: Async version that processes JSON on background thread
      * This prevents UI blocking during sync parsing (200-500ms improvement)
      */
     fun updateRoomsFromSyncJsonAsync(syncJson: JSONObject) {
+        // If server asks us to clear state, drop all derived room/space state (keep events/profile/media).
+        val isClearState = syncJson.optJSONObject("data")?.optBoolean("clear_state") == true
+        if (isClearState) {
+            handleClearStateReset()
+        }
+        
         // CRITICAL FIX: Queue sync_complete messages received before init_complete
         // These are initial sync messages that populate all rooms - we'll process them after init_complete
         if (!initialSyncPhase) {

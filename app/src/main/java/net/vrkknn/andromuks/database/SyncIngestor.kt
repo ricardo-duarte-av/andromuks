@@ -187,6 +187,28 @@ class SyncIngestor(private val context: Context) {
     }
     
     /**
+     * Clear all derived room/space state when server sends clear_state=true.
+     * Keeps events and media/profile data intact.
+     */
+    suspend fun handleClearStateSignal() = withContext(Dispatchers.IO) {
+        if (BuildConfig.DEBUG) Log.w(TAG, "SyncIngestor: clear_state=true received - clearing room/state/summaries and spaces (events preserved)")
+        // Clear pending receipt cache in memory
+        synchronized(pendingReceiptsLock) { pendingReceipts.clear() }
+        
+        database.withTransaction {
+            roomSummaryDao.deleteAll()
+            roomListSummaryDao.deleteAll()
+            roomStateDao.deleteAll()
+            spaceDao.deleteAllSpaces()
+            spaceRoomDao.deleteAllSpaceRooms()
+            pendingRoomDao.deleteAll()
+            inviteDao.deleteAllInvites()
+            receiptDao.deleteAll()
+            reactionDao.clearAll()
+        }
+    }
+    
+    /**
      * Ingest a sync_complete message into the database
      * 
      * @param syncJson The sync_complete JSON object
@@ -213,6 +235,12 @@ class SyncIngestor(private val context: Context) {
         val data = syncJson.optJSONObject("data") ?: run {
             Log.w(TAG, "No 'data' field in sync_complete")
             return@withContext emptySet<String>()
+        }
+        
+        // If server instructs us to clear state, drop all derived room/space state before processing.
+        val clearState = data.optBoolean("clear_state", false)
+        if (clearState) {
+            handleClearStateSignal()
         }
         
         // Extract "since" token (sync token from server)
@@ -569,6 +597,24 @@ class SyncIngestor(private val context: Context) {
         // 1. Process room state (meta)
         val meta = roomObj.optJSONObject("meta")
         if (meta != null) {
+            // Detect if this room is a space (creation_content.type == "m.space") and persist as a space entity
+            meta.optJSONObject("creation_content")
+                ?.optString("type")
+                ?.takeIf { it == "m.space" }
+                ?.let {
+                    val space = SpaceEntity(
+                        spaceId = roomId,
+                        name = meta.optString("name").takeIf { n -> n.isNotBlank() },
+                        avatarUrl = meta.optString("avatar").takeIf { a -> a.isNotBlank() },
+                        updatedAt = System.currentTimeMillis()
+                    )
+                    try {
+                        spaceDao.upsert(space)
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to persist space entity for $roomId: ${e.message}")
+                    }
+                }
+
             // Detect if this is a direct message room
             // Primary method: dm_user_id field in meta (most reliable)
             val dmUserId = meta.optString("dm_user_id")?.takeIf { it.isNotBlank() }
