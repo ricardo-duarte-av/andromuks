@@ -786,12 +786,9 @@ class SyncIngestor(private val context: Context) {
         // 5. Update room summary (last message, unread counts, etc.)
         val unreadMessages = meta?.optInt("unread_messages", 0) ?: 0
         val unreadHighlights = meta?.optInt("unread_highlights", 0) ?: 0
-        val shouldExtractPreview = isAppVisible
-        val existingSummaryForPreview = if (!shouldExtractPreview) {
-            roomSummaryDao.getRoomSummary(roomId)
-        } else {
-            null
-        }
+        // Always extract previews/senders for summary persistence (room list relies on DB on cold start).
+        val shouldExtractPreview = true
+        val existingSummaryForPreview: RoomSummaryEntity? = null
         
         // OPTIMIZATION: Query database for last message instead of scanning JSON
         // Events are already persisted in Phases 2-3, so we can query efficiently
@@ -799,8 +796,10 @@ class SyncIngestor(private val context: Context) {
         
         var lastEventId: String? = null
         var lastTimestamp: Long = 0L
+        var lastMessageMsgType: String? = null
         var messageSender: String? = existingSummaryForPreview?.messageSender
         var messagePreview: String? = existingSummaryForPreview?.messagePreview
+        val existingListSummary = roomListSummaryDao.getRoomSummariesByIds(listOf(roomId)).firstOrNull()
         
         if (lastMessageEvent != null) {
             // Use last message from database
@@ -808,24 +807,24 @@ class SyncIngestor(private val context: Context) {
             lastTimestamp = lastMessageEvent.timestamp
             messageSender = lastMessageEvent.sender ?: messageSender
             
-            if (shouldExtractPreview) {
-                // Extract message preview from rawJson
-                try {
-                    val eventJson = JSONObject(lastMessageEvent.rawJson)
-                    
-                    // E2EE: For encrypted messages (type='m.room.encrypted'), body is in decrypted.content.body
-                    // For regular messages (type='m.room.message'), body is in content.body
-                    // Backend already decrypts messages, so decrypted content is always available
-                    messagePreview = if (lastMessageEvent.type == "m.room.encrypted") {
-                        val decrypted = eventJson.optJSONObject("decrypted")
-                        decrypted?.optString("body")
-                    } else {
-                        val content = eventJson.optJSONObject("content")
-                        content?.optString("body")
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to extract message preview from rawJson for event ${lastMessageEvent.eventId}: ${e.message}")
+            // Extract message preview from rawJson (always)
+            try {
+                val eventJson = JSONObject(lastMessageEvent.rawJson)
+                
+                // E2EE: For encrypted messages (type='m.room.encrypted'), body is in decrypted.content.body
+                // For regular messages (type='m.room.message'), body is in content.body
+                // Backend already decrypts messages, so decrypted content is always available
+                messagePreview = if (lastMessageEvent.type == "m.room.encrypted") {
+                    val decrypted = eventJson.optJSONObject("decrypted")
+                    lastMessageMsgType = decrypted?.optString("msgtype")?.takeIf { it.isNotBlank() }
+                    decrypted?.optString("body")
+                } else {
+                    val content = eventJson.optJSONObject("content")
+                    lastMessageMsgType = content?.optString("msgtype")?.takeIf { it.isNotBlank() }
+                    content?.optString("body")
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to extract message preview from rawJson for event ${lastMessageEvent.eventId}: ${e.message}")
             }
         } else {
             // Fallback: Scan sync JSON if database query returned nothing (new room, no messages yet)
@@ -841,10 +840,9 @@ class SyncIngestor(private val context: Context) {
                         lastTimestamp = eventJson.optLong("origin_server_ts", 0L)
                         messageSender = eventJson.optString("sender")?.takeIf { it.isNotBlank() } ?: messageSender
                         
-                        if (shouldExtractPreview) {
-                            val content = eventJson.optJSONObject("content")
-                            messagePreview = content?.optString("body") ?: eventJson.optJSONObject("decrypted")?.optString("body")
-                        }
+                        val content = eventJson.optJSONObject("content")
+                        lastMessageMsgType = content?.optString("msgtype")?.takeIf { it.isNotBlank() }
+                        messagePreview = content?.optString("body") ?: eventJson.optJSONObject("decrypted")?.optString("body")
                         break
                     }
                 }
@@ -860,20 +858,19 @@ class SyncIngestor(private val context: Context) {
                         lastTimestamp = eventJson.optLong("origin_server_ts", 0L)
                         messageSender = eventJson.optString("sender")?.takeIf { it.isNotBlank() } ?: messageSender
                         
-                        if (shouldExtractPreview) {
-                            val content = eventJson.optJSONObject("content")
-                            messagePreview = content?.optString("body")
-                                ?: eventJson.optJSONObject("decrypted")?.optString("body")
-                        }
+                        val content = eventJson.optJSONObject("content")
+                        lastMessageMsgType = content?.optString("msgtype")?.takeIf { it.isNotBlank() }
+                        messagePreview = content?.optString("body")
+                            ?: eventJson.optJSONObject("decrypted")?.optString("body")
                         break
                     }
                 }
             }
         }
 
-        // If DB-based preview failed (encrypted without decrypted payload in rawJson), re-scan current sync JSON to refresh preview/sender
-        if (lastEventId != null && (messagePreview.isNullOrBlank() || messageSender.isNullOrBlank())) {
-            fun scanForEventDetails(): Pair<String?, String?> {
+        // If DB-based preview failed (encrypted without decrypted payload in rawJson), re-scan current sync JSON to refresh preview/sender/msgtype
+        if (lastEventId != null && (messagePreview.isNullOrBlank() || messageSender.isNullOrBlank() || lastMessageMsgType.isNullOrBlank())) {
+            fun scanForEventDetails(): Triple<String?, String?, String?> {
                 // Prefer timeline (newest at end) then eventsArray
                 val sources = listOfNotNull(timeline, eventsArray)
                 for (src in sources) {
@@ -885,32 +882,43 @@ class SyncIngestor(private val context: Context) {
                         val sender = evt.optString("sender").takeIf { it.isNotBlank() }
                         val body = evt.optJSONObject("content")?.optString("body")
                             ?: evt.optJSONObject("decrypted")?.optString("body")
-                        return sender to body
+                        val msgType = evt.optJSONObject("decrypted")?.optString("msgtype")
+                            ?: evt.optJSONObject("content")?.optString("msgtype")
+                        return Triple(sender, body, msgType)
                     }
                 }
-                return null to null
+                return Triple(null, null, null)
             }
-            val (scannedSender, scannedBody) = scanForEventDetails()
+            val (scannedSender, scannedBody, scannedMsgType) = scanForEventDetails()
             if (!scannedSender.isNullOrBlank()) {
                 messageSender = scannedSender
             }
             if (!scannedBody.isNullOrBlank()) {
                 messagePreview = scannedBody
             }
+            if (!scannedMsgType.isNullOrBlank()) {
+                lastMessageMsgType = scannedMsgType
+            }
         }
         
         // Fallback to existing summary values if we failed to extract (keeps older preview/sender instead of null)
         if (messagePreview.isNullOrBlank()) {
-            messagePreview = existingSummaryForPreview?.messagePreview
+            messagePreview = existingSummaryForPreview?.messagePreview ?: existingListSummary?.lastMessagePreview
         }
         if (messageSender.isNullOrBlank()) {
-            messageSender = existingSummaryForPreview?.messageSender
+            messageSender = existingSummaryForPreview?.messageSender ?: existingListSummary?.lastMessageSenderUserId
         }
-        
+        // Require a valid timestamp for the last message; for messages this should always be present.
+        if (lastTimestamp <= 0L) {
+            return hasPersistedEvents
+        }
+        val finalLastEventId = lastEventId ?: existingListSummary?.lastMessageEventId
+        val finalLastTimestamp: Long = lastTimestamp
+
         val summary = RoomSummaryEntity(
             roomId = roomId,
-            lastEventId = lastEventId,
-            lastTimestamp = lastTimestamp,
+            lastEventId = finalLastEventId,
+            lastTimestamp = finalLastTimestamp,
             unreadCount = unreadMessages,
             highlightCount = unreadHighlights,
             messageSender = messageSender,
@@ -934,7 +942,8 @@ class SyncIngestor(private val context: Context) {
             foundType
         }
         val isMessageType = lastMessageType == "m.room.message" || lastMessageType == "m.room.encrypted"
-        if (isMessageType && lastEventId != null) {
+        val isTextMessage = lastMessageMsgType?.equals("m.text", ignoreCase = true) == true
+        if (isMessageType && isTextMessage && finalLastEventId != null && !messagePreview.isNullOrBlank()) {
             val displayName = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: existingState?.name
             val avatarMxc = meta?.optString("avatar")?.takeIf { it.isNotBlank() } ?: existingState?.avatarUrl
             val isLowPriorityFlag = meta?.optBoolean("is_low_priority") ?: existingState?.isLowPriority ?: false
@@ -942,10 +951,10 @@ class SyncIngestor(private val context: Context) {
                 roomId = roomId,
                 displayName = displayName,
                 avatarMxc = avatarMxc,
-                lastMessageEventId = lastEventId,
-                lastMessageSenderUserId = messageSender,
-                lastMessagePreview = messagePreview,
-                lastMessageTimestamp = lastTimestamp,
+                lastMessageEventId = finalLastEventId,
+                lastMessageSenderUserId = messageSender ?: existingListSummary?.lastMessageSenderUserId,
+                lastMessagePreview = messagePreview ?: existingListSummary?.lastMessagePreview,
+                lastMessageTimestamp = finalLastTimestamp,
                 unreadCount = unreadMessages,
                 highlightCount = unreadHighlights,
                 isLowPriority = isLowPriorityFlag

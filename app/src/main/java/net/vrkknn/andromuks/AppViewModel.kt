@@ -570,6 +570,10 @@ class AppViewModel : ViewModel() {
         lastAllRoomsContentHash = ""
     }
     
+    // Cache of space IDs loaded from DB to improve filtering when spaces aren't yet parsed in-memory.
+    private var cachedDbSpaceIds: Set<String> = emptySet()
+    private var cachedDbSpaceChildIds: Set<String> = emptySet()
+
     /**
      * Returns the set of known space room IDs.
      * Uses allSpaces when available, otherwise falls back to spaceList.
@@ -579,6 +583,25 @@ class AppViewModel : ViewModel() {
         if (allSpaces.isNotEmpty()) ids.addAll(allSpaces.map { it.id })
         else if (spaceList.isNotEmpty()) ids.addAll(spaceList.map { it.id })
         ids.addAll(knownSpaceIds)
+
+        // Fallback: load space IDs (and their children) from DB once, so HOME/UNREAD filters out space shells even before edges are parsed.
+        if (cachedDbSpaceIds.isEmpty() || cachedDbSpaceChildIds.isEmpty()) {
+            val context = appContext?.applicationContext
+            if (context != null) {
+                runCatching {
+                    val (spaceIdsFromDb, childIdsFromDb) = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                        val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                        val spaceIds = db.spaceDao().getAllSpaces().map { it.spaceId }.toSet()
+                        val childIds = db.spaceRoomDao().getAllRoomsForAllSpaces().flatMap { listOf(it.spaceId, it.childId) }.toSet()
+                        spaceIds to childIds
+                    }
+                    cachedDbSpaceIds = spaceIdsFromDb
+                    cachedDbSpaceChildIds = childIdsFromDb
+                }
+            }
+        }
+        ids.addAll(cachedDbSpaceIds)
+        ids.addAll(cachedDbSpaceChildIds)
         return ids
     }
     
@@ -7873,15 +7896,17 @@ class AppViewModel : ViewModel() {
     ) {
         if (renderables.isEmpty()) return
 
-        // Pick the latest event that is render-worthy (skip pure redactions/reactions if present).
+        // Pick the latest text message renderable; ignore state/joins/reactions so we don't show "m.room.member".
         val latest = renderables
             .sortedByDescending { it.timestamp }
             .firstOrNull { r ->
-                // Exclude redaction-only rows
-                !(r.isRedacted && (r.body.isNullOrBlank()))
-            } ?: renderables.maxByOrNull { it.timestamp } ?: return
+                val hasBody = !r.body.isNullOrBlank() || !r.formattedBody.isNullOrBlank()
+                val isTextMsg = r.msgType?.equals("m.text", ignoreCase = true) == true
+                val isNotRedactionOnly = !(r.isRedacted && (r.body.isNullOrBlank()))
+                hasBody && isTextMsg && isNotRedactionOnly
+            } ?: return
 
-        val preview = latest.body ?: latest.formattedBody ?: latest.eventType
+        val preview = latest.body ?: latest.formattedBody ?: return
 
         val roomMeta = getRoomById(roomId)
         val summary = RoomListSummaryEntity(

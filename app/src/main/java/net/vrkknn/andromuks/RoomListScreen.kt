@@ -386,11 +386,17 @@ fun RoomListScreen(
         }
     }
 
+    // Always sort by latest message timestamp (newest first), using enriched timestamps when available.
+    val displayedSection = remember(enrichedSection) {
+        val sortedRooms = enrichedSection.rooms.sortedByDescending { it.sortingTimestamp ?: 0L }
+        if (sortedRooms === enrichedSection.rooms) enrichedSection else enrichedSection.copy(rooms = sortedRooms)
+    }
+
     // One-time hydration: if any rooms lack timestamps, prefetch a small batch from server for all of them.
-    LaunchedEffect(initialLoadComplete, enrichedSection.rooms.map { it.id to it.sortingTimestamp }) {
+    LaunchedEffect(initialLoadComplete, displayedSection.rooms.map { it.id to it.sortingTimestamp }) {
         if (!initialLoadComplete || missingTimestampsHydrated) return@LaunchedEffect
 
-        val missingTsRooms = enrichedSection.rooms
+        val missingTsRooms = displayedSection.rooms
             .filter { (it.sortingTimestamp ?: 0L) <= 0L }
 
         if (missingTsRooms.isNotEmpty()) {
@@ -858,8 +864,8 @@ fun RoomListScreen(
                     .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             ) {
-            AnimatedContent(
-                targetState = sectionAnimationDirection to enrichedSection,
+    AnimatedContent(
+                targetState = sectionAnimationDirection to displayedSection,
                 transitionSpec = {
                     val direction = targetState.first
                     val enter = when {
@@ -989,7 +995,7 @@ fun RoomListScreen(
             
             // Tab bar at the bottom (outside the Surface)
             TabBar(
-                currentSection = enrichedSection,
+                currentSection = displayedSection,
                 onSectionSelected = { section ->
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     appViewModel.changeSelectedSection(section)

@@ -13,6 +13,7 @@ import net.vrkknn.andromuks.database.dao.EventDao
 import net.vrkknn.andromuks.database.dao.InviteDao
 import net.vrkknn.andromuks.database.dao.RoomStateDao
 import net.vrkknn.andromuks.database.dao.RoomSummaryDao
+import net.vrkknn.andromuks.database.dao.RoomListSummaryDao
 import net.vrkknn.andromuks.database.dao.SpaceDao
 import net.vrkknn.andromuks.database.dao.SpaceRoomDao
 import net.vrkknn.andromuks.database.dao.SyncMetaDao
@@ -34,6 +35,7 @@ import org.json.JSONObject
 class BootstrapLoader(private val context: Context) {
     private val database = AndromuksDatabase.getInstance(context)
     private val roomSummaryDao = database.roomSummaryDao()
+    private val roomListSummaryDao = database.roomListSummaryDao()
     private val roomStateDao = database.roomStateDao()
     private val eventDao = database.eventDao()
     private val syncMetaDao = database.syncMetaDao()
@@ -75,7 +77,9 @@ class BootstrapLoader(private val context: Context) {
         
         // 3. Load ALL room summaries (not just top 200) - needed for complete room list
         val roomSummaries = roomSummaryDao.getAllRooms()
-        if (BuildConfig.DEBUG) Log.d(TAG, "Loaded ${roomSummaries.size} room summaries from database")
+        val roomListSummaries = roomListSummaryDao.getAll()
+        val roomListSummaryMap = roomListSummaries.associateBy { it.roomId }
+        if (BuildConfig.DEBUG) Log.d(TAG, "Loaded ${roomSummaries.size} room summaries and ${roomListSummaries.size} room_list summaries from database")
         
         // 4. Load ALL room states for efficient lookup
         val allRoomStates = roomStateDao.getAllRoomStates()
@@ -86,6 +90,7 @@ class BootstrapLoader(private val context: Context) {
         val rooms = mutableListOf<RoomItem>()
         for (summary in roomSummaries) {
             val roomState = roomStateMap[summary.roomId]
+            val listSummary = roomListSummaryMap[summary.roomId]
             
             // FIX: If lastTimestamp is 0, try to get it from the most recent event in the database
             var sortingTimestamp = summary.lastTimestamp
@@ -101,11 +106,10 @@ class BootstrapLoader(private val context: Context) {
                 }
             }
             
-            // CRITICAL FIX: Always load latest message preview/sender/timestamp directly from the last message row.
-            // If no message row is available, fall back to summary and DB max(timestamp).
-            var messagePreview: String? = null
-            var messageSender: String? = null
-            var messageTimestampFromEvents: Long? = null
+            // CRITICAL FIX: Prefer room_list_summary (persisted) for preview/sender/timestamp; then DB last message; then summary.
+            var messagePreview: String? = listSummary?.lastMessagePreview
+            var messageSender: String? = listSummary?.lastMessageSenderUserId
+            var messageTimestampFromEvents: Long? = listSummary?.lastMessageTimestamp
             var lastEventTimestampFallback: Long? = null
             try {
                 val lastMsg = eventDao.getLastMessageForRoom(summary.roomId)
