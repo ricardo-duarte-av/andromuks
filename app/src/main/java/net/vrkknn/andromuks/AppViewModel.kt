@@ -572,7 +572,7 @@ class AppViewModel : ViewModel() {
     
     // Cache of space IDs loaded from DB to improve filtering when spaces aren't yet parsed in-memory.
     private var cachedDbSpaceIds: Set<String> = emptySet()
-    private var cachedDbSpaceChildIds: Set<String> = emptySet()
+    private var cachedDbSpaceChildSpaceIds: Set<String> = emptySet()
 
     /**
      * Returns the set of known space room IDs.
@@ -584,24 +584,26 @@ class AppViewModel : ViewModel() {
         else if (spaceList.isNotEmpty()) ids.addAll(spaceList.map { it.id })
         ids.addAll(knownSpaceIds)
 
-        // Fallback: load space IDs (and their children) from DB once, so HOME/UNREAD filters out space shells even before edges are parsed.
-        if (cachedDbSpaceIds.isEmpty() || cachedDbSpaceChildIds.isEmpty()) {
+        // Fallback: load space IDs and child space IDs from DB once, so HOME/UNREAD filters out space shells (including sub-spaces) even before edges are parsed.
+        if (cachedDbSpaceIds.isEmpty() || cachedDbSpaceChildSpaceIds.isEmpty()) {
             val context = appContext?.applicationContext
             if (context != null) {
                 runCatching {
-                    val (spaceIdsFromDb, childIdsFromDb) = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
+                    val (spaceIdsFromDb, childSpaceIdsFromDb) = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
                         val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
                         val spaceIds = db.spaceDao().getAllSpaces().map { it.spaceId }.toSet()
-                        val childIds = db.spaceRoomDao().getAllRoomsForAllSpaces().flatMap { listOf(it.spaceId, it.childId) }.toSet()
-                        spaceIds to childIds
+                        val childSpaceIds = db.spaceRoomDao().getAllRoomsForAllSpaces()
+                            .mapNotNull { rel -> rel.childId.takeIf { it.startsWith("!") && it.length > 1 } }
+                            .toSet()
+                        spaceIds to childSpaceIds
                     }
                     cachedDbSpaceIds = spaceIdsFromDb
-                    cachedDbSpaceChildIds = childIdsFromDb
+                    cachedDbSpaceChildSpaceIds = childSpaceIdsFromDb
                 }
             }
         }
         ids.addAll(cachedDbSpaceIds)
-        ids.addAll(cachedDbSpaceChildIds)
+        ids.addAll(cachedDbSpaceChildSpaceIds)
         return ids
     }
     
@@ -5573,9 +5575,6 @@ class AppViewModel : ViewModel() {
     private val roomsWithLoadedReceiptsFromDb = mutableSetOf<String>() // Track which rooms had receipts restored from DB
     private val roomsWithLoadedReactionsFromDb = mutableSetOf<String>() // Track which rooms had reactions restored from DB
     private val lastKnownDbLatestEventId = ConcurrentHashMap<String, String>()
-    // Local echoes keyed by txnId
-    private val pendingLocalEchoes = ConcurrentHashMap<String, LocalEcho>()
-    
     // Track receipt movements for animation - userId -> (previousEventId, currentEventId, timestamp)
     // THREAD SAFETY: Protected by readReceiptsLock since it's accessed from background threads
     private val receiptMovements = mutableMapOf<String, Triple<String?, String, Long>>()
@@ -5626,34 +5625,7 @@ class AppViewModel : ViewModel() {
     private val pendingProfileRequests = mutableSetOf<String>() // "roomId:userId" keys for pending profile requests
     private val profileRequests = mutableMapOf<Int, String>() // requestId -> "roomId:userId" for on-demand profile requests
     
-    // Expose local echoes for UI (read-only)
-    fun getLocalEchoStatus(eventId: String): LocalEchoStatus? {
-        return pendingLocalEchoes.values.find { it.tempEventId == eventId }?.status
-    }
-    fun getLocalEchoError(eventId: String): String? {
-        return pendingLocalEchoes.values.find { it.tempEventId == eventId }?.errorMessage
-    }
-    fun deleteLocalEcho(eventId: String) {
-        val ctx = appContext?.applicationContext ?: return
-        val entry = pendingLocalEchoes.entries.find { it.value.tempEventId == eventId }
-        if (entry != null) {
-            pendingLocalEchoes.remove(entry.key)
-            // Remove from timeline/renderables
-            timelineEvents = timelineEvents.filterNot { it.eventId == eventId }
-            timelineUpdateCounter++
-            viewModelScope.launch(Dispatchers.IO) {
-                runCatching {
-                    val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(ctx)
-                    db.renderableEventDao().deleteByIds(listOf(eventId))
-                    // Update room list summary to reflect new last message after deletion
-                    val latest = db.renderableEventDao().getLatestForRoom(entry.value.roomId)
-                    if (latest != null) {
-                        updateRoomListSummaryFromRenderables(db, entry.value.roomId, listOf(latest))
-                    }
-                }
-            }
-        }
-    }
+    // Local echoes removed: status/error helpers no longer used.
 
     // PERFORMANCE: Throttle profile requests to prevent animation-blocking bursts
     // Tracks recent profile request timestamps to skip rapid re-requests during animation window
@@ -7598,27 +7570,6 @@ class AppViewModel : ViewModel() {
         val context = appContext?.applicationContext ?: return
         if (events.isEmpty()) return
 
-        // If real events arrive with a transaction_id, reconcile pending echoes and drop temp rows
-        val tempIdsToDelete = mutableListOf<String>()
-        val txnIdsToDelete = mutableListOf<String>()
-        events.forEach { event ->
-            val txn = event.localContent?.optString("transaction_id")?.takeIf { it.isNotBlank() }
-            if (txn != null) {
-                pendingLocalEchoes.remove(txn)?.let { echo ->
-                    tempIdsToDelete.add(echo.tempEventId)
-                    // Remove temp from in-memory timeline
-                    timelineEvents = timelineEvents.filterNot { it.eventId == echo.tempEventId }
-                }
-                txnIdsToDelete.add(txn)
-                // Also drop any timeline entries that still carry this txn id
-                timelineEvents = timelineEvents.filterNot {
-                    it.localContent?.optString("transaction_id") == txn ||
-                        it.eventId == txn ||
-                        (it.eventId.startsWith("~") && it.eventId.contains(txn))
-                }
-            }
-        }
-
         val renderables = events.map { event ->
             // Choose decrypted type when available for display.
             val finalType = event.decryptedType ?: event.type
@@ -7640,14 +7591,6 @@ class AppViewModel : ViewModel() {
             val threadRoot = event.getThreadInfo()?.threadRootEventId
             val aggregatedReactionsJson = event.aggregatedReactions?.toString()
 
-            val txnFromEvent = event.transactionId
-                ?: event.localContent?.optString("transaction_id")?.takeIf { it.isNotBlank() }
-                ?: event.unsigned?.optString("transaction_id")?.takeIf { it.isNotBlank() }
-            // Preserve local echo status/error if this event matches a pending echo
-            val localEcho = pendingLocalEchoes.values.find {
-                it.tempEventId == event.eventId || it.txnId == txnFromEvent
-            }
-
             val isRedacted = event.redactedBy != null
             RenderableEventEntity(
                 eventId = event.eventId,
@@ -7668,9 +7611,11 @@ class AppViewModel : ViewModel() {
                 parentPreviewJson = event.unsigned?.toString(),
                 contentJson = contentForBody?.toString(),
                 decryptedType = event.decryptedType,
-                transactionId = txnFromEvent ?: localEcho?.txnId,
-                localEchoStatus = localEcho?.status?.name,
-                localEchoError = localEcho?.errorMessage,
+                transactionId = event.transactionId
+                    ?: event.localContent?.optString("transaction_id")?.takeIf { it.isNotBlank() }
+                    ?: event.unsigned?.optString("transaction_id")?.takeIf { it.isNotBlank() },
+                localEchoStatus = null,
+                localEchoError = null,
                 deletedBody = if (isRedacted) body else null,
                 deletedFormattedBody = if (isRedacted) formattedBody else null,
                 deletedMsgType = if (isRedacted) msgType else null,
@@ -7682,12 +7627,6 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                if (tempIdsToDelete.isNotEmpty()) {
-                    db.renderableEventDao().deleteByIds(tempIdsToDelete)
-                }
-                txnIdsToDelete.forEach { txnId ->
-                    db.renderableEventDao().deleteByTransactionId(txnId)
-                }
                 db.renderableEventDao().upsert(renderables)
                 updateRoomListSummaryFromRenderables(db, roomId, renderables)
             } catch (e: Exception) {
@@ -7730,78 +7669,7 @@ class AppViewModel : ViewModel() {
      */
     fun renderablesToTimelineEvents(renderables: List<RenderableEventEntity>): List<TimelineEvent> {
         // Drop temp echoes if a real event with the same transaction_id exists.
-        val realByTxn = renderables
-            .filter { !it.eventId.startsWith("~") && !it.transactionId.isNullOrBlank() }
-            .associateBy { it.transactionId }
-        val realBySenderTs = renderables
-            .filter { !it.eventId.startsWith("~") }
-            .groupBy { Pair(it.sender, it.timestamp) }
-        val tempsToDelete = mutableListOf<String>()
-
-        val filtered = renderables.filter { entity ->
-            val txn = entity.transactionId
-            if (entity.eventId.startsWith("~") && !txn.isNullOrBlank()) {
-                // Drop temp echo if a real event with the same txn exists
-                val hasReal = realByTxn[txn] != null
-                if (hasReal) tempsToDelete.add(entity.eventId)
-                !hasReal
-            } else if (entity.eventId.startsWith("~") && entity.localEchoStatus == LocalEchoStatus.FAILED.name) {
-                // Never keep failed temp echoes in persisted cache
-                tempsToDelete.add(entity.eventId)
-                false
-            } else if (entity.eventId.startsWith("~") && entity.localEchoStatus == LocalEchoStatus.PENDING.name) {
-                // Pending echoes are in-memory only; purge any persisted rows
-                tempsToDelete.add(entity.eventId)
-                false
-            } else if (entity.eventId.startsWith("~") && txn.isNullOrBlank()) {
-                // Fallback: drop temp if a real event with same sender+timestamp exists
-                val matches = realBySenderTs[Pair(entity.sender, entity.timestamp)]
-                val hasReal = !(matches == null || matches.isEmpty())
-                if (hasReal) tempsToDelete.add(entity.eventId)
-                !hasReal
-            } else true
-        }
-
-        // Background cleanup: delete temp renderables that have been shadowed by real events
-        if (tempsToDelete.isNotEmpty()) {
-            val ctx = appContext?.applicationContext
-            if (ctx != null) {
-                viewModelScope.launch(Dispatchers.IO) {
-                    runCatching {
-                        val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(ctx)
-                        db.renderableEventDao().deleteByIds(tempsToDelete)
-                    }
-                }
-            }
-            // Also drop any pending echo entries for these temps
-            pendingLocalEchoes.entries.removeIf { entry -> tempsToDelete.contains(entry.value.tempEventId) }
-        }
-
-        // Rehydrate pending local echoes from persisted renderables so UI still shows
-        // failed/pending states after app restart.
-        filtered.forEach { entity ->
-            val status = entity.localEchoStatus
-            if (!status.isNullOrBlank()) {
-                val txnKey = entity.transactionId ?: entity.eventId
-                val parsedStatus = runCatching { LocalEchoStatus.valueOf(status) }.getOrNull()
-                if (txnKey.isNotBlank() && parsedStatus != null) {
-                    val existing = pendingLocalEchoes[txnKey]
-                    // Only insert if not present or to preserve FAILED state.
-                    if (existing == null || (existing.status != LocalEchoStatus.FAILED && parsedStatus == LocalEchoStatus.FAILED)) {
-                        pendingLocalEchoes[txnKey] = LocalEcho(
-                            txnId = txnKey,
-                            roomId = entity.roomId,
-                            tempEventId = entity.eventId,
-                            sender = entity.sender,
-                            body = entity.body ?: "",
-                            timestamp = entity.timestamp,
-                            status = parsedStatus,
-                            errorMessage = entity.localEchoError
-                        )
-                    }
-                }
-            }
-        }
+        val filtered = renderables.filterNot { it.eventId.startsWith("~") }
 
         // Map each renderable row back to a TimelineEvent. Where possible, hydrate
         // missing fields (e.g., unsigned/prev_content for state diffs) from the
@@ -7928,129 +7796,7 @@ class AppViewModel : ViewModel() {
     /**
      * Insert a local echo into timeline/renderable cache for immediate UI display.
      */
-    private fun insertLocalEchoIntoTimeline(roomId: String, echo: LocalEcho) {
-        val context = appContext?.applicationContext ?: return
-
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Inserting local echo txn=${echo.txnId} tempId=${echo.tempEventId} room=$roomId status=${echo.status}")
-
-        // Build a minimal TimelineEvent for the echo
-        val contentJson = echo.contentJson?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject().apply {
-            put("body", echo.body)
-            echo.msgType?.let { put("msgtype", it) } ?: put("msgtype", "m.text")
-        }
-
-        val timelineEvent = TimelineEvent(
-            rowid = -1L,
-            timelineRowid = -1L,
-            roomId = roomId,
-            eventId = echo.tempEventId,
-            sender = echo.sender,
-            type = echo.decryptedType ?: "m.room.message",
-            timestamp = echo.timestamp,
-            content = contentJson,
-            stateKey = null,
-            decrypted = if (echo.decryptedType != null) contentJson else null,
-            decryptedType = echo.decryptedType ?: "m.room.message",
-            unsigned = null,
-            redactedBy = null,
-            localContent = JSONObject().apply { put("transaction_id", echo.txnId) },
-            relationType = null,
-            relatesTo = null,
-            aggregatedReactions = null,
-            transactionId = echo.txnId
-        )
-
-        // Insert into timelineEvents list (in-memory) at the tail
-        val newTimeline = timelineEvents.toMutableList()
-        newTimeline.add(timelineEvent)
-        timelineEvents = newTimeline.sortedBy { it.timestamp }
-        timelineUpdateCounter++
-
-        // Build renderable entry and persist so UI streams pick it up
-        // Do NOT persist local echoes; keep them in-memory only. Real events will arrive via sync/send_complete.
-    }
-
-    /**
-     * Attach the server-provided transaction_id and temp event id to an existing pending echo
-     * that was created at send_message time (keyed by request_id). If none exists, fall back
-     * to creating a new echo.
-     */
-    private fun attachTransactionIdToEcho(requestId: Int, data: Any, fallbackRoomId: String) {
-        val eventObj = when (data) {
-            is JSONObject -> data
-            is Map<*, *> -> JSONObject(data)
-            is String -> runCatching { JSONObject(data) }.getOrNull()
-            else -> null
-        } ?: return
-
-        val txnId = eventObj.optString("transaction_id", "")
-        val tempEventId = eventObj.optString("event_id", "")
-        val contentObj = eventObj.optJSONObject("content")
-        val decryptedObj = eventObj.optJSONObject("decrypted")
-        val msgType = decryptedObj?.optString("msgtype")?.takeIf { it.isNotBlank() }
-            ?: contentObj?.optString("msgtype")?.takeIf { it.isNotBlank() }
-            ?: "m.text"
-        val body = decryptedObj?.optString("body")?.takeIf { it.isNotBlank() }
-            ?: contentObj?.optString("body")?.takeIf { it.isNotBlank() }
-            ?: ""
-        val ts = eventObj.optLong("timestamp", System.currentTimeMillis())
-        val sendErrorRaw = eventObj.optString("send_error", "").takeIf { it.isNotBlank() }
-        val isTransientAckError = sendErrorRaw?.equals("not sent", ignoreCase = true) == true
-        val sendError = if (isTransientAckError) null else sendErrorRaw
-        val senderId = currentUserId.ifBlank { eventObj.optString("sender", currentUserId) }
-        val roomFromObj = eventObj.optString("room_id", fallbackRoomId)
-        val decryptedType = eventObj.optString("decrypted_type").takeIf { it.isNotBlank() }
-        val contentJsonString = decryptedObj?.toString() ?: contentObj?.toString()
-
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Attaching txn to echo reqId=$requestId txnId=$txnId tempEventId=$tempEventId room=$roomFromObj error=$sendError")
-
-        val placeholderKey = "req_$requestId"
-        val existing = pendingLocalEchoes.remove(placeholderKey)
-
-        // If we had a placeholder echo with a different tempId, clean it up from timeline/renderables
-        if (existing != null && existing.tempEventId != tempEventId && tempEventId.isNotBlank()) {
-            timelineEvents = timelineEvents.filterNot { it.eventId == existing.tempEventId }
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val ctx = appContext?.applicationContext ?: return@launch
-                    val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(ctx)
-                    db.renderableEventDao().deleteByIds(listOf(existing.tempEventId))
-                } catch (_: Exception) {
-                }
-            }
-        }
-
-        val effectiveTxn = txnId.ifBlank { existing?.txnId ?: placeholderKey }
-        val effectiveTempId = tempEventId.takeIf { it.isNotBlank() } ?: existing?.tempEventId ?: "~$effectiveTxn"
-        val status = if (sendError == null) LocalEchoStatus.PENDING else LocalEchoStatus.FAILED
-
-        val echo = (existing ?: LocalEcho(
-            txnId = effectiveTxn,
-            roomId = roomFromObj,
-            tempEventId = effectiveTempId,
-            sender = senderId,
-            body = body,
-            timestamp = ts,
-            status = status,
-            errorMessage = sendError,
-            msgType = msgType,
-            decryptedType = decryptedType,
-            contentJson = contentJsonString
-        )).copy(
-            txnId = effectiveTxn,
-            tempEventId = effectiveTempId,
-            timestamp = ts,
-            status = status,
-            errorMessage = sendError,
-            msgType = msgType,
-            decryptedType = decryptedType,
-            contentJson = contentJsonString
-        )
-
-        pendingLocalEchoes[effectiveTxn] = echo
-        insertLocalEchoIntoTimeline(echo.roomId, echo)
-        updateCounter++ // trigger UI re-read of echo status
-    }
+    // Local echo rendering removed.
 
     /**
      * Find missing referenced events (reply targets, thread roots) that aren't in the renderable table
@@ -10178,8 +9924,6 @@ class AppViewModel : ViewModel() {
         if (result == WebSocketResult.SUCCESS) {
             messageRequests[messageRequestId] = roomId
             pendingSendCount++
-            // Create a pending local echo immediately; txnId will be attached on send_response
-            createPendingEchoForRequest(roomId, text, messageRequestId)
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Message send queued with request_id: $messageRequestId")
         } else {
             android.util.Log.w("Andromuks", "AppViewModel: Failed to send message, result: $result")
@@ -10188,39 +9932,6 @@ class AppViewModel : ViewModel() {
         return result
     }
 
-    /**
-     * Create a placeholder local echo keyed by request_id. The txnId and tempEventId
-     * will be updated when the send_response arrives.
-     */
-    private fun createPendingEchoForRequest(roomId: String, text: String, requestId: Int) {
-        val context = appContext?.applicationContext ?: return
-        val now = System.currentTimeMillis()
-        val placeholderTxn = "req_$requestId"
-        val tempEventId = "~req_${requestId}_${now}"
-        val senderId = currentUserId.ifBlank { currentUserId }
-
-        val echo = LocalEcho(
-            txnId = placeholderTxn,
-            roomId = roomId,
-            tempEventId = tempEventId,
-            sender = senderId,
-            body = text,
-            timestamp = now,
-            status = LocalEchoStatus.PENDING,
-            errorMessage = null,
-            msgType = "m.text",
-            decryptedType = "m.room.message",
-            contentJson = JSONObject().apply {
-                put("body", text)
-                put("msgtype", "m.text")
-            }.toString()
-        )
-
-        pendingLocalEchoes[placeholderTxn] = echo
-        insertLocalEchoIntoTimeline(roomId, echo)
-        updateCounter++ // trigger UI refresh
-    }
-    
     /**
      * Sends a message from a notification action.
      * This handles websocket connection state and schedules auto-shutdown if needed.
@@ -11466,63 +11177,7 @@ class AppViewModel : ViewModel() {
     private fun handleOutgoingRequestResponse(requestId: Int, data: Any) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: handleOutgoingRequestResponse called with requestId=$requestId")
         val roomId = outgoingRequests.remove(requestId)
-        if (roomId != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing outgoing request response for room $roomId, currentRoomId=$currentRoomId")
-            
-            // NOTE: Outgoing requests also receive send_complete, so we wait for that instead
-            // to avoid adding the same event multiple times
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Outgoing request response received, waiting for send_complete for actual event")
-
-            // Create/refresh local echo from response payload (contains transaction_id and temp event_id)
-            val eventObj = when (data) {
-                is JSONObject -> data
-                is Map<*, *> -> JSONObject(data)
-                is String -> runCatching { JSONObject(data) }.getOrNull()
-                else -> null
-            }
-            eventObj?.let { obj ->
-                val txnId = obj.optString("transaction_id", "")
-                val tempEventId = obj.optString("event_id", "")
-                val contentObj = obj.optJSONObject("content")
-                val decryptedObj = obj.optJSONObject("decrypted")
-                val msgType = decryptedObj?.optString("msgtype")?.takeIf { it.isNotBlank() }
-                    ?: contentObj?.optString("msgtype")?.takeIf { it.isNotBlank() }
-                val body = decryptedObj?.optString("body")?.takeIf { it.isNotBlank() }
-                    ?: contentObj?.optString("body")?.takeIf { it.isNotBlank() }
-                    ?: ""
-                val ts = obj.optLong("timestamp", System.currentTimeMillis())
-                val sendErrorRaw = obj.optString("send_error", "").takeIf { it.isNotBlank() }
-                val isTransientAckError = sendErrorRaw?.equals("not sent", ignoreCase = true) == true
-                val sendError = if (isTransientAckError) null else sendErrorRaw
-                val senderId = currentUserId.ifBlank { obj.optString("sender", currentUserId) }
-                val roomFromObj = obj.optString("room_id", roomId)
-                val decryptedType = obj.optString("decrypted_type").takeIf { it.isNotBlank() }
-                val contentJsonString = decryptedObj?.toString() ?: contentObj?.toString()
-
-                if (txnId.isNotBlank() && tempEventId.isNotBlank()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Creating local echo from response txn=$txnId tempEventId=$tempEventId room=$roomFromObj error=$sendError body='$body'")
-                    val echo = LocalEcho(
-                        txnId = txnId,
-                        roomId = roomFromObj,
-                        tempEventId = tempEventId,
-                        sender = senderId,
-                        body = body,
-                        timestamp = ts,
-                        status = if (sendError == null) LocalEchoStatus.PENDING else LocalEchoStatus.FAILED,
-                        errorMessage = sendError,
-                        msgType = msgType,
-                        decryptedType = decryptedType,
-                        contentJson = contentJsonString
-                    )
-                    pendingLocalEchoes[txnId] = echo
-                    insertLocalEchoIntoTimeline(roomFromObj, echo)
-                } else if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Response missing txnId/tempEventId, cannot create local echo. Data=$obj")
-                }
-            } ?: run {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Response data not parseable for local echo: $data")
-            }
-        } else {
+        if (roomId == null && BuildConfig.DEBUG) {
             android.util.Log.w("Andromuks", "AppViewModel: No roomId found for outgoing request $requestId")
         }
     }
@@ -11558,131 +11213,12 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - No pending operation found for transaction_id=$transactionId (may have been already acknowledged)")
         }
 
-        // Local echo resolution: mark pending echo as sent/failed
-        val eventSendErrorRaw = eventData.optString("send_error", "").takeIf { it.isNotBlank() }
-        val isTransientAckError = eventSendErrorRaw?.equals("not sent", ignoreCase = true) == true
-        val eventSendError = if (isTransientAckError) null else eventSendErrorRaw
-        val effectiveError = eventSendError ?: error?.takeIf { it.isNotBlank() }
-
-        val pendingEchoEntry = pendingLocalEchoes.entries.find { entry ->
-            entry.key == transactionId || entry.value.txnId == transactionId
-        }
-        val pendingEcho = pendingEchoEntry?.value
-        pendingEcho?.let { echo ->
-            val isSuccess = effectiveError.isNullOrEmpty()
-            if (isSuccess) {
-                // Success: drop pending and reconcile to real; no need to reinsert echo
-                pendingLocalEchoes.remove(pendingEchoEntry.key)
-                val realEventId = eventData.optString("event_id", "")
-                if (realEventId.isNotBlank()) {
-                    reconcileLocalEcho(transactionId, realEventId, echo.roomId, eventData, LocalEchoStatus.SENT, null)
-                } else {
-                    // No real event id yet; ensure temp renderable is cleared by txn
-                    viewModelScope.launch(Dispatchers.IO) {
-                        runCatching {
-                            appContext?.applicationContext?.let { ctx ->
-                                val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(ctx)
-                                db.renderableEventDao().deleteByTransactionId(transactionId)
-                            }
-                        }
-                    }
-                }
-            } else {
-                val updated = echo.copy(
-                    status = LocalEchoStatus.FAILED,
-                    errorMessage = effectiveError
-                )
-                pendingLocalEchoes[pendingEchoEntry.key] = updated
-                // Reinsert to update timeline, but do not persist to DB (insertLocalEchoIntoTimeline skips DB for FAILED)
-                insertLocalEchoIntoTimeline(updated.roomId, updated)
-                updateCounter++ // notify UI to refresh local echo status
-            }
-        } ?: run {
-            // If no pending echo, attempt cleanup by txnId -> real event, to avoid dup temp+real
-            val context = appContext?.applicationContext
-            if (context != null) {
-                viewModelScope.launch(Dispatchers.IO) {
-                    try {
-                        val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                        val realEventId = eventData.optString("event_id", "")
-                        val existingRenderable = realEventId.takeIf { it.isNotBlank() }?.let { db.renderableEventDao().getById(it) }
-                        // Drop any temp by txn id if still around
-                        db.renderableEventDao().deleteByTransactionId(transactionId)
-                        // Also remove temp from in-memory timeline
-                        timelineEvents = timelineEvents.filterNot {
-                            it.eventId.startsWith("~") && it.localContent?.optString("transaction_id") == transactionId
-                        }
-                        if (realEventId.isNotBlank()) {
-                            val realEvent = TimelineEvent.fromJson(eventData)
-                            val renderable = timelineEventToRenderable(
-                                realEvent,
-                                existing = existingRenderable,
-                                localEchoStatus = if (effectiveError.isNullOrEmpty()) LocalEchoStatus.SENT else LocalEchoStatus.FAILED,
-                                localEchoError = effectiveError,
-                                transactionId = transactionId
-                            )
-                            db.renderableEventDao().upsertOne(renderable)
-                            updateRoomListSummaryFromRenderables(db, realEvent.roomId, listOf(renderable))
-                        }
-                    } catch (_: Exception) {
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Replace a local echo temp event with the real event when it arrives.
-     */
-    private fun reconcileLocalEcho(
-        transactionId: String,
-        realEventId: String,
-        roomId: String,
-        eventData: JSONObject,
-        echoStatus: LocalEchoStatus? = null,
-        echoError: String? = null
-    ) {
-        val context = appContext?.applicationContext ?: return
-        val echo = pendingLocalEchoes.remove(transactionId)
-        val tempId = echo?.tempEventId
-
-        // Update in-memory timeline: remove temp, add real
-        val realEvent = TimelineEvent.fromJson(eventData)
-        val updatedTimeline = timelineEvents
-            .filterNot { it.eventId == tempId }
-            .toMutableList()
-        updatedTimeline.add(realEvent)
-        timelineEvents = updatedTimeline.sortedBy { it.timestamp }
-        timelineUpdateCounter++
-
-        // Update renderables: delete temp, insert real
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                val existing = tempId?.let { db.renderableEventDao().getById(it) }
-                if (!tempId.isNullOrBlank()) {
-                    db.renderableEventDao().deleteByIds(listOf(tempId))
-                }
-                val renderable = timelineEventToRenderable(
-                    realEvent,
-                    existing = existing,
-                    localEchoStatus = echoStatus,
-                    localEchoError = echoError,
-                    transactionId = transactionId
-                )
-                db.renderableEventDao().upsertOne(renderable)
-                updateRoomListSummaryFromRenderables(db, roomId, listOf(renderable))
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "reconcileLocalEcho: failed for txn=$transactionId", e)
-            }
-        }
+        // Local echo handling removed; real events will arrive via sync.
     }
 
     private fun timelineEventToRenderable(
         event: TimelineEvent,
         existing: RenderableEventEntity? = null,
-        localEchoStatus: LocalEchoStatus? = null,
-        localEchoError: String? = null,
         transactionId: String? = null
     ): RenderableEventEntity {
         // Prefer decrypted content for any decryptedType (messages, stickers, files, etc.)
@@ -11699,17 +11235,8 @@ class AppViewModel : ViewModel() {
         val threadRoot = event.getThreadInfo()?.threadRootEventId
         val aggregatedReactionsJson = event.aggregatedReactions?.toString()
 
-        val statusString = when {
-            localEchoStatus != null -> localEchoStatus.name
-            // Only carry over pending/failed for temp echoes; success should clear
-            existing?.localEchoStatus != null && event.eventId.startsWith("~") -> existing.localEchoStatus
-            else -> null
-        }
-        val errorString = when {
-            localEchoError != null -> localEchoError
-            existing?.localEchoError != null && event.eventId.startsWith("~") -> existing.localEchoError
-            else -> null
-        }
+        val statusString: String? = null
+        val errorString: String? = null
         val txnFromEvent = event.transactionId
             ?: event.localContent?.optString("transaction_id")?.takeIf { it.isNotBlank() }
             ?: event.unsigned?.optString("transaction_id")?.takeIf { it.isNotBlank() }
@@ -12567,9 +12094,6 @@ class AppViewModel : ViewModel() {
         // NOTE: We receive send_complete for sent messages, so we don't need to process
         // the response here to avoid duplicates. send_complete will add the event to timeline.
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Message response received, waiting for send_complete for actual event")
-
-        // Local echo: attach txnId + server temp event id to existing pending echo
-        attachTransactionIdToEcho(requestId, data, roomId)
         
         // SHORTCUT OPTIMIZATION: Update shortcut when message is successfully sent
         // Update shortcuts immediately on message response (when we know it was sent successfully)
@@ -16241,25 +15765,6 @@ fun AppViewModel.rememberRoomListUiState(): State<RoomListUiState> {
         }
     }
 }
-
-/**
- * Local echo status for messages we are sending.
- */
-enum class LocalEchoStatus { PENDING, SENT, FAILED }
-
-data class LocalEcho(
-    val txnId: String,
-    val roomId: String,
-    val tempEventId: String,
-    val sender: String,
-    val body: String,
-    val timestamp: Long,
-    val status: LocalEchoStatus = LocalEchoStatus.PENDING,
-    val errorMessage: String? = null,
-    val msgType: String? = null,
-    val decryptedType: String? = null,
-    val contentJson: String? = null
-)
 
 data class SingleEventLoadResult(
     val event: TimelineEvent?,

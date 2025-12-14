@@ -84,7 +84,6 @@ import androidx.compose.material.icons.filled.Reply
 import androidx.compose.material.icons.filled.TagFaces
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
-import net.vrkknn.andromuks.LocalEchoStatus
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReplyInfo
 import net.vrkknn.andromuks.TimelineEvent
@@ -634,23 +633,10 @@ fun MessageBubbleWithMenu(
     var loadedDeletedEvent by remember { mutableStateOf<TimelineEvent?>(null) }
     var loadedDeletedContext by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
 
-    // Local echo status (pending/failed) for coloring and menu options
+    // Local echoes removed; treat all bubbles as normal
     val isRedacted = event.redactedBy != null
-    val localEchoStatus = remember(event.eventId, appViewModel?.updateCounter) {
-        if (isRedacted) null else appViewModel?.getLocalEchoStatus(event.eventId)
-    }
-    val localEchoStatusFromContent = remember(event.eventId) {
-        event.localContent
-            ?.optString("local_echo_status")
-            ?.takeIf { it.isNotBlank() }
-            ?.let { runCatching { LocalEchoStatus.valueOf(it) }.getOrNull() }
-    }
-    val effectiveEchoStatus = localEchoStatus ?: localEchoStatusFromContent
-    val localEchoError = remember(event.eventId, appViewModel?.updateCounter) {
-        if (isRedacted) null else appViewModel?.getLocalEchoError(event.eventId)
-    }
-    val isPendingEcho = !isRedacted && (effectiveEchoStatus == LocalEchoStatus.PENDING || (effectiveEchoStatus == null && event.eventId.startsWith("~txn_")))
-    val isFailedEcho = !isRedacted && effectiveEchoStatus == LocalEchoStatus.FAILED
+    val isPendingEcho = false
+    val isFailedEcho = false
     val deletedBody = event.localContent?.optString("deleted_body")?.takeIf { it.isNotBlank() }
     val deletedFormattedBody = event.localContent?.optString("deleted_formatted_body")?.takeIf { it.isNotBlank() }
     val deletedMsgType = event.localContent?.optString("deleted_msgtype")?.takeIf { it.isNotBlank() }
@@ -900,37 +886,7 @@ fun MessageBubbleWithMenu(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            if (isFailedEcho && localEchoError != null) {
-                                // Info button for failed local echo
-                                IconButton(
-                                    onClick = {
-                                        showMenu = false
-                                        errorDialogText = localEchoError
-                                        showErrorDialog = true
-                                    },
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Info,
-                                        contentDescription = "Error info",
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                                // Delete failed echo
-                                IconButton(
-                                    onClick = {
-                                        showMenu = false
-                                        appViewModel?.deleteLocalEcho(event.eventId)
-                                    },
-                                    modifier = Modifier.size(40.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Delete,
-                                        contentDescription = "Delete failed message",
-                                        tint = MaterialTheme.colorScheme.error
-                                    )
-                                }
-                            } else {
+                            run {
                                 if (hasDeletedSnapshot) {
                                     IconButton(
                                         onClick = {
