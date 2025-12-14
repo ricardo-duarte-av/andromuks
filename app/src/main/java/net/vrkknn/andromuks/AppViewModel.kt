@@ -3987,11 +3987,13 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.Default) {
             // Parse sync data on background thread (200-500ms for large accounts)
             // BATTERY OPTIMIZATION: Pass existing rooms for change detection (skip parsing unchanged rooms)
+            // IMPORTANT: use snapshot to avoid ConcurrentModification when roomMap is cleared/reset concurrently.
+            val existingRoomsSnapshot = HashMap(roomMap)
             val syncResult = SpaceRoomParser.parseSyncUpdate(
                 syncJson, 
                 roomMemberCache, 
                 this@AppViewModel,
-                existingRooms = roomMap, // Pass existing rooms for comparison
+                existingRooms = existingRoomsSnapshot, // Pass snapshot to avoid concurrent modification
                 isAppVisible = isAppVisible // Pass visibility state
             )
             
@@ -4213,10 +4215,10 @@ class AppViewModel : ViewModel() {
             // Parse sync data on background thread (200-500ms for large accounts)
             // BATTERY OPTIMIZATION: Pass existing rooms for change detection (skip parsing unchanged rooms)
             val syncResult = SpaceRoomParser.parseSyncUpdate(
-                syncJson, 
-                roomMemberCache, 
+                syncJson,
+                roomMemberCache,
                 this@AppViewModel,
-                existingRooms = roomMap, // Pass existing rooms for comparison
+                existingRooms = HashMap(roomMap), // snapshot to avoid ConcurrentModification
                 isAppVisible = isAppVisible // Pass visibility state
             )
             
@@ -4262,7 +4264,12 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        val syncResult = SpaceRoomParser.parseSyncUpdate(syncJson, roomMemberCache, this)
+        val syncResult = SpaceRoomParser.parseSyncUpdate(
+            syncJson,
+            roomMemberCache,
+            this,
+            existingRooms = HashMap(roomMap) // snapshot to avoid ConcurrentModification
+        )
         syncMessageCount++
         
         // Process the sync result
