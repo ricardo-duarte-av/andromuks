@@ -1517,10 +1517,15 @@ class AppViewModel : ViewModel() {
                 if (currentSpaceId != null) {
                     // Show rooms within the selected space
                     val selectedSpace = allSpaces.find { it.id == currentSpaceId }
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Selected space = $selectedSpace, rooms.size = ${selectedSpace?.rooms?.size ?: 0}")
+                    val spaceRooms = selectedSpace?.rooms ?: emptyList()
+                    // Enrich space rooms with latest list summaries by replacing with roomMap/allRooms entries when available.
+                    val enrichedSpaceRooms = spaceRooms.mapNotNull { room ->
+                        roomMap[room.id] ?: allRooms.firstOrNull { it.id == room.id } ?: room
+                    }
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Selected space = $selectedSpace, rooms.size = ${spaceRooms.size}, enriched.size=${enrichedSpaceRooms.size}")
                     RoomSection(
                         type = RoomSectionType.SPACES,
-                        rooms = selectedSpace?.rooms ?: emptyList(),
+                        rooms = enrichedSpaceRooms,
                         spaces = emptyList()
                     )
                 } else {
@@ -3988,7 +3993,7 @@ class AppViewModel : ViewModel() {
             // Parse sync data on background thread (200-500ms for large accounts)
             // BATTERY OPTIMIZATION: Pass existing rooms for change detection (skip parsing unchanged rooms)
             // IMPORTANT: use snapshot to avoid ConcurrentModification when roomMap is cleared/reset concurrently.
-            val existingRoomsSnapshot = HashMap(roomMap)
+            val existingRoomsSnapshot = synchronized(roomMap) { HashMap(roomMap) }
             val syncResult = SpaceRoomParser.parseSyncUpdate(
                 syncJson, 
                 roomMemberCache, 
@@ -4218,7 +4223,7 @@ class AppViewModel : ViewModel() {
                 syncJson,
                 roomMemberCache,
                 this@AppViewModel,
-                existingRooms = HashMap(roomMap), // snapshot to avoid ConcurrentModification
+                existingRooms = synchronized(roomMap) { HashMap(roomMap) }, // snapshot to avoid ConcurrentModification
                 isAppVisible = isAppVisible // Pass visibility state
             )
             
@@ -4268,7 +4273,7 @@ class AppViewModel : ViewModel() {
             syncJson,
             roomMemberCache,
             this,
-            existingRooms = HashMap(roomMap) // snapshot to avoid ConcurrentModification
+            existingRooms = synchronized(roomMap) { HashMap(roomMap) } // snapshot to avoid ConcurrentModification
         )
         syncMessageCount++
         
