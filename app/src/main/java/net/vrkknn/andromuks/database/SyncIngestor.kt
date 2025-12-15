@@ -852,6 +852,9 @@ class SyncIngestor(private val context: Context) {
             lastEventId = lastMessageEvent.eventId
             lastTimestamp = lastMessageEvent.timestamp
             messageSender = lastMessageEvent.sender ?: messageSender
+            if (BuildConfig.DEBUG && lastTimestamp <= 0L) {
+                Log.w(TAG, "processRoom($roomId): lastMessageEvent has non-positive timestamp from DB: eventId=$lastEventId ts=$lastTimestamp")
+            }
             
             // Extract message preview from rawJson (always)
             try {
@@ -956,21 +959,35 @@ class SyncIngestor(private val context: Context) {
         }
         // Require a valid timestamp for the last message; for messages this should always be present.
         if (lastTimestamp <= 0L) {
-            return hasPersistedEvents
+            // Fallback to sorting_timestamp from meta if available
+            val fallbackTs = meta?.optLong("sorting_timestamp", 0L) ?: 0L
+            if (BuildConfig.DEBUG) {
+                Log.w(TAG, "processRoom($roomId): lastTimestamp<=0, fallbackTs=$fallbackTs")
+            }
+            if (fallbackTs > 0L) {
+                lastTimestamp = fallbackTs
+            } else {
+                // do not write summaries with zero ts
+                return hasPersistedEvents
+            }
         }
         val finalLastEventId = lastEventId ?: existingListSummary?.lastMessageEventId
         val finalLastTimestamp: Long = lastTimestamp
 
-        val summary = RoomSummaryEntity(
-            roomId = roomId,
-            lastEventId = finalLastEventId,
-            lastTimestamp = finalLastTimestamp,
-            unreadCount = unreadMessages,
-            highlightCount = unreadHighlights,
-            messageSender = messageSender,
-            messagePreview = messagePreview
-        )
-        roomSummaryDao.upsert(summary)
+        if (finalLastTimestamp > 0L) {
+            val summary = RoomSummaryEntity(
+                roomId = roomId,
+                lastEventId = finalLastEventId,
+                lastTimestamp = finalLastTimestamp,
+                unreadCount = unreadMessages,
+                highlightCount = unreadHighlights,
+                messageSender = messageSender,
+                messagePreview = messagePreview
+            )
+            roomSummaryDao.upsert(summary)
+        } else if (BuildConfig.DEBUG) {
+            Log.w(TAG, "processRoom($roomId): Skipping room_summary upsert due to non-positive ts=$finalLastTimestamp (event=$finalLastEventId)")
+        }
 
         // ALSO feed the room_list_summary table that the room list UI reads.
         // Limit to message-bearing events so joins/reactions do not overwrite previews.
@@ -989,23 +1006,35 @@ class SyncIngestor(private val context: Context) {
         }
         val isMessageType = lastMessageType == "m.room.message" || lastMessageType == "m.room.encrypted"
         val isTextMessage = lastMessageMsgType?.equals("m.text", ignoreCase = true) == true
-        if (isMessageType && isTextMessage && finalLastEventId != null && !messagePreview.isNullOrBlank()) {
+
+        // Even for non-text messages, we should at least persist timestamp/unreads so sorting/time works.
+        if (isMessageType && finalLastEventId != null && finalLastTimestamp > 0L) {
             val displayName = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: existingState?.name
             val avatarMxc = meta?.optString("avatar")?.takeIf { it.isNotBlank() } ?: existingState?.avatarUrl
             val isLowPriorityFlag = meta?.optBoolean("is_low_priority") ?: existingState?.isLowPriority ?: false
+            val previewToUse = when {
+                isTextMessage && !messagePreview.isNullOrBlank() -> messagePreview
+                else -> existingListSummary?.lastMessagePreview
+            }
+            val senderToUse = when {
+                isTextMessage -> messageSender ?: existingListSummary?.lastMessageSenderUserId
+                else -> existingListSummary?.lastMessageSenderUserId
+            }
             val listSummary = RoomListSummaryEntity(
                 roomId = roomId,
                 displayName = displayName,
                 avatarMxc = avatarMxc,
                 lastMessageEventId = finalLastEventId,
-                lastMessageSenderUserId = messageSender ?: existingListSummary?.lastMessageSenderUserId,
-                lastMessagePreview = messagePreview ?: existingListSummary?.lastMessagePreview,
+                lastMessageSenderUserId = senderToUse,
+                lastMessagePreview = previewToUse,
                 lastMessageTimestamp = finalLastTimestamp,
                 unreadCount = unreadMessages,
                 highlightCount = unreadHighlights,
                 isLowPriority = isLowPriorityFlag
             )
             roomListSummaryDao.upsert(listSummary)
+        } else if (isMessageType && finalLastEventId != null && finalLastTimestamp <= 0L && BuildConfig.DEBUG) {
+            Log.w(TAG, "processRoom($roomId): Skipping room_list_summary upsert due to non-positive ts=$finalLastTimestamp (event=$finalLastEventId)")
         }
         
         return hasPersistedEvents
@@ -1041,7 +1070,20 @@ class SyncIngestor(private val context: Context) {
         }
         val type = typeRaw
         val sender = eventJson.optString("sender") ?: ""
-        val timestamp = eventJson.optLong("origin_server_ts", 0L)
+        // Prefer origin_server_ts; fall back to other keys some payloads use (timestamp / ts).
+        var timestamp = eventJson.optLong("origin_server_ts", 0L)
+        if (timestamp <= 0L) {
+            val altTs = eventJson.optLong("timestamp", 0L)
+            if (altTs > 0L) {
+                timestamp = altTs
+            } else {
+                val tsKey = eventJson.optLong("ts", 0L)
+                if (tsKey > 0L) timestamp = tsKey
+            }
+            if (BuildConfig.DEBUG && timestamp <= 0L) {
+                Log.w(TAG, "parseEventFromJson($roomId,$eventId): missing origin_server_ts/timestamp/ts, keeping 0")
+            }
+        }
         val decryptedType = eventJson.optString("decrypted_type")
         
         var resolvedTimelineRowId = when {

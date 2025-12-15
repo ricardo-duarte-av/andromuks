@@ -151,6 +151,28 @@ interface EventDao {
         ORDER BY roomId ASC, timestamp DESC, timelineRowId DESC, eventId DESC
     """)
     suspend fun getLastMessagesForRooms(roomIds: List<String>): List<EventEntity>
+
+    /**
+     * Fetch the latest message-like event for every room in one query.
+     * Uses a window function to pick the newest by timestamp, then timelineRowId, then eventId.
+     */
+    @Query("""
+        SELECT * FROM (
+            SELECT e.*,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY e.roomId
+                       ORDER BY e.timestamp DESC, e.timelineRowId DESC, e.eventId DESC
+                   ) AS rn
+            FROM events e
+            WHERE
+                (
+                    e.type = 'm.room.message'
+                    OR (e.type = 'm.room.encrypted' AND (e.decryptedType = 'm.room.message' OR e.decryptedType = 'm.text'))
+                )
+        )
+        WHERE rn = 1
+    """)
+    suspend fun getLatestMessagesForAllRooms(): List<EventEntity>
 }
 
 

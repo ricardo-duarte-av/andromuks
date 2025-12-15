@@ -1375,6 +1375,20 @@ class WebSocketService : Service() {
             // Update notification with current lag and new sync timestamp
             updateConnectionStatus(true, serviceInstance.lastKnownLagMs, serviceInstance.lastSyncTimestamp)
         }
+
+        /**
+         * Start ping loop immediately after init_complete so small/no-traffic accounts don’t wait for the first sync_complete.
+         */
+        fun startPingLoopOnInitComplete() {
+            val serviceInstance = instance ?: return
+            if (!serviceInstance.pingLoopStarted) {
+                serviceInstance.pingLoopStarted = true
+                serviceInstance.hasEverReachedReadyState = true
+                android.util.Log.i("WebSocketService", "Init_complete received, starting ping loop")
+                logActivity("WebSocket Ready", serviceInstance.currentNetworkType.name)
+                startPingLoop()
+            }
+        }
         
         /**
          * Mark that at least one sync_complete has been persisted this session.

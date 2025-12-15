@@ -182,6 +182,7 @@ fun RoomListScreen(
     
     // Prepare room list data while the loading screen is visible so we avoid flicker
     val roomListUpdateCounter = uiState.roomListUpdateCounter
+    // Seed from DB snapshot to avoid empty in-memory cache after clear_state/cold start
     var stableSection by remember { mutableStateOf(appViewModel.getCurrentRoomSection()) }
     var previousSectionType by remember { mutableStateOf(stableSection.type) }
     var sectionAnimationDirection by remember { mutableStateOf(0) }
@@ -191,6 +192,38 @@ fun RoomListScreen(
     val roomSummaryCache = remember { mutableStateMapOf<String, Map<String, Triple<String?, String?, Long?>>>() }
     val roomSummaryReadyCache = remember { mutableStateMapOf<String, Boolean>() }
     val roomSummaryCounterCache = remember { mutableStateMapOf<String, Int>() } // tracks which counter the cache corresponds to
+
+    // Refresh stableSection from DB-backed snapshot when counters or space selection change.
+    LaunchedEffect(roomListUpdateCounter, uiState.roomSummaryUpdateCounter, uiState.currentSpaceId) {
+        // If initial sync isn’t complete yet and we already have data, keep current UI to avoid flicker.
+        if (!uiState.initialSyncComplete) {
+            val hadContent = stableSection.rooms.isNotEmpty() || stableSection.spaces.isNotEmpty()
+            if (hadContent) return@LaunchedEffect
+        }
+
+        val snapshot = withContext(Dispatchers.IO) {
+            runCatching { appViewModel.buildSectionSnapshot() }.getOrNull()
+        }
+        if (snapshot != null) {
+            // If we already have rooms and the new snapshot is empty, keep the old one to avoid flicker
+            if (stableSection.rooms.isNotEmpty() && snapshot.rooms.isEmpty()) {
+                return@LaunchedEffect
+            }
+            // Only replace if the snapshot has meaningful data (rooms with summaries/timestamps/unreads or any spaces),
+            // or if we previously had no content.
+            val hasMeaningfulRooms = snapshot.rooms.any { room ->
+                (room.sortingTimestamp ?: 0L) > 0L ||
+                        !room.messagePreview.isNullOrBlank() ||
+                        (room.unreadCount ?: 0) > 0 ||
+                        (room.highlightCount ?: 0) > 0
+            }
+            val hasContent = hasMeaningfulRooms || snapshot.spaces.isNotEmpty()
+            val hadContent = stableSection.rooms.isNotEmpty() || stableSection.spaces.isNotEmpty()
+            if (hasContent || !hadContent) {
+                stableSection = snapshot
+            }
+        }
+    }
 
     // Batched last-message query with caching keyed by section and room IDs hash to avoid per-room queries.
     val roomIdsHash = remember(stableSection.type, uiState.currentSpaceId, roomListUpdateCounter) {
@@ -240,10 +273,9 @@ fun RoomListScreen(
             roomSummaryCounterCache[sectionCacheKey] = uiState.roomSummaryUpdateCounter
             initialRoomSummariesReady = true
             if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
-                android.util.Log.d(
-                    "Andromuks",
-                    "RoomListScreen: Using room_list_summary for ${summaries.size}/${roomIds.size} rooms"
-                )
+                val missingTs = summaries.count { (it.lastMessageTimestamp ?: 0L) <= 0L }
+                val withTs = summaries.count { (it.lastMessageTimestamp ?: 0L) > 0L }
+                android.util.Log.d("Andromuks", "RoomListScreen: summaries flow emit rooms=${summaries.size}/${roomIds.size} with_ts=$withTs missing_ts=$missingTs")
             }
         }
     }
@@ -416,7 +448,8 @@ fun RoomListScreen(
     // PERFORMANCE: Only update section if data actually changed
     // ANTI-FLICKER FIX: Preserve room instances when only order changes
     LaunchedEffect(roomListUpdateCounter) {
-        val newSection = appViewModel.getCurrentRoomSection()
+        // Use DB snapshot to avoid empty in-memory sections on tab switches
+        val newSection = withContext(Dispatchers.IO) { runCatching { appViewModel.buildSectionSnapshot() }.getOrNull() } ?: return@LaunchedEffect
         
         // FIX: Compare only meaningful fields, ignore micro timestamp changes
         // Compare room order (by ID sequence), unread counts, and names
@@ -1535,7 +1568,7 @@ fun RoomListItem(
 }
 
 fun formatTimeAgo(timestamp: Long?): String {
-    if (timestamp == null) return ""
+    if (timestamp == null || timestamp <= 0L) return ""
     
     val now = System.currentTimeMillis()
     val diff = now - timestamp

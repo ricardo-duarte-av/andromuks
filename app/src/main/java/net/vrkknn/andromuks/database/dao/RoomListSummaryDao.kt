@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import net.vrkknn.andromuks.database.entities.RoomListSummaryEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface RoomListSummaryDao {
@@ -25,5 +26,8 @@ interface RoomListSummaryDao {
 
     @Query("SELECT * FROM room_list_summary")
     suspend fun getAll(): List<RoomListSummaryEntity>
+
+    @Query("SELECT * FROM room_list_summary")
+    fun getAllFlow(): Flow<List<RoomListSummaryEntity>>
 }
 

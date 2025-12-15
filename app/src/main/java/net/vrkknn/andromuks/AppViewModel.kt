@@ -33,9 +33,11 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.firstOrNull
 import org.json.JSONObject
@@ -51,6 +53,10 @@ import java.io.File
 import java.util.Collections
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.database.entities.RenderableEventEntity
+import net.vrkknn.andromuks.database.AndromuksDatabase
+import net.vrkknn.andromuks.database.entities.RoomStateEntity
+import net.vrkknn.andromuks.database.entities.RoomSummaryEntity
+import androidx.room.withTransaction
 
 data class MemberProfile(
     val displayName: String?,
@@ -141,6 +147,335 @@ class AppViewModel : ViewModel() {
         // PHASE 5.1: Constants for outgoing message queue
         private const val MAX_QUEUE_SIZE = 800 // Maximum queue size (raised to cover bulk pagination hydrates)
         private const val MAX_MESSAGE_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
+    }
+    
+    /**
+     * DB-backed section flows (read-only) to simplify room list data access.
+     * UI remains unchanged for now.
+     */
+    private fun dbOrNull(): AndromuksDatabase? = appContext?.let { AndromuksDatabase.getInstance(it) }
+    @Volatile private var summariesHydrated = false
+
+    private fun RoomStateEntity.toRoomItem(
+        summary: RoomListSummaryEntity?,
+        fallback: RoomSummaryEntity?
+    ): RoomItem {
+        val displayName = this.name ?: this.roomId
+        val avatar = this.avatarUrl
+        val preview = summary?.lastMessagePreview ?: fallback?.messagePreview
+        val sender = summary?.lastMessageSenderUserId ?: fallback?.messageSender
+        val ts = summary?.lastMessageTimestamp?.takeIf { it > 0 }
+            ?: fallback?.lastTimestamp?.takeIf { it > 0 }
+        val unread = (summary?.unreadCount ?: fallback?.unreadCount)?.takeIf { it > 0 }
+        val highlights = (summary?.highlightCount ?: fallback?.highlightCount)?.takeIf { it > 0 }
+        val lowPriority = summary?.isLowPriority ?: this.isLowPriority
+        if (BuildConfig.DEBUG && ts == null) {
+            android.util.Log.d(
+                "Andromuks",
+                "toRoomItem: Missing timestamp for room $roomId (summary_ts=${summary?.lastMessageTimestamp}, fallback_ts=${fallback?.lastTimestamp})"
+            )
+        }
+        return RoomItem(
+            id = roomId,
+            name = displayName,
+            messagePreview = preview,
+            messageSender = sender,
+            unreadCount = unread,
+            highlightCount = highlights,
+            avatarUrl = avatar,
+            sortingTimestamp = ts,
+            isDirectMessage = isDirect,
+            isFavourite = isFavourite,
+            isLowPriority = lowPriority
+        )
+    }
+
+    fun homeRoomsFlow(): Flow<List<RoomItem>> {
+        val db = dbOrNull() ?: return flowOf(emptyList())
+        return combine(
+            db.roomStateDao().getAllRoomStatesFlow(),
+            db.roomListSummaryDao().getAllFlow(),
+            db.roomSummaryDao().getAllRoomsFlow(),
+            db.spaceDao().getAllSpacesFlow()
+        ) { states, summaries, roomSummaries, spaces ->
+            val summaryMap = summaries.associateBy { it.roomId }
+            val fallbackMap = roomSummaries.associateBy { it.roomId }
+            val spaceIds = spaces.map { it.spaceId }.toSet()
+            states
+                .filter { it.roomId !in spaceIds }
+                .map { it.toRoomItem(summaryMap[it.roomId], fallbackMap[it.roomId]) }
+                .sortedByDescending { it.sortingTimestamp ?: 0L }
+        }
+    }
+
+    fun directRoomsFlow(): Flow<List<RoomItem>> {
+        val db = dbOrNull() ?: return flowOf(emptyList())
+        return combine(
+            db.roomStateDao().getAllRoomStatesFlow(),
+            db.roomListSummaryDao().getAllFlow(),
+            db.roomSummaryDao().getAllRoomsFlow()
+        ) { states, summaries, roomSummaries ->
+            val summaryMap = summaries.associateBy { it.roomId }
+            val fallbackMap = roomSummaries.associateBy { it.roomId }
+            states
+                .filter { it.isDirect }
+                .map { it.toRoomItem(summaryMap[it.roomId], fallbackMap[it.roomId]) }
+                .sortedByDescending { it.sortingTimestamp ?: 0L }
+        }
+    }
+
+    fun unreadRoomsFlow(): Flow<List<RoomItem>> {
+        val db = dbOrNull() ?: return flowOf(emptyList())
+        return combine(
+            db.roomStateDao().getAllRoomStatesFlow(),
+            db.roomListSummaryDao().getAllFlow(),
+            db.roomSummaryDao().getAllRoomsFlow(),
+            db.spaceDao().getAllSpacesFlow()
+        ) { states, summaries, roomSummaries, spaces ->
+            val summaryMap = summaries.associateBy { it.roomId }
+            val fallbackMap = roomSummaries.associateBy { it.roomId }
+            val spaceIds = spaces.map { it.spaceId }.toSet()
+            states
+                .mapNotNull { state ->
+                    val summary = summaryMap[state.roomId]
+                    val fallback = fallbackMap[state.roomId]
+                    val unreadCount = (summary?.unreadCount ?: fallback?.unreadCount) ?: 0
+                    if (unreadCount <= 0) return@mapNotNull null
+                    if (state.roomId in spaceIds) return@mapNotNull null
+                    state.toRoomItem(summary, fallback)
+                }
+                .sortedByDescending { it.sortingTimestamp ?: 0L }
+        }
+    }
+
+    fun favouriteRoomsFlow(): Flow<List<RoomItem>> {
+        val db = dbOrNull() ?: return flowOf(emptyList())
+        return combine(
+            db.roomStateDao().getAllRoomStatesFlow(),
+            db.roomListSummaryDao().getAllFlow(),
+            db.roomSummaryDao().getAllRoomsFlow()
+        ) { states, summaries, roomSummaries ->
+            val summaryMap = summaries.associateBy { it.roomId }
+            val fallbackMap = roomSummaries.associateBy { it.roomId }
+            states
+                .filter { it.isFavourite }
+                .map { it.toRoomItem(summaryMap[it.roomId], fallbackMap[it.roomId]) }
+                .sortedByDescending { it.sortingTimestamp ?: 0L }
+        }
+    }
+
+    fun topLevelSpacesFlow(): Flow<List<SpaceItem>> {
+        val db = dbOrNull() ?: return flowOf(emptyList())
+        return db.spaceDao().getAllSpacesFlow().map { spaces ->
+            spaces.map { space ->
+                SpaceItem(
+                    id = space.spaceId,
+                    name = space.name ?: space.spaceId,
+                    avatarUrl = space.avatarUrl,
+                    rooms = emptyList()
+                )
+            }
+        }
+    }
+
+    fun spaceChildRoomsFlow(spaceId: String): Flow<List<RoomItem>> {
+        val db = dbOrNull() ?: return flowOf(emptyList())
+        return combine(
+            db.spaceRoomDao().getRoomsForSpaceFlow(spaceId),
+            db.roomStateDao().getAllRoomStatesFlow(),
+            db.roomListSummaryDao().getAllFlow(),
+            db.roomSummaryDao().getAllRoomsFlow(),
+            db.spaceDao().getAllSpacesFlow()
+        ) { edges, states, summaries, roomSummaries, spaces ->
+            val summaryMap = summaries.associateBy { it.roomId }
+            val stateMap = states.associateBy { it.roomId }
+            val fallbackMap = roomSummaries.associateBy { it.roomId }
+            val spaceIds = spaces.map { it.spaceId }.toSet()
+
+            val comparator = compareBy<net.vrkknn.andromuks.database.entities.SpaceRoomEntity>(
+                { it.order ?: "" },
+                { it.childEventRowId ?: Long.MAX_VALUE },
+                { it.childId }
+            )
+
+            edges
+                .sortedWith(comparator)
+                .mapNotNull { edge ->
+                    if (edge.childId in spaceIds) return@mapNotNull null // omit child spaces
+                    val state = stateMap[edge.childId] ?: return@mapNotNull null
+                    state.toRoomItem(summaryMap[edge.childId], fallbackMap[edge.childId])
+                }
+        }
+    }
+
+    /**
+     * Build a one-shot snapshot of the current section from DB-backed flows.
+     * UI can call this to avoid using in-memory caches.
+     */
+    suspend fun buildSectionSnapshot(): RoomSection {
+        if (BuildConfig.DEBUG) {
+            logRoomDbCounts()
+        }
+        hydrateMissingSummariesFromEventsIfNeeded()
+        return when (selectedSection) {
+            RoomSectionType.HOME -> {
+                val rooms = homeRoomsFlow().firstOrNull().orEmpty()
+                RoomSection(RoomSectionType.HOME, rooms)
+            }
+            RoomSectionType.DIRECT_CHATS -> {
+                val rooms = directRoomsFlow().firstOrNull().orEmpty()
+                RoomSection(RoomSectionType.DIRECT_CHATS, rooms, unreadCount = rooms.count { (it.unreadCount ?: 0) > 0 })
+            }
+            RoomSectionType.UNREAD -> {
+                val rooms = unreadRoomsFlow().firstOrNull().orEmpty()
+                RoomSection(RoomSectionType.UNREAD, rooms, unreadCount = rooms.size)
+            }
+            RoomSectionType.FAVOURITES -> {
+                val rooms = favouriteRoomsFlow().firstOrNull().orEmpty()
+                RoomSection(RoomSectionType.FAVOURITES, rooms)
+            }
+            RoomSectionType.SPACES -> {
+                if (currentSpaceId == null) {
+                    val spaces = topLevelSpacesFlow().firstOrNull().orEmpty()
+                    RoomSection(RoomSectionType.SPACES, rooms = emptyList(), spaces = spaces)
+                } else {
+                    val rooms = spaceChildRoomsFlow(currentSpaceId!!).firstOrNull().orEmpty()
+                    RoomSection(RoomSectionType.SPACES, rooms = rooms, spaces = emptyList())
+                }
+            }
+        }
+    }
+
+    /**
+     * Debug helper: logs counts of room_state, room_list_summary, spaces, space_rooms.
+     */
+    private suspend fun logRoomDbCounts() {
+        val db = dbOrNull() ?: run {
+            android.util.Log.d("Andromuks", "AppViewModel: DB null in logRoomDbCounts")
+            return
+        }
+        val stateCount = runCatching { db.roomStateDao().getAllRoomStates().size }.getOrDefault(-1)
+        val listSummaryCount = runCatching { db.roomListSummaryDao().getAll().size }.getOrDefault(-1)
+        val summaryCount = runCatching { db.roomSummaryDao().getAllRooms().size }.getOrDefault(-1)
+        val spaceCount = runCatching { db.spaceDao().getAllSpaces().size }.getOrDefault(-1)
+        val spaceRoomCount = runCatching { db.spaceRoomDao().getAllRoomsForAllSpaces().size }.getOrDefault(-1)
+        android.util.Log.d(
+            "Andromuks",
+            "DB COUNTS - room_state=$stateCount, room_list_summary=$listSummaryCount, room_summary=$summaryCount, spaces=$spaceCount, space_rooms=$spaceRoomCount"
+        )
+    }
+
+    /**
+     * If room_list_summary / room_summary are empty/sparse, hydrate them from the last message events.
+     * Runs once per app lifetime (guarded by summariesHydrated).
+     */
+    private suspend fun hydrateMissingSummariesFromEventsIfNeeded() {
+        if (summariesHydrated) return
+        val db = dbOrNull() ?: return
+
+        val states = runCatching { db.roomStateDao().getAllRoomStates() }.getOrNull() ?: emptyList()
+        val listSummaries = runCatching { db.roomListSummaryDao().getAll() }.getOrNull() ?: emptyList()
+        val summaries = runCatching { db.roomSummaryDao().getAllRooms() }.getOrNull() ?: emptyList()
+
+        if (states.isEmpty()) return
+
+        if (BuildConfig.DEBUG) {
+            val missingTs = listSummaries.count { (it.lastMessageTimestamp ?: 0L) <= 0L }
+            android.util.Log.d(
+                "Andromuks",
+                "Hydrate summaries (global latest-per-room): states=${states.size} list_summary=${listSummaries.size} room_summary=${summaries.size} missing_ts=$missingTs"
+            )
+        }
+
+        // If we already have coverage, skip
+        val hasCoverage = listSummaries.size >= states.size && summaries.size >= states.size
+        if (hasCoverage) {
+            summariesHydrated = true
+            return
+        }
+
+        val missingCount = states.size - minOf(listSummaries.size, summaries.size)
+
+        val eventDao = db.eventDao()
+        val roomSummaryDao = db.roomSummaryDao()
+        val roomListSummaryDao = db.roomListSummaryDao()
+
+        val newSummaries = mutableListOf<RoomSummaryEntity>()
+        val newListSummaries = mutableListOf<RoomListSummaryEntity>()
+
+        val latestMessages = runCatching { eventDao.getLatestMessagesForAllRooms() }.getOrNull().orEmpty()
+        if (latestMessages.isEmpty()) {
+            summariesHydrated = true
+            return
+        }
+
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "Hydrate: latestMessages=${latestMessages.size}, states=${states.size}, list_summary=${listSummaries.size}, room_summary=${summaries.size}")
+        }
+
+        latestMessages.forEach { ev ->
+            // Only hydrate rooms we know about
+            if (states.none { it.roomId == ev.roomId }) return@forEach
+
+            if (BuildConfig.DEBUG && ev.timestamp <= 0L) {
+                android.util.Log.w("Andromuks", "Hydrate: Skipping room ${ev.roomId} because latest message timestamp is non-positive (ts=${ev.timestamp}, eventId=${ev.eventId})")
+                return@forEach
+            }
+
+            val contentBody = runCatching {
+                val json = org.json.JSONObject(ev.rawJson)
+                val content = json.optJSONObject("content")
+                val body = content?.optString("body")?.takeIf { it.isNotBlank() }
+                if (body != null) body else content?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
+            }.getOrNull()
+
+            newSummaries.add(
+                RoomSummaryEntity(
+                    roomId = ev.roomId,
+                    lastEventId = ev.eventId,
+                    lastTimestamp = ev.timestamp,
+                    unreadCount = 0,
+                    highlightCount = 0,
+                    messageSender = ev.sender,
+                    messagePreview = contentBody
+                )
+            )
+
+            newListSummaries.add(
+                RoomListSummaryEntity(
+                    roomId = ev.roomId,
+                    displayName = null,
+                    avatarMxc = null,
+                    lastMessageEventId = ev.eventId,
+                    lastMessageSenderUserId = ev.sender,
+                    lastMessagePreview = contentBody,
+                    lastMessageTimestamp = ev.timestamp,
+                    unreadCount = 0,
+                    highlightCount = 0,
+                    isLowPriority = false
+                )
+            )
+        }
+
+        if (newSummaries.isNotEmpty() || newListSummaries.isNotEmpty()) {
+            runCatching {
+                db.withTransaction {
+                    if (newSummaries.isNotEmpty()) roomSummaryDao.upsertAll(newSummaries)
+                    if (newListSummaries.isNotEmpty()) roomListSummaryDao.upsertAll(newListSummaries)
+                }
+            }.onFailure {
+                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "Hydrate summaries failed: ${it.message}", it)
+            }.onSuccess {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "Hydrated summaries from events: room_summary +${newSummaries.size}, room_list_summary +${newListSummaries.size}")
+                }
+            }
+            summariesHydrated = true
+        } else {
+            // Nothing to write yet; allow future calls to retry once events are present.
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "Hydrate summaries: no latest messages available yet; will retry on next snapshot")
+            return
+        }
     }
     
     // PHASE 4: Unique ID for this ViewModel instance (for WebSocket callback registration)
@@ -2214,8 +2549,8 @@ class AppViewModel : ViewModel() {
         imageAuthToken = token
     }
 
-    // Use a Map for efficient room lookups and updates
-    private val roomMap = mutableMapOf<String, RoomItem>()
+    // Use a thread-safe Map to avoid ConcurrentModificationException when snapshots are taken
+    private val roomMap = java.util.concurrent.ConcurrentHashMap<String, RoomItem>()
     private var syncMessageCount = 0
     
     // Track newly joined rooms (rooms that appeared in sync_complete for the first time)
@@ -4168,9 +4503,9 @@ class AppViewModel : ViewModel() {
                     val roomsWithEvents = syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId, isAppVisible) ?: emptySet()
                     
                     // CRITICAL: Notify RoomListScreen that room summaries may have been updated
-                    // SyncIngestor updates summaries when isAppVisible == true, so we need to refresh the summary display
+                    // SyncIngestor updates summaries, so we need to refresh the summary display
                     // This ensures room list shows new message previews/senders immediately
-                    if (roomsWithEvents.isNotEmpty() && isAppVisible) {
+                    if (roomsWithEvents.isNotEmpty()) {
                         withContext(Dispatchers.Main) {
                             roomSummaryUpdateCounter++
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room summaries updated for ${roomsWithEvents.size} rooms - triggering RoomListScreen refresh (roomSummaryUpdateCounter: $roomSummaryUpdateCounter)")
@@ -4665,6 +5000,9 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) {
             android.util.Log.d("Andromuks", "AppViewModel: init_complete received - will process ${initialSyncCompleteQueue.size} queued initial sync_complete messages")
         }
+
+        // Start WebSocket pinger immediately on init_complete so low-traffic accounts don’t wait for first sync_complete
+        net.vrkknn.andromuks.WebSocketService.startPingLoopOnInitComplete()
         
         // Process all queued initial sync_complete messages
         viewModelScope.launch(Dispatchers.Default) {
@@ -15874,6 +16212,9 @@ data class SingleEventLoadResult(
 fun AppViewModel.roomListSummariesFlow(roomIds: List<String>): kotlinx.coroutines.flow.Flow<List<RoomListSummaryEntity>> {
     val context = this.getAppContext() ?: return kotlinx.coroutines.flow.emptyFlow()
     if (roomIds.isEmpty()) return kotlinx.coroutines.flow.emptyFlow()
+    if (BuildConfig.DEBUG) {
+        android.util.Log.d("Andromuks", "roomListSummariesFlow: subscribing for ${roomIds.size} rooms")
+    }
     return net.vrkknn.andromuks.database.AndromuksDatabase
         .getInstance(context)
         .roomListSummaryDao()

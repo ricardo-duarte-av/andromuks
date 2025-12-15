@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import net.vrkknn.andromuks.database.entities.RoomStateEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface RoomStateDao {
@@ -22,6 +23,9 @@ interface RoomStateDao {
     
     @Query("SELECT * FROM room_state")
     suspend fun getAllRoomStates(): List<RoomStateEntity>
+
+    @Query("SELECT * FROM room_state")
+    fun getAllRoomStatesFlow(): Flow<List<RoomStateEntity>>
     
     @Query("DELETE FROM room_state WHERE roomId = :roomId")
     suspend fun deleteForRoom(roomId: String)

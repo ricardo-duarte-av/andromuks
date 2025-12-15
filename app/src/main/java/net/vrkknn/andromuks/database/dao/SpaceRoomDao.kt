@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import net.vrkknn.andromuks.database.entities.SpaceRoomEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SpaceRoomDao {
@@ -16,6 +17,9 @@ interface SpaceRoomDao {
 
     @Query("SELECT * FROM space_rooms WHERE spaceId = :spaceId")
     suspend fun getRoomsForSpace(spaceId: String): List<SpaceRoomEntity>
+
+    @Query("SELECT * FROM space_rooms WHERE spaceId = :spaceId")
+    fun getRoomsForSpaceFlow(spaceId: String): Flow<List<SpaceRoomEntity>>
 
     @Query("SELECT * FROM space_rooms WHERE childId = :childId")
     suspend fun getSpacesForRoom(childId: String): List<SpaceRoomEntity>
@@ -31,6 +35,9 @@ interface SpaceRoomDao {
     
     @Query("SELECT * FROM space_rooms")
     suspend fun getAllRoomsForAllSpaces(): List<SpaceRoomEntity>
+    
+    @Query("SELECT * FROM space_rooms")
+    fun getAllRoomsForAllSpacesFlow(): Flow<List<SpaceRoomEntity>>
     
     @Query("DELETE FROM space_rooms WHERE spaceId NOT IN (SELECT spaceId FROM spaces)")
     suspend fun deleteOrphanedSpaceRooms(): Int

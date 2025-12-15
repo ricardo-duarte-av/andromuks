@@ -5,6 +5,7 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import net.vrkknn.andromuks.database.entities.SpaceEntity
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface SpaceDao {
@@ -16,6 +17,9 @@ interface SpaceDao {
 
     @Query("SELECT * FROM spaces")
     suspend fun getAllSpaces(): List<SpaceEntity>
+
+    @Query("SELECT * FROM spaces")
+    fun getAllSpacesFlow(): Flow<List<SpaceEntity>>
 
     @Query("SELECT * FROM spaces WHERE spaceId = :spaceId")
     suspend fun getSpace(spaceId: String): SpaceEntity?
