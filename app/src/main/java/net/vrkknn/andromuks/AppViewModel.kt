@@ -1067,6 +1067,17 @@ class AppViewModel : ViewModel() {
     fun isDirectMessageFromAccountData(roomId: String): Boolean {
         return directMessageRoomIds.contains(roomId)
     }
+
+    /**
+     * A room is treated as Direct if either:
+     * - m.direct account data marks it (directMessageRoomIds), or
+     * - the room meta / state marks isDirectMessage on the Room object.
+     * We keep both paths so login-cold-start (DB) and live sync agree.
+     */
+    fun isDirectRoom(roomId: String): Boolean {
+        val mapEntry = roomMap[roomId]
+        return directMessageRoomIds.contains(roomId) || (mapEntry?.isDirectMessage == true)
+    }
     
     // Force recomposition counter - DEPRECATED: Use specific counters below instead
     var updateCounter by mutableStateOf(0)
@@ -3943,7 +3954,7 @@ class AppViewModel : ViewModel() {
             allRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
             // Invalidate cache to force refresh of filtered sections
             invalidateRoomSectionCache()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedCount rooms with correct DM status from m.direct account data")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated $updatedCount rooms with correct DM status from m.direct/bridge data")
         }
     }
 
@@ -6068,6 +6079,7 @@ class AppViewModel : ViewModel() {
     private val recentProfileRequestTimes = mutableMapOf<String, Long>() // "roomId:userId" -> timestamp
     private val PROFILE_REQUEST_THROTTLE_MS = 5000L // Skip if requested within last 5 seconds
     private val REACTION_BACKFILL_ON_OPEN_ENABLED = false
+    private val AUTO_PAGINATION_ENABLED = false
     
     // Pagination state
     private var smallestRowId: Long = -1L // Smallest rowId from initial paginate
@@ -9237,47 +9249,8 @@ class AppViewModel : ViewModel() {
                     // Process events through chain processing (builds timeline structure)
                     processCachedEvents(roomId, dbEvents, openingFromNotification)
                         
-                    // Request fresh timeline data in background to ensure we have the latest events
-                        viewModelScope.launch {
-                        // Small delay to let UI render DB events first
-                            kotlinx.coroutines.delay(100)
-                            
-                            // Wait for WebSocket to be ready (it might not be connected yet when opening via notification/shortcut)
-                            var waitCount = 0
-                            val maxWaitAttempts = 5 // Wait up to 5 seconds (50 * 100ms)
-                            while (!isWebSocketConnected() && waitCount < maxWaitAttempts) {
-                                kotlinx.coroutines.delay(100)
-                                waitCount++
-                            }
-                            
-                            if (!isWebSocketConnected()) {
-                                android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected after waiting, cannot request fresh timeline data for $roomId")
-                                return@launch
-                            }
-                            
-                            // Request fresh timeline data to fill gaps and get latest events
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting fresh timeline data in background for $roomId (to ensure latest events)")
-                            
-                            val paginateRequestId = requestIdCounter++
-                            backgroundPrefetchRequests[paginateRequestId] = roomId
-                            
-                            val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-                                "room_id" to roomId,
-                                "max_timeline_id" to 0,
-                                "limit" to 200,
-                                "reset" to false
-                            ))
-                            
-                            if (result == WebSocketResult.SUCCESS) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Background paginate request sent for $roomId (requestId=$paginateRequestId)")
-                            markInitialPaginate(roomId, "fresh_data_after_db_load")
-                            } else {
-                                android.util.Log.w("Andromuks", "AppViewModel: Failed to send background paginate request for $roomId: $result")
-                                backgroundPrefetchRequests.remove(paginateRequestId)
-                            }
-                        }
-                        
-                        return
+                    // Skip background paginate; rely on existing DB snapshot. Manual refresh can fetch more.
+                    return
                 } else {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in database for $roomId, will send paginate request")
                 }
@@ -9286,15 +9259,8 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // No events in database - send paginate request to fetch from server
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in database for $roomId, requesting from server")
-        
-        // C: Requesting from Backend
-        if (BuildConfig.DEBUG) {
-            appContext?.let { context ->
-                android.widget.Toast.makeText(context, "C: Requesting from Backend", android.widget.Toast.LENGTH_SHORT).show()
-            }
-        }
+        // No events in database - do not auto-paginate. Leave timeline empty until manual refresh.
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in database for $roomId, but auto-paginate disabled; waiting for manual refresh.")
         
         // Only clear timeline if we're opening a different room, or if timeline is already empty
         // This prevents clearing timeline when resuming from background for the same room
@@ -9354,47 +9320,11 @@ class AppViewModel : ViewModel() {
         val currentCachedCount = RoomTimelineCache.getCachedEventCount(roomId)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION NOTE - Cache miss with $currentCachedCount events available.")
         
-        // CRITICAL FIX: If database is empty AND cache is empty, send paginate command immediately
-        // This fixes the issue where opening a room from shortcut shows empty timeline
+        // Auto paginate disabled: do not request from server even on cache/database miss.
         if (currentCachedCount == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Database and cache both empty for $roomId - sending paginate command immediately")
-            
-            // Wait for WebSocket to be ready (it might not be connected yet when opening via shortcut)
-            viewModelScope.launch {
-                var waitCount = 0
-                val maxWaitAttempts = 50 // Wait up to 5 seconds (50 * 100ms)
-                while (!isWebSocketConnected() && waitCount < maxWaitAttempts) {
-                    kotlinx.coroutines.delay(100)
-                    waitCount++
-                }
-                
-                if (!isWebSocketConnected()) {
-                    android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected after waiting, cannot request timeline for $roomId")
-                    isTimelineLoading = false
-                    return@launch
-                }
-                
-                // Send paginate command to fetch events from server
-                val paginateRequestId = requestIdCounter++
-                timelineRequests[paginateRequestId] = roomId
-                
-                val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-                    "room_id" to roomId,
-                    "max_timeline_id" to 0,
-                    "limit" to 200,
-                    "reset" to false
-                ))
-                
-                if (result == WebSocketResult.SUCCESS) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent paginate request for empty room $roomId (requestId=$paginateRequestId)")
-                    markInitialPaginate(roomId, "empty_room_initial_load")
-                    isTimelineLoading = true // Set loading while waiting for response
-                } else {
-                    android.util.Log.w("Andromuks", "AppViewModel: Failed to send paginate request for $roomId: $result")
-                    timelineRequests.remove(paginateRequestId)
-                    isTimelineLoading = false
-                }
-            }
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Database and cache both empty for $roomId - auto paginate disabled; waiting for manual refresh.")
+            isTimelineLoading = false
+            return
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache has $currentCachedCount events - waiting for manual refresh to request additional history.")
             isTimelineLoading = false
@@ -9682,29 +9612,15 @@ class AppViewModel : ViewModel() {
         // 8. Request fresh room state
         requestRoomState(roomId)
         
-        // 9. Send fresh paginate command to get consistent data from server
-        // Request 200 events to ensure we have enough
-        val paginateRequestId = requestIdCounter++
-        timelineRequests[paginateRequestId] = roomId
-        val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-            "room_id" to roomId,
-            "max_timeline_id" to 0,
-            "limit" to 200,
-            "reset" to false
-        ))
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent fresh paginate request for room: $roomId (200 events)")
-        if (result == WebSocketResult.SUCCESS) {
-            markInitialPaginate(roomId, "refresh_timeline")
-        } else {
-            android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: Failed to send refresh paginate for $roomId (result=$result)"
-            )
-        }
+        // 9. Do not auto-paginate; manual refresh will request if needed.
+        isTimelineLoading = false
     }
     
     suspend fun prefetchRoomSnapshot(roomId: String, limit: Int = 200, timeoutMs: Long = 6000L): Boolean {
+        if (!AUTO_PAGINATION_ENABLED) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Prefetch snapshot disabled (AUTO_PAGINATION_ENABLED=false) for $roomId")
+            return false
+        }
         if (hasInitialPaginate(roomId)) {
             logSkippedPaginate(roomId, "prefetch_snapshot")
             return true
@@ -12366,7 +12282,7 @@ class AppViewModel : ViewModel() {
                         }
                     }
                 }
-                "m.bridge" -> {
+                "m.bridge", "uk.half-shot.bridge" -> {
                     val parsedBridge = parseBridgeInfoEvent(event)
                     if (parsedBridge != null) {
                         bridgeInfo = parsedBridge
@@ -12387,6 +12303,52 @@ class AppViewModel : ViewModel() {
             pinnedEventIds = pinnedEventIds,
             bridgeInfo = bridgeInfo
         )
+        
+        // If bridge metadata says this is a DM, mark the room as direct (helps bridged DMs show in Direct tab).
+        val bridgeSaysDm = bridgeInfo?.roomType?.equals("dm", ignoreCase = true) == true ||
+            bridgeInfo?.roomTypeV2?.equals("dm", ignoreCase = true) == true
+        if (bridgeSaysDm) {
+            val existing = roomMap[roomId]
+            if (existing != null && existing.isDirectMessage != true) {
+                roomMap[roomId] = existing.copy(isDirectMessage = true)
+                directMessageRoomIds = directMessageRoomIds + roomId
+                allRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
+                invalidateRoomSectionCache()
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked $roomId as DM via bridge room_type")
+            } else if (existing == null) {
+                // No room yet; remember as DM so when the room is added it will be treated as direct.
+                directMessageRoomIds = directMessageRoomIds + roomId
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Recorded $roomId as DM via bridge room_type (no room object yet)")
+            }
+
+            // Persist DM flag to RoomStateEntity so cold starts keep it.
+            val ctx = appContext?.applicationContext
+            if (ctx != null) {
+                viewModelScope.launch(Dispatchers.IO) {
+                    runCatching {
+                        val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(ctx)
+                        val dao = db.roomStateDao()
+                        val existingState = dao.get(roomId)
+                        val stateToSave = net.vrkknn.andromuks.database.entities.RoomStateEntity(
+                            roomId = roomId,
+                            name = existingState?.name ?: name,
+                            topic = existingState?.topic ?: topic,
+                            avatarUrl = existingState?.avatarUrl ?: avatarUrl,
+                            canonicalAlias = existingState?.canonicalAlias ?: canonicalAlias,
+                            isDirect = true,
+                            isFavourite = existingState?.isFavourite ?: false,
+                            isLowPriority = existingState?.isLowPriority ?: false,
+                            bridgeInfoJson = existingState?.bridgeInfoJson,
+                            updatedAt = System.currentTimeMillis()
+                        )
+                        dao.upsert(stateToSave)
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Persisted isDirect=true to RoomStateEntity for $roomId from bridge room_type")
+                    }.onFailure {
+                        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Failed to persist bridge DM flag for $roomId: ${it.message}")
+                    }
+                }
+            }
+        }
         
         // ✓ FIX: Only update currentRoomState if this is the currently open room
         // This prevents the room header from flashing through all rooms during shortcut loading
