@@ -1834,7 +1834,7 @@ fun RoomListContent(
         items(
             count = filteredRooms.size,
             key = { index -> filteredRooms[index].id }, // PERFORMANCE: Stable key - room ID stays constant
-            contentType = { "room_item" } // Fixed: Use constant content type
+            contentType = { index -> filteredRooms[index].id } // Distinct content type per room for finer diffing
         ) { index ->
             val room = filteredRooms[index]
             // PERFORMANCE FIX: Removed AnimatedVisibility wrapper that caused animation overhead
