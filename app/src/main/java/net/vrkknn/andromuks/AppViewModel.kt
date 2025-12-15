@@ -376,6 +376,8 @@ class AppViewModel : ViewModel() {
         val states = runCatching { db.roomStateDao().getAllRoomStates() }.getOrNull() ?: emptyList()
         val listSummaries = runCatching { db.roomListSummaryDao().getAll() }.getOrNull() ?: emptyList()
         val summaries = runCatching { db.roomSummaryDao().getAllRooms() }.getOrNull() ?: emptyList()
+        val listSummaryMap = listSummaries.associateBy { it.roomId }
+        val summaryMap = summaries.associateBy { it.roomId }
 
         if (states.isEmpty()) return
 
@@ -434,8 +436,8 @@ class AppViewModel : ViewModel() {
                     roomId = ev.roomId,
                     lastEventId = ev.eventId,
                     lastTimestamp = ev.timestamp,
-                    unreadCount = 0,
-                    highlightCount = 0,
+                    unreadCount = summaryMap[ev.roomId]?.unreadCount ?: 0,
+                    highlightCount = summaryMap[ev.roomId]?.highlightCount ?: 0,
                     messageSender = ev.sender,
                     messagePreview = contentBody
                 )
@@ -450,8 +452,8 @@ class AppViewModel : ViewModel() {
                     lastMessageSenderUserId = ev.sender,
                     lastMessagePreview = contentBody,
                     lastMessageTimestamp = ev.timestamp,
-                    unreadCount = 0,
-                    highlightCount = 0,
+                    unreadCount = listSummaryMap[ev.roomId]?.unreadCount ?: 0,
+                    highlightCount = listSummaryMap[ev.roomId]?.highlightCount ?: 0,
                     isLowPriority = false
                 )
             )
