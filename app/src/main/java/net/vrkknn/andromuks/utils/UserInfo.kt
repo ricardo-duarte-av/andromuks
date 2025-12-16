@@ -51,6 +51,9 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.URL
 
+private fun usernameFromMatrixId(userId: String): String =
+    userId.removePrefix("@").substringBefore(":")
+
 /**
  * Helper function to navigate to user info screen with optional roomId
  */
@@ -144,7 +147,7 @@ fun UserInfoScreen(
             // Prefill with cached data while loading full info in background
             userProfileInfo = net.vrkknn.andromuks.utils.UserProfileInfo(
                 userId = userId,
-                displayName = cachedProfile.displayName,
+                displayName = cachedProfile.displayName?.takeIf { it.isNotBlank() } ?: usernameFromMatrixId(userId),
                 avatarUrl = cachedProfile.avatarUrl,
                 timezone = null,
                 encryptionInfo = null,
@@ -179,13 +182,15 @@ fun UserInfoScreen(
                 // but keep the global data for timezone, encryption, and mutual rooms
                 val finalProfileInfo = if (effectiveRoomId != null && roomSpecificProfile != null && profileInfo != null) {
                     profileInfo.copy(
-                        displayName = roomSpecificProfile.displayName ?: profileInfo.displayName,
+                        displayName = roomSpecificProfile.displayName?.takeIf { it.isNotBlank() } ?: profileInfo.displayName,
                         avatarUrl = roomSpecificProfile.avatarUrl ?: profileInfo.avatarUrl
                     )
                 } else {
                     profileInfo
                 }
-                userProfileInfo = finalProfileInfo
+                userProfileInfo = finalProfileInfo?.copy(
+                    displayName = finalProfileInfo.displayName?.takeIf { it.isNotBlank() } ?: usernameFromMatrixId(userId)
+                )
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "UserInfoScreen: Loaded user info successfully${if (effectiveRoomId != null && roomSpecificProfile != null) " (using room-specific display name/avatar)" else ""}")
             }
         }
@@ -306,7 +311,7 @@ fun UserInfoScreen(
                         mxcUrl = userProfileInfo!!.avatarUrl,
                         homeserverUrl = appViewModel.homeserverUrl,
                         authToken = appViewModel.authToken,
-                        fallbackText = userProfileInfo!!.displayName ?: userId,
+                        fallbackText = userProfileInfo!!.displayName ?: usernameFromMatrixId(userId),
                         size = 160.dp,
                         userId = userId,
                         displayName = userProfileInfo!!.displayName
@@ -320,7 +325,7 @@ fun UserInfoScreen(
                 ) {
                     // User Display Name
                     Text(
-                        text = userProfileInfo!!.displayName ?: userId,
+                        text = userProfileInfo!!.displayName ?: usernameFromMatrixId(userId),
                         style = MaterialTheme.typography.headlineMedium,
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center
@@ -425,7 +430,7 @@ fun UserInfoScreen(
                                         type = ContactsContract.RawContacts.CONTENT_TYPE
                                         putExtra(
                                             ContactsContract.Intents.Insert.NAME,
-                                            profile.displayName ?: profile.userId
+                                            profile.displayName ?: usernameFromMatrixId(profile.userId)
                                         )
                                         putExtra(
                                             ContactsContract.Intents.Insert.NOTES,
@@ -668,7 +673,10 @@ private suspend fun loadAvatarBytes(
     }
 
     if (bitmap == null) {
-        bitmap = createFallbackAvatar(profile.displayName, profile.userId)
+        bitmap = createFallbackAvatar(
+            profile.displayName ?: usernameFromMatrixId(profile.userId),
+            profile.userId
+        )
     }
 
     val stream = ByteArrayOutputStream()

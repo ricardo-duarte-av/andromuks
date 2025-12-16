@@ -141,6 +141,8 @@ import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.MediaCache
 
 private const val ROOM_LIST_VERBOSE_LOGGING = false
+private fun usernameFromMatrixId(userId: String): String =
+    userId.removePrefix("@").substringBefore(":")
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
@@ -1211,7 +1213,7 @@ fun RoomListItem(
     val senderDisplayName = remember(room.messageSender, room.id, appViewModel.memberUpdateCounter) {
         if (room.messageSender != null) {
             val senderProfile = appViewModel.getUserProfile(room.messageSender, room.id)
-            senderProfile?.displayName ?: room.messageSender
+            senderProfile?.displayName?.takeIf { it.isNotBlank() } ?: usernameFromMatrixId(room.messageSender)
         } else {
             null
         }

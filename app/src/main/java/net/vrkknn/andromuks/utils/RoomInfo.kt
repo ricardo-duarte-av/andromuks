@@ -31,6 +31,9 @@ import org.json.JSONObject
 import androidx.compose.foundation.shape.RoundedCornerShape
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 
+private fun usernameFromMatrixId(userId: String): String =
+    userId.removePrefix("@").substringBefore(":")
+
 /**
  * Data class to hold complete room state information
  */
@@ -140,7 +143,11 @@ fun RoomInfoScreen(
     }
     
     val memberMap = remember(roomId, appViewModel.memberUpdateCounter) {
-        appViewModel.getMemberMap(roomId)
+        appViewModel.getMemberMap(roomId).mapValues { (userId, profile) ->
+            profile.copy(
+                displayName = profile.displayName?.takeIf { it.isNotBlank() } ?: usernameFromMatrixId(userId)
+            )
+        }
     }
     
     // Force recomposition when member map updates (for opportunistic profile loading)
@@ -793,6 +800,7 @@ fun RoomMemberItem(
     powerLevel: Int?,
     onUserClick: (String) -> Unit = {}
 ) {
+    val displayName = member.displayName ?: usernameFromMatrixId(member.userId)
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -804,17 +812,17 @@ fun RoomMemberItem(
             mxcUrl = member.avatarUrl,
             homeserverUrl = homeserverUrl,
             authToken = authToken,
-            fallbackText = (member.displayName ?: member.userId).take(1),
+            fallbackText = displayName.take(1),
             size = 40.dp,
             userId = member.userId,
-            displayName = member.displayName
+            displayName = displayName
         )
         
         Spacer(modifier = Modifier.width(12.dp))
         
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = member.displayName ?: member.userId,
+                text = displayName,
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
@@ -1106,7 +1114,7 @@ fun parseRoomStateResponse(data: Any): RoomStateInfo? {
                         // This allows RoomInfo screen to show invited users, etc.
                         membersMap[userId] = RoomMember(
                             userId = userId,
-                            displayName = displayName?.takeIf { it.isNotBlank() },
+                            displayName = displayName?.takeIf { it.isNotBlank() } ?: usernameFromMatrixId(userId),
                             avatarUrl = memberAvatarUrl?.takeIf { it.isNotBlank() },
                             membership = membership
                         )
