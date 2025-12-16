@@ -2703,8 +2703,15 @@ class AppViewModel : ViewModel() {
                 }
             }
         }
-        
-        return memberMap
+
+        // Normalize display names: if empty/null, fall back to the username part without domain
+        return memberMap.mapValues { (userId, profile) ->
+            val fallbackName = userId.removePrefix("@").substringBefore(":")
+            MemberProfile(
+                displayName = profile.displayName?.takeIf { it.isNotBlank() } ?: fallbackName,
+                avatarUrl = profile.avatarUrl
+            )
+        }
     }
     fun isMemberCacheEmpty(roomId: String): Boolean {
         // MEMORY MANAGEMENT: Check if any flattened entries exist for this room

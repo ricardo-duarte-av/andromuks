@@ -960,7 +960,9 @@ fun RoomTimelineScreen(
                 if (event.type == "m.room.member") {
                     val userId = event.stateKey ?: event.sender
                     val content = event.content
-                    val displayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                    val rawDisplay = content?.optString("displayname")?.takeIf { it.isNotBlank() }
+                    val fallbackHandle = userId.removePrefix("@").substringBefore(":")
+                    val displayName = rawDisplay ?: fallbackHandle
                     val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
                     map[userId] = Pair(displayName, avatarUrl)
                 }
