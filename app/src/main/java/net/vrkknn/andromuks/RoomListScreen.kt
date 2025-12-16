@@ -8,6 +8,8 @@ import android.util.Log
 import android.view.Surface
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -899,10 +901,12 @@ fun RoomListScreen(
                     .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
             ) {
-    AnimatedContent(
-                targetState = sectionAnimationDirection to displayedSection,
+            AnimatedContent(
+                targetState = displayedSection,
                 transitionSpec = {
-                    val direction = targetState.first
+                    val oldType = initialState.type
+                    val newType = targetState.type
+                    val direction = newType.ordinal - oldType.ordinal
                     val enter = when {
                         direction > 0 -> slideInHorizontally(
                             initialOffsetX = { it },
@@ -912,8 +916,7 @@ fun RoomListScreen(
                             initialOffsetX = { -it },
                             animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
                         ) + fadeIn(animationSpec = tween(360, easing = FastOutSlowInEasing))
-                        else -> fadeIn(animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)) +
-                                scaleIn(initialScale = 0.98f, animationSpec = tween(360, easing = FastOutSlowInEasing))
+                        else -> EnterTransition.None
                     }
                     val exit = when {
                         direction > 0 -> slideOutHorizontally(
@@ -924,13 +927,12 @@ fun RoomListScreen(
                             targetOffsetX = { it / 2 },
                             animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)
                         ) + fadeOut(animationSpec = tween(320, easing = FastOutSlowInEasing))
-                        else -> fadeOut(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)) +
-                                scaleOut(targetScale = 0.99f, animationSpec = tween(300, easing = FastOutSlowInEasing))
+                        else -> ExitTransition.None
                     }
                     enter togetherWith exit
                 },
                 label = "SectionTransition"
-            ) { (_, targetSection) ->
+            ) { targetSection ->
                     val currentListState = listStates.getOrPut(targetSection.type) { LazyListState() }
                     when (targetSection.type) {
                         RoomSectionType.HOME -> {
