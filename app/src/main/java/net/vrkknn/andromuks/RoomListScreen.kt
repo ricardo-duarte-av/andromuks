@@ -1750,6 +1750,18 @@ fun RoomListContent(
             }
         }
     }
+    // Debounced, meaningful-diff snapshot for the displayed rooms to reduce flicker.
+    // We hash the fields that matter for rendering/sorting; unchanged hash => skip swap.
+    var debouncedRooms by remember { mutableStateOf(filteredRooms) }
+    val targetHash = remember(filteredRooms) {
+        filteredRooms.joinToString("|") {
+            "${it.id}:${it.sortingTimestamp ?: 0L}:${it.unreadCount ?: 0}:${it.highlightCount ?: 0}:${it.messagePreview ?: ""}:${it.messageSender ?: ""}"
+        }
+    }
+    LaunchedEffect(targetHash) {
+        kotlinx.coroutines.delay(1000L) // 1s debounce to coalesce rapid sync_complete updates
+        debouncedRooms = filteredRooms
+    }
     
     // NAVIGATION PERFORMANCE: Add scroll state for prefetching
     // NAVIGATION PERFORMANCE: Observe scroll state and trigger prefetching for visible rooms
@@ -1832,11 +1844,11 @@ fun RoomListContent(
         
         // Use the cached filteredRooms from the remember block above
         items(
-            count = filteredRooms.size,
-            key = { index -> filteredRooms[index].id }, // PERFORMANCE: Stable key - room ID stays constant
-            contentType = { index -> filteredRooms[index].id } // Distinct content type per room for finer diffing
+            count = debouncedRooms.size,
+            key = { index -> debouncedRooms[index].id }, // Stable key - room ID stays constant
+            contentType = { index -> debouncedRooms[index].id } // Distinct content type per room for finer diffing
         ) { index ->
-            val room = filteredRooms[index]
+            val room = debouncedRooms[index]
             // PERFORMANCE FIX: Removed AnimatedVisibility wrapper that caused animation overhead
             // The items() already handles insertions/deletions efficiently
             // CRITICAL FIX: Capture room.id OUTSIDE the lambda to prevent wrong room navigation
