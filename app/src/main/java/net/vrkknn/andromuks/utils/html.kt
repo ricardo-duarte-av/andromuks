@@ -430,7 +430,13 @@ private fun AnnotatedString.Builder.appendHtmlNode(
             text = if (hideContent) {
                 maskSpoilerText(text)
             } else {
-                text.replace(Regex("\\s+"), " ")
+                // Preserve explicit newlines from sanitized_html, but normalize tabs/multiple spaces within each line
+                text.replace("\r\n", "\n")
+                    .replace("\r", "\n")
+                    .split('\n')
+                    .joinToString("\n") { line ->
+                        line.replace(Regex("[\\t ]+"), " ")
+                    }
             }
             withStyle(baseStyle) { append(text) }
         }
