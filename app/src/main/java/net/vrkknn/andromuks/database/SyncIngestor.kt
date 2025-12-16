@@ -22,6 +22,7 @@ import net.vrkknn.andromuks.database.dao.RoomSummaryDao
 import net.vrkknn.andromuks.database.dao.SpaceDao
 import net.vrkknn.andromuks.database.dao.SpaceRoomDao
 import net.vrkknn.andromuks.database.dao.SyncMetaDao
+import net.vrkknn.andromuks.database.dao.UnprocessedEventDao
 import net.vrkknn.andromuks.database.entities.AccountDataEntity
 import net.vrkknn.andromuks.database.entities.EventEntity
 import net.vrkknn.andromuks.database.entities.PendingRoomEntity
@@ -33,6 +34,7 @@ import net.vrkknn.andromuks.database.entities.RoomSummaryEntity
 import net.vrkknn.andromuks.database.entities.SpaceEntity
 import net.vrkknn.andromuks.database.entities.SpaceRoomEntity
 import net.vrkknn.andromuks.database.entities.SyncMetaEntity
+import net.vrkknn.andromuks.database.entities.UnprocessedEventEntity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
@@ -63,6 +65,7 @@ class SyncIngestor(private val context: Context) {
     private val accountDataDao = database.accountDataDao()
     private val inviteDao = database.inviteDao()
     private val pendingRoomDao = database.pendingRoomDao()
+    private val unprocessedEventDao: UnprocessedEventDao = database.unprocessedEventDao()
     
     private val TAG = "SyncIngestor"
     
@@ -91,6 +94,66 @@ class SyncIngestor(private val context: Context) {
         
         // Threshold adjustment factor (reduce by this percentage if processing too slow)
         private const val THRESHOLD_REDUCTION_FACTOR = 0.7f // Reduce by 30%
+    }
+
+    private suspend fun logUnprocessedEvent(
+        roomId: String?,
+        eventJson: JSONObject?,
+        source: String,
+        reason: String,
+        exception: Exception? = null
+    ) {
+        val eventId = try {
+            eventJson?.optString("event_id")?.takeIf { it.isNotBlank() } ?: "<missing>"
+        } catch (_: Exception) {
+            "<missing>"
+        }
+        val rawJson = try {
+            eventJson?.toString() ?: "<null>"
+        } catch (e: Exception) {
+            "{\"error\":\"${e.message}\"}"
+        }
+        val detailedReason = if (exception != null) "$reason: ${exception.message}" else reason
+        try {
+            unprocessedEventDao.insert(
+                UnprocessedEventEntity(
+                    eventId = eventId,
+                    roomId = roomId,
+                    rawJson = rawJson,
+                    reason = detailedReason,
+                    source = source
+                )
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to record unprocessed event $eventId: ${e.message}", e)
+        }
+    }
+
+    private fun TimelineEvent.toJsonObject(): JSONObject {
+        val json = JSONObject()
+        try {
+            json.put("event_id", eventId)
+            json.put("room_id", roomId)
+            json.put("sender", sender)
+            json.put("type", type)
+            json.put("origin_server_ts", timestamp)
+            if (timelineRowid > 0) json.put("timeline_rowid", timelineRowid)
+            if (rowid > 0) json.put("rowid", rowid)
+            stateKey?.let { json.put("state_key", it) }
+            content?.let { json.put("content", it) }
+            decrypted?.let { json.put("decrypted", it) }
+            decryptedType?.let { json.put("decrypted_type", it) }
+            unsigned?.let { json.put("unsigned", it) }
+            redactedBy?.let { json.put("redacted_by", it) }
+            localContent?.let { json.put("local_content", it) }
+            relationType?.let { json.put("relation_type", it) }
+            relatesTo?.let { json.put("relates_to", it) }
+            aggregatedReactions?.let { json.put("reactions", it) }
+            transactionId?.let { json.put("transaction_id", it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to build JSON for unprocessed TimelineEvent ${eventId}", e)
+        }
+        return json
     }
     
     /**
@@ -374,49 +437,39 @@ class SyncIngestor(private val context: Context) {
             if (BuildConfig.DEBUG) {
                 Log.d(TAG, "SyncIngestor: Found ${pendingRooms.size} pending rooms from previous syncs, processing them now")
             }
-            
-            // Get room IDs from current sync to avoid duplicate processing
-            val currentSyncRoomIds = data.optJSONObject("rooms")?.keys()?.asSequence()?.toSet() ?: emptySet()
-            
-            // Process pending rooms that are NOT in current sync (they'll be processed from current sync)
-            val pendingRoomsToProcess = pendingRooms.filter { it.roomId !in currentSyncRoomIds }
-            
-            if (pendingRoomsToProcess.isNotEmpty()) {
-                database.withTransaction {
-                    val existingStatesMap = if (pendingRoomsToProcess.isNotEmpty()) {
-                        roomStateDao.getRoomStatesByIds(pendingRoomsToProcess.map { it.roomId }).associateBy { it.roomId }
-                    } else {
-                        emptyMap()
-                    }
-                    
-                    for (pendingRoom in pendingRoomsToProcess) {
-                        try {
+
+            database.withTransaction {
+                val existingStatesMap = if (pendingRooms.isNotEmpty()) {
+                    roomStateDao.getRoomStatesByIds(pendingRooms.map { it.roomId }).associateBy { it.roomId }
+                } else {
+                    emptyMap()
+                }
+
+                for (pendingRoom in pendingRooms) {
+                    try {
                         val roomObj = JSONObject(decompressPendingRoomJson(pendingRoom.roomJson))
-                            val hadEvents = processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
-                            if (hadEvents) {
-                                roomsWithEvents.add(pendingRoom.roomId)
-                            }
-                        } catch (e: Exception) {
-                            Log.e(TAG, "SyncIngestor: Error processing pending room ${pendingRoom.roomId}: ${e.message}", e)
+                        val hadEvents = processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
+                        if (hadEvents) {
+                            roomsWithEvents.add(pendingRoom.roomId)
                         }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "SyncIngestor: Error processing pending room ${pendingRoom.roomId}: ${e.message}", e)
+                        logUnprocessedEvent(
+                            roomId = pendingRoom.roomId,
+                            eventJson = null,
+                            source = "pending_room",
+                            reason = "pending_room_process_failed: ${e.message}",
+                            exception = e
+                        )
                     }
-                    
-                    // Delete processed pending rooms
-                    pendingRoomDao.deletePendingRooms(pendingRoomsToProcess.map { it.roomId })
                 }
-                
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: Processed ${pendingRoomsToProcess.size} pending rooms")
-                }
+
+                // Delete processed pending rooms
+                pendingRoomDao.deletePendingRooms(pendingRooms.map { it.roomId })
             }
-            
-            // Delete pending rooms that ARE in current sync (they'll be processed from current sync with fresh data)
-            val pendingRoomsInCurrentSync = pendingRooms.filter { it.roomId in currentSyncRoomIds }
-            if (pendingRoomsInCurrentSync.isNotEmpty()) {
-                pendingRoomDao.deletePendingRooms(pendingRoomsInCurrentSync.map { it.roomId })
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: Deleted ${pendingRoomsInCurrentSync.size} pending rooms (present in current sync with fresh data)")
-                }
+
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "SyncIngestor: Processed ${pendingRooms.size} pending rooms")
             }
         }
         
@@ -683,15 +736,24 @@ class SyncIngestor(private val context: Context) {
                 collectReactionPersistenceFromEvent(roomId, eventJson, reactionUpserts, reactionDeletes)
                 
                 val sourceLabel = "timeline[$i]"
-                val eventEntity = parseEventFromJson(
-                    roomId = roomId,
-                    eventJson = eventJson,
-                    timelineRowid = rowid,
-                    source = sourceLabel,
-                    existingTimelineRowCache = existingTimelineRowCache
-                )
+                var parseLogged = false
+                val eventEntity = try {
+                    parseEventFromJson(
+                        roomId = roomId,
+                        eventJson = eventJson,
+                        timelineRowid = rowid,
+                        source = sourceLabel,
+                        existingTimelineRowCache = existingTimelineRowCache
+                    )
+                } catch (e: Exception) {
+                    parseLogged = true
+                    logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
+                    null
+                }
                 if (eventEntity != null) {
                     events.add(EventPersistCandidate(eventEntity, sourceLabel))
+                } else if (!parseLogged) {
+                    logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_returned_null")
                 }
             }
             
@@ -725,13 +787,20 @@ class SyncIngestor(private val context: Context) {
                 val timelineRowid = eventJson.optLong("timeline_rowid", -1)
                 
                 val sourceLabel = "events[$i]"
-                val eventEntity = parseEventFromJson(
-                    roomId = roomId,
-                    eventJson = eventJson,
-                    timelineRowid = timelineRowid,
-                    source = sourceLabel,
-                    existingTimelineRowCache = existingTimelineRowCache
-                )
+                var parseLogged = false
+                val eventEntity = try {
+                    parseEventFromJson(
+                        roomId = roomId,
+                        eventJson = eventJson,
+                        timelineRowid = timelineRowid,
+                        source = sourceLabel,
+                        existingTimelineRowCache = existingTimelineRowCache
+                    )
+                } catch (e: Exception) {
+                    parseLogged = true
+                    logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
+                    null
+                }
                 if (eventEntity != null) {
                     events.add(EventPersistCandidate(eventEntity, sourceLabel))
                     if (BuildConfig.DEBUG && eventEntity.type == "m.room.encrypted") {
@@ -742,6 +811,9 @@ class SyncIngestor(private val context: Context) {
                     val eventId = eventJson.optString("event_id", "unknown")
                     val eventType = eventJson.optString("type", "unknown")
                     Log.w(TAG, "SyncIngestor: Failed to parse event from 'events' array: eventId=$eventId, type=$eventType")
+                    if (!parseLogged) {
+                        logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_returned_null")
+                    }
                 }
             }
             
@@ -1391,14 +1463,23 @@ class SyncIngestor(private val context: Context) {
             for ((index, event) in events.withIndex()) {
                 collectReactionPersistenceFromTimelineEvent(roomId, event, reactionUpserts, reactionDeletes)
                 val sourceLabel = "paginate[$index]"
-                val entity = parseEventFromTimelineEvent(
-                    roomId = roomId,
-                    event = event,
-                    source = sourceLabel,
-                    existingTimelineRowCache = existingTimelineRowCache
-                )
+                var parseLogged = false
+                val entity = try {
+                    parseEventFromTimelineEvent(
+                        roomId = roomId,
+                        event = event,
+                        source = sourceLabel,
+                        existingTimelineRowCache = existingTimelineRowCache
+                    )
+                } catch (e: Exception) {
+                    parseLogged = true
+                    logUnprocessedEvent(roomId, event.toJsonObject(), sourceLabel, "parse_exception", e)
+                    null
+                }
                 if (entity != null) {
                     candidates.add(EventPersistCandidate(entity, sourceLabel))
+                } else if (!parseLogged) {
+                    logUnprocessedEvent(roomId, event.toJsonObject(), sourceLabel, "parse_returned_null")
                 }
             }
             

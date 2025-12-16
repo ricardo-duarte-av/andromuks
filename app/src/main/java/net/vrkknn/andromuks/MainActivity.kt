@@ -787,6 +787,12 @@ fun AppNavigation(
                 navController = navController
             )
         }
+        composable("unprocessed_events") {
+            UnprocessedEventsScreen(
+                appViewModel = appViewModel,
+                navController = navController
+            )
+        }
         composable("room_disk_stats") {
             RoomDiskStatsScreen(
                 appViewModel = appViewModel,

@@ -6265,6 +6265,41 @@ class AppViewModel : ViewModel() {
     fun getActivityLog(): List<ActivityLogEntry> {
         return synchronized(activityLogLock) { activityLog.toList() }
     }
+
+    data class UnprocessedEventLogEntry(
+        val id: Long,
+        val eventId: String,
+        val roomId: String?,
+        val rawJson: String,
+        val reason: String,
+        val source: String?,
+        val createdAt: Long
+    )
+
+    /**
+     * Fetch recently unprocessed events from the database (for debugging/viewing).
+     */
+    suspend fun getUnprocessedEvents(limit: Int = 200): List<UnprocessedEventLogEntry> {
+        val db = dbOrNull() ?: return emptyList()
+        return withContext(Dispatchers.IO) {
+            db.unprocessedEventDao().getRecent(limit).map {
+                UnprocessedEventLogEntry(
+                    id = it.id,
+                    eventId = it.eventId,
+                    roomId = it.roomId,
+                    rawJson = it.rawJson,
+                    reason = it.reason,
+                    source = it.source,
+                    createdAt = it.createdAt
+                )
+            }
+        }
+    }
+
+    suspend fun clearUnprocessedEvents() {
+        val db = dbOrNull() ?: return
+        withContext(Dispatchers.IO) { db.unprocessedEventDao().clear() }
+    }
     
     // Backwards compatibility - keep old reconnection log methods
     data class ReconnectionLogEntry(

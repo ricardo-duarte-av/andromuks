@@ -241,6 +241,36 @@ fun SettingsScreen(
                     )
                 }
             }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Unprocessed Events",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Inspect events that could not be persisted",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Button(
+                        onClick = { navController.navigate("unprocessed_events") },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("View Unprocessed Events")
+                    }
+                }
+            }
         }
     }
 }
