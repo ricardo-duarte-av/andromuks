@@ -2728,7 +2728,8 @@ fun TimelineEventItem(
                 "m.room.avatar",
                 "m.room.pinned_events",
                 "m.room.server_acl",
-                "m.room.power_levels"
+                "m.room.power_levels",
+                "m.room.tombstone"
             )
 
     // Check if this message is being edited by another event (moved to function start)
@@ -2794,7 +2795,11 @@ fun TimelineEventItem(
             authToken = authToken,
             appViewModel = appViewModel,
             roomId = event.roomId,
-            onUserClick = onUserClick
+            onUserClick = onUserClick,
+            onRoomClick = { roomId ->
+                // Convert room ID to RoomLink and call onRoomLinkClick
+                onRoomLinkClick(RoomLink(roomIdOrAlias = roomId))
+            }
         )
         return
     }

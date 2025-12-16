@@ -41,7 +41,8 @@ fun SystemEventNarrator(
     authToken: String,
     appViewModel: AppViewModel? = null,
     roomId: String,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
+    onRoomClick: (String) -> Unit = {}
 ) {
     val content = event.content
     val eventType = event.type
@@ -501,6 +502,69 @@ fun SystemEventNarrator(
                         append(" changed the room avatar")
                     }
                 )
+            }
+            "m.room.tombstone" -> {
+                val reason = content?.optString("body", "")?.takeIf { it.isNotBlank() }
+                val replacementRoom = content?.optString("replacement_room", "")?.takeIf { it.isNotBlank() }
+                
+                if (replacementRoom != null) {
+                    // Has replacement room - show "replaced this room with [link]" and optionally reason
+                    // If room ID is too long (>20 chars), use "this" as the link text instead
+                    val useShortLink = replacementRoom.length > 20
+                    val linkText = if (useShortLink) "this" else replacementRoom
+                    
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        // First line: "Sender replaced this room with [link]"
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = buildAnnotatedString {
+                                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(displayName)
+                                    }
+                                    append(" replaced this room with ")
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontStyle = FontStyle.Italic
+                            )
+                            
+                            // Clickable replacement room link
+                            Text(
+                                text = linkText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontStyle = FontStyle.Italic,
+                                modifier = Modifier.clickable { onRoomClick(replacementRoom) }
+                            )
+                        }
+                        
+                        // Second line: "for reason: reason" (if reason exists)
+                        if (reason != null) {
+                            Text(
+                                text = "for reason: $reason",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontStyle = FontStyle.Italic
+                            )
+                        }
+                    }
+                } else {
+                    // No replacement room - just show "tombstoned this room"
+                    NarratorText(
+                        text = buildAnnotatedString {
+                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                append(displayName)
+                            }
+                            append(" tombstoned this room")
+                        }
+                    )
+                }
             }
             "m.room.pinned_events" -> {
                 val pinnedArray = content?.optJSONArray("pinned")
