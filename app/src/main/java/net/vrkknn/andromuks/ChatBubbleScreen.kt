@@ -1161,7 +1161,18 @@ fun ChatBubbleEventItem(
                             val height = info.optInt("h", 0)
                             val size = info.optLong("size", 0)
                             val mimeType = info.optString("mimetype", "")
-                            val blurHash = info.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+                            val blurHash =
+                                info.optString("xyz.amorgan.blurhash")
+                                    .takeIf { it.isNotBlank() }
+                                    ?: info.optString("blurhash").takeIf { it.isNotBlank() }
+                            
+                            val thumbnailFile = info.optJSONObject("thumbnail_file")
+                            val thumbnailUrl = thumbnailFile?.optString("url", "")?.takeIf { it.isNotBlank() }
+                                ?: info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+                            val thumbnailInfo = info.optJSONObject("thumbnail_info")
+                            val thumbnailBlurHash =
+                                thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+                                    ?: thumbnailInfo?.optString("blurhash")?.takeIf { it.isNotBlank() }
                             
                             val caption = if (body != filename && body.isNotBlank()) body else null
                             
@@ -1170,7 +1181,10 @@ fun ChatBubbleEventItem(
                                 height = height,
                                 size = size,
                                 mimeType = mimeType,
-                                blurHash = blurHash
+                                blurHash = blurHash,
+                                thumbnailUrl = thumbnailUrl,
+                                thumbnailBlurHash = thumbnailBlurHash,
+                                thumbnailIsEncrypted = thumbnailFile != null
                             )
                             
                             val mediaMessage = MediaMessage(
@@ -1355,7 +1369,18 @@ fun ChatBubbleEventItem(
                                 val height = info.optInt("h", 0)
                                 val size = info.optLong("size", 0)
                                 val mimeType = info.optString("mimetype", "")
-                                val blurHash = info.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+                                val blurHash =
+                                    info.optString("xyz.amorgan.blurhash")
+                                        .takeIf { it.isNotBlank() }
+                                        ?: info.optString("blurhash").takeIf { it.isNotBlank() }
+                                
+                                val thumbnailFile = info.optJSONObject("thumbnail_file")
+                                val thumbnailUrl = thumbnailFile?.optString("url", "")?.takeIf { it.isNotBlank() }
+                                    ?: info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+                                val thumbnailInfo = info.optJSONObject("thumbnail_info")
+                                val thumbnailBlurHash =
+                                    thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+                                        ?: thumbnailInfo?.optString("blurhash")?.takeIf { it.isNotBlank() }
                                 
                                 val caption = if (body != filename && body.isNotBlank()) body else null
                                 
@@ -1364,7 +1389,10 @@ fun ChatBubbleEventItem(
                                     height = height,
                                     size = size,
                                     mimeType = mimeType,
-                                    blurHash = blurHash
+                                    blurHash = blurHash,
+                                    thumbnailUrl = thumbnailUrl,
+                                    thumbnailBlurHash = thumbnailBlurHash,
+                                    thumbnailIsEncrypted = thumbnailFile != null
                                 )
                                 
                                 val mediaMessage = MediaMessage(

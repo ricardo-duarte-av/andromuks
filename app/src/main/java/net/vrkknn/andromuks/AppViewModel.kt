@@ -778,6 +778,8 @@ class AppViewModel : ViewModel() {
         private set
     var enterKeySendsMessage by mutableStateOf(true) // true = Enter sends, Shift+Enter newline; false = Enter newline, Shift+Enter sends
         private set
+    var loadThumbnailsIfAvailable by mutableStateOf(true)
+        private set
 
     var pendingShare by mutableStateOf<PendingSharePayload?>(null)
         private set
@@ -14966,6 +14968,21 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    fun toggleLoadThumbnailsIfAvailable() {
+        loadThumbnailsIfAvailable = !loadThumbnailsIfAvailable
+        
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putBoolean("load_thumbnails_if_available", loadThumbnailsIfAvailable)
+                .apply()
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Saved loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable"
+            )
+        }
+    }
+    
     /**
      * Load settings from SharedPreferences
      */
@@ -14976,9 +14993,11 @@ class AppViewModel : ViewModel() {
             showUnprocessedEvents = prefs.getBoolean("show_unprocessed_events", true) // Default to true
             enableCompression = prefs.getBoolean("enable_compression", true) // Default to true
             enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true) // Default to true (Enter sends, Shift+Enter newline)
+            loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true) // Default to true
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded showUnprocessedEvents setting: $showUnprocessedEvents")
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded enterKeySendsMessage setting: $enterKeySendsMessage")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable")
         }
     }
     /**

@@ -89,6 +89,40 @@ fun SettingsScreen(
                 }
             }
             
+            // Load thumbnails setting
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "Load thumbnails if available",
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "Use image thumbnails in timelines when provided (saves bandwidth).",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    Switch(
+                        checked = appViewModel.loadThumbnailsIfAvailable,
+                        onCheckedChange = { appViewModel.toggleLoadThumbnailsIfAvailable() }
+                    )
+                }
+            }
+            
             // Compression Setting
             Card(
                 modifier = Modifier.fillMaxWidth(),

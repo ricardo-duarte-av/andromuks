@@ -358,6 +358,7 @@ fun MediaMessage(
     bubbleColorOverride: Color? = null,
     hasBeenEditedOverride: Boolean? = null
 ) {
+    val useThumbnails = appViewModel?.loadThumbnailsIfAvailable ?: true
     var showImageViewer by remember { mutableStateOf(false) }
     var showVideoPlayer by remember { mutableStateOf(false) }
     // Shared state to trigger menu from image long press
@@ -448,6 +449,7 @@ fun MediaMessage(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         isEncrypted = isEncrypted,
+                        loadThumbnailsIfAvailable = useThumbnails,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
                                 showVideoPlayer = true
@@ -528,6 +530,7 @@ fun MediaMessage(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         isEncrypted = isEncrypted,
+                        loadThumbnailsIfAvailable = useThumbnails,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
                                 showVideoPlayer = true
@@ -604,6 +607,7 @@ fun MediaMessage(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         isEncrypted = isEncrypted,
+                        loadThumbnailsIfAvailable = useThumbnails,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
                                 showVideoPlayer = true
@@ -673,6 +677,7 @@ fun MediaMessage(
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
                         isEncrypted = isEncrypted,
+                        loadThumbnailsIfAvailable = useThumbnails,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
                                 showVideoPlayer = true
@@ -733,6 +738,7 @@ private fun MediaContent(
     homeserverUrl: String,
     authToken: String,
     isEncrypted: Boolean,
+    loadThumbnailsIfAvailable: Boolean,
     onImageClick: () -> Unit = {},
     onImageLongPress: (() -> Unit)? = null
 ) {
@@ -881,34 +887,39 @@ private fun MediaContent(
 
                     // PERFORMANCE: Use IntelligentMediaCache for smart caching
                     var cachedFile by remember { mutableStateOf<File?>(null) }
-                    
-                    // Load cached file in background
-                    LaunchedEffect(mediaMessage.url) {
-                        cachedFile = IntelligentMediaCache.getCachedFile(context, mediaMessage.url)
+                    val useThumbnail = loadThumbnailsIfAvailable && mediaMessage.info.thumbnailUrl != null
+                    val displayMxcUrl = remember(mediaMessage.url, mediaMessage.info.thumbnailUrl, useThumbnail) {
+                        if (useThumbnail) mediaMessage.info.thumbnailUrl!! else mediaMessage.url
+                    }
+                    val displayIsEncrypted = if (useThumbnail) {
+                        mediaMessage.info.thumbnailIsEncrypted
+                    } else {
+                        isEncrypted
+                    }
+
+                    // Load cached file in background for the chosen resource (thumbnail or full)
+                    LaunchedEffect(displayMxcUrl) {
+                        cachedFile = IntelligentMediaCache.getCachedFile(context, displayMxcUrl)
                     }
 
                     val imageUrl =
-                        remember(mediaMessage.url, isEncrypted, cachedFile) {
+                        remember(displayMxcUrl, displayIsEncrypted, cachedFile, mediaMessage.url) {
                             if (cachedFile != null) {
                                 // Use cached file
                                 if (BuildConfig.DEBUG) Log.d(
                                     "Andromuks",
-                                    "MediaMessage: Using cached file: ${cachedFile!!.absolutePath}"
+                                    "MediaMessage: Using cached file for display resource: ${cachedFile!!.absolutePath}"
                                 )
                                 cachedFile!!.absolutePath
                             } else {
-                                // Use HTTP URL
-                                val httpUrl =
-                                    MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-                                if (isEncrypted) {
-                                    val encryptedUrl = "$httpUrl?encrypted=true"
-                                    if (BuildConfig.DEBUG) Log.d(
-                                        "Andromuks",
-                                        "MediaMessage: Added encrypted=true to URL: $encryptedUrl"
-                                    )
-                                    encryptedUrl
+                                // Use HTTP URL (thumbnail first, fallback to full if conversion fails)
+                                val targetHttp =
+                                    MediaUtils.mxcToHttpUrl(displayMxcUrl, homeserverUrl)
+                                        ?: MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+                                if (displayIsEncrypted && targetHttp != null) {
+                                    "$targetHttp?encrypted=true"
                                 } else {
-                                    httpUrl
+                                    targetHttp
                                 }
                             }
                         }
@@ -924,9 +935,23 @@ private fun MediaContent(
                             "MediaMessage: URL=$imageUrl, BlurHash=${mediaMessage.info.blurHash}, AuthToken=$authToken"
                         )
 
+                        val blurHashForDisplay =
+                            if (useThumbnail) {
+                                mediaMessage.info.thumbnailBlurHash ?: mediaMessage.info.blurHash
+                            } else {
+                                mediaMessage.info.blurHash
+                            }
+
+                        if (BuildConfig.DEBUG && blurHashForDisplay != null) {
+                            Log.d(
+                                "Andromuks",
+                                "MediaMessage: Decoding blurhash for display (thumb=$useThumbnail): $blurHashForDisplay"
+                            )
+                        }
+
                         val blurHashPainter =
-                            remember(mediaMessage.info.blurHash) {
-                                mediaMessage.info.blurHash?.let { blurHash ->
+                            remember(blurHashForDisplay) {
+                                blurHashForDisplay?.let { blurHash ->
                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "Decoding BlurHash: $blurHash")
                                     val bitmap = BlurHashUtils.decodeBlurHash(blurHash, 32, 32)
                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "BlurHash decoded: ${bitmap != null}")
@@ -975,7 +1000,7 @@ private fun MediaContent(
                         // PERFORMANCE: Use optimized AsyncImage with better caching
                         AsyncImage(
                             model = ImageRequest.Builder(context)
-                                .data(imageUrl)
+                                .data(imageUrl ?: "")
                                 .apply {
                                     if (cachedFile == null) {
                                         addHeader("Cookie", "gomuks_auth=$authToken")

@@ -1034,25 +1034,28 @@ private fun RoomMediaMessageContent(
         val size = info.optLong("size", 0)
         val mimeType = info.optString("mimetype", "")
         val blurHash =
-            info.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+            info.optString("xyz.amorgan.blurhash")
+                .takeIf { it.isNotBlank() }
+                ?: info.optString("blurhash").takeIf { it.isNotBlank() }
 
-        // Extract thumbnail info for videos
+        // Extract thumbnail info (images and videos)
         var thumbnailIsEncrypted = false
-        val thumbnailUrl = if (msgType == "m.video") {
-            val thumbnailFile = info.optJSONObject("thumbnail_file")
-            if (thumbnailFile != null) {
+        val thumbnailFile = info.optJSONObject("thumbnail_file")
+        val thumbnailUrl = when {
+            thumbnailFile != null -> {
                 thumbnailIsEncrypted = true
                 thumbnailFile.optString("url", "")?.takeIf { it.isNotBlank() }
-            } else {
-                info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
             }
-        } else null
+            else -> info.optString("thumbnail_url", "")?.takeIf { it.isNotBlank() }
+        }
+
+        val thumbnailInfo = info.optJSONObject("thumbnail_info")
         
-        val thumbnailInfo = if (msgType == "m.video") {
-            info.optJSONObject("thumbnail_info")
-        } else null
-        
-        val thumbnailBlurHash = thumbnailInfo?.optString("xyz.amorgan.blurhash")?.takeIf { it.isNotBlank() }
+        val thumbnailBlurHash =
+            thumbnailInfo
+                ?.optString("xyz.amorgan.blurhash")
+                ?.takeIf { it.isNotBlank() }
+                ?: thumbnailInfo?.optString("blurhash")?.takeIf { it.isNotBlank() }
         val thumbnailWidth = thumbnailInfo?.optInt("w", 0)
         val thumbnailHeight = thumbnailInfo?.optInt("h", 0)
         val duration = if (msgType == "m.video" || msgType == "m.audio") {
