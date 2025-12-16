@@ -29,10 +29,12 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import android.graphics.Color as AndroidColor
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import kotlinx.coroutines.CoroutineScope
@@ -41,7 +43,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
-
+import net.vrkknn.andromuks.utils.AvatarUtils
 
 import org.json.JSONArray
 import org.json.JSONObject
@@ -582,108 +584,50 @@ fun RoomJoinerScreen(
                     )
                 }
                 errorMessage != null && roomSummary == null -> {
-                    // Show error with option to join anyway or close
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp)
-                            .verticalScroll(rememberScrollState()),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        Icon(
-                            Icons.Default.Close,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.error
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = errorMessage!!,
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.error,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(24.dp))
-                        
-                        // Still allow trying to join if we have a room ID
-                        if (resolvedRoomId != null) {
-                            Text(
-                                text = "Room information not available, but you can still try to join:",
-                                style = MaterialTheme.typography.bodyMedium,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = roomLink.roomIdOrAlias,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                textAlign = TextAlign.Center
-                            )
-                            Spacer(modifier = Modifier.height(24.dp))
-                            Button(
-                                onClick = {
-                                    isJoining = true
-                                    if (inviteId != null) {
-                                        // This is an invite - use acceptRoomInvite
-                                        appViewModel.acceptRoomInvite(inviteId)
-                                        // Navigate to room immediately
-                                        onJoinSuccess(inviteId)
+                    // Show error with fallback UI - still allow joining
+                    val roomIdToShow = resolvedRoomId ?: roomLink.roomIdOrAlias
+                    RoomErrorFallbackContent(
+                        roomId = roomIdToShow,
+                        errorMessage = errorMessage!!,
+                        isJoining = isJoining,
+                        inviteId = inviteId,
+                        onJoinClick = {
+                            isJoining = true
+                            if (inviteId != null) {
+                                // This is an invite - use acceptRoomInvite
+                                appViewModel.acceptRoomInvite(inviteId)
+                                // Navigate to room immediately
+                                onJoinSuccess(inviteId)
+                            } else {
+                                // Regular room join via link
+                                appViewModel.joinRoomWithCallback(
+                                    resolvedRoomId ?: roomLink.roomIdOrAlias,
+                                    viaServers
+                                ) { result ->
+                                    val (joinedRoomId, joinError) = result ?: Pair(null, null)
+                                    if (joinError != null) {
+                                        errorMessage = joinError
+                                        isJoining = false
+                                    } else if (joinedRoomId != null) {
+                                        onJoinSuccess(joinedRoomId)
                                     } else {
-                                        // Regular room join via link
-                                        appViewModel.joinRoomWithCallback(
-                                            resolvedRoomId ?: roomLink.roomIdOrAlias,
-                                            viaServers
-                                        ) { result ->
-                                            val (joinedRoomId, joinError) = result ?: Pair(null, null)
-                                            if (joinError != null) {
-                                                errorMessage = joinError
-                                                isJoining = false
-                                            } else if (joinedRoomId != null) {
-                                                onJoinSuccess(joinedRoomId)
-                                            } else {
-                                                errorMessage = "Failed to join room"
-                                                isJoining = false
-                                            }
-                                        }
+                                        errorMessage = "Failed to join room"
+                                        isJoining = false
                                     }
-                                },
-                                enabled = !isJoining,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(56.dp)
-                            ) {
-                                if (isJoining) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(24.dp),
-                                        color = MaterialTheme.colorScheme.onPrimary
-                                    )
-                                } else {
-                                    Text("Try to Join Anyway", style = MaterialTheme.typography.titleMedium)
                                 }
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                        },
+                        onCancelClick = {
+                            if (inviteId != null) {
+                                // This is an invite - use refuseRoomInvite and go back
+                                appViewModel.refuseRoomInvite(inviteId)
+                                onDismiss()
+                            } else {
+                                // Regular dismiss
+                                onDismiss()
+                            }
                         }
-                        
-                        OutlinedButton(
-                            onClick = {
-                                if (inviteId != null) {
-                                    // This is an invite - use refuseRoomInvite and go back
-                                    appViewModel.refuseRoomInvite(inviteId)
-                                    onDismiss()
-                                } else {
-                                    // Regular dismiss
-                                    onDismiss()
-                                }
-                            },
-                            enabled = !isJoining,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                        ) {
-                            Text("Close", style = MaterialTheme.typography.titleMedium)
-                        }
-                    }
+                    )
                 }
                 roomSummary != null -> {
                     RoomSummaryContent(
@@ -944,6 +888,126 @@ private fun InfoCard(
                     fontWeight = FontWeight.Medium
                 )
             }
+        }
+    }
+}
+
+/**
+ * Helper function to get fallback character from room ID
+ * Skips the "!" prefix if present
+ */
+private fun getRoomFallbackCharacter(roomId: String): String {
+    val source = roomId.removePrefix("!").removePrefix("#")
+    return AvatarUtils.getFallbackCharacter(null, source)
+}
+
+/**
+ * Helper function to get color for room ID
+ */
+private fun getRoomColor(roomId: String): String {
+    return AvatarUtils.getUserColor(roomId)
+}
+
+@Composable
+private fun RoomErrorFallbackContent(
+    roomId: String,
+    errorMessage: String,
+    isJoining: Boolean,
+    inviteId: String?,
+    onJoinClick: () -> Unit,
+    onCancelClick: () -> Unit
+) {
+    val fallbackChar = remember(roomId) { getRoomFallbackCharacter(roomId) }
+    val roomColor = remember(roomId) { getRoomColor(roomId) }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Room ID
+        Text(
+            text = roomId,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Fallback avatar (large circle with first letter)
+        Surface(
+            modifier = Modifier.size(96.dp),
+            shape = CircleShape,
+            color = Color(AndroidColor.parseColor("#$roomColor"))
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Text(
+                    text = fallbackChar,
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(32.dp))
+        
+        // Join Room Button
+        Button(
+            onClick = onJoinClick,
+            enabled = !isJoining,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+        ) {
+            if (isJoining) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    color = MaterialTheme.colorScheme.onPrimary
+                )
+            } else {
+                Text("Join Room", style = MaterialTheme.typography.titleMedium)
+            }
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Error message (non-blocking)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                Icons.Default.Close,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.error
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "Failed to load room info: $errorMessage",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.weight(1f)
+            )
+        }
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        // Cancel button
+        OutlinedButton(
+            onClick = onCancelClick,
+            enabled = !isJoining,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp)
+        ) {
+            Text("Cancel", style = MaterialTheme.typography.titleMedium)
         }
     }
 }

@@ -538,6 +538,17 @@ fun connectToWebsocket(
                             }
                         }
                     }
+                    "error" -> {
+                        val requestId = jsonObject.optInt("request_id")
+                        val errorMessage = jsonObject.optString("data", "Unknown error")
+                        
+                        // Distribute error to all registered ViewModels (will also acknowledge)
+                        WebSocketService.getServiceScope().launch(Dispatchers.IO) {
+                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                viewModel.handleError(requestId, errorMessage)
+                            }
+                        }
+                    }
                     "response" -> {
                         val requestId = jsonObject.optInt("request_id")
                         val data = jsonObject.opt("data")
@@ -716,6 +727,17 @@ fun connectToWebsocket(
                                         }
                                     }
                                 }
+                        "error" -> {
+                            val requestId = jsonObject.optInt("request_id")
+                            val errorMessage = jsonObject.optString("data", "Unknown error")
+                            
+                            // Distribute error to all registered ViewModels (will also acknowledge)
+                            WebSocketService.getServiceScope().launch(Dispatchers.IO) {
+                                for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                    viewModel.handleError(requestId, errorMessage)
+                                }
+                            }
+                        }
                                  "typing" -> {
                                      val data = jsonObject.optJSONObject("data")
                                      val roomId = data?.optString("room_id")
