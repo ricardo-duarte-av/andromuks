@@ -904,26 +904,26 @@ fun RoomListScreen(
                     val enter = when {
                         direction > 0 -> slideInHorizontally(
                             initialOffsetX = { it },
-                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
-                        ) + fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing))
+                            animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(360, easing = FastOutSlowInEasing))
                         direction < 0 -> slideInHorizontally(
                             initialOffsetX = { -it },
-                            animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing)
-                        ) + fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing))
-                        else -> fadeIn(animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)) +
-                                scaleIn(initialScale = 0.98f, animationSpec = tween(220, easing = FastOutSlowInEasing))
+                            animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(360, easing = FastOutSlowInEasing))
+                        else -> fadeIn(animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)) +
+                                scaleIn(initialScale = 0.98f, animationSpec = tween(360, easing = FastOutSlowInEasing))
                     }
                     val exit = when {
                         direction > 0 -> slideOutHorizontally(
                             targetOffsetX = { -it / 2 },
-                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
-                        ) + fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
+                            animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(320, easing = FastOutSlowInEasing))
                         direction < 0 -> slideOutHorizontally(
                             targetOffsetX = { it / 2 },
-                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
-                        ) + fadeOut(animationSpec = tween(200, easing = FastOutSlowInEasing))
-                        else -> fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)) +
-                                scaleOut(targetScale = 0.99f, animationSpec = tween(180, easing = FastOutSlowInEasing))
+                            animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(320, easing = FastOutSlowInEasing))
+                        else -> fadeOut(animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing)) +
+                                scaleOut(targetScale = 0.99f, animationSpec = tween(300, easing = FastOutSlowInEasing))
                     }
                     enter togetherWith exit
                 },
