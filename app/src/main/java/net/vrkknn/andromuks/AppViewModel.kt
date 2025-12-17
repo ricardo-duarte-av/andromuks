@@ -10934,7 +10934,11 @@ class AppViewModel : ViewModel() {
         thumbnailWidth: Int,
         thumbnailHeight: Int,
         thumbnailSize: Long,
-        caption: String? = null
+        caption: String? = null,
+        threadRootEventId: String? = null,
+        replyToEventId: String? = null,
+        isThreadFallback: Boolean = true,
+        mentions: List<String> = emptyList()
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendVideoMessage called with roomId: '$roomId', videoMxcUrl: '$videoMxcUrl'")
         
@@ -10981,16 +10985,30 @@ class AppViewModel : ViewModel() {
             "filename" to filename
         )
         
-        val commandData = mapOf(
+        val commandData = mutableMapOf<String, Any>(
             "room_id" to roomId,
             "base_content" to baseContent,
             "text" to (caption ?: ""),
             "mentions" to mapOf(
-                "user_ids" to emptyList<String>(),
+                "user_ids" to mentions,
                 "room" to false
             ),
             "url_previews" to emptyList<String>()
         )
+        if (threadRootEventId != null) {
+            val resolvedReplyTarget = replyToEventId
+                ?: getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
+            val threadFallbackFlag = resolvedReplyTarget == null
+            val relatesTo = mutableMapOf<String, Any>(
+                "rel_type" to "m.thread",
+                "event_id" to threadRootEventId,
+                "is_falling_back" to threadFallbackFlag
+            )
+            if (resolvedReplyTarget != null) {
+                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
+            }
+            commandData["relates_to"] = relatesTo
+        }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with video data: $commandData")
         sendWebSocketCommand("send_message", messageRequestId, commandData)
@@ -11031,7 +11049,11 @@ class AppViewModel : ViewModel() {
         duration: Int, // duration in milliseconds
         size: Long,
         mimeType: String,
-        caption: String? = null
+        caption: String? = null,
+        threadRootEventId: String? = null,
+        replyToEventId: String? = null,
+        isThreadFallback: Boolean = true,
+        mentions: List<String> = emptyList()
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendAudioMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', duration: ${duration}ms")
         
@@ -11054,16 +11076,30 @@ class AppViewModel : ViewModel() {
             "filename" to filename
         )
         
-        val commandData = mapOf(
+        val commandData = mutableMapOf<String, Any>(
             "room_id" to roomId,
             "base_content" to baseContent,
             "text" to (caption ?: ""),
             "mentions" to mapOf(
-                "user_ids" to emptyList<String>(),
+                "user_ids" to mentions,
                 "room" to false
             ),
             "url_previews" to emptyList<String>()
         )
+        if (threadRootEventId != null) {
+            val resolvedReplyTarget = replyToEventId
+                ?: getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
+            val threadFallbackFlag = resolvedReplyTarget == null
+            val relatesTo = mutableMapOf<String, Any>(
+                "rel_type" to "m.thread",
+                "event_id" to threadRootEventId,
+                "is_falling_back" to threadFallbackFlag
+            )
+            if (resolvedReplyTarget != null) {
+                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
+            }
+            commandData["relates_to"] = relatesTo
+        }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with audio data: $commandData")
         sendWebSocketCommand("send_message", messageRequestId, commandData)
@@ -11079,7 +11115,11 @@ class AppViewModel : ViewModel() {
         filename: String,
         size: Long,
         mimeType: String,
-        caption: String? = null
+        caption: String? = null,
+        threadRootEventId: String? = null,
+        replyToEventId: String? = null,
+        isThreadFallback: Boolean = true,
+        mentions: List<String> = emptyList()
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendFileMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', filename: '$filename'")
         
@@ -11101,16 +11141,30 @@ class AppViewModel : ViewModel() {
             "filename" to filename
         )
         
-        val commandData = mapOf(
+        val commandData = mutableMapOf<String, Any>(
             "room_id" to roomId,
             "base_content" to baseContent,
             "text" to (caption ?: ""),
             "mentions" to mapOf(
-                "user_ids" to emptyList<String>(),
+                "user_ids" to mentions,
                 "room" to false
             ),
             "url_previews" to emptyList<String>()
         )
+        if (threadRootEventId != null) {
+            val resolvedReplyTarget = replyToEventId
+                ?: getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
+            val threadFallbackFlag = resolvedReplyTarget == null
+            val relatesTo = mutableMapOf<String, Any>(
+                "rel_type" to "m.thread",
+                "event_id" to threadRootEventId,
+                "is_falling_back" to threadFallbackFlag
+            )
+            if (resolvedReplyTarget != null) {
+                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
+            }
+            commandData["relates_to"] = relatesTo
+        }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with file data: $commandData")
         sendWebSocketCommand("send_message", messageRequestId, commandData)

@@ -31,6 +31,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.AudioFile
+import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -49,6 +52,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -73,6 +77,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.filled.Mood
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
@@ -89,6 +95,11 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.collectLatest
+import net.vrkknn.andromuks.utils.MediaPreviewDialog
+import net.vrkknn.andromuks.utils.UploadingDialog
+import net.vrkknn.andromuks.utils.MediaUploadUtils
+import net.vrkknn.andromuks.utils.VideoUploadUtils
+import net.vrkknn.andromuks.utils.MediaMessage
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
@@ -228,6 +239,49 @@ fun ThreadViewerScreen(
                 threadMessages = appViewModel.getThreadMessages(roomId, threadRootEventId)
             }
     }
+
+    // Attachment/media state
+    var showAttachmentMenu by remember { mutableStateOf(false) }
+    var selectedMediaUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var selectedAudioUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var selectedFileUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var selectedMediaIsVideo by remember { mutableStateOf(false) }
+    var showMediaPreview by remember { mutableStateOf(false) }
+    var isUploading by remember { mutableStateOf(false) }
+
+    // Media pickers
+    val mediaPickerLauncher =
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: android.net.Uri? ->
+            uri?.let {
+                val mime = context.contentResolver.getType(it) ?: ""
+                selectedMediaIsVideo = mime.startsWith("video/")
+                selectedMediaUri = it
+                selectedAudioUri = null
+                selectedFileUri = null
+                showMediaPreview = true
+            }
+        }
+    val audioPickerLauncher =
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: android.net.Uri? ->
+            uri?.let {
+                selectedAudioUri = it
+                selectedMediaUri = null
+                selectedFileUri = null
+                selectedMediaIsVideo = false
+                showMediaPreview = true
+            }
+        }
+    val filePickerLauncher =
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: android.net.Uri? ->
+            uri?.let {
+                selectedFileUri = it
+                selectedAudioUri = null
+                selectedMediaUri = null
+                val mime = context.contentResolver.getType(it) ?: ""
+                selectedMediaIsVideo = mime.startsWith("video/")
+                showMediaPreview = true
+            }
+        }
     
     // Get the thread root event
     val threadRootEvent = threadMessages.firstOrNull { it.eventId == threadRootEventId }
@@ -819,6 +873,27 @@ fun ThreadViewerScreen(
                                 Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // Main attach button (outside the text field)
+                            Surface(
+                                color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                tonalElevation = 1.dp,
+                                modifier = Modifier.width(48.dp).height(buttonHeight)
+                            ) {
+                                IconButton(
+                                    onClick = { showAttachmentMenu = !showAttachmentMenu },
+                                    modifier = Modifier.fillMaxSize()
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.AttachFile,
+                                        contentDescription = "Attach",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
                             // Pill-shaped text input
                             Surface(
                                 color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
@@ -1145,23 +1220,6 @@ fun ThreadViewerScreen(
                                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                // Attach button (reuses full-screen preview flow via toast until picker wired)
-                                                IconButton(
-                                                    onClick = {
-                                                        Toast.makeText(
-                                                            context,
-                                                            "Attach flow for threads not wired yet",
-                                                            Toast.LENGTH_SHORT
-                                                        ).show()
-                                                    },
-                                                    modifier = Modifier.size(24.dp)
-                                                ) {
-                                                    Icon(
-                                                        imageVector = Icons.Filled.AttachFile,
-                                                        contentDescription = "Attach",
-                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
                                                 IconButton(
                                                     onClick = { showStickerPickerForText = true },
                                                     modifier = Modifier.size(24.dp)
@@ -1289,6 +1347,48 @@ fun ThreadViewerScreen(
                                         if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary
                                         else MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = if (isSending) Modifier.rotate(rotation) else Modifier
+                                )
+                            }
+                        }
+                    }
+
+                    // Attachment menu (below composer)
+                    AnimatedVisibility(visible = showAttachmentMenu) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = {
+                                showAttachmentMenu = false
+                                mediaPickerLauncher.launch("*/*")
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Image,
+                                    contentDescription = "Image/Video",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(onClick = {
+                                showAttachmentMenu = false
+                                audioPickerLauncher.launch("audio/*")
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Filled.AudioFile,
+                                    contentDescription = "Audio",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(onClick = {
+                                showAttachmentMenu = false
+                                filePickerLauncher.launch("*/*")
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Filled.Folder,
+                                    contentDescription = "File",
+                                    tint = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
@@ -1480,6 +1580,169 @@ fun ThreadViewerScreen(
                         onDismiss = { showStickerPickerForText = false },
                         stickerPacks = appViewModel.stickerPacks
                     )
+                }
+
+                // Media preview dialog
+                if (showMediaPreview && (selectedMediaUri != null || selectedAudioUri != null || selectedFileUri != null)) {
+                    val currentUri = selectedMediaUri ?: selectedAudioUri ?: selectedFileUri!!
+                    val isAudio = selectedAudioUri != null
+                    val isFile = selectedFileUri != null
+
+                    MediaPreviewDialog(
+                        uri = currentUri,
+                        isVideo = selectedMediaIsVideo,
+                        isAudio = isAudio,
+                        isFile = isFile,
+                        onDismiss = {
+                            showMediaPreview = false
+                            selectedMediaUri = null
+                            selectedAudioUri = null
+                            selectedFileUri = null
+                            selectedMediaIsVideo = false
+                        },
+                        onSend = { caption ->
+                            showMediaPreview = false
+                            isUploading = true
+                            coroutineScope.launch {
+                                try {
+                                    when {
+                                        selectedMediaIsVideo -> {
+                                            val videoResult = VideoUploadUtils.uploadVideo(
+                                                context = context,
+                                                uri = currentUri,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                isEncrypted = false
+                                            )
+                                            if (videoResult != null) {
+                                                val replyTarget = replyingToEvent?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                                val mentions = replyingToEvent?.sender?.let { listOf(it) } ?: emptyList()
+                                                appViewModel.sendVideoMessage(
+                                                    roomId = roomId,
+                                                    videoMxcUrl = videoResult.videoMxcUrl,
+                                                    thumbnailMxcUrl = videoResult.thumbnailMxcUrl,
+                                                    width = videoResult.width,
+                                                    height = videoResult.height,
+                                                    duration = videoResult.duration,
+                                                    size = videoResult.size,
+                                                    mimeType = videoResult.mimeType,
+                                                    thumbnailBlurHash = videoResult.thumbnailBlurHash,
+                                                    thumbnailWidth = videoResult.thumbnailWidth,
+                                                    thumbnailHeight = videoResult.thumbnailHeight,
+                                                    thumbnailSize = videoResult.thumbnailSize,
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    threadRootEventId = threadRootEventId,
+                                                    replyToEventId = replyTarget,
+                                                    isThreadFallback = replyingToEvent == null,
+                                                    mentions = mentions
+                                                )
+                                            } else {
+                                                Toast.makeText(context, "Failed to upload video", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                        isAudio -> {
+                                            val audioResult = MediaUploadUtils.uploadAudio(
+                                                context = context,
+                                                uri = currentUri,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                isEncrypted = false
+                                            )
+                                            if (audioResult != null) {
+                                                val replyTarget = replyingToEvent?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                                val mentions = replyingToEvent?.sender?.let { listOf(it) } ?: emptyList()
+                                                appViewModel.sendAudioMessage(
+                                                    roomId = roomId,
+                                                    mxcUrl = audioResult.mxcUrl,
+                                                    filename = audioResult.filename,
+                                                    duration = audioResult.duration,
+                                                    size = audioResult.size,
+                                                    mimeType = audioResult.mimeType,
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    threadRootEventId = threadRootEventId,
+                                                    replyToEventId = replyTarget,
+                                                    isThreadFallback = replyingToEvent == null,
+                                                    mentions = mentions
+                                                )
+                                            } else {
+                                                Toast.makeText(context, "Failed to upload audio", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                        isFile -> {
+                                            val fileResult = MediaUploadUtils.uploadFile(
+                                                context = context,
+                                                uri = currentUri,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                isEncrypted = false
+                                            )
+                                            if (fileResult != null) {
+                                                val replyTarget = replyingToEvent?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                                val mentions = replyingToEvent?.sender?.let { listOf(it) } ?: emptyList()
+                                                appViewModel.sendFileMessage(
+                                                    roomId = roomId,
+                                                    mxcUrl = fileResult.mxcUrl,
+                                                    filename = fileResult.filename,
+                                                    size = fileResult.size,
+                                                    mimeType = fileResult.mimeType,
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    threadRootEventId = threadRootEventId,
+                                                    replyToEventId = replyTarget,
+                                                    isThreadFallback = replyingToEvent == null,
+                                                    mentions = mentions
+                                                )
+                                            } else {
+                                                Toast.makeText(context, "Failed to upload file", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                        else -> {
+                                            val uploadResult = MediaUploadUtils.uploadMedia(
+                                                context = context,
+                                                uri = currentUri,
+                                                homeserverUrl = homeserverUrl,
+                                                authToken = authToken,
+                                                isEncrypted = false
+                                            )
+                                            if (uploadResult != null) {
+                                                val replyTarget = replyingToEvent?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                                                val mentions = replyingToEvent?.sender?.let { listOf(it) } ?: emptyList()
+                                                appViewModel.sendImageMessage(
+                                                    roomId = roomId,
+                                                    mxcUrl = uploadResult.mxcUrl,
+                                                    width = uploadResult.width,
+                                                    height = uploadResult.height,
+                                                    size = uploadResult.size,
+                                                    mimeType = uploadResult.mimeType,
+                                                    blurHash = uploadResult.blurHash,
+                                                    caption = caption.takeIf { it.isNotBlank() },
+                                                    threadRootEventId = threadRootEventId,
+                                                    replyToEventId = replyTarget,
+                                                    isThreadFallback = replyingToEvent == null,
+                                                    mentions = mentions
+                                                )
+                                            } else {
+                                                Toast.makeText(context, "Failed to upload image", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("Andromuks", "ThreadViewerScreen: Upload error", e)
+                                    Toast.makeText(context, "Upload failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                } finally {
+                                    isUploading = false
+                                    selectedMediaUri = null
+                                    selectedAudioUri = null
+                                    selectedFileUri = null
+                                    selectedMediaIsVideo = false
+                                    replyingToEvent = null
+                                }
+                            }
+                        }
+                    )
+                }
+
+                if (isUploading) {
+                    UploadingDialog(isVideo = selectedMediaIsVideo)
                 }
 
                 // Delete confirmation dialog
