@@ -7201,34 +7201,51 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val pendingLog = synchronized(pendingSyncLock) {
+        // Track the lowest pending requestId we have seen (even if not yet persisted)
+        val pendingSnapshot = synchronized(pendingSyncLock) {
             if (pendingLastReceivedSyncId == requestId) {
+                // We just persisted the lowest pending one, clear it
                 pendingLastReceivedSyncId = null
             }
             pendingLastReceivedSyncId
         }
         
+        // Primary rule: commit to the lowest persisted requestId so far
         val shouldUpdate = lastReceivedSyncId == 0 || requestId < lastReceivedSyncId
-        if (!shouldUpdate) {
+        if (shouldUpdate) {
+            val previous = lastReceivedSyncId
+            lastReceivedSyncId = requestId
+            hasPersistedSync = true
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Persisted sync_complete requestId=$requestId ignored (current lastReceivedSyncId=$lastReceivedSyncId, pending=$pendingLog)"
+                "AppViewModel: Committed lastReceivedSyncId from $previous to $requestId after persistence (pending=$pendingSnapshot)"
             )
+            
+            WebSocketService.updateLastReceivedSyncId(lastReceivedSyncId)
+            WebSocketService.setReconnectionState(lastReceivedSyncId)
+            WebSocketService.markInitialSyncPersisted()
             return
         }
         
-        val previous = lastReceivedSyncId
-        lastReceivedSyncId = requestId
-        hasPersistedSync = true
+        // Secondary safety: if a lower pending ID exists and is below what we've committed,
+        // force a downshift so the next reconnect asks the server for that earlier range.
+        if (pendingSnapshot != null && pendingSnapshot < lastReceivedSyncId) {
+            val previous = lastReceivedSyncId
+            lastReceivedSyncId = pendingSnapshot
+            if (BuildConfig.DEBUG) android.util.Log.w(
+                "Andromuks",
+                "AppViewModel: Forcing downshift of lastReceivedSyncId from $previous to pending $pendingSnapshot to avoid gaps"
+            )
+            WebSocketService.updateLastReceivedSyncId(lastReceivedSyncId)
+            WebSocketService.setReconnectionState(lastReceivedSyncId)
+            WebSocketService.markInitialSyncPersisted()
+            return
+        }
+        
         if (BuildConfig.DEBUG) android.util.Log.d(
             "Andromuks",
-            "AppViewModel: Committed lastReceivedSyncId from $previous to $requestId after persistence (pending=$pendingLog)"
+            "AppViewModel: Persisted sync_complete requestId=$requestId ignored (current lastReceivedSyncId=$lastReceivedSyncId, pending=$pendingSnapshot)"
         )
-        
-        // Notify service for reconnection (run_id is read from SharedPreferences)
-        WebSocketService.updateLastReceivedSyncId(lastReceivedSyncId)
-        WebSocketService.setReconnectionState(lastReceivedSyncId)
-        WebSocketService.markInitialSyncPersisted()
     }
     
     /**
