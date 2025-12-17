@@ -87,6 +87,8 @@ import kotlin.math.min
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.collectLatest
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
@@ -208,6 +210,22 @@ fun ThreadViewerScreen(
     }
     LaunchedEffect(appViewModel.timelineUpdateCounter, roomId, threadRootEventId) {
         threadMessages = appViewModel.getThreadMessages(roomId, threadRootEventId)
+    }
+    // Ensure the ViewModel treats this room as current so timeline updates and send_complete are applied
+    LaunchedEffect(roomId) {
+        appViewModel.setCurrentRoomIdForTimeline(roomId)
+        // Ensure timeline is fresh when opening the thread viewer
+        appViewModel.requestRoomTimeline(roomId)
+    }
+    // Observe DB latest timestamp to react to new events arriving while thread viewer is open
+    LaunchedEffect(roomId, threadRootEventId) {
+        appViewModel.observeRoomLatestEventTimestamp(roomId)
+            .filterNotNull()
+            .collectLatest {
+                // Refresh room timeline to ensure thread root and new events are loaded
+                appViewModel.requestRoomTimeline(roomId)
+                threadMessages = appViewModel.getThreadMessages(roomId, threadRootEventId)
+            }
     }
     
     // Get the thread root event

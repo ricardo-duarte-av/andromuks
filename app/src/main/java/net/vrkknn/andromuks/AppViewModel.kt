@@ -15216,12 +15216,6 @@ class AppViewModel : ViewModel() {
      * @return List of timeline events in the thread, sorted by timestamp
      */
     fun getThreadMessages(roomId: String, threadRootEventId: String): List<TimelineEvent> {
-        // Only return thread messages if we're in the same room
-        if (currentRoomId != roomId) {
-            android.util.Log.w("Andromuks", "AppViewModel: getThreadMessages called for different room")
-            return emptyList()
-        }
-        
         val threadMessages = mutableListOf<TimelineEvent>()
         
         // Add the thread root message first
