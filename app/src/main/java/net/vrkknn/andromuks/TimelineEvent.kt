@@ -71,6 +71,10 @@ data class TimelineEvent(
         } ?: return null
         
         val relatesTo = messageContent?.optJSONObject("m.relates_to")
+        // Thread fallback messages (is_falling_back=true) are not treated as replies
+        val isFallback = relatesTo?.optBoolean("is_falling_back", false) ?: false
+        if (isFallback) return null
+
         val inReplyTo = relatesTo?.optJSONObject("m.in_reply_to")
         val repliedToEventId = inReplyTo?.optString("event_id")?.takeIf { it.isNotBlank() }
         

@@ -380,9 +380,8 @@ private fun MediaMessageItem(
         horizontalArrangement = if (isMine) Arrangement.End else Arrangement.Start,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Show nested reply preview only for non-thread messages
-        // Thread messages are rendered without nested reply (different color instead)
-        if (replyInfo != null && originalEvent != null && !isThreadMessage) {
+        // Show nested reply preview (also for thread messages so replies render consistently)
+        if (replyInfo != null && originalEvent != null) {
             Column {
                 val replyPreviewColors = rememberReplyPreviewColors(
                     colorScheme = colorScheme,
@@ -1330,8 +1329,8 @@ private fun RoomTextMessageContent(
             Spacer(modifier = Modifier.width(ReadReceiptGap))
         }
 
-        // Display reply with nested structure if this is a reply (but NOT a thread message)
-        if (replyInfo != null && originalEvent != null && !isThreadMessage) {
+        // Display reply with nested structure if this is a reply (include thread messages too)
+        if (replyInfo != null && originalEvent != null) {
             MessageBubbleWithMenu(
                 event = event,
                 bubbleColor = bubbleColor,
