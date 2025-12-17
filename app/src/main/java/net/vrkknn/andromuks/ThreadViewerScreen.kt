@@ -98,6 +98,7 @@ import net.vrkknn.andromuks.utils.EmojiSelectionDialog
 import net.vrkknn.andromuks.utils.EmojiShortcodes
 import net.vrkknn.andromuks.utils.EmojiSuggestionList
 import net.vrkknn.andromuks.utils.StickerSelectionDialog
+import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.utils.TypingNotificationArea
@@ -740,6 +741,13 @@ fun ThreadViewerScreen(
                                         },
                                         onReply = { event ->
                                             replyingToEvent = event
+                                            // Scroll near the bottom to keep context like main timeline
+                                            coroutineScope.launch {
+                                                val lastIndex = timelineItems.lastIndex
+                                                if (lastIndex >= 0) {
+                                                    listState.animateScrollToItem(maxOf(lastIndex - 2, 0))
+                                                }
+                                            }
                                         },
                                         onReact = { event ->
                                             reactingToEvent = event
@@ -819,6 +827,19 @@ fun ThreadViewerScreen(
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Column {
+                                    // Reply preview (thread reply target)
+                                    if (replyingToEvent != null) {
+                                        ReplyPreviewInput(
+                                            event = replyingToEvent!!,
+                                            userProfileCache =
+                                                memberMap.mapValues { (_, profile) ->
+                                                    MemberProfile(profile.displayName, profile.avatarUrl)
+                                                },
+                                            onCancel = { replyingToEvent = null },
+                                            appViewModel = appViewModel,
+                                            roomId = roomId
+                                        )
+                                    }
                                     // Create mention transformation for TextField with proper caching
                                     val colorScheme = MaterialTheme.colorScheme
                                     val mentionTransformation = remember(colorScheme) {
