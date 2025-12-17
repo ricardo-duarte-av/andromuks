@@ -34,6 +34,8 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.AudioFile
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -79,6 +81,7 @@ import androidx.compose.material.icons.filled.Mood
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
@@ -248,6 +251,8 @@ fun ThreadViewerScreen(
     var selectedMediaIsVideo by remember { mutableStateOf(false) }
     var showMediaPreview by remember { mutableStateOf(false) }
     var isUploading by remember { mutableStateOf(false) }
+    var cameraPhotoUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var cameraVideoUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     // Media pickers
     val mediaPickerLauncher =
@@ -282,6 +287,59 @@ fun ThreadViewerScreen(
                 showMediaPreview = true
             }
         }
+    val cameraPhotoLauncher =
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.TakePicture()) { success ->
+            if (success && cameraPhotoUri != null) {
+                selectedMediaUri = cameraPhotoUri
+                selectedMediaIsVideo = false
+                selectedAudioUri = null
+                selectedFileUri = null
+                showMediaPreview = true
+            }
+            cameraPhotoUri = null
+        }
+    val cameraVideoLauncher =
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.CaptureVideo()) { success ->
+            if (success && cameraVideoUri != null) {
+                selectedMediaUri = cameraVideoUri
+                selectedMediaIsVideo = true
+                selectedAudioUri = null
+                selectedFileUri = null
+                showMediaPreview = true
+            }
+            cameraVideoUri = null
+        }
+    val cameraPermissionLauncher =
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.RequestPermission()) { granted ->
+            if (!granted) {
+                Toast.makeText(context, "Camera permission is required", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+    fun createCameraFileUri(isVideo: Boolean): android.net.Uri? {
+        return try {
+            val timeStamp = java.text.SimpleDateFormat("yyyyMMdd_HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
+            val fileName = if (isVideo) "VID_${timeStamp}.mp4" else "IMG_${timeStamp}.jpg"
+            val contentValues = android.content.ContentValues().apply {
+                put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(android.provider.MediaStore.MediaColumns.MIME_TYPE, if (isVideo) "video/mp4" else "image/jpeg")
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    put(
+                        android.provider.MediaStore.MediaColumns.RELATIVE_PATH,
+                        if (isVideo) android.os.Environment.DIRECTORY_MOVIES else android.os.Environment.DIRECTORY_PICTURES
+                    )
+                }
+            }
+            context.contentResolver.insert(
+                if (isVideo) android.provider.MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                else android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                contentValues
+            )
+        } catch (e: Exception) {
+            Log.e("Andromuks", "Error creating camera file URI", e)
+            null
+        }
+    }
     
     // Get the thread root event
     val threadRootEvent = threadMessages.firstOrNull { it.eventId == threadRootEventId }
@@ -1352,47 +1410,89 @@ fun ThreadViewerScreen(
                         }
                     }
 
-                    // Attachment menu (below composer)
-                    AnimatedVisibility(visible = showAttachmentMenu) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            IconButton(onClick = {
-                                showAttachmentMenu = false
-                                mediaPickerLauncher.launch("*/*")
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Filled.Image,
-                                    contentDescription = "Image/Video",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            IconButton(onClick = {
-                                showAttachmentMenu = false
-                                audioPickerLauncher.launch("audio/*")
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Filled.AudioFile,
-                                    contentDescription = "Audio",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                            }
-                            IconButton(onClick = {
-                                showAttachmentMenu = false
-                                filePickerLauncher.launch("*/*")
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Filled.Folder,
-                                    contentDescription = "File",
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
+                        // Attachment menu (above composer)
+                        AnimatedVisibility(visible = showAttachmentMenu) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                IconButton(onClick = {
+                                    showAttachmentMenu = false
+                                    mediaPickerLauncher.launch("*/*")
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Image,
+                                        contentDescription = "Image/Video",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                IconButton(onClick = {
+                                    showAttachmentMenu = false
+                                    audioPickerLauncher.launch("audio/*")
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.AudioFile,
+                                        contentDescription = "Audio",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                IconButton(onClick = {
+                                    showAttachmentMenu = false
+                                    filePickerLauncher.launch("*/*")
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Folder,
+                                        contentDescription = "File",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                IconButton(onClick = {
+                                    val hasCam = ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                    if (hasCam) {
+                                        val uri = createCameraFileUri(false)
+                                        if (uri != null) {
+                                            cameraPhotoUri = uri
+                                            cameraPhotoLauncher.launch(uri)
+                                            showAttachmentMenu = false
+                                        } else {
+                                            Toast.makeText(context, "Error creating camera file", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else {
+                                        cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                    }
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.CameraAlt,
+                                        contentDescription = "Camera Photo",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                                IconButton(onClick = {
+                                    val hasCam = ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                    if (hasCam) {
+                                        val uri = createCameraFileUri(true)
+                                        if (uri != null) {
+                                            cameraVideoUri = uri
+                                            cameraVideoLauncher.launch(uri)
+                                            showAttachmentMenu = false
+                                        } else {
+                                            Toast.makeText(context, "Error creating camera file", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else {
+                                        cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+                                    }
+                                }) {
+                                    Icon(
+        imageVector = Icons.Filled.Videocam,
+        contentDescription = "Camera Video",
+        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
                             }
                         }
-                    }
                 }
                 
                 // Emoji shortcode suggestion list
