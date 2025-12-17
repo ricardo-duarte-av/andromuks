@@ -29,8 +29,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.outlined.StickyNote2
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -39,7 +40,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
 import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,6 +59,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -67,10 +68,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Mood
+import android.widget.Toast
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.OffsetMapping
 import androidx.compose.ui.text.input.TransformedText
@@ -88,12 +90,18 @@ import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.utils.DeleteMessageDialog
+import net.vrkknn.andromuks.utils.CustomBubbleTextField
 import net.vrkknn.andromuks.utils.EditPreviewInput
 import net.vrkknn.andromuks.utils.EmojiSelectionDialog
+import net.vrkknn.andromuks.utils.EmojiShortcodes
+import net.vrkknn.andromuks.utils.EmojiSuggestionList
+import net.vrkknn.andromuks.utils.StickerSelectionDialog
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.utils.TypingNotificationArea
 import net.vrkknn.andromuks.BuildConfig
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 
 /** Floating member list for mentions */
@@ -193,10 +201,13 @@ fun ThreadViewerScreen(
     val myUserId = appViewModel.currentUserId
     val homeserverUrl = appViewModel.homeserverUrl
     
-    // Get thread messages (thread root + all messages with relatesTo == threadRootEventId)
-    // React to timeline update counter so timeline changes trigger recomposition
-    val threadMessages = remember(appViewModel.timelineUpdateCounter) {
-        appViewModel.getThreadMessages(roomId, threadRootEventId)
+    // Track thread messages reactively so new sends/deletes render without reopening
+    var threadMessages by remember(roomId) { mutableStateOf<List<TimelineEvent>>(emptyList()) }
+    LaunchedEffect(roomId) {
+        threadMessages = appViewModel.getThreadMessages(roomId, threadRootEventId)
+    }
+    LaunchedEffect(appViewModel.timelineUpdateCounter, roomId, threadRootEventId) {
+        threadMessages = appViewModel.getThreadMessages(roomId, threadRootEventId)
     }
     
     // Get the thread root event
@@ -214,6 +225,9 @@ fun ThreadViewerScreen(
     // Delete state
     var showDeleteDialog by remember { mutableStateOf(false) }
     var deletingEvent by remember { mutableStateOf<TimelineEvent?>(null) }
+    // Reply/Edit state
+    var replyingToEvent by remember { mutableStateOf<TimelineEvent?>(null) }
+    var editingEvent by remember { mutableStateOf<TimelineEvent?>(null) }
 
     // Emoji selection state
     var showEmojiSelection by remember { mutableStateOf(false) }
@@ -223,17 +237,78 @@ fun ThreadViewerScreen(
     var showMentionList by remember { mutableStateOf(false) }
     var mentionQuery by remember { mutableStateOf("") }
     var mentionStartIndex by remember { mutableStateOf(-1) }
+    var isWaitingForFullMemberList by remember { mutableStateOf(false) }
+    var lastMemberUpdateCounterBeforeMention by remember { mutableStateOf(appViewModel.memberUpdateCounter) }
+    
+    // Emoji shortcode ( :shortname: ) state
+    var showEmojiSuggestionList by remember { mutableStateOf(false) }
+    var emojiQuery by remember { mutableStateOf("") }
+    var emojiStartIndex by remember { mutableStateOf(-1) }
+    var showEmojiPickerForText by remember { mutableStateOf(false) }
+    var showStickerPickerForText by remember { mutableStateOf(false) }
     
     // Text input state (moved here to be accessible by mention handler)
     var draft by remember { mutableStateOf("") }
     var lastTypingTime by remember { mutableStateOf(0L) }
     var textFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+    // Track text field height to size the send button
+    var textFieldHeight by remember { mutableStateOf(0) }
+    val density = LocalDensity.current
+    val buttonHeight = remember(textFieldHeight, density) {
+        if (textFieldHeight > 0) {
+            with(density) { textFieldHeight.toDp() }
+        } else 40.dp
+    }
     
     // Sync draft with TextFieldValue
     LaunchedEffect(draft) {
         if (textFieldValue.text != draft) {
             textFieldValue = textFieldValue.copy(text = draft, selection = TextRange(draft.length))
         }
+    }
+
+    // Pre-fill draft when editing starts
+    LaunchedEffect(editingEvent) {
+        if (editingEvent != null) {
+            val content = editingEvent!!.content ?: editingEvent!!.decrypted
+            val msgType = content?.optString("msgtype", "")
+            val body = if (msgType == "m.emote") {
+                val localContent = editingEvent!!.localContent
+                val editSource = localContent?.optString("edit_source")?.takeIf { it.isNotBlank() }
+                editSource ?: content?.optString("body", "") ?: ""
+            } else {
+                content?.optString("body", "") ?: ""
+            }
+            draft = body
+            // Hide mention list when editing
+            showMentionList = false
+        }
+    }
+
+    // Define allowed event types (whitelist approach)
+    val allowedEventTypes =
+        setOf(
+            "m.room.message",
+            "m.room.encrypted",
+            "m.room.member",
+            "m.room.name",
+            "m.room.topic",
+            "m.room.avatar",
+            "m.room.pinned_events",
+            "m.reaction",
+            "m.sticker"
+        )
+
+    // PERFORMANCE: Use background processing for heavy filtering and sorting operations
+    var sortedEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
+
+    // Process thread events in background when dependencies change
+    LaunchedEffect(threadMessages, appViewModel.showUnprocessedEvents, appViewModel.timelineUpdateCounter) {
+        sortedEvents = processTimelineEvents(
+            timelineEvents = threadMessages,
+            showUnprocessedEvents = appViewModel.showUnprocessedEvents,
+            allowedEventTypes = allowedEventTypes
+        )
     }
 
     // Get current room members for mention list (exclude current user and filter out invalid entries)
@@ -250,8 +325,19 @@ fun ThreadViewerScreen(
     }
 
     // Get member map that observes memberUpdateCounter for TimelineEventItem profile updates
-    val memberMap = remember(roomId, appViewModel.memberUpdateCounter) {
-        appViewModel.getMemberMap(roomId)
+    val memberMap = remember(roomId, appViewModel.memberUpdateCounter, sortedEvents) {
+        appViewModel.getMemberMapWithFallback(roomId, sortedEvents)
+    }
+
+    // Show mention list when full member list finishes loading
+    LaunchedEffect(appViewModel.memberUpdateCounter, isWaitingForFullMemberList) {
+        if (isWaitingForFullMemberList && appViewModel.memberUpdateCounter > lastMemberUpdateCounterBeforeMention) {
+            val memberMapNow = appViewModel.getMemberMap(roomId)
+            if (memberMapNow.isNotEmpty()) {
+                showMentionList = true
+                isWaitingForFullMemberList = false
+            }
+        }
     }
 
     // Mention detection and handling functions
@@ -320,13 +406,157 @@ fun ThreadViewerScreen(
         return originalText.substring(0, startIndex) + mentionText + originalText.substring(endIndex)
     }
 
+    // Emoji shortcode detection function (for ':' based autocomplete)
+    fun detectEmojiShortcode(text: String, cursorPosition: Int): Pair<String, Int>? {
+        if (text.isEmpty() || cursorPosition < 0 || cursorPosition > text.length) return null
+
+        // Look for ':' at or before cursor position
+        var colonIndex = -1
+        for (i in (cursorPosition - 1) downTo 0) {
+            val c = text[i]
+            if (c == ':') {
+                colonIndex = i
+                break
+            }
+            // Stop if we hit a delimiter before finding ':'
+            if (c == ' ' || c == '\n' || c == '\t') {
+                break
+            }
+        }
+
+        if (colonIndex == -1) return null
+
+        // Ensure ':' is at start of text or preceded by whitespace/newline
+        if (colonIndex > 0) {
+            val prev = text[colonIndex - 1]
+            if (prev != ' ' && prev != '\n' && prev != '\t') {
+                return null
+            }
+        }
+
+        val queryStart = colonIndex + 1
+        var queryEnd = cursorPosition
+
+        // Stop query at next delimiter or second ':'
+        if (cursorPosition < text.length) {
+            for (i in cursorPosition until text.length) {
+                val c = text[i]
+                if (c == ' ' || c == '\n' || c == '\t' || c == ':') {
+                    break
+                }
+                queryEnd = i + 1
+            }
+        }
+
+        if (queryStart <= cursorPosition) {
+            val safeEnd = min(queryEnd, text.length)
+            val query =
+                if (queryStart < safeEnd) text.substring(queryStart, safeEnd) else ""
+            return Pair(query, colonIndex)
+        }
+
+        return null
+    }
+
+    // Handle backspace deletion of custom emoji markdown
+    fun handleCustomEmojiDeletion(
+        oldValue: TextFieldValue,
+        newValue: TextFieldValue
+    ): TextFieldValue {
+        // Check if text was deleted (backspace was pressed)
+        if (newValue.text.length >= oldValue.text.length) return newValue
+
+        val oldText = oldValue.text
+        val newText = newValue.text
+        val cursor = newValue.selection.start
+        val deletedLength = oldText.length - newText.length
+
+        // Regex for custom emoji markdown: ![:name:](mxc://url "Emoji: :name:")
+        val customEmojiRegex = Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
+
+        // Find all custom emoji markdowns in the old text
+        val matches = customEmojiRegex.findAll(oldText).toList()
+
+        // Check if cursor is within or right after a custom emoji markdown
+        for (match in matches) {
+            val markdownStart = match.range.first
+            val markdownEnd = match.range.last + 1
+
+            // Trigger only if deleting inside the markdown
+            if (cursor >= markdownStart && cursor < markdownEnd && deletedLength == 1) {
+                val beforeMarkdown = oldText.substring(0, markdownStart)
+                val afterMarkdown = oldText.substring(markdownEnd)
+                val finalText = beforeMarkdown + afterMarkdown
+                val finalCursor = markdownStart
+
+                return TextFieldValue(
+                    text = finalText,
+                    selection = TextRange(finalCursor)
+                )
+            }
+        }
+
+        return newValue
+    }
+
+    // Replace completed :shortcode: with emoji or custom emoji markdown
+    fun applyCompletedEmojiShortcode(
+        value: TextFieldValue
+    ): TextFieldValue {
+        val text = value.text
+        val cursor = value.selection.start
+        if (cursor <= 0 || cursor > text.length) return value
+        if (text[cursor - 1] != ':') return value
+
+        // Find matching opening ':'
+        var start = cursor - 2
+        while (start >= 0) {
+            val c = text[start]
+            if (c == ':') {
+                break
+            }
+            if (c == ' ' || c == '\n' || c == '\t') {
+                return value
+            }
+            start--
+        }
+
+        if (start < 0 || text[start] != ':') return value
+
+        val nameStart = start + 1
+        val nameEnd = cursor - 1
+        if (nameEnd <= nameStart) return value
+
+        val shortcode = text.substring(nameStart, nameEnd)
+        val suggestion =
+            EmojiShortcodes.findByShortcode(shortcode, appViewModel.customEmojiPacks)
+                ?: return value
+
+        val replacement =
+            suggestion.emoji
+                ?: suggestion.customEmoji?.let { custom ->
+                    "![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")"
+                }
+                ?: return value
+
+        val newText =
+            text.substring(0, start) + replacement + text.substring(cursor)
+        val newCursorPos = start + replacement.length
+
+        return TextFieldValue(
+            text = newText,
+            selection = TextRange(newCursorPos)
+        )
+    }
+
     // Create timeline items with date dividers
     val timelineItems =
-        remember(threadMessages) {
+        remember(sortedEvents) {
             val items = mutableListOf<TimelineItem>()
             var lastDate: String? = null
+            var previousEvent: TimelineEvent? = null
 
-            for (event in threadMessages) {
+            for (event in sortedEvents) {
                 val eventDate = formatDate(event.timestamp)
 
                 // Add date divider if this is a new date
@@ -335,8 +565,22 @@ fun ThreadViewerScreen(
                     lastDate = eventDate
                 }
 
+                val hasPerMessageProfile =
+                    event.content?.has("com.beeper.per_message_profile") == true ||
+                        event.decrypted?.has("com.beeper.per_message_profile") == true
+
+                val isConsecutive =
+                    !hasPerMessageProfile && previousEvent?.sender == event.sender
+
                 // Add the event
-                items.add(TimelineItem.Event(event))
+                items.add(
+                    TimelineItem.Event(
+                        event = event,
+                        isConsecutive = isConsecutive,
+                        hasPerMessageProfile = hasPerMessageProfile
+                    )
+                )
+                previousEvent = event
             }
             items
         }
@@ -467,22 +711,25 @@ fun ThreadViewerScreen(
                                         isConsecutive = isConsecutive,
                                         appViewModel = appViewModel,
                                         onScrollToMessage = { eventId ->
-                                            val index =
-                                                threadMessages.indexOfFirst {
-                                                    it.eventId == eventId
-                                                }
+                                            val index = timelineItems.indexOfFirst { item ->
+                                                (item as? TimelineItem.Event)?.event?.eventId == eventId
+                                            }
                                             if (index >= 0) {
                                                 coroutineScope.launch {
                                                     listState.animateScrollToItem(index)
                                                 }
                                             }
                                         },
-                                        onReply = { }, // No-op in thread viewer - all replies are thread replies
+                                        onReply = { event ->
+                                            replyingToEvent = event
+                                        },
                                         onReact = { event ->
                                             reactingToEvent = event
                                             showEmojiSelection = true
                                         },
-                                        onEdit = { }, // TODO: Implement edit in threads
+                                        onEdit = { event ->
+                                            editingEvent = event
+                                        },
                                         onDelete = { event ->
                                             deletingEvent = event
                                             showDeleteDialog = true
@@ -672,27 +919,232 @@ fun ThreadViewerScreen(
                                         }
                                     }
 
-                                    // Text input field with mention support
-                                    TextField(
+                                    // Text input field with mention + emoji shortcode support
+                                    val mentionAndEmojiTransformation = remember(colorScheme, appViewModel.customEmojiPacks) {
+                                        VisualTransformation { text ->
+                                            val mentionRegex = Regex("""\[((?:[^\[\]\\]|\\.)*)\]\(https://matrix\.to/#/([^)]+)\)""")
+                                            val customEmojiRegex = Regex("""!\[:([^:]+):\]\((mxc://[^)]+)\s+"[^"]*"\)""")
+
+                                            val annotatedString = buildAnnotatedString {
+                                                var lastIndex = 0
+
+                                                val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                                mentionRegex.findAll(text.text).forEach { allMatches.add(Pair(0, it)) }
+                                                customEmojiRegex.findAll(text.text).forEach { allMatches.add(Pair(1, it)) }
+                                                allMatches.sortBy { it.second.range.first }
+
+                                                for ((type, match) in allMatches) {
+                                                    if (match.range.first > lastIndex) {
+                                                        append(text.text.substring(lastIndex, match.range.first))
+                                                    }
+                                                    if (type == 0) {
+                                                        val escapedDisplayName = match.groupValues[1]
+                                                        val displayName = escapedDisplayName.replace("\\[", "[").replace("\\]", "]")
+                                                        withStyle(
+                                                            style = SpanStyle(
+                                                                color = colorScheme.onPrimaryContainer,
+                                                                background = colorScheme.primaryContainer
+                                                            )
+                                                        ) { append(" $displayName ") }
+                                                    } else {
+                                                        val emojiName = match.groupValues[1]
+                                                        append(":$emojiName:")
+                                                    }
+                                                    lastIndex = match.range.last + 1
+                                                }
+                                                if (lastIndex < text.text.length) {
+                                                    append(text.text.substring(lastIndex))
+                                                }
+                                            }
+
+                                            val offsetMapping = object : OffsetMapping {
+                                                override fun originalToTransformed(offset: Int): Int {
+                                                    val clampedOffset = offset.coerceIn(0, text.text.length)
+                                                    var transformedOffset = 0
+                                                    var originalOffset = 0
+                                                    val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                                    mentionRegex.findAll(text.text).forEach { allMatches.add(Pair(0, it)) }
+                                                    customEmojiRegex.findAll(text.text).forEach { allMatches.add(Pair(1, it)) }
+                                                    allMatches.sortBy { it.second.range.first }
+
+                                                    for ((type, match) in allMatches) {
+                                                        val beforeLength = match.range.first - originalOffset
+                                                        if (clampedOffset <= match.range.first) {
+                                                            val result = transformedOffset + (clampedOffset - originalOffset)
+                                                            return result.coerceIn(0, annotatedString.length)
+                                                        }
+                                                        transformedOffset += beforeLength
+                                                        originalOffset = match.range.first
+
+                                                        val transformedLength = if (type == 0) {
+                                                            val escapedDisplayName = match.groupValues[1]
+                                                            val displayName = escapedDisplayName.replace("\\[", "[").replace("\\]", "]")
+                                                            " $displayName ".length
+                                                        } else {
+                                                            val emojiName = match.groupValues[1]
+                                                            ":$emojiName:".length
+                                                        }
+
+                                                        if (clampedOffset <= match.range.last + 1) {
+                                                            val result = transformedOffset + transformedLength
+                                                            return result.coerceIn(0, annotatedString.length)
+                                                        }
+
+                                                        transformedOffset += transformedLength
+                                                        originalOffset = match.range.last + 1
+                                                    }
+
+                                                    val result = transformedOffset + (clampedOffset - originalOffset)
+                                                    return result.coerceIn(0, annotatedString.length)
+                                                }
+
+                                                override fun transformedToOriginal(offset: Int): Int {
+                                                    val clampedOffset = offset.coerceIn(0, annotatedString.length)
+                                                    var transformedOffset = 0
+                                                    var originalOffset = 0
+                                                    val allMatches = mutableListOf<Pair<Int, MatchResult>>()
+                                                    mentionRegex.findAll(text.text).forEach { allMatches.add(Pair(0, it)) }
+                                                    customEmojiRegex.findAll(text.text).forEach { allMatches.add(Pair(1, it)) }
+                                                    allMatches.sortBy { it.second.range.first }
+
+                                                    for ((type, match) in allMatches) {
+                                                        val beforeLength = match.range.first - originalOffset
+                                                        if (clampedOffset <= transformedOffset + beforeLength) {
+                                                            val result = originalOffset + (clampedOffset - transformedOffset)
+                                                            return result.coerceIn(0, text.text.length)
+                                                        }
+                                                        transformedOffset += beforeLength
+                                                        originalOffset = match.range.first
+
+                                                        val transformedLength = if (type == 0) {
+                                                            val escapedDisplayName = match.groupValues[1]
+                                                            val displayName = escapedDisplayName.replace("\\[", "[").replace("\\]", "]")
+                                                            " $displayName ".length
+                                                        } else {
+                                                            val emojiName = match.groupValues[1]
+                                                            ":$emojiName:".length
+                                                        }
+
+                                                        if (clampedOffset <= transformedOffset + transformedLength) {
+                                                            return match.range.last + 1
+                                                        }
+
+                                                        transformedOffset += transformedLength
+                                                        originalOffset = match.range.last + 1
+                                                    }
+
+                                                    val result = originalOffset + (clampedOffset - transformedOffset)
+                                                    return result.coerceIn(0, text.text.length)
+                                                }
+                                            }
+
+                                            TransformedText(annotatedString, offsetMapping)
+                                        }
+                                    }
+
+                                    CustomBubbleTextField(
                                         value = textFieldValue,
                                         onValueChange = { newValue ->
-                                            textFieldValue = newValue
-                                            draft = newValue.text
-                                            
+                                            // Custom emoji backspace handling
+                                            val afterDeletion = handleCustomEmojiDeletion(textFieldValue, newValue)
+                                            val replacedValue = applyCompletedEmojiShortcode(afterDeletion)
+                                            textFieldValue = replacedValue
+                                            draft = replacedValue.text
+
                                             // Detect mentions
-                                            val mentionResult = detectMention(newValue.text, newValue.selection.start)
+                                            val mentionResult = detectMention(replacedValue.text, replacedValue.selection.start)
                                             if (mentionResult != null) {
                                                 val (query, startIndex) = mentionResult
                                                 mentionQuery = query
                                                 mentionStartIndex = startIndex
-                                                showMentionList = true
+
+                                                if (!isWaitingForFullMemberList && !showMentionList) {
+                                                    val memberMapCurrent = appViewModel.getMemberMap(roomId)
+                                                    if (memberMapCurrent.isEmpty() || memberMapCurrent.size < 10) {
+                                                        kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
+                                                            val cachedMembers = appViewModel.loadMembersFromDatabase(roomId)
+                                                            if (cachedMembers.isNotEmpty()) {
+                                                                showMentionList = true
+                                                            }
+                                                            isWaitingForFullMemberList = true
+                                                            lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
+                                                            appViewModel.requestFullMemberList(roomId)
+                                                        }
+                                                    } else {
+                                                        showMentionList = true
+                                                    }
+                                                }
                                             } else {
                                                 showMentionList = false
+                                                isWaitingForFullMemberList = false
+                                            }
+
+                                            // Detect emoji shortcodes
+                                            val emojiResult = detectEmojiShortcode(replacedValue.text, replacedValue.selection.start)
+                                            if (emojiResult != null) {
+                                                val (query, startIndex) = emojiResult
+                                                emojiQuery = query
+                                                emojiStartIndex = startIndex
+                                                showEmojiSuggestionList = true
+                                            } else {
+                                                showEmojiSuggestionList = false
                                             }
                                         },
                                         placeholder = { Text("Reply in thread...") },
-                                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        minLines = 1,
+                                        maxLines = 5,
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                                        onHeightChanged = { height ->
+                                            val lineCount = draft.lines().size.coerceAtLeast(1)
+                                            if (lineCount == 1 && (textFieldHeight == 0 || height < textFieldHeight)) {
+                                                textFieldHeight = height
+                                            }
+                                        },
+                                        trailingIcon = {
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                // Attach button (reuses full-screen preview flow via toast until picker wired)
+                                                IconButton(
+                                                    onClick = {
+                                                        Toast.makeText(
+                                                            context,
+                                                            "Attach flow for threads not wired yet",
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                    },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.AttachFile,
+                                                        contentDescription = "Attach",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { showStickerPickerForText = true },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.StickyNote2,
+                                                        contentDescription = "Stickers",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                IconButton(
+                                                    onClick = { showEmojiPickerForText = true },
+                                                    modifier = Modifier.size(24.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Filled.Mood,
+                                                        contentDescription = "Emoji",
+                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        },
                                         keyboardOptions = KeyboardOptions(
                                             capitalization = KeyboardCapitalization.Sentences,
                                             keyboardType = KeyboardType.Text,
@@ -702,28 +1154,35 @@ fun ThreadViewerScreen(
                                         keyboardActions = KeyboardActions(
                                             onSend = {
                                                 if (draft.isNotBlank()) {
-                                                    // Send thread reply
-                                                    val lastMessage = threadMessages.lastOrNull()
-                                                    appViewModel.sendThreadReply(
-                                                        roomId = roomId,
-                                                        text = draft,
-                                                        threadRootEventId = threadRootEventId,
-                                                        fallbackReplyToEventId = lastMessage?.eventId
-                                                    )
+                                                    when {
+                                                        editingEvent != null -> {
+                                                            appViewModel.sendEdit(roomId, draft, editingEvent!!)
+                                                            editingEvent = null
+                                                        }
+                                                        replyingToEvent != null -> {
+                                                            appViewModel.sendThreadReply(
+                                                                roomId = roomId,
+                                                                text = draft,
+                                                                threadRootEventId = threadRootEventId,
+                                                                fallbackReplyToEventId = replyingToEvent!!.eventId
+                                                            )
+                                                            replyingToEvent = null
+                                                        }
+                                                        else -> {
+                                                            val lastMessage = sortedEvents.lastOrNull()
+                                                            appViewModel.sendThreadReply(
+                                                                roomId = roomId,
+                                                                text = draft,
+                                                                threadRootEventId = threadRootEventId,
+                                                    fallbackReplyToEventId = null
+                                                            )
+                                                        }
+                                                    }
                                                     draft = ""
                                                 }
                                             }
                                         ),
-                                        visualTransformation = mentionTransformation,
-                                        colors =
-                                            androidx.compose.material3.TextFieldDefaults.colors(
-                                                focusedIndicatorColor =
-                                                    androidx.compose.ui.graphics.Color.Transparent,
-                                                unfocusedIndicatorColor =
-                                                    androidx.compose.ui.graphics.Color.Transparent,
-                                                disabledIndicatorColor =
-                                                    androidx.compose.ui.graphics.Color.Transparent
-                                            )
+                                        visualTransformation = mentionAndEmojiTransformation
                                     )
                                 }
                             }
@@ -745,14 +1204,30 @@ fun ThreadViewerScreen(
                             Button(
                                 onClick = {
                                     if (draft.isNotBlank()) {
-                                        // Send thread reply
-                                        val lastMessage = threadMessages.lastOrNull()
-                                        appViewModel.sendThreadReply(
-                                            roomId = roomId,
-                                            text = draft,
-                                            threadRootEventId = threadRootEventId,
-                                            fallbackReplyToEventId = lastMessage?.eventId
-                                        )
+                                        when {
+                                            editingEvent != null -> {
+                                                appViewModel.sendEdit(roomId, draft, editingEvent!!)
+                                                editingEvent = null
+                                            }
+                                            replyingToEvent != null -> {
+                                                appViewModel.sendThreadReply(
+                                                    roomId = roomId,
+                                                    text = draft,
+                                                    threadRootEventId = threadRootEventId,
+                                                    fallbackReplyToEventId = replyingToEvent!!.eventId
+                                                )
+                                                replyingToEvent = null
+                                            }
+                                            else -> {
+                                                val lastMessageForSend = sortedEvents.lastOrNull()
+                                                appViewModel.sendThreadReply(
+                                                    roomId = roomId,
+                                                    text = draft,
+                                                    threadRootEventId = threadRootEventId,
+                                                fallbackReplyToEventId = null
+                                                )
+                                            }
+                                        }
                                         draft = ""
                                     }
                                 },
@@ -781,6 +1256,72 @@ fun ThreadViewerScreen(
                     }
                 }
                 
+                // Emoji shortcode suggestion list
+                if (showEmojiSuggestionList) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(
+                                start = 72.dp,
+                                bottom = 80.dp
+                            )
+                            .navigationBarsPadding()
+                            .imePadding()
+                            .zIndex(9f)
+                    ) {
+                        EmojiSuggestionList(
+                            query = emojiQuery,
+                            customEmojiPacks = appViewModel.customEmojiPacks,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            onSuggestionSelected = { suggestion ->
+                                val currentText = draft
+                                val cursorPos = textFieldValue.selection.start
+                                val endIndex = cursorPos
+
+                                val baseReplacement =
+                                    suggestion.emoji
+                                        ?: suggestion.customEmoji?.let { custom ->
+                                            "![:${custom.name}:](${custom.mxcUrl} \"Emoji: :${custom.name}:\")"
+                                        }
+                                        ?: ""
+
+                                if (baseReplacement.isNotEmpty() && emojiStartIndex >= 0 && emojiStartIndex < endIndex) {
+                                    val newText =
+                                        currentText.substring(0, emojiStartIndex) +
+                                            baseReplacement +
+                                            currentText.substring(endIndex)
+                                    val newCursor = emojiStartIndex + baseReplacement.length
+
+                                    draft = newText
+                                    textFieldValue = TextFieldValue(
+                                        text = newText,
+                                        selection = TextRange(newCursor)
+                                    )
+
+                                    val emojiForRecent =
+                                        if (baseReplacement.startsWith("![:") && baseReplacement.contains("mxc://")) {
+                                            val mxcStart = baseReplacement.indexOf("mxc://")
+                                            if (mxcStart >= 0) {
+                                                val mxcEnd = baseReplacement.indexOf("\"", mxcStart)
+                                                if (mxcEnd > mxcStart) {
+                                                    baseReplacement.substring(mxcStart, mxcEnd)
+                                                } else {
+                                                    baseReplacement.substring(mxcStart)
+                                                }
+                                            } else baseReplacement
+                                        } else baseReplacement
+                                    appViewModel.updateRecentEmojis(emojiForRecent)
+                                }
+
+                                showEmojiSuggestionList = false
+                                emojiQuery = ""
+                            },
+                            modifier = Modifier.zIndex(10f)
+                        )
+                    }
+                }
+
                 // Floating member list for mentions
                 if (showMentionList) {
                     Box(
@@ -826,6 +1367,82 @@ fun ThreadViewerScreen(
                     }
                 }
                 
+                // Emoji selection dialog for text input
+                if (showEmojiPickerForText) {
+                    EmojiSelectionDialog(
+                        recentEmojis = appViewModel.recentEmojis,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onEmojiSelected = { emoji ->
+                            val currentText = textFieldValue.text
+                            val cursorPosition = textFieldValue.selection.start
+                            val newText = currentText.substring(0, cursorPosition) +
+                                emoji +
+                                currentText.substring(cursorPosition)
+                            val newCursorPosition = cursorPosition + emoji.length
+
+                            draft = newText
+                            textFieldValue = TextFieldValue(
+                                text = newText,
+                                selection = TextRange(newCursorPosition)
+                            )
+
+                            val emojiForRecent = if (emoji.startsWith("![:") && emoji.contains("mxc://")) {
+                                val mxcStart = emoji.indexOf("mxc://")
+                                if (mxcStart >= 0) {
+                                    val mxcEnd = emoji.indexOf("\"", mxcStart)
+                                    if (mxcEnd > mxcStart) {
+                                        emoji.substring(mxcStart, mxcEnd)
+                                    } else {
+                                        emoji.substring(mxcStart)
+                                    }
+                                } else emoji
+                            } else emoji
+                            appViewModel.updateRecentEmojis(emojiForRecent)
+                        },
+                        onDismiss = { showEmojiPickerForText = false },
+                        customEmojiPacks = appViewModel.customEmojiPacks
+                    )
+                }
+
+                // Sticker selection dialog for text input
+                if (showStickerPickerForText) {
+                    StickerSelectionDialog(
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onStickerSelected = { sticker ->
+                            val mimeType = sticker.info?.optString("mimetype") ?: "image/png"
+                            val size = sticker.info?.optLong("size") ?: 0L
+                            val width = sticker.info?.optInt("w", 0) ?: 0
+                            val height = sticker.info?.optInt("h", 0) ?: 0
+                            val body = sticker.body ?: sticker.name
+
+                            val replyTarget = replyingToEvent?.eventId ?: sortedEvents.lastOrNull()?.eventId
+                            val mentionIds = replyingToEvent?.sender?.let { listOf(it) } ?: emptyList()
+                            val isFallback = replyTarget == null || replyingToEvent == null
+
+                            appViewModel.sendStickerMessage(
+                                roomId = roomId,
+                                mxcUrl = sticker.mxcUrl,
+                                body = body,
+                                mimeType = mimeType,
+                                size = size,
+                                width = width,
+                                height = height,
+                                threadRootEventId = threadRootEventId,
+                                replyToEventId = replyTarget,
+                                isThreadFallback = isFallback,
+                                mentions = mentionIds
+                            )
+
+                            showStickerPickerForText = false
+                            replyingToEvent = null
+                        },
+                        onDismiss = { showStickerPickerForText = false },
+                        stickerPacks = appViewModel.stickerPacks
+                    )
+                }
+
                 // Delete confirmation dialog
                 if (showDeleteDialog && deletingEvent != null) {
                     DeleteMessageDialog(

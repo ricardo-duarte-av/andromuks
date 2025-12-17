@@ -10720,7 +10720,11 @@ class AppViewModel : ViewModel() {
         size: Long,
         blurHash: String,
         caption: String = "",
-        msgType: String = "m.image"
+        msgType: String = "m.image",
+        threadRootEventId: String? = null,
+        replyToEventId: String? = null,
+        isThreadFallback: Boolean = true,
+        mentions: List<String> = emptyList()
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMediaMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl'")
         
@@ -10748,16 +10752,30 @@ class AppViewModel : ViewModel() {
             "filename" to filename
         )
         
-        val commandData = mapOf(
+        val commandData = mutableMapOf<String, Any>(
             "room_id" to roomId,
             "base_content" to baseContent,
             "text" to "",
             "mentions" to mapOf(
-                "user_ids" to emptyList<String>(),
+                "user_ids" to mentions,
                 "room" to false
             ),
             "url_previews" to emptyList<String>()
         )
+        if (threadRootEventId != null) {
+            val resolvedReplyTarget = replyToEventId
+                ?: getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
+            val threadFallbackFlag = resolvedReplyTarget == null
+            val relatesTo = mutableMapOf<String, Any>(
+                "rel_type" to "m.thread",
+                "event_id" to threadRootEventId,
+                "is_falling_back" to threadFallbackFlag
+            )
+            if (resolvedReplyTarget != null) {
+                relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
+            }
+            commandData["relates_to"] = relatesTo
+        }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: About to send WebSocket command: send_message with media data: $commandData")
         sendWebSocketCommand("send_message", messageRequestId, commandData)
@@ -10775,7 +10793,11 @@ class AppViewModel : ViewModel() {
         size: Long,
         mimeType: String,
         blurHash: String,
-        caption: String? = null
+        caption: String? = null,
+        threadRootEventId: String? = null,
+        replyToEventId: String? = null,
+        isThreadFallback: Boolean = true,
+        mentions: List<String> = emptyList()
     ) {
         // Extract filename from mxc URL (format: mxc://server/mediaId)
         val filename = mxcUrl.substringAfterLast("/").let { mediaId ->
@@ -10800,7 +10822,11 @@ class AppViewModel : ViewModel() {
             size = size,
             blurHash = blurHash,
             caption = caption ?: "",
-            msgType = "m.image"
+            msgType = "m.image",
+            threadRootEventId = threadRootEventId,
+            replyToEventId = replyToEventId,
+            isThreadFallback = isThreadFallback,
+            mentions = mentions
         )
     }
     
@@ -10814,7 +10840,11 @@ class AppViewModel : ViewModel() {
         mimeType: String,
         size: Long,
         width: Int = 0,
-        height: Int = 0
+        height: Int = 0,
+        threadRootEventId: String? = null,
+        replyToEventId: String? = null,
+        isThreadFallback: Boolean = true,
+        mentions: List<String> = emptyList()
     ) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendStickerMessage called with roomId: '$roomId', mxcUrl: '$mxcUrl', body: '$body', width: $width, height: $height")
         
@@ -10850,11 +10880,29 @@ class AppViewModel : ViewModel() {
         
         data.put("base_content", baseContent)
         
-        // Empty mentions
+        // Mentions
         val mentionsObj = org.json.JSONObject()
-        mentionsObj.put("user_ids", org.json.JSONArray())
+        val mentionArr = org.json.JSONArray()
+        mentions.forEach { mentionArr.put(it) }
+        mentionsObj.put("user_ids", mentionArr)
         mentionsObj.put("room", false)
         data.put("mentions", mentionsObj)
+
+        if (threadRootEventId != null) {
+            val resolvedReplyTarget = replyToEventId
+                ?: getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
+            val threadFallbackFlag = resolvedReplyTarget == null
+            val relatesTo = org.json.JSONObject()
+            relatesTo.put("rel_type", "m.thread")
+            relatesTo.put("event_id", threadRootEventId)
+            relatesTo.put("is_falling_back", threadFallbackFlag)
+            if (resolvedReplyTarget != null) {
+                val inReplyTo = org.json.JSONObject()
+                inReplyTo.put("event_id", resolvedReplyTarget)
+                relatesTo.put("m.in_reply_to", inReplyTo)
+            }
+            data.put("relates_to", relatesTo)
+        }
         
         // Empty url_previews
         data.put("url_previews", org.json.JSONArray())
@@ -15224,16 +15272,33 @@ class AppViewModel : ViewModel() {
         messageRequests[messageRequestId] = roomId
         pendingSendCount++
         
+        // Resolve reply target: if explicitly replying, use that; otherwise use latest event in thread
+        val resolvedReplyTarget = fallbackReplyToEventId
+            ?: getThreadMessages(roomId, threadRootEventId).lastOrNull()?.eventId
+
+        // Only mention when explicitly replying
+        val mentionUserIds = if (fallbackReplyToEventId != null) {
+            timelineEvents.firstOrNull { it.eventId == fallbackReplyToEventId }?.sender
+                ?.takeIf { it.isNotBlank() }
+                ?.let { listOf(it) }
+                ?: emptyList()
+        } else {
+            emptyList()
+        }
+
+        // Per Matrix thread spec: is_falling_back should be false when using an explicit m.in_reply_to inside the thread
+        val isFallingBack = fallbackReplyToEventId == null
+
         // Build the thread reply structure
         val relatesTo = mutableMapOf<String, Any>(
             "rel_type" to "m.thread",
             "event_id" to threadRootEventId,
-            "is_falling_back" to true
+            "is_falling_back" to isFallingBack
         )
         
         // Add fallback reply-to for clients without thread support
-        if (fallbackReplyToEventId != null) {
-            relatesTo["m.in_reply_to"] = mapOf("event_id" to fallbackReplyToEventId)
+        if (resolvedReplyTarget != null) {
+            relatesTo["m.in_reply_to"] = mapOf("event_id" to resolvedReplyTarget)
         }
         
         val commandData = mapOf(
@@ -15241,7 +15306,7 @@ class AppViewModel : ViewModel() {
             "text" to text,
             "relates_to" to relatesTo,
             "mentions" to mapOf(
-                "user_ids" to emptyList<String>(),
+                "user_ids" to mentionUserIds,
                 "room" to false
             ),
             "url_previews" to emptyList<String>()
