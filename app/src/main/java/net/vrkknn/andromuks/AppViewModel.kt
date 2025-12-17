@@ -4421,6 +4421,15 @@ class AppViewModel : ViewModel() {
         lastKnownDbLatestEventId.clear()
         messageReactions = emptyMap()
         
+        // Also clear derived account_data caches so the next full sync repopulates from the
+        // authoritative dataset sent after clear_state=true.
+        recentEmojiFrequencies.clear()
+        recentEmojis = emptyList()
+        directMessageRoomIds = emptySet()
+        directMessageUserMap = emptyMap()
+        customEmojiPacks = emptyList()
+        stickerPacks = emptyList()
+        
         // Force room list refresh to reflect cleared state until new data arrives
         needsRoomListUpdate = true
         scheduleUIUpdate("roomList")

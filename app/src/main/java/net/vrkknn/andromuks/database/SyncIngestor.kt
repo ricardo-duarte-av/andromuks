@@ -364,6 +364,12 @@ class SyncIngestor(private val context: Context) {
         val clearState = data.optBoolean("clear_state", false)
         if (clearState) {
             handleClearStateSignal()
+            // Authoritative reset: drop any previously stored account_data so the upcoming
+            // initial sync payload (which the server treats as canonical) replaces it.
+            database.withTransaction {
+                accountDataDao.deleteAll()
+            }
+            if (BuildConfig.DEBUG) Log.w(TAG, "SyncIngestor: clear_state=true -> cleared stored account_data (will replace with incoming payload)")
         }
         
         // Extract "since" token (sync token from server)
@@ -379,62 +385,60 @@ class SyncIngestor(private val context: Context) {
         val incomingAccountData = data.optJSONObject("account_data")
         if (incomingAccountData != null) {
             try {
-                // Load existing account_data from database
-                val existingAccountDataStr = accountDataDao.getAccountData()
-                if (existingAccountDataStr != null) {
-                    // Merge: existing + incoming (incoming keys replace existing keys)
-                    val existingAccountData = JSONObject(existingAccountDataStr)
-                    
-                    // BATTERY OPTIMIZATION: Manual key copy is more efficient than toString() + parse
-                    // This avoids serializing/parsing the entire 50KB+ JSON object twice
-                    val merged = JSONObject()
-                    
-                    // Copy all keys from existing JSON object (more efficient than toString/parse)
-                    val existingKeys = existingAccountData.keys()
-                    while (existingKeys.hasNext()) {
-                        val key = existingKeys.next()
-                        merged.put(key, existingAccountData.get(key))
-                    }
-                    
-                    // Overwrite/replace with incoming keys and detect if anything changed
-                    var hasChanges = false
-                    val incomingKeys = incomingAccountData.keys()
-                    while (incomingKeys.hasNext()) {
-                        val key = incomingKeys.next()
-                        val incomingValue = incomingAccountData.get(key)
-                        val existingValue = merged.opt(key)
+                // If clear_state=true was received earlier in this sync batch, treat incoming
+                // account_data as authoritative and REPLACE the stored copy instead of merging.
+                if (clearState) {
+                    val accountDataStr = incomingAccountData.toString()
+                    accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Account data: clear_state=true -> replaced stored account_data (${accountDataStr.length} chars, ${incomingAccountData.length()} keys)")
+                } else {
+                    // Normal path: merge existing + incoming (incoming keys replace existing keys)
+                    val existingAccountDataStr = accountDataDao.getAccountData()
+                    if (existingAccountDataStr != null) {
+                        val existingAccountData = JSONObject(existingAccountDataStr)
                         
-                        // Check if value actually changed (avoid unnecessary serialization/write)
-                        // Compare JSONObject values: null/JSONObject.NULL means key doesn't exist
-                        val valueChanged = when {
-                            existingValue == null || existingValue == JSONObject.NULL -> true // New key
-                            else -> {
-                                // Key exists, check if value changed
-                                incomingValue.toString() != existingValue.toString()
+                        // BATTERY OPTIMIZATION: Manual key copy is more efficient than toString() + parse
+                        val merged = JSONObject()
+                        
+                        val existingKeys = existingAccountData.keys()
+                        while (existingKeys.hasNext()) {
+                            val key = existingKeys.next()
+                            merged.put(key, existingAccountData.get(key))
+                        }
+                        
+                        var hasChanges = false
+                        val incomingKeys = incomingAccountData.keys()
+                        while (incomingKeys.hasNext()) {
+                            val key = incomingKeys.next()
+                            val incomingValue = incomingAccountData.get(key)
+                            val existingValue = merged.opt(key)
+                            
+                            val valueChanged = when {
+                                existingValue == null || existingValue == JSONObject.NULL -> true
+                                else -> incomingValue.toString() != existingValue.toString()
+                            }
+                            
+                            if (valueChanged) {
+                                merged.put(key, incomingValue)
+                                hasChanges = true
+                                if (BuildConfig.DEBUG) Log.d(TAG, "Account data: Merged key '$key' from incoming sync")
                             }
                         }
                         
-                        if (valueChanged) {
-                            merged.put(key, incomingValue)
-                            hasChanges = true
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Account data: Merged key '$key' from incoming sync")
+                        if (hasChanges) {
+                            val mergedAccountDataStr = merged.toString()
+                            accountDataDao.upsert(AccountDataEntity("account_data", mergedAccountDataStr))
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Persisted merged account_data to database (${mergedAccountDataStr.length} chars, ${merged.length()} keys)")
+                        } else {
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No changes detected, skipping DB write")
                         }
-                    }
-                    
-                    // BATTERY OPTIMIZATION: Skip DB write if nothing changed
-                    if (hasChanges) {
-                        val mergedAccountDataStr = merged.toString()
-                        accountDataDao.upsert(AccountDataEntity("account_data", mergedAccountDataStr))
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Persisted merged account_data to database (${mergedAccountDataStr.length} chars, ${merged.length()} keys)")
                     } else {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No changes detected, skipping DB write")
+                        // No existing data, use incoming as-is
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No existing data, using incoming as-is")
+                        val accountDataStr = incomingAccountData.toString()
+                        accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Persisted initial account_data to database (${accountDataStr.length} chars, ${incomingAccountData.length()} keys)")
                     }
-                } else {
-                    // No existing data, use incoming as-is
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No existing data, using incoming as-is")
-                    val accountDataStr = incomingAccountData.toString()
-                    accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Persisted initial account_data to database (${accountDataStr.length} chars, ${incomingAccountData.length()} keys)")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error merging account_data: ${e.message}", e)
