@@ -147,6 +147,16 @@ class AppViewModel : ViewModel() {
         // PHASE 5.1: Constants for outgoing message queue
         private const val MAX_QUEUE_SIZE = 800 // Maximum queue size (raised to cover bulk pagination hydrates)
         private const val MAX_MESSAGE_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
+        
+        // LRU cache size for room timelines (RoomTimelineScreen only)
+        private const val TIMELINE_LRU_CACHE_SIZE = 5
+        
+        // WORKAROUND: Initial paginate limit when opening a room to fetch latest events from server
+        // This helps catch any events that SyncIngestor might have missed
+        // Can be tweaked as needed (default: 20 events)
+        // To change: AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT = <new_value>
+        @JvmStatic
+        var INITIAL_ROOM_PAGINATE_LIMIT = 20
     }
     
     /**
@@ -4255,9 +4265,7 @@ class AppViewModel : ViewModel() {
         // Persist sync_complete to database (run in background)
         // CRITICAL FIX: Return the summary update job so we can wait for it to complete
         val summaryUpdateJob = appContext?.let { context ->
-            if (syncIngestor == null) {
-                syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
-            }
+            ensureSyncIngestor()
 
             // Clone JSON before launching background jobs to avoid concurrent mutation issues
             val persistenceJson = try {
@@ -4381,10 +4389,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: clear_state=true received - clearing derived room/space state (events preserved)")
         clearDerivedStateInMemory()
         
-        val context = appContext?.applicationContext ?: return
-        if (syncIngestor == null) {
-            syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
-        }
+        ensureSyncIngestor()
         
         runCatching {
             kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
@@ -4492,9 +4497,7 @@ class AppViewModel : ViewModel() {
         
         // Persist sync_complete to database (run in background)
         appContext?.let { context ->
-            if (syncIngestor == null) {
-                syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
-            }
+            ensureSyncIngestor()
 
             // Clone JSON before launching background jobs to avoid concurrent mutation issues
             val persistenceJson = try {
@@ -5052,15 +5055,23 @@ class AppViewModel : ViewModel() {
                     // Collect all summary update jobs to wait for them to complete
                     val summaryUpdateJobs = mutableListOf<Job>()
                     
-                    // Process each queued message
+                    // PERFORMANCE FIX: Process queued messages in chunks with yields to prevent ANR
+                    // This is critical for reconnect scenarios where hundreds of sync batches may queue up
+                    val chunkSize = 10 // Process 10 sync batches before yielding
                     for ((index, syncJson) in queuedMessages.withIndex()) {
-                        if (BuildConfig.DEBUG) {
+                        if (BuildConfig.DEBUG && (index % 50 == 0 || index == queuedMessages.size - 1)) {
                             android.util.Log.d("Andromuks", "AppViewModel: Processing queued initial sync_complete message ${index + 1}/${queuedMessages.size}")
                         }
                         // Process and collect summary update jobs
                         val job = processInitialSyncComplete(syncJson)
                         if (job != null) {
                             summaryUpdateJobs.add(job)
+                        }
+                        
+                        // PERFORMANCE FIX: Yield every chunkSize messages to prevent ANR
+                        // This allows the UI thread to remain responsive during heavy reconnect processing
+                        if ((index + 1) % chunkSize == 0) {
+                            kotlinx.coroutines.yield()
                         }
                     }
                     
@@ -5671,10 +5682,8 @@ class AppViewModel : ViewModel() {
      * Called from MainActivity.onCreate to ensure fresh data before showing RoomListScreen.
      */
     fun checkAndProcessPendingItemsOnStartup(context: Context) {
-        // Initialize syncIngestor if not already initialized
-        if (syncIngestor == null) {
-            syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
-        }
+        // Initialize syncIngestor if not already initialized (with LRU cache listener)
+        ensureSyncIngestor()
         // Process pending items if any exist (async - won't block)
         processPendingItemsIfNeeded()
     }
@@ -5931,20 +5940,183 @@ class AppViewModel : ViewModel() {
     /**
      * Clears the current room ID when user navigates back to room list.
      * This allows notifications to resume for rooms that were previously open.
+     * 
+     * PERFORMANCE FIX: Also clears in-memory timeline cache to free RAM.
+     * Timeline will be rebuilt from DB when room is opened again.
      */
-    fun clearCurrentRoomId(shouldRestoreOnVisible: Boolean = false) {
+    fun clearCurrentRoomId(shouldRestoreOnVisible: Boolean = false, saveToCacheForRoomTimeline: Boolean = true) {
         if (shouldRestoreOnVisible && currentRoomId.isNotEmpty()) {
             pendingRoomToRestore = currentRoomId
         } else if (!shouldRestoreOnVisible) {
             pendingRoomToRestore = null
+            // LRU CACHE: Save current room to cache before clearing (for RoomTimelineScreen quick-switch)
+            // BubbleTimelineScreen passes saveToCacheForRoomTimeline=false since it manages its own cache
+            if (saveToCacheForRoomTimeline && currentRoomId.isNotEmpty()) {
+                saveToLruCache(currentRoomId)
+            }
+            clearTimelineCache()
         }
         updateCurrentRoomIdInPrefs("")
+    }
+    
+    /**
+     * Clears in-memory timeline cache to free RAM.
+     * Called when user leaves a room (navigates back to room list).
+     */
+    private fun clearTimelineCache() {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing timeline cache (${timelineEvents.size} events, ${eventChainMap.size} chain entries)")
+        timelineEvents = emptyList()
+        eventChainMap.clear()
+        editEventsMap.clear()
+        // Note: We don't clear messageReactions as those are keyed by eventId and can be reused
     }
     
     var timelineEvents by mutableStateOf<List<TimelineEvent>>(emptyList())
         private set
     var isTimelineLoading by mutableStateOf(false)
         private set
+    
+    // LRU cache for room timelines (RoomTimelineScreen only, not BubbleTimelineScreen)
+    // Stores last 5 opened rooms for quick switching
+    data class CachedTimeline(
+        val events: List<TimelineEvent>,
+        val eventChainMap: Map<String, EventChainEntry>,
+        val editEventsMap: Map<String, TimelineEvent>,
+        val lastAccessedAt: Long = System.currentTimeMillis()
+    )
+    private val timelineLruCache = linkedMapOf<String, CachedTimeline>()
+    private val timelineLruCacheLock = Any()
+    
+    /**
+     * Get the set of room IDs currently in the LRU cache.
+     * Used by SyncIngestor to determine if incoming events should trigger cache updates.
+     */
+    fun getCachedRoomIds(): Set<String> {
+        synchronized(timelineLruCacheLock) {
+            return timelineLruCache.keys.toSet()
+        }
+    }
+    
+    /**
+     * Check if a room is in the LRU cache.
+     */
+    fun isRoomCached(roomId: String): Boolean {
+        synchronized(timelineLruCacheLock) {
+            return timelineLruCache.containsKey(roomId)
+        }
+    }
+    
+    /**
+     * Save current timeline state to LRU cache before switching rooms.
+     * Called when leaving a room (but not closing it entirely).
+     */
+    private fun saveToLruCache(roomId: String) {
+        if (roomId.isBlank() || timelineEvents.isEmpty()) return
+        
+        synchronized(timelineLruCacheLock) {
+            // Remove if exists (to update access order)
+            timelineLruCache.remove(roomId)
+            
+            // Evict oldest if at capacity
+            while (timelineLruCache.size >= TIMELINE_LRU_CACHE_SIZE) {
+                val oldest = timelineLruCache.keys.firstOrNull() ?: break
+                timelineLruCache.remove(oldest)
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: LRU cache evicted room $oldest")
+            }
+            
+            // Save current state
+            timelineLruCache[roomId] = CachedTimeline(
+                events = timelineEvents.toList(),
+                eventChainMap = eventChainMap.toMap(),
+                editEventsMap = editEventsMap.toMap()
+            )
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved room $roomId to LRU cache (${timelineEvents.size} events, cache size: ${timelineLruCache.size})")
+        }
+    }
+    
+    /**
+     * Restore timeline state from LRU cache if available.
+     * Returns true if cache hit, false if miss.
+     */
+    private fun restoreFromLruCache(roomId: String): Boolean {
+        synchronized(timelineLruCacheLock) {
+            val cached = timelineLruCache.remove(roomId) ?: return false
+            
+            // Move to end (most recently accessed)
+            timelineLruCache[roomId] = cached.copy(lastAccessedAt = System.currentTimeMillis())
+            
+            // Restore state
+            timelineEvents = cached.events
+            eventChainMap.clear()
+            eventChainMap.putAll(cached.eventChainMap)
+            editEventsMap.clear()
+            editEventsMap.putAll(cached.editEventsMap)
+            
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored room $roomId from LRU cache (${timelineEvents.size} events)")
+            return true
+        }
+    }
+    
+    /**
+     * Append new events to a cached room's timeline (for simple message appends).
+     * Called by SyncIngestor when new events arrive for a cached room.
+     * Returns true if events were appended, false if room not cached or needs full re-render.
+     */
+    fun appendEventsToCachedRoom(roomId: String, newEvents: List<TimelineEvent>): Boolean {
+        if (newEvents.isEmpty()) return true
+        
+        // Check if any event requires full re-render (edits, redactions, reactions)
+        val requiresFullRerender = newEvents.any { event ->
+            val relationType = event.relationType ?: event.content?.optJSONObject("m.relates_to")?.optString("rel_type")
+            relationType == "m.replace" || // Edit
+            relationType == "m.annotation" || // Reaction
+            event.type == "m.room.redaction"
+        }
+        
+        if (requiresFullRerender) {
+            // Invalidate cache for this room - will be rebuilt on next open
+            synchronized(timelineLruCacheLock) {
+                timelineLruCache.remove(roomId)
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Invalidated LRU cache for $roomId (edit/redaction/reaction detected)")
+            return false
+        }
+        
+        synchronized(timelineLruCacheLock) {
+            val cached = timelineLruCache[roomId] ?: return false
+            
+            // Append new events and re-sort
+            val existingEventIds = cached.events.map { it.eventId }.toSet()
+            val trulyNewEvents = newEvents.filter { it.eventId !in existingEventIds }
+            
+            if (trulyNewEvents.isEmpty()) return true
+            
+            val updatedEvents = (cached.events + trulyNewEvents).sortedBy { it.timestamp }
+            timelineLruCache[roomId] = cached.copy(
+                events = updatedEvents,
+                lastAccessedAt = System.currentTimeMillis()
+            )
+            
+            // If this is the currently open room, also update live state
+            if (currentRoomId == roomId) {
+                timelineEvents = updatedEvents
+            }
+            
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Appended ${trulyNewEvents.size} events to cached room $roomId (total: ${updatedEvents.size})")
+            return true
+        }
+    }
+    
+    /**
+     * Invalidate cache for a specific room (e.g., when edits/redactions arrive).
+     */
+    fun invalidateCachedRoom(roomId: String) {
+        synchronized(timelineLruCacheLock) {
+            if (timelineLruCache.remove(roomId) != null) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Invalidated LRU cache for room $roomId")
+            }
+        }
+    }
     
     // Trigger for timeline refresh when app resumes (incremented when app becomes visible)
     var timelineRefreshTrigger by mutableStateOf(0)
@@ -8876,9 +9048,7 @@ class AppViewModel : ViewModel() {
                         messageReactions = updated
                         reactionUpdateCounter++
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored reactions for ${reactionsByEvent.size} events in room $roomId")
-                    // Persist renderable cache with updated reactions for this room
-                    val roomEvents = timelineEvents.filter { it.roomId == roomId }
-                    persistRenderableEvents(roomId, roomEvents)
+                        // PERFORMANCE FIX: Removed persistRenderableEvents() - UI now uses timelineEvents directly
                     } else {
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Database reactions already match in-memory state for room $roomId")
                     }
@@ -8965,13 +9135,7 @@ class AppViewModel : ViewModel() {
                 "Andromuks",
                 "AppViewModel: Applied aggregated reactions from $source for ${aggregatedByEvent.size} events"
             )
-            // Keep renderable cache in sync so reactions remain visible after switching to renderable stream.
-            val roomId = events.firstOrNull()?.roomId
-            if (!roomId.isNullOrBlank()) {
-                // Only persist for this room; use current timelineEvents snapshot.
-                val roomEvents = timelineEvents.filter { it.roomId == roomId }
-                persistRenderableEvents(roomId, roomEvents)
-            }
+            // PERFORMANCE FIX: Removed persistRenderableEvents() - UI now uses timelineEvents directly
         }
     }
 
@@ -9250,11 +9414,36 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    fun requestRoomTimeline(roomId: String) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId")
+    fun requestRoomTimeline(roomId: String, useLruCache: Boolean = true) {
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId (useLruCache=$useLruCache)")
         
         // Check if we're refreshing the same room before updating currentRoomId
         val isRefreshingSameRoom = currentRoomId == roomId && timelineEvents.isNotEmpty()
+        
+        // LRU CACHE: Try to restore from cache first (instant room switch)
+        if (useLruCache && !isRefreshingSameRoom && restoreFromLruCache(roomId)) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✅ INSTANT room switch from LRU cache for $roomId (${timelineEvents.size} events)")
+            updateCurrentRoomIdInPrefs(roomId)
+            isTimelineLoading = false
+            
+            // Store room open timestamp for animation purposes
+            val openTimestamp = System.currentTimeMillis()
+            roomOpenTimestamps[roomId] = openTimestamp
+            
+            // Still request room state in background for any updates
+            if (webSocket != null && !pendingRoomStateRequests.contains(roomId)) {
+                val stateRequestId = requestIdCounter++
+                roomStateRequests[stateRequestId] = roomId
+                pendingRoomStateRequests.add(roomId)
+                sendWebSocketCommand("get_room_state", stateRequestId, mapOf(
+                    "room_id" to roomId,
+                    "include_members" to false,
+                    "fetch_members" to false,
+                    "refetch" to false
+                ))
+            }
+            return
+        }
         
         // CRITICAL: Store room open timestamp when opening a room (not when refreshing the same room)
         // This timestamp will be used to determine which messages should animate
@@ -9318,8 +9507,21 @@ class AppViewModel : ViewModel() {
                     
                     // Process events through chain processing (builds timeline structure)
                     processCachedEvents(roomId, dbEvents, openingFromNotification)
+                    
+                    // WORKAROUND: Send initial paginate request to fetch latest events from server
+                    // This helps catch any events that SyncIngestor might have missed
+                    // Only send when opening a new room (not refreshing the same room)
+                    if (!isRefreshingSameRoom && webSocket != null && INITIAL_ROOM_PAGINATE_LIMIT > 0) {
+                        val paginateRequestId = requestIdCounter++
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending initial paginate request for $roomId (limit=$INITIAL_ROOM_PAGINATE_LIMIT, reqId=$paginateRequestId)")
+                        sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                            "room_id" to roomId,
+                            "max_timeline_id" to 0, // Fetch latest events
+                            "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
+                            "reset" to false
+                        ))
+                    }
                         
-                    // Skip background paginate; rely on existing DB snapshot. Manual refresh can fetch more.
                     return
                 } else {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in database for $roomId, will send paginate request")
@@ -9329,8 +9531,18 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // No events in database - do not auto-paginate. Leave timeline empty until manual refresh.
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in database for $roomId, but auto-paginate disabled; waiting for manual refresh.")
+        // WORKAROUND: Send initial paginate request even when no DB events (to fetch from server)
+        // Only send when opening a new room (not refreshing the same room)
+        if (!isRefreshingSameRoom && webSocket != null && INITIAL_ROOM_PAGINATE_LIMIT > 0) {
+            val paginateRequestId = requestIdCounter++
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in DB for $roomId, sending initial paginate request (limit=$INITIAL_ROOM_PAGINATE_LIMIT, reqId=$paginateRequestId)")
+            sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                "room_id" to roomId,
+                "max_timeline_id" to 0, // Fetch latest events
+                "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
+                "reset" to false
+            ))
+        }
         
         // Only clear timeline if we're opening a different room, or if timeline is already empty
         // This prevents clearing timeline when resuming from background for the same room
@@ -11460,6 +11672,30 @@ class AppViewModel : ViewModel() {
     private var profileRepository: net.vrkknn.andromuks.database.ProfileRepository? = null
     private var syncIngestor: net.vrkknn.andromuks.database.SyncIngestor? = null
     private var bootstrapLoader: net.vrkknn.andromuks.database.BootstrapLoader? = null
+
+    /**
+     * Ensures SyncIngestor is initialized with the LRU cache listener.
+     */
+    private fun ensureSyncIngestor(): net.vrkknn.andromuks.database.SyncIngestor? {
+        val context = appContext ?: return null
+        if (syncIngestor == null) {
+            syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context).apply {
+                cacheUpdateListener = object : net.vrkknn.andromuks.database.SyncIngestor.CacheUpdateListener {
+                    override fun getCachedRoomIds(): Set<String> = this@AppViewModel.getCachedRoomIds()
+                    
+                    override fun onEventsForCachedRoom(roomId: String, events: List<TimelineEvent>, requiresFullRerender: Boolean): Boolean {
+                        return if (requiresFullRerender) {
+                            invalidateCachedRoom(roomId)
+                            false
+                        } else {
+                            appendEventsToCachedRoom(roomId, events)
+                        }
+                    }
+                }
+            }
+        }
+        return syncIngestor
+    }
 
     private fun ensureBootstrapLoader(): net.vrkknn.andromuks.database.BootstrapLoader? {
         val context = appContext ?: return null
@@ -14067,11 +14303,10 @@ class AppViewModel : ViewModel() {
             }
             
             this.timelineEvents = limitedTimelineEvents
-            // Persist renderable projection whenever the timeline is rebuilt.
-            val renderRoomId = limitedTimelineEvents.firstOrNull()?.roomId ?: currentRoomId
-            if (!renderRoomId.isNullOrBlank()) {
-                persistRenderableEvents(renderRoomId, limitedTimelineEvents)
-            }
+            // PERFORMANCE FIX: Removed persistRenderableEvents() from buildTimelineFromChain()
+            // Pre-rendering on every sync was causing heavy CPU load with 580+ rooms.
+            // Timeline is now rendered lazily when room is opened, not on every sync_complete.
+            // The renderable table is only populated on room open via processCachedEvents().
             timelineUpdateCounter++
             updateCounter++ // Keep for backward compatibility temporarily
         } catch (e: Exception) {
@@ -16017,9 +16252,7 @@ class AppViewModel : ViewModel() {
         
         // Persist prefetched events to database
         val persistenceJob = appContext?.let { context ->
-            if (syncIngestor == null) {
-                syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
-            }
+            ensureSyncIngestor()
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     syncIngestor?.persistPaginatedEvents(roomId, timelineList)
@@ -16062,9 +16295,7 @@ class AppViewModel : ViewModel() {
         
         // Persist paginated events to database
         appContext?.let { context ->
-            if (syncIngestor == null) {
-                syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
-            }
+            ensureSyncIngestor()
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     syncIngestor?.persistPaginatedEvents(roomId, timelineList)
@@ -16114,9 +16345,7 @@ class AppViewModel : ViewModel() {
         
         // Persist initial paginated events to database
         appContext?.let { context ->
-            if (syncIngestor == null) {
-                syncIngestor = net.vrkknn.andromuks.database.SyncIngestor(context)
-            }
+            ensureSyncIngestor()
             viewModelScope.launch(Dispatchers.IO) {
                 try {
                     syncIngestor?.persistPaginatedEvents(roomId, timelineList)

@@ -432,21 +432,10 @@ fun BubbleTimelineScreen(
     val myUserId = appViewModel.currentUserId.ifBlank { storedUserId }
     val homeserverUrl = appViewModel.homeserverUrl
     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: appViewModel instance: $appViewModel")
-    // Prefer renderable (pre-resolved) stream; fall back to legacy timeline if empty.
-    val renderableEvents by appViewModel.renderableTimelineFlow(roomId, limit = 300).collectAsState(initial = emptyList())
-    // Opportunistically hydrate missing reply/thread targets (capped in VM)
-    LaunchedEffect(renderableEvents) {
-        if (renderableEvents.isNotEmpty()) {
-            appViewModel.hydrateMissingRenderableReferences(roomId, renderableEvents, maxFetch = 32)
-        }
-    }
-    val timelineEvents = remember(renderableEvents) {
-        if (renderableEvents.isNotEmpty()) {
-            appViewModel.renderablesToTimelineEvents(renderableEvents)
-        } else {
-            appViewModel.timelineEvents
-        }
-    }
+    // PERFORMANCE FIX: Use timelineEvents directly instead of pre-rendered flow.
+    // Pre-rendering on every sync was causing heavy CPU load with 580+ rooms.
+    // Timeline is now rendered lazily when room is opened via processCachedEvents().
+    val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
     var readinessCheckComplete by remember { mutableStateOf(false) }
 
@@ -1638,8 +1627,9 @@ fun BubbleTimelineScreen(
         }
         
         // Request room state first, then timeline
+        // BubbleTimelineScreen: Don't use LRU cache since bubbles manage their own state independently
         appViewModel.requestRoomState(roomId)
-        appViewModel.requestRoomTimeline(roomId)
+        appViewModel.requestRoomTimeline(roomId, useLruCache = false)
     }
     
     // Refresh timeline when app resumes (to show new events received while suspended)
@@ -1647,7 +1637,7 @@ fun BubbleTimelineScreen(
         if (appViewModel.timelineRefreshTrigger > 0 && appViewModel.currentRoomId == roomId) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: App resumed, refreshing timeline for room: $roomId")
             // Don't reset state flags - this is just a refresh, not a new room load
-            appViewModel.requestRoomTimeline(roomId)
+            appViewModel.requestRoomTimeline(roomId, useLruCache = false)
         }
     }
 

@@ -95,6 +95,24 @@ class SyncIngestor(private val context: Context) {
         // Threshold adjustment factor (reduce by this percentage if processing too slow)
         private const val THRESHOLD_REDUCTION_FACTOR = 0.7f // Reduce by 30%
     }
+    
+    /**
+     * Callback interface for notifying ViewModel about events for cached rooms.
+     * This allows SyncIngestor to update the LRU cache when new events arrive.
+     */
+    interface CacheUpdateListener {
+        /** Returns set of room IDs currently in the LRU cache */
+        fun getCachedRoomIds(): Set<String>
+        
+        /** 
+         * Called when new events arrive for a cached room.
+         * Returns true if events were appended, false if cache was invalidated (needs re-render).
+         */
+        fun onEventsForCachedRoom(roomId: String, events: List<TimelineEvent>, requiresFullRerender: Boolean): Boolean
+    }
+    
+    // Listener for cache updates (set by AppViewModel)
+    var cacheUpdateListener: CacheUpdateListener? = null
 
     private suspend fun logUnprocessedEvent(
         roomId: String?,
@@ -689,11 +707,16 @@ class SyncIngestor(private val context: Context) {
                     
                     // BATTERY OPTIMIZATION: processRoom() is only called for rooms in sync_complete JSON (typically 2-3 rooms)
                     // It does NOT process all 588 rooms - only incremental changes from sync_complete
-                    for (roomId in roomsToProcessNow) {
+                    // PERFORMANCE FIX: Yield every 20 rooms to prevent CPU hogging during large reconnect syncs
+                    for ((index, roomId) in roomsToProcessNow.withIndex()) {
                         val roomObj = roomsJson.optJSONObject(roomId) ?: continue
                         val hadEvents = processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible)
                         if (hadEvents) {
                             roomsWithEvents.add(roomId)
+                        }
+                        // Yield every 20 rooms to allow other coroutines to run (prevents ANR on reconnect)
+                        if ((index + 1) % 20 == 0) {
+                            kotlinx.coroutines.yield()
                         }
                     }
                 }
@@ -720,6 +743,10 @@ class SyncIngestor(private val context: Context) {
     private suspend fun processRoom(roomId: String, roomObj: JSONObject, existingState: RoomStateEntity? = null, isAppVisible: Boolean = true): Boolean {
         val existingTimelineRowCache = mutableMapOf<String, Long?>()
         var hasPersistedEvents = false
+        
+        // LRU CACHE: Track events for cache notification
+        val eventsForCacheUpdate = mutableListOf<TimelineEvent>()
+        var hasEditRedactionReaction = false
         
         // 1. Process room state (meta)
         val meta = roomObj.optJSONObject("meta")
@@ -842,6 +869,20 @@ class SyncIngestor(private val context: Context) {
                         type = candidate.entity.type,
                         timelineRowId = candidate.entity.timelineRowId
                     )
+                    // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
+                    val entity = candidate.entity
+                    if (entity.isRedaction || entity.type == "m.reaction") {
+                        hasEditRedactionReaction = true
+                    }
+                    // Check for m.replace (edit) relation
+                    val rawJsonObj = try { JSONObject(entity.rawJson) } catch (_: Exception) { null }
+                    val relationType = rawJsonObj?.optJSONObject("content")?.optJSONObject("m.relates_to")?.optString("rel_type")
+                        ?: rawJsonObj?.optJSONObject("decrypted")?.optJSONObject("m.relates_to")?.optString("rel_type")
+                    if (relationType == "m.replace") {
+                        hasEditRedactionReaction = true
+                    }
+                    // Convert to TimelineEvent for cache
+                    entityToTimelineEvent(entity)?.let { eventsForCacheUpdate.add(it) }
                 }
             }
         }
@@ -903,6 +944,18 @@ class SyncIngestor(private val context: Context) {
                         type = candidate.entity.type,
                         timelineRowId = candidate.entity.timelineRowId
                     )
+                    // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
+                    val entity = candidate.entity
+                    if (entity.isRedaction || entity.type == "m.reaction") {
+                        hasEditRedactionReaction = true
+                    }
+                    val rawJsonObj = try { JSONObject(entity.rawJson) } catch (_: Exception) { null }
+                    val relationType = rawJsonObj?.optJSONObject("content")?.optJSONObject("m.relates_to")?.optString("rel_type")
+                        ?: rawJsonObj?.optJSONObject("decrypted")?.optJSONObject("m.relates_to")?.optString("rel_type")
+                    if (relationType == "m.replace") {
+                        hasEditRedactionReaction = true
+                    }
+                    entityToTimelineEvent(entity)?.let { eventsForCacheUpdate.add(it) }
                 }
             } else if (eventsArray.length() > 0) {
                 Log.w(TAG, "SyncIngestor: No events were parsed from 'events' array for room $roomId (all ${eventsArray.length()} events were skipped)")
@@ -1183,6 +1236,15 @@ class SyncIngestor(private val context: Context) {
             Log.w(TAG, "processRoom($roomId): Skipping room_list_summary upsert due to non-positive ts=$finalLastTimestamp (event=$finalLastEventId)")
         }
         
+        // LRU CACHE: Notify listener if this room is cached and has new events
+        if (hasPersistedEvents && eventsForCacheUpdate.isNotEmpty()) {
+            val listener = cacheUpdateListener
+            if (listener != null && listener.getCachedRoomIds().contains(roomId)) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Notifying cache listener for room $roomId (${eventsForCacheUpdate.size} events, requiresRerender=$hasEditRedactionReaction)")
+                listener.onEventsForCachedRoom(roomId, eventsForCacheUpdate, hasEditRedactionReaction)
+            }
+        }
+        
         return hasPersistedEvents
     }
     
@@ -1341,6 +1403,42 @@ class SyncIngestor(private val context: Context) {
             rawJson = rawJson,
             aggregatedReactionsJson = aggregatedReactionsJson
         )
+    }
+    
+    /**
+     * Convert EventEntity to TimelineEvent for LRU cache notification.
+     * This is a minimal conversion sufficient for cache append/invalidation detection.
+     */
+    private fun entityToTimelineEvent(entity: EventEntity): TimelineEvent? {
+        return try {
+            val rawJson = JSONObject(entity.rawJson)
+            val content = rawJson.optJSONObject("content")
+            val decrypted = rawJson.optJSONObject("decrypted")
+            val unsigned = rawJson.optJSONObject("unsigned")
+            val relatesTo = content?.optJSONObject("m.relates_to") 
+                ?: decrypted?.optJSONObject("m.relates_to")
+            
+            TimelineEvent(
+                rowid = entity.timelineRowId,
+                timelineRowid = entity.timelineRowId,
+                roomId = entity.roomId,
+                eventId = entity.eventId,
+                sender = entity.sender ?: "",
+                type = entity.type,
+                timestamp = entity.timestamp,
+                content = content,
+                decrypted = decrypted,
+                decryptedType = entity.decryptedType,
+                unsigned = unsigned,
+                stateKey = rawJson.optString("state_key").takeIf { it.isNotBlank() },
+                redactedBy = rawJson.optString("redacted_by").takeIf { it.isNotBlank() },
+                relationType = relatesTo?.optString("rel_type"),
+                relatesTo = relatesTo?.optString("event_id")
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to convert EventEntity to TimelineEvent: ${entity.eventId}", e)
+            null
+        }
     }
     
     private fun collectReactionPersistenceFromEvent(

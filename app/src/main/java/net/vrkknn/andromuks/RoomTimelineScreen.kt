@@ -410,21 +410,10 @@ fun RoomTimelineScreen(
     val myUserId = appViewModel.currentUserId
     val homeserverUrl = appViewModel.homeserverUrl
     //Log.d("Andromuks", "RoomTimelineScreen: appViewModel instance: $appViewModel")
-    // Prefer renderable (pre-resolved) stream; fall back to legacy timeline if empty.
-    val renderableEvents by appViewModel.renderableTimelineFlow(roomId, limit = 300).collectAsState(initial = emptyList())
-    // Opportunistically hydrate missing reply/thread targets (capped in VM)
-    LaunchedEffect(renderableEvents) {
-        if (renderableEvents.isNotEmpty()) {
-            appViewModel.hydrateMissingRenderableReferences(roomId, renderableEvents, maxFetch = 32)
-        }
-    }
-    val timelineEvents = remember(renderableEvents) {
-        if (renderableEvents.isNotEmpty()) {
-            appViewModel.renderablesToTimelineEvents(renderableEvents)
-        } else {
-            appViewModel.timelineEvents
-        }
-    }
+    // PERFORMANCE FIX: Use timelineEvents directly instead of pre-rendered flow.
+    // Pre-rendering on every sync was causing heavy CPU load with 580+ rooms.
+    // Timeline is now rendered lazily when room is opened via processCachedEvents().
+    val timelineEvents = appViewModel.timelineEvents
     val isLoading = appViewModel.isTimelineLoading
     val currentRoomState = appViewModel.currentRoomState
     var readinessCheckComplete by remember { mutableStateOf(false) }
