@@ -844,7 +844,7 @@ fun ThreadViewerScreen(
                                         onScrollToMessage = { eventId ->
                                             val index = timelineItems.indexOfFirst { item ->
                                                 (item as? TimelineItem.Event)?.event?.eventId == eventId
-                                            }
+                                                }
                                             if (index >= 0) {
                                                 coroutineScope.launch {
                                                     listState.animateScrollToItem(index)
@@ -1222,7 +1222,7 @@ fun ThreadViewerScreen(
                                             val replacedValue = applyCompletedEmojiShortcode(afterDeletion)
                                             textFieldValue = replacedValue
                                             draft = replacedValue.text
-
+                                            
                                             // Detect mentions
                                             val mentionResult = detectMention(replacedValue.text, replacedValue.selection.start)
                                             if (mentionResult != null) {
@@ -1236,7 +1236,7 @@ fun ThreadViewerScreen(
                                                         kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
                                                             val cachedMembers = appViewModel.loadMembersFromDatabase(roomId)
                                                             if (cachedMembers.isNotEmpty()) {
-                                                                showMentionList = true
+                                                showMentionList = true
                                                             }
                                                             isWaitingForFullMemberList = true
                                                             lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
@@ -1315,10 +1315,10 @@ fun ThreadViewerScreen(
                                                             editingEvent = null
                                                         }
                                                         replyingToEvent != null -> {
-                                                            appViewModel.sendThreadReply(
-                                                                roomId = roomId,
-                                                                text = draft,
-                                                                threadRootEventId = threadRootEventId,
+                                                    appViewModel.sendThreadReply(
+                                                        roomId = roomId,
+                                                        text = draft,
+                                                        threadRootEventId = threadRootEventId,
                                                                 fallbackReplyToEventId = replyingToEvent!!.eventId
                                                             )
                                                             replyingToEvent = null
@@ -1365,10 +1365,10 @@ fun ThreadViewerScreen(
                                                 editingEvent = null
                                             }
                                             replyingToEvent != null -> {
-                                                appViewModel.sendThreadReply(
-                                                    roomId = roomId,
-                                                    text = draft,
-                                                    threadRootEventId = threadRootEventId,
+                                        appViewModel.sendThreadReply(
+                                            roomId = roomId,
+                                            text = draft,
+                                            threadRootEventId = threadRootEventId,
                                                     fallbackReplyToEventId = replyingToEvent!!.eventId
                                                 )
                                                 replyingToEvent = null
@@ -1394,7 +1394,7 @@ fun ThreadViewerScreen(
                                             if (draft.isNotBlank()) MaterialTheme.colorScheme.primary
                                             else MaterialTheme.colorScheme.surfaceVariant
                                     ),
-                                modifier = Modifier.size(56.dp),
+                                modifier = Modifier.size(buttonHeight),
                                 contentPadding = PaddingValues(0.dp)
                             ) {
                                 @Suppress("DEPRECATION")
@@ -1410,46 +1410,76 @@ fun ThreadViewerScreen(
                         }
                     }
 
-                        // Attachment menu (above composer)
-                        AnimatedVisibility(visible = showAttachmentMenu) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                IconButton(onClick = {
+                }
+            }
+
+            // Attachment menu overlay (floating, does not push composer)
+            AnimatedVisibility(visible = showAttachmentMenu) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(bottom = 72.dp)
+                        .navigationBarsPadding()
+                        .imePadding()
+                        .zIndex(6f),
+                    contentAlignment = Alignment.BottomStart
+                ) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp),
+                        shape = RoundedCornerShape(16.dp),
+                        tonalElevation = 2.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = {
                                     showAttachmentMenu = false
                                     mediaPickerLauncher.launch("*/*")
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Image,
-                                        contentDescription = "Image/Video",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                IconButton(onClick = {
+                                },
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Image,
+                                    contentDescription = "Image/Video",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(
+                                onClick = {
                                     showAttachmentMenu = false
                                     audioPickerLauncher.launch("audio/*")
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.AudioFile,
-                                        contentDescription = "Audio",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                IconButton(onClick = {
+                                },
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.AudioFile,
+                                    contentDescription = "Audio",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(
+                                onClick = {
                                     showAttachmentMenu = false
                                     filePickerLauncher.launch("*/*")
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Folder,
-                                        contentDescription = "File",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                IconButton(onClick = {
+                                },
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Folder,
+                                    contentDescription = "File",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(
+                                onClick = {
                                     val hasCam = ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
                                     if (hasCam) {
                                         val uri = createCameraFileUri(false)
@@ -1463,14 +1493,17 @@ fun ThreadViewerScreen(
                                     } else {
                                         cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
                                     }
-                                }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.CameraAlt,
-                                        contentDescription = "Camera Photo",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
-                                IconButton(onClick = {
+                                },
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.CameraAlt,
+                                    contentDescription = "Camera Photo",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            IconButton(
+                                onClick = {
                                     val hasCam = ContextCompat.checkSelfPermission(context, android.Manifest.permission.CAMERA) == android.content.pm.PackageManager.PERMISSION_GRANTED
                                     if (hasCam) {
                                         val uri = createCameraFileUri(true)
@@ -1484,29 +1517,33 @@ fun ThreadViewerScreen(
                                     } else {
                                         cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
                                     }
-                                }) {
-                                    Icon(
-        imageVector = Icons.Filled.Videocam,
-        contentDescription = "Camera Video",
-        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                }
+                                },
+                                modifier = Modifier.size(56.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Videocam,
+                                    contentDescription = "Camera Video",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
+                    }
                 }
+           //}
                 
                 // Emoji shortcode suggestion list
                 if (showEmojiSuggestionList) {
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomStart)
+                            .fillMaxSize()
                             .padding(
                                 start = 72.dp,
                                 bottom = 80.dp
                             )
                             .navigationBarsPadding()
                             .imePadding()
-                            .zIndex(9f)
+                            .zIndex(9f),
+                        contentAlignment = Alignment.BottomStart
                     ) {
                         EmojiSuggestionList(
                             query = emojiQuery,
@@ -1560,18 +1597,19 @@ fun ThreadViewerScreen(
                         )
                     }
                 }
-
+                
                 // Floating member list for mentions
                 if (showMentionList) {
                     Box(
                         modifier = Modifier
-                            .align(Alignment.BottomStart)
+                            .fillMaxSize()
                             .padding(
                                 start = 72.dp, // Align with text input (attach button width + spacing)
                                 bottom = 80.dp  // Above text input
                             )
                             .navigationBarsPadding()
-                            .imePadding()
+                            .imePadding(),
+                        contentAlignment = Alignment.BottomStart
                     ) {
                         ThreadMentionMemberList(
                             members = roomMembers,
@@ -1844,7 +1882,7 @@ fun ThreadViewerScreen(
                 if (isUploading) {
                     UploadingDialog(isVideo = selectedMediaIsVideo)
                 }
-
+                
                 // Delete confirmation dialog
                 if (showDeleteDialog && deletingEvent != null) {
                     DeleteMessageDialog(
