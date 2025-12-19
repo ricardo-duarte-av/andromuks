@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -744,10 +745,26 @@ private fun MediaContent(
 ) {
     val density = LocalDensity.current
     
+    // Determine if we're using thumbnails
+    val useThumbnail = loadThumbnailsIfAvailable && mediaMessage.info.thumbnailUrl != null
+    
     // Pre-calculate image dimensions to determine if we should wrap content
-    val imageWidthDp = if (mediaMessage.info.width > 0) {
-        with(density) { mediaMessage.info.width.toDp() }
-    } else null
+    // If using thumbnails: try thumbnail dimensions first, fallback to full image dimensions if thumbnail dimensions not available
+    // If not using thumbnails: use full image dimensions
+    val imageWidthDp = if (useThumbnail) {
+        // First try thumbnail width
+        if (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0) {
+            with(density) { mediaMessage.info.thumbnailWidth!!.toDp() }
+        } else if (mediaMessage.info.width > 0) {
+            // Fallback to full image width if thumbnail width not available
+            with(density) { mediaMessage.info.width.toDp() }
+        } else null
+    } else {
+        // Not using thumbnails, use full image width
+        if (mediaMessage.info.width > 0) {
+            with(density) { mediaMessage.info.width.toDp() }
+        } else null
+    }
     
     // Determine if image is small enough to wrap content (estimate < 400dp)
     val shouldWrapContent = imageWidthDp != null && imageWidthDp < 400.dp
@@ -783,12 +800,27 @@ private fun MediaContent(
             )
         } else {
             // Media container with aspect ratio for images and videos
-            val aspectRatio =
+            // If using thumbnails: try thumbnail dimensions first, fallback to full image dimensions if thumbnail dimensions not available
+            // If not using thumbnails: use full image dimensions
+            val aspectRatio = if (useThumbnail) {
+                // First try thumbnail dimensions
+                if (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailHeight != null && 
+                    mediaMessage.info.thumbnailWidth!! > 0 && mediaMessage.info.thumbnailHeight!! > 0) {
+                    mediaMessage.info.thumbnailWidth!!.toFloat() / mediaMessage.info.thumbnailHeight!!.toFloat()
+                } else if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
+                    // Fallback to full image dimensions if thumbnail dimensions not available
+                    mediaMessage.info.width.toFloat() / mediaMessage.info.height.toFloat()
+                } else {
+                    16f / 9f // Default aspect ratio
+                }
+            } else {
+                // Not using thumbnails, use full image dimensions
                 if (mediaMessage.info.width > 0 && mediaMessage.info.height > 0) {
                     mediaMessage.info.width.toFloat() / mediaMessage.info.height.toFloat()
                 } else {
                     16f / 9f // Default aspect ratio
                 }
+            }
 
             // Check if there's a caption
             val hasCaption = !mediaMessage.caption.isNullOrBlank()
@@ -798,9 +830,22 @@ private fun MediaContent(
             val bottomPadding = if (hasCaption) 8.dp else imagePadding
 
             // Calculate actual image size in dp if dimensions are available
-            val imageHeightDp = if (mediaMessage.info.height > 0) {
-                with(density) { mediaMessage.info.height.toDp() }
-            } else null
+            // If using thumbnails: try thumbnail dimensions first, fallback to full image dimensions if thumbnail dimensions not available
+            // If not using thumbnails: use full image dimensions
+            val imageHeightDp = if (useThumbnail) {
+                // First try thumbnail height
+                if (mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0) {
+                    with(density) { mediaMessage.info.thumbnailHeight!!.toDp() }
+                } else if (mediaMessage.info.height > 0) {
+                    // Fallback to full image height if thumbnail height not available
+                    with(density) { mediaMessage.info.height.toDp() }
+                } else null
+            } else {
+                // Not using thumbnails, use full image height
+                if (mediaMessage.info.height > 0) {
+                    with(density) { mediaMessage.info.height.toDp() }
+                } else null
+            }
 
             BoxWithConstraints(
                 modifier = Modifier
@@ -887,7 +932,6 @@ private fun MediaContent(
 
                     // PERFORMANCE: Use IntelligentMediaCache for smart caching
                     var cachedFile by remember { mutableStateOf<File?>(null) }
-                    val useThumbnail = loadThumbnailsIfAvailable && mediaMessage.info.thumbnailUrl != null
                     val displayMxcUrl = remember(mediaMessage.url, mediaMessage.info.thumbnailUrl, useThumbnail) {
                         if (useThumbnail) mediaMessage.info.thumbnailUrl!! else mediaMessage.url
                     }
@@ -995,7 +1039,16 @@ private fun MediaContent(
 
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "BlurHash painter created: ${blurHashPainter != null}")
 
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "AsyncImage: Starting image load for $imageUrl")
+                        if (BuildConfig.DEBUG) {
+                            val fullWidth = mediaMessage.info.width
+                            val fullHeight = mediaMessage.info.height
+                            val thumbWidth = mediaMessage.info.thumbnailWidth
+                            val thumbHeight = mediaMessage.info.thumbnailHeight
+                            Log.d("Andromuks", "AsyncImage: Starting image load for $imageUrl")
+                            Log.d("Andromuks", "AsyncImage: useThumbnail=$useThumbnail, aspectRatio=$aspectRatio")
+                            Log.d("Andromuks", "AsyncImage: Full image dimensions: ${fullWidth}x${fullHeight}, Thumbnail dimensions: ${thumbWidth}x${thumbHeight}")
+                            Log.d("Andromuks", "AsyncImage: calculatedWidth=${calculatedWidth.value}dp, calculatedHeight=${calculatedHeight.value}dp")
+                        }
 
                         // PERFORMANCE: Use optimized AsyncImage with better caching
                         AsyncImage(
@@ -1015,13 +1068,15 @@ private fun MediaContent(
                             modifier = Modifier
                                 .then(
                                     if (shouldRenderAtActualSize) {
-                                        // Render at actual size (don't enlarge)
+                                        // Render at actual size (don't enlarge) maintaining aspect ratio
                                         Modifier
                                             .width(calculatedWidth)
-                                            .height(calculatedHeight)
+                                            .aspectRatio(aspectRatio)
                                     } else {
-                                        // Scale to fit container
-                                        Modifier.fillMaxSize()
+                                        // Scale to fit container maintaining aspect ratio
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .aspectRatio(aspectRatio)
                                     }
                                 )
                                 .combinedClickable(
