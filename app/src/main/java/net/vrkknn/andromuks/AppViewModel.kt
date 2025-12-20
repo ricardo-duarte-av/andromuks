@@ -157,6 +157,9 @@ class AppViewModel : ViewModel() {
         // To change: AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT = <new_value>
         @JvmStatic
         var INITIAL_ROOM_PAGINATE_LIMIT = 20
+        
+        // FCM registration debounce window to prevent duplicate registrations
+        private const val FCM_REGISTRATION_DEBOUNCE_MS = 5000L // 5 seconds debounce window
     }
     
     /**
@@ -2313,9 +2316,23 @@ class AppViewModel : ViewModel() {
     
     /**
      * Register FCM token with Gomuks Backend via WebSocket
+     * 
+     * DEBOUNCE FIX: Prevents multiple registrations within a short time window (5 seconds)
+     * This fixes the issue where registrations were triggered from multiple places:
+     * - setWebSocket() 
+     * - onInitComplete()
+     * - FCM token ready callback
      */
     fun registerFCMWithGomuksBackend() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: registerFCMWithGomuksBackend called")
+        
+        // DEBOUNCE: Check if we registered recently (within debounce window)
+        val now = System.currentTimeMillis()
+        val timeSinceLastRegistration = now - lastFCMRegistrationTime
+        if (timeSinceLastRegistration < FCM_REGISTRATION_DEBOUNCE_MS) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping FCM registration - only ${timeSinceLastRegistration}ms since last registration (debounce: ${FCM_REGISTRATION_DEBOUNCE_MS}ms)")
+            return
+        }
         
         // Check if registration is needed (time-based check)
         val shouldRegister = shouldRegisterPush()
@@ -2330,8 +2347,9 @@ class AppViewModel : ViewModel() {
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: hasRegisteredViaWebSocket=$hasRegisteredViaWebSocket, forceRegistration=$forceRegistration")
         
-        // Always register FCM on every connection to ensure backend has current token
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Always registering FCM on WebSocket connection to ensure backend has current token")
+        // Register FCM on WebSocket connection to ensure backend has current token
+        // Note: Only called once per connection lifecycle (from onInitComplete) due to debounce
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Registering FCM with Gomuks Backend")
         
         val token = getFCMTokenForGomuksBackend()
         // CRITICAL FIX: Use local device ID instead of backend's device_id
@@ -2362,7 +2380,10 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending WebSocket command: register_push with data: $registrationData")
             sendWebSocketCommand("register_push", registrationRequestId, registrationData)
             
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent FCM registration to Gomuks Backend with device_id=$deviceId")
+            // DEBOUNCE: Update last registration time immediately to prevent duplicates
+            lastFCMRegistrationTime = now
+            
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent FCM registration to Gomuks Backend with device_id=$deviceId (request_id=$registrationRequestId)")
             
             // Mark that we've attempted WebSocket registration (will be confirmed when response comes back)
             appContext?.let { context ->
@@ -6241,6 +6262,7 @@ class AppViewModel : ViewModel() {
     private val leaveRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val outgoingRequests = mutableMapOf<Int, String>() // requestId -> roomId (for all outgoing requests)
     private val fcmRegistrationRequests = mutableMapOf<Int, String>() // requestId -> "fcm_registration"
+    private var lastFCMRegistrationTime: Long = 0 // Track last registration to prevent duplicates
     private val eventRequests = mutableMapOf<Int, Pair<String, (TimelineEvent?) -> Unit>>() // requestId -> (roomId, callback)
     private val paginateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for pagination)
     private val backgroundPrefetchRequests = mutableMapOf<Int, String>() // requestId -> roomId (for background prefetch)
@@ -6573,9 +6595,9 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Calling WebSocketService.setWebSocket()")
         WebSocketService.setWebSocket(webSocket)
         
-        // Register FCM on every WebSocket connection to ensure backend has current token
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setWebSocket - registering FCM to ensure backend has current token")
-        registerFCMWithGomuksBackend()
+        // FCM registration will happen in onInitComplete() after WebSocket is fully ready
+        // This prevents duplicate registrations from setWebSocket() and onInitComplete()
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setWebSocket - FCM registration will happen in onInitComplete()")
         
         // Broadcast that socket connection is available
         android.util.Log.i("Andromuks", "AppViewModel: WebSocket connection established - ${pendingWebSocketOperations.size} pending operations will be flushed after init_complete")

@@ -174,14 +174,17 @@ class FCMNotificationManager(private val context: Context) {
     
     /**
      * Set callback to be called when FCM token is ready for Gomuks backend registration
+     * 
+     * FIX: Don't call callback immediately if token is already available, as this causes
+     * duplicate registrations. The callback should only be triggered when a NEW token
+     * becomes available, not when setting the callback on an existing token.
      */
     fun setOnTokenReadyCallback(callback: () -> Unit) {
         onTokenReadyCallback = callback
         
-        // If token is already available, call the callback immediately
-        if (getTokenForGomuksBackend() != null) {
-            callback()
-        }
+        // REMOVED: Don't call callback immediately if token exists - this causes duplicate registrations
+        // The callback will be called when initializeAndRegister() completes with a new token
+        if (BuildConfig.DEBUG) Log.d(TAG, "setOnTokenReadyCallback: Callback set (will be called when new token is ready)")
     }
     
     /**
