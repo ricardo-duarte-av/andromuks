@@ -445,41 +445,34 @@ class FCMService : FirebaseMessagingService() {
                     continue
                 }
                 
-                // CRITICAL: Check if bubble is open using multiple methods
-                // 1. Check BubbleTracker (primary source of truth)
-                val isBubbleOpenTracked = BubbleTracker.isBubbleOpen(roomId)
-                
-                // 2. Fallback: Check if notification has bubble metadata (indicates bubble could be open)
-                // If a notification has bubble metadata, it means a bubble was created and could still be open
-                // This is a critical fallback when BubbleTracker hasn't tracked it yet
-                val notificationHasBubbleMetadata = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    try {
-                        existingNotification.notification.bubbleMetadata != null
-                    } catch (e: Exception) {
-                        if (BuildConfig.DEBUG) Log.w(TAG, "Error checking bubble metadata", e)
-                        false
-                    }
-                } else {
-                    false
-                }
-                
-                // If notification has bubble metadata, assume bubble might be open (safer to not dismiss)
-                // This prevents destroying bubbles that are open but not yet tracked
-                val isBubbleOpen = isBubbleOpenTracked || notificationHasBubbleMetadata
+                // Check if bubble is actually open using BubbleTracker (source of truth)
+                // NOTE: We only trust BubbleTracker, not bubble metadata, because:
+                // - Bubble metadata is set when notification is CREATED (indicates it CAN become a bubble)
+                // - Bubble metadata persists even when no bubble is actually open
+                // - BubbleTracker accurately tracks when a bubble is ACTUALLY open via lifecycle callbacks
+                val isBubbleOpen = BubbleTracker.isBubbleOpen(roomId)
                 
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "Room $roomId - Bubble state check:")
-                    Log.d(TAG, "  - BubbleTracker: $isBubbleOpenTracked")
-                    Log.d(TAG, "  - Has bubble metadata: $notificationHasBubbleMetadata")
+                    Log.d(TAG, "  - BubbleTracker: $isBubbleOpen")
                     Log.d(TAG, "  - Final result: isBubbleOpen=$isBubbleOpen")
-                    if (notificationHasBubbleMetadata && !isBubbleOpenTracked) {
-                        Log.w(TAG, "  - WARNING: Notification has bubble metadata but BubbleTracker says closed - preserving bubble anyway")
+                    
+                    // Log bubble metadata for debugging (but don't use it for decision)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        try {
+                            val hasMetadata = existingNotification.notification.bubbleMetadata != null
+                            if (hasMetadata && !isBubbleOpen) {
+                                Log.d(TAG, "  - Note: Notification has bubble metadata but no bubble is open (metadata is set on creation, not when bubble opens)")
+                            }
+                        } catch (e: Exception) {
+                            // Ignore
+                        }
                     }
                 }
                 
                 if (isBubbleOpen) {
-                    // Bubble is open - don't dismiss to preserve bubble
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - NOT dismissing notification (bubble is open)")
+                    // Bubble is actually open - don't dismiss to preserve bubble
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - NOT dismissing notification (bubble is actually open)")
                     if (BuildConfig.DEBUG) Log.d(TAG, "This prevents the bubble from disappearing when conversation is marked as read")
                 } else {
                     // Safe to dismiss - no active bubble
