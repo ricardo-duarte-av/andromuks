@@ -4276,16 +4276,16 @@ class AppViewModel : ViewModel() {
                     val currentPending = pendingLastReceivedSyncId
                     if (currentPending == null || requestId < currentPending) {
                         pendingLastReceivedSyncId = requestId
-                        if (BuildConfig.DEBUG) android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Recorded pending sync_complete requestId=$requestId (previous pending=$currentPending)"
-                        )
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Pending sync_complete requestId=$requestId ignored (current pending=$currentPending)"
-                        )
-                    }
+                        //if (BuildConfig.DEBUG) android.util.Log.d(
+                        //    "Andromuks",
+                        //    "AppViewModel: Recorded pending sync_complete requestId=$requestId (previous pending=$currentPending)"
+                       // )
+                    }// else {
+                    //    if (BuildConfig.DEBUG) android.util.Log.d(
+                    //        "Andromuks",
+                    //        "AppViewModel: Pending sync_complete requestId=$requestId ignored (current pending=$currentPending)"
+                    //    )
+                    //}
                 }
             }
         }
@@ -4509,16 +4509,16 @@ class AppViewModel : ViewModel() {
                     val currentPending = pendingLastReceivedSyncId
                     if (currentPending == null || requestId < currentPending) {
                         pendingLastReceivedSyncId = requestId
-                        if (BuildConfig.DEBUG) android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Recorded pending sync_complete requestId=$requestId (previous pending=$currentPending)"
-                        )
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Pending sync_complete requestId=$requestId ignored (current pending=$currentPending)"
-                        )
-                    }
+                        //if (BuildConfig.DEBUG) android.util.Log.d(
+                        //    "Andromuks",
+                        //    "AppViewModel: Recorded pending sync_complete requestId=$requestId (previous pending=$currentPending)"
+                        //)
+                    } //else {
+                    //    if (BuildConfig.DEBUG) android.util.Log.d(
+                    //        "Andromuks",
+                    //        "AppViewModel: Pending sync_complete requestId=$requestId ignored (current pending=$currentPending)"
+                    //    )
+                    //}
                 }
             }
         }
@@ -7318,16 +7318,16 @@ class AppViewModel : ViewModel() {
                     val currentPending = pendingLastReceivedSyncId
                     if (currentPending == null || requestId < currentPending) {
                         pendingLastReceivedSyncId = requestId
-                        if (BuildConfig.DEBUG) android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Recorded pending sync_complete requestId=$requestId (previous pending=$currentPending)"
-                        )
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: Pending sync_complete requestId=$requestId ignored (current pending=$currentPending)"
-                        )
-                    }
+                        //if (BuildConfig.DEBUG) android.util.Log.d(
+                        //    "Andromuks",
+                        //    "AppViewModel: Recorded pending sync_complete requestId=$requestId (previous pending=$currentPending)"
+                        //)
+                    } //else {
+                    //    if (BuildConfig.DEBUG) android.util.Log.d(
+                    //        "Andromuks",
+                    //        "AppViewModel: Pending sync_complete requestId=$requestId ignored (current pending=$currentPending)"
+                    //    )
+                    //}
                 }
             }
             
