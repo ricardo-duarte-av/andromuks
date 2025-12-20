@@ -121,6 +121,9 @@ class MainActivity : ComponentActivity() {
                             // Schedule WebSocket health checks (every 15 minutes)
                             WebSocketHealthCheckWorker.schedule(this)
                             
+                            // Schedule auto-restart worker (every 30 minutes)
+                            AutoRestartWorker.schedule(this)
+                            
                             // OPTIMIZATION #2: Optimized intent processing
                             val shortcutUserId = intent.getStringExtra(PersonsApi.EXTRA_USER_ID)
                             val roomId = intent.getStringExtra("room_id")

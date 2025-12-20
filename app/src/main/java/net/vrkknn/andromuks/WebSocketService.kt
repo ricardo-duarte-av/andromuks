@@ -13,6 +13,7 @@ import net.vrkknn.andromuks.utils.NetworkMonitor
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
@@ -40,6 +41,8 @@ class WebSocketService : Service() {
         private const val NOTIFICATION_ID = 1001
         private const val CHANNEL_ID = "websocket_service_channel"
         private const val CHANNEL_NAME = "WebSocket Service"
+        private const val WAKE_LOCK_TAG = "Andromuks:WebSocketService"
+        private const val ALARM_RESTART_DELAY_MS = 1000L // 1 second delay for AlarmManager restart
         private var instance: WebSocketService? = null
         
         // Service-scoped coroutine scope for background processing
@@ -1716,6 +1719,9 @@ class WebSocketService : Service() {
     // PHASE 3.1: Network monitoring
     private var networkMonitor: NetworkMonitor? = null
     
+    // Wake lock to keep CPU running while service is active
+    private var wakeLock: PowerManager.WakeLock? = null
+    
     // RUSH TO HEALTHY: Fixed ping interval - no adaptive logic needed
     // Ping/pong failures are handled by immediate retry and dropping after 3 failures
     
@@ -2499,6 +2505,9 @@ class WebSocketService : Service() {
         
         // PHASE 3.1: Start network monitoring for immediate reconnection on network changes
         startNetworkMonitoring()
+        
+        // Acquire wake lock to keep CPU running while service is active
+        acquireWakeLock()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -2677,13 +2686,32 @@ class WebSocketService : Service() {
             // Stop foreground service
             stopForeground(true)
             
+            // Release wake lock
+            releaseWakeLock()
+            
             // Clear instance reference
         instance = null
+            
+            // Trigger auto-restart via WorkManager (unless this was an intentional stop)
+            // Check if this was an intentional stop by checking if stopService() was called
+            // We can't easily detect this, so we'll always schedule a restart and let
+            // ServiceStartWorker check if credentials exist (if user logged out, it won't start)
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Scheduling auto-restart via WorkManager")
+            scheduleAutoRestart("Service destroyed")
             
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service cleanup completed")
         } catch (e: Exception) {
             android.util.Log.e("WebSocketService", "Error during service cleanup", e)
         }
+    }
+    
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        android.util.Log.w("WebSocketService", "onTaskRemoved() called - app removed from recent apps, scheduling AlarmManager restart")
+        
+        // Schedule AlarmManager restart (1 second delay) to restart service
+        // This ensures service restarts even if app is swiped away from recents
+        scheduleAlarmManagerRestart("App removed from recent apps")
     }
 
     private fun createNotificationChannel() {
@@ -3034,6 +3062,114 @@ class WebSocketService : Service() {
             lagMs >= 1000 || timeSinceSync >= 120_000 -> "🔴" // Red
             // Default to yellow
             else -> "🟡" // Yellow
+        }
+    }
+    
+    /**
+     * Acquire PARTIAL_WAKE_LOCK to keep CPU running while service is active
+     */
+    private fun acquireWakeLock() {
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, WAKE_LOCK_TAG).apply {
+                acquire(10 * 60 * 60 * 1000L) // 10 hours timeout (safety limit)
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Wake lock acquired")
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to acquire wake lock: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Release wake lock when service is destroyed
+     */
+    private fun releaseWakeLock() {
+        try {
+            wakeLock?.let {
+                if (it.isHeld) {
+                    it.release()
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Wake lock released")
+                }
+            }
+            wakeLock = null
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to release wake lock: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Schedule AlarmManager restart (used when app is removed from recent apps)
+     * Uses setExact on Android N+ and scheduleExact on Android TIRAMISU+
+     */
+    private fun scheduleAlarmManagerRestart(reason: String) {
+        try {
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            val intent = Intent(this, AutoRestartReceiver::class.java).apply {
+                action = AutoRestartReceiver.ACTION_RESTART_SERVICE
+                putExtra(AutoRestartReceiver.EXTRA_REASON, reason)
+            }
+            
+            val pendingIntent = PendingIntent.getBroadcast(
+                this,
+                0,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            
+            val triggerTime = System.currentTimeMillis() + ALARM_RESTART_DELAY_MS
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                // Android 12+ (API 31+): Use scheduleExactAllowWhileIdle for exact alarms
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        android.app.AlarmManager.RTC_WAKEUP,
+                        triggerTime,
+                        pendingIntent
+                    )
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Scheduled AlarmManager restart (setExactAndAllowWhileIdle): $reason")
+                } else {
+                    // Fallback to inexact alarm if exact alarms not allowed
+                    alarmManager.setAndAllowWhileIdle(
+                        android.app.AlarmManager.RTC_WAKEUP,
+                        triggerTime,
+                        pendingIntent
+                    )
+                    android.util.Log.w("WebSocketService", "SCHEDULE_EXACT_ALARM permission not granted - using inexact alarm")
+                }
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                // Android 6+ (API 23+): Use setExact
+                alarmManager.setExact(
+                    android.app.AlarmManager.RTC_WAKEUP,
+                    triggerTime,
+                    pendingIntent
+                )
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Scheduled AlarmManager restart (setExact): $reason")
+            } else {
+                // Android < 6: Use set (inexact, but better than nothing)
+                alarmManager.set(
+                    android.app.AlarmManager.RTC_WAKEUP,
+                    triggerTime,
+                    pendingIntent
+                )
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Scheduled AlarmManager restart (set): $reason")
+            }
+            
+            logActivity("AlarmManager Restart Scheduled: $reason", currentNetworkType.name)
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to schedule AlarmManager restart: ${e.message}", e)
+        }
+    }
+    
+    /**
+     * Schedule auto-restart via WorkManager (used when service is destroyed)
+     * This ensures service restarts at higher priority than BroadcastReceiver
+     */
+    private fun scheduleAutoRestart(reason: String) {
+        try {
+            AutoRestartReceiver.sendRestartIntent(this, reason)
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Scheduled auto-restart via WorkManager: $reason")
+        } catch (e: Exception) {
+            android.util.Log.e("WebSocketService", "Failed to schedule auto-restart: ${e.message}", e)
         }
     }
 }
