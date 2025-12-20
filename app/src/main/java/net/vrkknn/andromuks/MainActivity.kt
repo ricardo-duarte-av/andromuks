@@ -374,6 +374,12 @@ class MainActivity : ComponentActivity() {
                 when (intent?.action) {
                     "net.vrkknn.andromuks.ACTION_REPLY" -> {
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: ACTION_REPLY received in broadcast receiver")
+                        
+                        // DEDUPLICATION: Check if this is a duplicate from NotificationReplyReceiver
+                        // The receiver forwards via ordered broadcast, which can be received multiple times
+                        val fromReplyReceiver = intent.getBooleanExtra("from_reply_receiver", false)
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: ACTION_REPLY from_reply_receiver: $fromReplyReceiver")
+                        
                         val roomId = intent.getStringExtra("room_id")
                         val eventId = intent.getStringExtra("event_id")
                         val replyText = getReplyText(intent)
@@ -382,6 +388,7 @@ class MainActivity : ComponentActivity() {
                         
                         if (roomId != null && replyText != null) {
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Calling appViewModel.sendMessageFromNotification for room: $roomId")
+                            // Deduplication is handled in sendMessageFromNotification
                             appViewModel.sendMessageFromNotification(roomId, replyText) {
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Reply message sent successfully")
                                 // Update the notification with the sent message

@@ -69,6 +69,11 @@ class FCMService : FirebaseMessagingService() {
     
     private var enhancedNotificationDisplay: EnhancedNotificationDisplay? = null
     
+    // Track pending notifications to handle race conditions with dismiss notifications
+    // Key: roomId, Value: timestamp when notification was queued
+    private val pendingNotifications = mutableSetOf<String>()
+    private val pendingNotificationsLock = Any()
+    
     override fun onCreate() {
         super.onCreate()
         
@@ -173,12 +178,36 @@ class FCMService : FirebaseMessagingService() {
                                 } else if (shouldSuppressNotification(notificationData.roomId)) {
                                     if (BuildConfig.DEBUG) Log.d(TAG, "Suppressing notification for room (legacy path): ${notificationData.roomId} (${notificationData.roomName}) - room is open and app is in foreground")
                                 } else {
+                                    // RACE CONDITION FIX: Mark notification as pending before showing
+                                    synchronized(pendingNotificationsLock) {
+                                        pendingNotifications.add(notificationData.roomId)
+                                    }
+                                    
                                     CoroutineScope(Dispatchers.Main).launch {
                                         try {
+                                            // Check if notification was cancelled while we were preparing it
+                                            val wasCancelled = synchronized(pendingNotificationsLock) {
+                                                !pendingNotifications.contains(notificationData.roomId)
+                                            }
+                                            
+                                            if (wasCancelled) {
+                                                if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room ${notificationData.roomId} was cancelled before showing (legacy path) - skipping")
+                                                return@launch
+                                            }
+                                            
                                             enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
+                                            
+                                            // Remove from pending after notification is shown
+                                            synchronized(pendingNotificationsLock) {
+                                                pendingNotifications.remove(notificationData.roomId)
+                                            }
                                         } catch (e: Exception) {
                                             Log.e(TAG, "Error showing enhanced notification", e)
                                             e.printStackTrace()
+                                            // Remove from pending on error
+                                            synchronized(pendingNotificationsLock) {
+                                                pendingNotifications.remove(notificationData.roomId)
+                                            }
                                         }
                                     }
                                 }
@@ -367,12 +396,38 @@ class FCMService : FirebaseMessagingService() {
                 }
                 
                 if (BuildConfig.DEBUG) Log.d(TAG, "Showing notification for room: $roomId, sender: $senderDisplayName, text: $text")
+                
+                // RACE CONDITION FIX: Mark notification as pending before showing
+                // This allows dismiss handler to cancel it even if it hasn't been posted yet
+                synchronized(pendingNotificationsLock) {
+                    pendingNotifications.add(roomId)
+                }
+                
                 CoroutineScope(Dispatchers.Main).launch {
                     try {
+                        // Check if notification was cancelled while we were preparing it
+                        val wasCancelled = synchronized(pendingNotificationsLock) {
+                            !pendingNotifications.contains(roomId)
+                        }
+                        
+                        if (wasCancelled) {
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room $roomId was cancelled before showing - skipping")
+                            return@launch
+                        }
+                        
                         enhancedNotificationDisplay?.showEnhancedNotification(notificationData)
+                        
+                        // Remove from pending after notification is shown
+                        synchronized(pendingNotificationsLock) {
+                            pendingNotifications.remove(roomId)
+                        }
                     } catch (e: Exception) {
                         Log.e(TAG, "Error showing enhanced notification", e)
                         e.printStackTrace()
+                        // Remove from pending on error
+                        synchronized(pendingNotificationsLock) {
+                            pendingNotifications.remove(roomId)
+                        }
                     }
                 }
             }
@@ -438,10 +493,35 @@ class FCMService : FirebaseMessagingService() {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Processing dismiss request for room: $roomId")
                 
                 val notifID = roomId.hashCode()
-                val existingNotification = notificationManager.activeNotifications.firstOrNull { it.id == notifID }
                 
+                // RACE CONDITION FIX: Check both active notifications AND pending notifications
+                // This handles the case where dismiss arrives before notification is posted
+                val existingNotification = notificationManager.activeNotifications.firstOrNull { it.id == notifID }
+                val isPending = synchronized(pendingNotificationsLock) {
+                    pendingNotifications.contains(roomId)
+                }
+                
+                if (existingNotification == null && !isPending) {
+                    if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId (not active, not pending) - nothing to dismiss")
+                    continue
+                }
+                
+                // If notification is pending, cancel it before it's shown
+                if (isPending && existingNotification == null) {
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Notification for room $roomId is pending - cancelling before it's shown")
+                    synchronized(pendingNotificationsLock) {
+                        pendingNotifications.remove(roomId)
+                    }
+                    // Also cancel the notification ID in case it gets posted before we finish
+                    notificationManagerCompat.cancel(notifID)
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Successfully cancelled pending notification for room: $roomId")
+                    continue
+                }
+                
+                // Notification is active - proceed with normal dismiss logic
                 if (existingNotification == null) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "No notification found for room: $roomId - nothing to dismiss")
+                    // This shouldn't happen, but handle it gracefully
+                    if (BuildConfig.DEBUG) Log.w(TAG, "Notification was pending but not active - already cancelled")
                     continue
                 }
                 

@@ -160,6 +160,9 @@ class AppViewModel : ViewModel() {
         
         // FCM registration debounce window to prevent duplicate registrations
         private const val FCM_REGISTRATION_DEBOUNCE_MS = 5000L // 5 seconds debounce window
+        
+        // Notification reply deduplication window to prevent duplicate sends
+        private const val NOTIFICATION_REPLY_DEDUP_WINDOW_MS = 5000L // 5 seconds deduplication window
     }
     
     /**
@@ -1180,6 +1183,10 @@ class AppViewModel : ViewModel() {
     )
     
     private val pendingNotificationActions = mutableListOf<PendingNotificationAction>()
+    
+    // Deduplication for notification replies to prevent duplicate sends
+    // Key: "roomId|text", Value: timestamp when sent
+    private val recentNotificationReplies = mutableMapOf<String, Long>()
     private val notificationActionCompletionCallbacks = mutableMapOf<Int, () -> Unit>()
     private fun beginNotificationAction() {
         activeNotificationActionCount++
@@ -5192,6 +5199,9 @@ class AppViewModel : ViewModel() {
     
     /**
      * Executes any pending notification actions after init_complete
+     * 
+     * DEDUPLICATION: Removes duplicate actions before executing to prevent duplicate sends
+     * when WebSocket was not ready and multiple broadcasts were queued.
      */
     private fun executePendingNotificationActions() {
         if (pendingNotificationActions.isEmpty()) {
@@ -5201,14 +5211,49 @@ class AppViewModel : ViewModel() {
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Executing ${pendingNotificationActions.size} pending notification actions")
         
-        val actionsToExecute = pendingNotificationActions.toList()
+        // DEDUPLICATION: Remove duplicate actions before executing
+        // For send_message actions, keep only the first occurrence of each unique (roomId, text) pair
+        val deduplicatedActions = mutableListOf<PendingNotificationAction>()
+        val seenSendMessages = mutableSetOf<String>() // "roomId|text"
+        
+        for (action in pendingNotificationActions) {
+            when (action.type) {
+                "send_message" -> {
+                    if (action.text != null) {
+                        val dedupKey = "${action.roomId}|${action.text}"
+                        if (seenSendMessages.add(dedupKey)) {
+                            // First occurrence - keep it
+                            deduplicatedActions.add(action)
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Keeping queued send_message (roomId: ${action.roomId}, text: '${action.text}')")
+                        } else {
+                            // Duplicate - skip it
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping duplicate queued send_message (roomId: ${action.roomId}, text: '${action.text}')")
+                            // Still call completion callback to prevent UI stalling
+                            action.onComplete?.invoke()
+                        }
+                    }
+                }
+                else -> {
+                    // Non-send_message actions - keep all (no deduplication needed)
+                    deduplicatedActions.add(action)
+                }
+            }
+        }
+        
+        val removedCount = pendingNotificationActions.size - deduplicatedActions.size
+        if (removedCount > 0) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed $removedCount duplicate actions from queue")
+        }
+        
         pendingNotificationActions.clear()
         
-        actionsToExecute.forEach { action ->
+        deduplicatedActions.forEach { action ->
             when (action.type) {
                 "send_message" -> {
                     if (action.text != null) {
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Executing pending send_message for room ${action.roomId}")
+                        // Note: sendMessageFromNotification will also check deduplication, but this prevents
+                        // duplicate queue entries from being processed
                         sendMessageFromNotification(action.roomId, action.text, action.onComplete)
                     }
                 }
@@ -10591,13 +10636,50 @@ class AppViewModel : ViewModel() {
     /**
      * Sends a message from a notification action.
      * This handles websocket connection state and schedules auto-shutdown if needed.
+     * 
+     * DEDUPLICATION: Prevents duplicate sends from notification replies within a 5-second window.
+     * This fixes the issue where ordered broadcasts can be received multiple times.
      */
     fun sendMessageFromNotification(roomId: String, text: String, onComplete: (() -> Unit)? = null) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMessageFromNotification called for room $roomId")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMessageFromNotification called for room $roomId, text: '$text'")
+        
+        // DEDUPLICATION: Check if we've sent this exact message recently
+        val dedupKey = "$roomId|$text"
+        val now = System.currentTimeMillis()
+        val lastSentTime = recentNotificationReplies[dedupKey]
+        
+        if (lastSentTime != null && (now - lastSentTime) < Companion.NOTIFICATION_REPLY_DEDUP_WINDOW_MS) {
+            val timeSinceLastSend = now - lastSentTime
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping duplicate notification reply - sent ${timeSinceLastSend}ms ago (dedup window: ${Companion.NOTIFICATION_REPLY_DEDUP_WINDOW_MS}ms)")
+            // Call completion callback even for duplicates to prevent UI stalling
+            onComplete?.invoke()
+            return
+        }
+        
+        // Mark this reply as sent (before actual send to prevent race conditions)
+        recentNotificationReplies[dedupKey] = now
+        
+        // Clean up old entries (keep only recent entries within dedup window)
+        val cutoffTime = now - Companion.NOTIFICATION_REPLY_DEDUP_WINDOW_MS
+        recentNotificationReplies.entries.removeAll { it.value < cutoffTime }
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing notification reply (dedup key: $dedupKey)")
         
         // Check websocket state
         if (webSocket == null || !spacesLoaded) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket not ready yet, queueing notification action")
+            
+            // DEDUPLICATION: Check if this exact action is already queued (prevent duplicate queueing)
+            val isAlreadyQueued = pendingNotificationActions.any { 
+                it.type == "send_message" && it.roomId == roomId && it.text == text 
+            }
+            
+            if (isAlreadyQueued) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Duplicate notification action already queued, skipping (roomId: $roomId, text: '$text')")
+                // Call completion callback even for duplicates to prevent UI stalling
+                onComplete?.invoke()
+                return
+            }
             
             // Queue the action to be executed when WebSocket is ready
             // (Foreground service maintains connection, this should be rare - only during initial startup)
