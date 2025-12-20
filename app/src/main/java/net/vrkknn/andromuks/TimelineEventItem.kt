@@ -2727,7 +2727,8 @@ fun TimelineEventItem(
                 "m.room.pinned_events",
                 "m.room.server_acl",
                 "m.room.power_levels",
-                "m.room.tombstone"
+                "m.room.tombstone",
+                "m.space.parent"
             )
 
     // Check if this message is being edited by another event (moved to function start)

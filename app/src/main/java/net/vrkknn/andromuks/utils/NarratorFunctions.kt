@@ -566,6 +566,60 @@ fun SystemEventNarrator(
                     )
                 }
             }
+            "m.space.parent" -> {
+                // state_key contains the space parent room ID
+                val spaceParent = event.stateKey?.takeIf { it.isNotBlank() }
+                
+                if (spaceParent != null) {
+                    // If room ID is too long (>20 chars), use "this" as the link text instead
+                    val useShortLink = spaceParent.length > 20
+                    val linkText = if (useShortLink) "this" else spaceParent
+                    
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = buildAnnotatedString {
+                                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                    append(displayName)
+                                }
+                                append(" defined the ")
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontStyle = FontStyle.Italic
+                        )
+                        
+                        // Clickable space parent room link
+                        Text(
+                            text = linkText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontStyle = FontStyle.Italic,
+                            modifier = Modifier.clickable { onRoomClick(spaceParent) }
+                        )
+                        
+                        Text(
+                            text = " for this room",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontStyle = FontStyle.Italic
+                        )
+                    }
+                } else {
+                    // No space parent - fallback message
+                    NarratorText(
+                        text = buildAnnotatedString {
+                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                append(displayName)
+                            }
+                            append(" updated the space parent for this room")
+                        }
+                    )
+                }
+            }
             "m.room.pinned_events" -> {
                 val pinnedArray = content?.optJSONArray("pinned")
                 val unsigned = event.unsigned
