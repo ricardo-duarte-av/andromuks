@@ -113,6 +113,109 @@ class SyncIngestor(private val context: Context) {
     
     // Listener for cache updates (set by AppViewModel)
     var cacheUpdateListener: CacheUpdateListener? = null
+    
+    /**
+     * Tracks event processing statistics for debugging missing events.
+     */
+    data class EventProcessingStats(
+        val eventId: String,
+        val roomId: String?,
+        val source: String,
+        val type: String?,
+        val persisted: Boolean,
+        val failureReason: String? = null,
+        val exception: String? = null
+    )
+    
+    /**
+     * Statistics for a sync_complete ingestion session.
+     */
+    data class SyncIngestionStats(
+        val requestId: Int,
+        val totalEventsEncountered: Int,
+        val totalEventsPersisted: Int,
+        val totalEventsFailed: Int,
+        val eventsByRoom: Map<String, RoomEventStats>,
+        val failedEvents: List<EventProcessingStats>
+    )
+    
+    data class RoomEventStats(
+        val roomId: String,
+        val encountered: Int,
+        val persisted: Int,
+        val failed: Int
+    )
+
+    /**
+     * Analyzes a room object from sync_complete and returns a summary of its contents.
+     */
+    private fun analyzeRoomContents(roomId: String, roomObj: JSONObject): String {
+        val timeline = roomObj.optJSONArray("timeline")
+        val eventsArray = roomObj.optJSONArray("events")
+        val meta = roomObj.optJSONObject("meta")
+        val receipts = roomObj.optJSONObject("receipts")
+        val accountData = roomObj.optJSONObject("account_data")
+        
+        val parts = mutableListOf<String>()
+        if (timeline != null) {
+            parts.add("timeline=${timeline.length()}")
+        } else {
+            parts.add("timeline=null")
+        }
+        if (eventsArray != null) {
+            parts.add("events=${eventsArray.length()}")
+        } else {
+            parts.add("events=null")
+        }
+        if (meta != null) {
+            val metaKeys = try {
+                val keys = meta.keys().asSequence().toList()
+                if (keys.isNotEmpty()) {
+                    // Show key count and some important keys if present
+                    val importantKeys = keys.filter { it in listOf("name", "avatar", "topic", "unread_messages", "unread_highlights", "sorting_timestamp") }
+                    if (importantKeys.isNotEmpty()) {
+                        val keyDetails = importantKeys.joinToString(",") { key ->
+                            val value = when (key) {
+                                "name", "avatar", "topic" -> meta.optString(key)?.takeIf { it.isNotBlank() }?.let { "\"$it\"" } ?: "null"
+                                "unread_messages", "unread_highlights" -> meta.optInt(key, 0).toString()
+                                "sorting_timestamp" -> meta.optLong(key, 0L).toString()
+                                else -> "present"
+                            }
+                            "$key=$value"
+                        }
+                        "keys=${keys.size}[$keyDetails]"
+                    } else {
+                        "keys=${keys.size}"
+                    }
+                } else {
+                    "empty"
+                }
+            } catch (e: Exception) {
+                "<error:${e.message}>"
+            }
+            parts.add("meta=$metaKeys")
+        }
+        if (receipts != null) {
+            val receiptCount = receipts.keys().asSequence().sumOf { 
+                receipts.optJSONArray(it)?.length() ?: 0 
+            }
+            parts.add("receipts=$receiptCount")
+        }
+        if (accountData != null) {
+            val accountDataKeys = try {
+                accountData.keys().asSequence().toList()
+            } catch (e: Exception) {
+                listOf("<error:${e.message}>")
+            }
+            if (accountDataKeys.isNotEmpty()) {
+                parts.add("account_data=[${accountDataKeys.joinToString(",")}]")
+            } else {
+                parts.add("account_data=empty")
+            }
+        }
+        
+        return parts.joinToString(", ")
+    }
 
     private suspend fun logUnprocessedEvent(
         roomId: String?,
@@ -367,6 +470,9 @@ class SyncIngestor(private val context: Context) {
         // Track which rooms had events persisted (for notifying timeline screens)
         val roomsWithEvents = mutableSetOf<String>()
         
+        // EVENT TRACKING: Collect statistics on event processing for debugging
+        val eventStats = mutableListOf<EventProcessingStats>()
+        
         // Check run_id first - this is critical!
         val runIdChanged = checkAndHandleRunIdChange(runId)
         if (runIdChanged) {
@@ -530,7 +636,7 @@ class SyncIngestor(private val context: Context) {
                 for (pendingRoom in pendingRooms) {
                     try {
                         val roomObj = JSONObject(decompressPendingRoomJson(pendingRoom.roomJson))
-                        val hadEvents = processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
+                        val hadEvents = processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible, eventStats)
                         if (hadEvents) {
                             roomsWithEvents.add(pendingRoom.roomId)
                         }
@@ -603,7 +709,7 @@ class SyncIngestor(private val context: Context) {
                         for (pendingRoom in pendingRooms) {
                             try {
                                 val roomObj = JSONObject(decompressPendingRoomJson(pendingRoom.roomJson))
-                                val hadEvents = processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
+                                val hadEvents = processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible, eventStats)
                                 if (hadEvents) {
                                     roomsWithEvents.add(pendingRoom.roomId)
                                 }
@@ -616,7 +722,7 @@ class SyncIngestor(private val context: Context) {
                         for (roomId in roomsToProcess) {
                             if (roomId !in pendingRoomIds) { // Skip if already processed as pending
                                 val roomObj = roomsJson.optJSONObject(roomId) ?: continue
-                                val hadEvents = processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible)
+                                val hadEvents = processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible, eventStats)
                                 if (hadEvents) {
                                     roomsWithEvents.add(roomId)
                                 }
@@ -710,9 +816,19 @@ class SyncIngestor(private val context: Context) {
                     // PERFORMANCE FIX: Yield every 20 rooms to prevent CPU hogging during large reconnect syncs
                     for ((index, roomId) in roomsToProcessNow.withIndex()) {
                         val roomObj = roomsJson.optJSONObject(roomId) ?: continue
-                        val hadEvents = processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible)
+                        
+                        // Log room contents for debugging (especially when no events are persisted)
+                        val roomContents = analyzeRoomContents(roomId, roomObj)
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "SyncIngestor: Processing room $roomId - $roomContents")
+                        }
+                        
+                        val hadEvents = processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible, eventStats)
                         if (hadEvents) {
                             roomsWithEvents.add(roomId)
+                        } else if (BuildConfig.DEBUG) {
+                            // Log when room had no events persisted (for debugging missing events)
+                            Log.d(TAG, "SyncIngestor: Room $roomId had no events persisted (contents: $roomContents)")
                         }
                         // Yield every 20 rooms to allow other coroutines to run (prevents ANR on reconnect)
                         if ((index + 1) % 20 == 0) {
@@ -722,9 +838,74 @@ class SyncIngestor(private val context: Context) {
                 }
             }
             
-            if (BuildConfig.DEBUG) Log.d(TAG, "Ingested sync_complete: $requestId, ${roomsToProcess.size} rooms, since=$since, ${roomsWithEvents.size} rooms with events")
+            // Enhanced logging to show what sync_complete actually contained
+            if (BuildConfig.DEBUG) {
+                val roomsWithoutEvents = roomsToProcess.size - roomsWithEvents.size
+                val summary = buildString {
+                    append("Ingested sync_complete: requestId=$requestId, since=$since, ")
+                    append("rooms=${roomsToProcess.size} (${roomsWithEvents.size} with events, $roomsWithoutEvents without events)")
+                    if (roomsWithoutEvents > 0) {
+                        append(" - Rooms without events: ")
+                        val roomsWithoutEventsList = roomsToProcess.filter { it !in roomsWithEvents }
+                        roomsWithoutEventsList.forEachIndexed { index, roomId ->
+                            if (index > 0) append(", ")
+                            val roomObj = roomsJson.optJSONObject(roomId)
+                            if (roomObj != null) {
+                                val contents = analyzeRoomContents(roomId, roomObj)
+                                append("$roomId($contents)")
+                            } else {
+                                append(roomId)
+                            }
+                        }
+                    }
+                }
+                Log.d(TAG, summary)
+            }
         } else {
             if (BuildConfig.DEBUG) Log.d(TAG, "Ingested sync_complete: $requestId, 0 rooms (no rooms object)")
+        }
+        
+        // EVENT TRACKING: Log statistics on event processing
+        if (eventStats.isNotEmpty()) {
+            val persisted = eventStats.count { it.persisted }
+            val failed = eventStats.count { !it.persisted }
+            val failedByReason = eventStats.filter { !it.persisted }.groupBy { it.failureReason ?: "unknown" }
+            val eventsByRoom = eventStats.groupBy { it.roomId ?: "<unknown>" }
+                .mapValues { (_, stats) ->
+                    RoomEventStats(
+                        roomId = stats.first().roomId ?: "<unknown>",
+                        encountered = stats.size,
+                        persisted = stats.count { it.persisted },
+                        failed = stats.count { !it.persisted }
+                    )
+                }
+            
+            val stats = SyncIngestionStats(
+                requestId = requestId,
+                totalEventsEncountered = eventStats.size,
+                totalEventsPersisted = persisted,
+                totalEventsFailed = failed,
+                eventsByRoom = eventsByRoom,
+                failedEvents = eventStats.filter { !it.persisted }
+            )
+            
+            if (failed > 0) {
+                Log.w(TAG, "SyncIngestor: Event processing stats for sync_complete $requestId: " +
+                    "Total=${stats.totalEventsEncountered}, Persisted=$persisted, Failed=$failed")
+                Log.w(TAG, "SyncIngestor: Failed events by reason: ${failedByReason.mapValues { it.value.size }}")
+                // Log first few failed events for debugging
+                stats.failedEvents.take(5).forEach { failedEvent ->
+                    Log.w(TAG, "SyncIngestor: Failed event: room=${failedEvent.roomId}, eventId=${failedEvent.eventId}, " +
+                        "type=${failedEvent.type}, source=${failedEvent.source}, reason=${failedEvent.failureReason}, " +
+                        "exception=${failedEvent.exception}")
+                }
+                if (stats.failedEvents.size > 5) {
+                    Log.w(TAG, "SyncIngestor: ... and ${stats.failedEvents.size - 5} more failed events")
+                }
+            } else if (BuildConfig.DEBUG) {
+                Log.d(TAG, "SyncIngestor: Event processing stats for sync_complete $requestId: " +
+                    "Total=${stats.totalEventsEncountered}, All persisted successfully")
+            }
         }
         
         // Return set of room IDs that had events persisted (for notifying timeline screens)
@@ -740,7 +921,13 @@ class SyncIngestor(private val context: Context) {
      * @param isAppVisible Whether app is visible (affects summary processing optimization)
      * @return true if events were persisted for this room, false otherwise
      */
-    private suspend fun processRoom(roomId: String, roomObj: JSONObject, existingState: RoomStateEntity? = null, isAppVisible: Boolean = true): Boolean {
+    private suspend fun processRoom(
+        roomId: String, 
+        roomObj: JSONObject, 
+        existingState: RoomStateEntity? = null, 
+        isAppVisible: Boolean = true,
+        eventStats: MutableList<EventProcessingStats>? = null
+    ): Boolean {
         val existingTimelineRowCache = mutableMapOf<String, Long?>()
         var hasPersistedEvents = false
         
@@ -837,6 +1024,9 @@ class SyncIngestor(private val context: Context) {
                 collectReactionPersistenceFromEvent(roomId, eventJson, reactionUpserts, reactionDeletes)
                 
                 val sourceLabel = "timeline[$i]"
+                val eventId = eventJson.optString("event_id") ?: "<missing>"
+                val eventType = eventJson.optString("type")
+                
                 var parseLogged = false
                 val eventEntity = try {
                     parseEventFromJson(
@@ -849,12 +1039,32 @@ class SyncIngestor(private val context: Context) {
                 } catch (e: Exception) {
                     parseLogged = true
                     logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
+                    // Track failed event
+                    eventStats?.add(EventProcessingStats(
+                        eventId = eventId,
+                        roomId = roomId,
+                        source = sourceLabel,
+                        type = eventType,
+                        persisted = false,
+                        failureReason = "parse_exception",
+                        exception = e.message
+                    ))
                     null
                 }
                 if (eventEntity != null) {
                     events.add(EventPersistCandidate(eventEntity, sourceLabel))
+                    // Track successful parse (will mark as persisted after DB write)
                 } else if (!parseLogged) {
                     logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_returned_null")
+                    // Track failed event
+                    eventStats?.add(EventProcessingStats(
+                        eventId = eventId,
+                        roomId = roomId,
+                        source = sourceLabel,
+                        type = eventType,
+                        persisted = false,
+                        failureReason = "parse_returned_null"
+                    ))
                 }
             }
             
@@ -869,6 +1079,14 @@ class SyncIngestor(private val context: Context) {
                         type = candidate.entity.type,
                         timelineRowId = candidate.entity.timelineRowId
                     )
+                    // Track successful persistence
+                    eventStats?.add(EventProcessingStats(
+                        eventId = candidate.entity.eventId,
+                        roomId = roomId,
+                        source = candidate.source,
+                        type = candidate.entity.type,
+                        persisted = true
+                    ))
                     // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
                     val entity = candidate.entity
                     if (entity.isRedaction || entity.type == "m.reaction") {
@@ -902,6 +1120,9 @@ class SyncIngestor(private val context: Context) {
                 val timelineRowid = eventJson.optLong("timeline_rowid", -1)
                 
                 val sourceLabel = "events[$i]"
+                val eventId = eventJson.optString("event_id") ?: "<missing>"
+                val eventType = eventJson.optString("type")
+                
                 var parseLogged = false
                 val eventEntity = try {
                     parseEventFromJson(
@@ -914,6 +1135,16 @@ class SyncIngestor(private val context: Context) {
                 } catch (e: Exception) {
                     parseLogged = true
                     logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
+                    // Track failed event
+                    eventStats?.add(EventProcessingStats(
+                        eventId = eventId,
+                        roomId = roomId,
+                        source = sourceLabel,
+                        type = eventType,
+                        persisted = false,
+                        failureReason = "parse_exception",
+                        exception = e.message
+                    ))
                     null
                 }
                 if (eventEntity != null) {
@@ -923,11 +1154,18 @@ class SyncIngestor(private val context: Context) {
                     }
                 } else {
                     skippedCount++
-                    val eventId = eventJson.optString("event_id", "unknown")
-                    val eventType = eventJson.optString("type", "unknown")
                     Log.w(TAG, "SyncIngestor: Failed to parse event from 'events' array: eventId=$eventId, type=$eventType")
                     if (!parseLogged) {
                         logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_returned_null")
+                        // Track failed event
+                        eventStats?.add(EventProcessingStats(
+                            eventId = eventId,
+                            roomId = roomId,
+                            source = sourceLabel,
+                            type = eventType,
+                            persisted = false,
+                            failureReason = "parse_returned_null"
+                        ))
                     }
                 }
             }
@@ -944,6 +1182,14 @@ class SyncIngestor(private val context: Context) {
                         type = candidate.entity.type,
                         timelineRowId = candidate.entity.timelineRowId
                     )
+                    // Track successful persistence
+                    eventStats?.add(EventProcessingStats(
+                        eventId = candidate.entity.eventId,
+                        roomId = roomId,
+                        source = candidate.source,
+                        type = candidate.entity.type,
+                        persisted = true
+                    ))
                     // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
                     val entity = candidate.entity
                     if (entity.isRedaction || entity.type == "m.reaction") {
