@@ -135,13 +135,9 @@ class AppViewModel : ViewModel() {
         private const val PROFILE_CACHE_FILE = "user_profiles_cache.json"
         
         // MEMORY MANAGEMENT: Constants for cache limits and cleanup
-        private const val MAX_TIMELINE_EVENTS_PER_ROOM = 1000
-        private const val MAX_ANIMATION_STATES = 50
+        private const val MAX_TIMELINE_EVENTS_PER_ROOM = 100
         private const val MAX_MEMBER_CACHE_SIZE = 5000
-        private const val ANIMATION_STATE_CLEANUP_INTERVAL_MS = 30000L // 30 seconds
         private const val MAX_MESSAGE_VERSIONS_PER_EVENT = 50
-        const val NEW_MESSAGE_ANIMATION_DURATION_MS = 450L
-        const val NEW_MESSAGE_ANIMATION_DELAY_MS = 500L
         
         // PHASE 4: Counter for generating unique ViewModel IDs
         private var viewModelCounter = 0
@@ -1157,9 +1153,6 @@ class AppViewModel : ViewModel() {
     var timestampUpdateCounter by mutableStateOf(0)
         private set
     
-    // Per-room animation state for smooth transitions
-    var roomAnimationStates by mutableStateOf(mapOf<String, RoomAnimationState>())
-        private set
     
     // FCM notification manager
     private var fcmNotificationManager: FCMNotificationManager? = null
@@ -1351,57 +1344,6 @@ class AppViewModel : ViewModel() {
         timestampUpdateCounter++
     }
     
-    /**
-     * Updates animation state for a specific room
-     */
-    private fun updateRoomAnimationState(roomId: String, isAnimating: Boolean = false, newPosition: Int? = null) {
-        val currentState = roomAnimationStates[roomId]
-        val updatedState = RoomAnimationState(
-            roomId = roomId,
-            lastUpdateTime = System.currentTimeMillis(),
-            isAnimating = isAnimating,
-            previousPosition = currentState?.currentPosition,
-            currentPosition = newPosition ?: currentState?.currentPosition
-        )
-        roomAnimationStates = roomAnimationStates + (roomId to updatedState)
-        
-        // MEMORY MANAGEMENT: Cleanup old animation states if we have too many
-        if (roomAnimationStates.size > MAX_ANIMATION_STATES) {
-            performAnimationStateCleanup()
-        }
-    }
-    
-    /**
-     * Gets animation state for a specific room
-     */
-    fun getRoomAnimationState(roomId: String): RoomAnimationState? {
-        return roomAnimationStates[roomId]
-    }
-    
-    /**
-     * Clears animation state for a room after animation completes
-     */
-    fun clearRoomAnimationState(roomId: String) {
-        roomAnimationStates = roomAnimationStates - roomId
-    }
-    
-    /**
-     * MEMORY MANAGEMENT: Cleanup old animation states to prevent memory leaks
-     */
-    private fun performAnimationStateCleanup() {
-        val currentTime = System.currentTimeMillis()
-        val cutoffTime = currentTime - ANIMATION_STATE_CLEANUP_INTERVAL_MS
-        
-        // Remove old animation states that are no longer animating and haven't been updated recently
-        val statesToRemove = roomAnimationStates.filter { (_, state) ->
-            !state.isAnimating && state.lastUpdateTime < cutoffTime
-        }.keys
-        
-        if (statesToRemove.isNotEmpty()) {
-            roomAnimationStates = roomAnimationStates - statesToRemove.toSet()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleaned up ${statesToRemove.size} old animation states")
-        }
-    }
     
     fun restartWebSocketConnection(reason: String = "Manual reconnection") {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restarting WebSocket connection - Reason: $reason")
@@ -1622,37 +1564,11 @@ class AppViewModel : ViewModel() {
      * @return Map of eventId -> timestamp when animation should start
      */
     /**
-     * @return snapshot of bubble animation completion times (eventId -> millis when animation ends)
+     * Get new message IDs for sound notification triggering.
+     * PERFORMANCE: Removed animations - this now only tracks new messages for sound notifications.
+     * @return map of new message event IDs (eventId -> current timestamp)
      */
     fun getNewMessageAnimations(): Map<String, Long> = newMessageAnimations.toMap()
-
-    /**
-     * Whether any message bubble animations are still running.
-     */
-    fun isBubbleAnimationRunning(): Boolean = runningBubbleAnimations.isNotEmpty()
-
-    /**
-     * Called by the UI when a bubble animation finishes so the timeline can proceed to scroll.
-     * CRITICAL: Also removes the event from newMessageAnimations to prevent re-animation on recomposition.
-     */
-    fun notifyMessageAnimationFinished(eventId: String) {
-        if (runningBubbleAnimations.remove(eventId)) {
-            bubbleAnimationCompletionCounter++
-            // CRITICAL: Remove from newMessageAnimations to prevent re-animation when items recompose
-            // (e.g., when keyboard opens and causes scroll, items shouldn't animate again)
-            newMessageAnimations.remove(eventId)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Animation finished for $eventId, removed from animation map")
-        }
-    }
-    
-    /**
-     * Enable animations for a room after initial load completes.
-     * This should be called after the room has been opened and scrolled to bottom.
-     */
-    fun enableAnimationsForRoom(roomId: String) {
-        animationsEnabledForRoom[roomId] = true
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Enabled animations for room: $roomId")
-    }
     
     /**
      * Play a notification sound for new messages
@@ -4775,16 +4691,8 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Preserved isFavourite=true for room ${room.id} (sync didn't include account_data.m.tag)")
                 }
                 roomMap[room.id] = updatedRoom
-                // Update animation state only if app is visible (battery optimization)
-                if (isAppVisible) {
-                    updateRoomAnimationState(room.id, isAnimating = true)
-                }
             } else {
                 roomMap[room.id] = room
-                // Update animation state only if app is visible (battery optimization)
-                if (isAppVisible) {
-                    updateRoomAnimationState(room.id, isAnimating = true)
-                }
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (unread: ${room.unreadCount})")
             }
         }
@@ -4807,10 +4715,6 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added room during initial sync: ${room.name} (not marking as newly joined)")
             }
             
-            // Update animation state only if app is visible (battery optimization)
-            if (isAppVisible) {
-                updateRoomAnimationState(room.id, isAnimating = true)
-            }
             
         }
         
@@ -4832,10 +4736,6 @@ class AppViewModel : ViewModel() {
                 // Remove from newly joined set if it was there
                 newlyJoinedRoomIds.remove(roomId)
                 
-                // Remove animation state only if app is visible (battery optimization)
-                if (isAppVisible) {
-                    roomAnimationStates = roomAnimationStates - roomId
-                }
                 
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed room: ${removedRoom.name}")
             }
@@ -5797,10 +5697,6 @@ class AppViewModel : ViewModel() {
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshing UI with ${sortedRooms.size} rooms")
         
-        // Update animation states
-        sortedRooms.forEachIndexed { index, room ->
-            updateRoomAnimationState(room.id, isAnimating = false, newPosition = index)
-        }
         
         // PERFORMANCE: Use debounced reordering for UI refresh too
         scheduleRoomReorder()
@@ -6318,18 +6214,9 @@ class AppViewModel : ViewModel() {
     var receiptAnimationTrigger by mutableStateOf(0L)
         private set
     
-        // Track new message animations - eventId -> timestamp when animation should complete
-    // CRITICAL FIX: Use ConcurrentHashMap for thread-safe access (modified from background threads, read from UI thread)
-    private val newMessageAnimations = ConcurrentHashMap<String, Long>()
-    private val runningBubbleAnimations = ConcurrentHashMap.newKeySet<String>()
-    var bubbleAnimationCompletionCounter by mutableStateOf(0L)
-        private set
-    var newMessageAnimationTrigger by mutableStateOf(0L)
-        private set
-    
-    // CRITICAL: Track if animations should be enabled (disabled during initial room load)
-    // Animations should only occur for new messages when room is already open
-    private var animationsEnabledForRoom = mutableMapOf<String, Boolean>() // roomId -> enabled
+        // PERFORMANCE: Track new messages for sound notifications only (animations removed)
+    // Use ConcurrentHashMap for thread-safe access (modified from background threads, read from UI thread)
+    private val newMessageAnimations = ConcurrentHashMap<String, Long>() // eventId -> timestamp
     
     // CRITICAL: Track when each room was opened (in milliseconds, Matrix timestamp format)
     // Only messages with timestamp NEWER than this will animate
@@ -9765,12 +9652,8 @@ class AppViewModel : ViewModel() {
         redactionCache.clear()
         messageReactions = emptyMap()
         
-        // Clear animation and room-open tracking state
+        // Clear new message tracking and room-open timestamp
         newMessageAnimations.clear()
-        runningBubbleAnimations.clear()
-        bubbleAnimationCompletionCounter = 0L
-        newMessageAnimationTrigger = 0L
-        animationsEnabledForRoom.remove(roomId)
         roomOpenTimestamps.remove(roomId)
         
         // Reset member update counter to avoid stale diffs
@@ -9901,14 +9784,10 @@ class AppViewModel : ViewModel() {
         RoomTimelineCache.clearRoomCache(roomId)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared timeline cache for room: $roomId")
         
-        // Clear animation state to prevent corruption
+        // Clear new message tracking and room-open timestamp
         newMessageAnimations.clear()
-        runningBubbleAnimations.clear()
-        bubbleAnimationCompletionCounter = 0L
-        newMessageAnimationTrigger = 0L
-        animationsEnabledForRoom.remove(roomId) // Reset animation state for this room
-        roomOpenTimestamps.remove(roomId) // Clear room open timestamp
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared animation state for room: $roomId")
+        roomOpenTimestamps.remove(roomId)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared new message tracking for room: $roomId")
         
         // Reset member update counter to prevent stale state (but keep timelineUpdateCounter for UI consistency)
         memberUpdateCounter = 0
@@ -9987,12 +9866,9 @@ class AppViewModel : ViewModel() {
         roomsWithLoadedReactionsFromDb.remove(roomId)
         lastKnownDbLatestEventId.remove(roomId)
         
-        // 6. Clear animation state to prevent corruption
+        // 6. Clear new message tracking
         newMessageAnimations.clear()
-        runningBubbleAnimations.clear()
-        bubbleAnimationCompletionCounter = 0L
-        newMessageAnimationTrigger = 0L
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared animation state for room: $roomId")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared new message tracking for room: $roomId")
         
         // 7. Reset member update counter to prevent stale state (but keep timelineUpdateCounter for UI consistency)
         memberUpdateCounter = 0
@@ -14361,24 +14237,11 @@ class AppViewModel : ViewModel() {
             // Check if this is initial room loading (when previous timeline was empty)
             val isInitialRoomLoad = this.timelineEvents.isEmpty() && sortedTimelineEvents.isNotEmpty()
             
-            // CRITICAL: Disable animations during initial room load
-            // Animations should only occur for new messages when room is already open
-            if (isInitialRoomLoad) {
-                animationsEnabledForRoom[currentRoomId] = false
-            } else {
-                // Enable animations after initial load (when we have existing events and new ones arrive)
-                if (!animationsEnabledForRoom.containsKey(currentRoomId)) {
-                    animationsEnabledForRoom[currentRoomId] = true
-                }
-            }
-            
-            // Track new messages for slide-in animation (only if animations are enabled)
-            val animationsEnabled = animationsEnabledForRoom[currentRoomId] ?: false
+            // Track new messages for sound notifications (animations removed for performance)
             val roomOpenTimestamp = roomOpenTimestamps[currentRoomId] // Get timestamp when room was opened
             
-            if (actuallyNewMessages.isNotEmpty() && animationsEnabled && !isInitialRoomLoad && roomOpenTimestamp != null) {
+            if (actuallyNewMessages.isNotEmpty() && !isInitialRoomLoad && roomOpenTimestamp != null) {
                 val currentTime = System.currentTimeMillis()
-                val animationEndTime = currentTime + NEW_MESSAGE_ANIMATION_DELAY_MS + NEW_MESSAGE_ANIMATION_DURATION_MS // Bubble anim starts after delay and runs to completion
                 
                 // Check if any of the new messages are from other users (not our own messages)
                 var shouldPlaySound = false
@@ -14388,18 +14251,13 @@ class AppViewModel : ViewModel() {
                 actuallyNewMessages.forEach { eventId ->
                     val newEvent = sortedTimelineEvents.find { it.eventId == eventId }
                     
-                    // CRITICAL: Only animate messages that are NEWER than when the room was opened
-                    // This ensures:
-                    // - Messages loaded during initial load don't animate (their timestamp < roomOpenTimestamp)
-                    // - Messages loaded via pagination don't animate (old messages, timestamp < roomOpenTimestamp)
-                    // - Only truly NEW messages arriving after room open animate (timestamp > roomOpenTimestamp)
-                    val shouldAnimateThisMessage = newEvent?.let { event ->
+                    // Track new messages for sound notification (only messages newer than room open)
+                    val isNewMessage = newEvent?.let { event ->
                         event.timestamp > roomOpenTimestamp
                     } ?: false
                     
-                    if (shouldAnimateThisMessage) {
-                        newMessageAnimations[eventId] = animationEndTime
-                        runningBubbleAnimations.add(eventId)
+                    if (isNewMessage) {
+                        newMessageAnimations[eventId] = currentTime
                     }
                     
                     // Check if this message is from another user (not our own message) for sound notification
@@ -14433,9 +14291,6 @@ class AppViewModel : ViewModel() {
                 } else if (shouldPlaySound && hasMessageForCurrentRoom) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Suppressing sound for new message in current room $currentRoomId (user is viewing this room)")
                 }
-                
-                // Trigger animation system update
-                newMessageAnimationTrigger = currentTime
             }
             
             // MEMORY MANAGEMENT: Limit timeline events to prevent memory pressure
@@ -16164,9 +16019,6 @@ class AppViewModel : ViewModel() {
      */
     private fun performPeriodicMemoryCleanup() {
         try {
-            // Clean up stale animation states
-            performAnimationStateCleanup()
-            
             // Clean up stale member cache entries
             performMemberCacheCleanup()
             

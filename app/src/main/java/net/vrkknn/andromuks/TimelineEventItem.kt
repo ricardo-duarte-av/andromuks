@@ -30,7 +30,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.text.font.FontStyle
@@ -41,9 +40,6 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.platform.LocalContext
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.utils.AnimatedInlineReadReceiptAvatars
@@ -2842,99 +2838,22 @@ fun TimelineEventItem(
         else -> false
     }
     
-    // Check if this message should animate in (new message with slide-up effect)
+    // PERFORMANCE: Removed all animations for stable performance base
+    // Trigger sound notification immediately for new messages (if callback provided)
     val newMessageAnimations = appViewModel?.getNewMessageAnimations() ?: emptyMap()
+    val isNewMessage = newMessageAnimations.containsKey(event.eventId)
     
-    // PERFORMANCE: Stabilize animationCompletionTime to prevent LaunchedEffect restart on recomposition
-    // Only update if the value actually changes (not just because map was recreated)
-    val animationCompletionTime = remember(event.eventId, newMessageAnimations[event.eventId]) {
-        newMessageAnimations[event.eventId]
-    }
-    val shouldAnimate = animationCompletionTime != null
-    
-    val animationProgress = remember(event.eventId) {
-        Animatable(if (shouldAnimate) 0f else 1f)
-    }
-    
-    // Track if animation has started to prevent restart on recomposition
-    val hasAnimationStarted = remember(event.eventId) { mutableStateOf(false) }
-
-    // Launch animation when this message is marked for animation (only once, starts immediately)
-    LaunchedEffect(event.eventId, animationCompletionTime) {
-        try {
-            // Skip if animation shouldn't run or already started
-            if (animationCompletionTime == null) {
-                animationProgress.snapTo(1f)
-                return@LaunchedEffect
-            }
-            
-            // CRITICAL: If animation has already completed (progress == 1f), don't restart
-            // This prevents re-animation when items recompose due to keyboard opening or scrolling
-            if (animationProgress.value >= 1f) {
-                // Animation already completed - notify and exit
-                appViewModel?.notifyMessageAnimationFinished(event.eventId)
-                return@LaunchedEffect
-            }
-            
-            if (hasAnimationStarted.value) {
-                // Animation already running - don't restart
-                return@LaunchedEffect
-            }
-            
-            // Mark as started immediately to prevent restart on recomposition
-            hasAnimationStarted.value = true
-            if (shouldAnimate) {
-                onNewBubbleAnimationStart?.invoke()
-            }
-            
-            // Start animation immediately without delay for smooth experience
-            animationProgress.snapTo(0f)
-            
-            // Animate immediately with full duration (removed delay to eliminate stall)
-            animationProgress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = AppViewModel.NEW_MESSAGE_ANIMATION_DURATION_MS.toInt(),
-                    easing = FastOutSlowInEasing
-                )
-            )
-        } finally {
-            appViewModel?.notifyMessageAnimationFinished(event.eventId)
+    // Trigger sound notification once when message first appears
+    LaunchedEffect(event.eventId) {
+        if (isNewMessage && onNewBubbleAnimationStart != null) {
+            onNewBubbleAnimationStart.invoke()
         }
-    }
-
-    // NEW ANIMATION: Horizontal slide-in from left (others) or right (self)
-    // For others: slide in from left (negative X)
-    // For self: slide in from right (positive X)
-    val slideInDistance = 200f // Distance to slide in from
-    val animatedOffsetX = if (shouldAnimate) {
-        val eased = FastOutSlowInEasing.transform(animationProgress.value)
-        if (actualIsMine) {
-            // Slide from right (positive X) for our messages
-            (1f - eased) * slideInDistance
-        } else {
-            // Slide from left (negative X) for others' messages
-            (1f - eased) * -slideInDistance
-        }
-    } else {
-        0f
-    }
-    
-    // Animate alpha for smooth fade-in
-    val animatedAlpha = if (shouldAnimate) {
-        0.3f + 0.7f * animationProgress.value
-    } else {
-        1f
     }
     
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 2.dp)
-            .graphicsLayer(
-                translationX = animatedOffsetX,
-                alpha = animatedAlpha
-            ),
+            .padding(vertical = 2.dp),
         verticalAlignment = Alignment.Top
     ) {
         // Show avatar only for non-consecutive messages (and not for emotes, they have their own)

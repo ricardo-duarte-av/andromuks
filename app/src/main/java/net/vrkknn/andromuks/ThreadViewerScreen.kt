@@ -54,7 +54,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -847,7 +846,7 @@ fun ThreadViewerScreen(
                                                 }
                                             if (index >= 0) {
                                                 coroutineScope.launch {
-                                                    listState.animateScrollToItem(index)
+                                                    listState.scrollToItem(index)
                                                 }
                                             }
                                         },
@@ -857,7 +856,7 @@ fun ThreadViewerScreen(
                                             coroutineScope.launch {
                                                 val lastIndex = timelineItems.lastIndex
                                                 if (lastIndex >= 0) {
-                                                    listState.animateScrollToItem(maxOf(lastIndex - 2, 0))
+                                                    listState.scrollToItem(maxOf(lastIndex - 2, 0))
                                                 }
                                             }
                                         },
@@ -1414,7 +1413,7 @@ fun ThreadViewerScreen(
             }
 
             // Attachment menu overlay (floating, does not push composer)
-            AnimatedVisibility(visible = showAttachmentMenu) {
+            if (showAttachmentMenu) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()

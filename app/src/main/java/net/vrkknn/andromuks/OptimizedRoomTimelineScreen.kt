@@ -137,7 +137,6 @@ fun OptimizedRoomTimelineScreen(
         isLoading,
         appViewModel.isPaginating,
         appViewModel.timelineUpdateCounter,
-        appViewModel.bubbleAnimationCompletionCounter,
         isAttachedToBottom
     ) {
         if (isLoading || timelineItems.isEmpty()) return@LaunchedEffect
@@ -217,7 +216,7 @@ fun OptimizedRoomTimelineScreen(
         }
         
         // Auto-scroll to bottom if attached and new messages arrive
-        if (isAttachedToBottom && !appViewModel.isBubbleAnimationRunning()) {
+        if (isAttachedToBottom) {
             listState.scrollToItem(timelineItems.lastIndex)
         }
     }
@@ -253,7 +252,7 @@ fun OptimizedRoomTimelineScreen(
     // PERFORMANCE: Consolidated LaunchedEffect for keyboard handling
     LaunchedEffect(imeBottom) {
         if (imeBottom > 0.dp && isAttachedToBottom && timelineItems.isNotEmpty()) {
-            listState.animateScrollToItem(timelineItems.lastIndex)
+            listState.scrollToItem(timelineItems.lastIndex)
         }
     }
     
@@ -335,7 +334,7 @@ fun OptimizedRoomTimelineScreen(
                             }
                             if (index >= 0) {
                                 coroutineScope.launch {
-                                    listState.animateScrollToItem(index)
+                                    listState.scrollToItem(index)
                                 }
                             }
                         }

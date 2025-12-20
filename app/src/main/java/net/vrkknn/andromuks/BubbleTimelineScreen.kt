@@ -82,16 +82,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.derivedStateOf
 import kotlinx.coroutines.Dispatchers
 import androidx.compose.ui.Alignment
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.Modifier
@@ -1414,7 +1404,6 @@ fun BubbleTimelineScreen(
         isLoading,
         appViewModel.isPaginating,
         appViewModel.timelineUpdateCounter,
-        appViewModel.bubbleAnimationCompletionCounter,
         pendingNotificationJumpEventId
     ) {
         if (BuildConfig.DEBUG) Log.d(
@@ -1497,7 +1486,6 @@ fun BubbleTimelineScreen(
                     
                     // CRITICAL: Enable animations AFTER initial load and scroll complete
                     // Animations should only occur for NEW messages when room is already open
-                    appViewModel.enableAnimationsForRoom(roomId)
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: ✅ Scrolled to bottom on initial load (${timelineItems.size} items, index $targetIndex, updateCounter: ${appViewModel.timelineUpdateCounter}) - immediate scroll, animations enabled")
                 } else {
                     hasInitialSnapCompleted = true
@@ -1515,17 +1503,14 @@ fun BubbleTimelineScreen(
             return@LaunchedEffect
         }
 
-        val allAnimationsCompleted = !appViewModel.isBubbleAnimationRunning()
-
         if (
             hasNewItems &&
                 isAttachedToBottom &&
                 lastEventId != null &&
-                lastEventId != lastKnownTimelineEventId &&
-                allAnimationsCompleted
+                lastEventId != lastKnownTimelineEventId
         ) {
             coroutineScope.launch {
-                listState.animateScrollToItem(timelineItems.lastIndex)
+                listState.scrollToItem(timelineItems.lastIndex)
             }
             lastKnownTimelineEventId = lastEventId
         }
@@ -1541,14 +1526,6 @@ fun BubbleTimelineScreen(
 
     // Auto-scroll after each individual message bubble animation completes
     // This ensures we scroll after each message is rendered, not just when all animations finish
-    LaunchedEffect(appViewModel.bubbleAnimationCompletionCounter, isAttachedToBottom) {
-        if (isAttachedToBottom && timelineItems.isNotEmpty() && !isLoading && !pendingScrollRestoration) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Individual bubble animation completed, auto-scrolling to bottom")
-            coroutineScope.launch {
-                listState.animateScrollToItem(timelineItems.lastIndex)
-            }
-        }
-    }
     
     // Mark room as read when initial load completes and last message is rendered
     // CRITICAL: Only depend on hasInitialSnapCompleted and roomId - NOT timelineItems.size
@@ -1854,7 +1831,7 @@ fun BubbleTimelineScreen(
                         }
                     )
 
-                    AnimatedVisibility(appViewModel.notificationActionInProgress) {
+                    if (appViewModel.notificationActionInProgress) {
                         ExpressiveStatusRow(
                             text = "Completing notification action...",
                             modifier = Modifier
@@ -1970,7 +1947,7 @@ fun BubbleTimelineScreen(
                                                 }
                                                 if (index >= 0) {
                                                     coroutineScope.launch {
-                                                        listState.animateScrollToItem(index)
+                                                        listState.scrollToItem(index)
                                                         highlightedEventId = eventId
                                                         highlightRequestId++
                                                     }
@@ -2645,37 +2622,11 @@ fun BubbleTimelineScreen(
                 }
                 
                 // Attachment menu overlay - horizontal floating action bar above footer
-                AnimatedVisibility(
-                    visible = showAttachmentMenu,
-                    enter = slideInVertically(
-                        initialOffsetY = { it },
-                        animationSpec = spring(
-                            dampingRatio = 0.8f,
-                            stiffness = 300f
-                        )
-                    ) + expandHorizontally(
-                        expandFrom = Alignment.Start,
-                        animationSpec = spring(
-                            dampingRatio = 0.8f,
-                            stiffness = 300f
-                        )
-                    ),
-                    exit = slideOutVertically(
-                        targetOffsetY = { it },
-                        animationSpec = spring(
-                            dampingRatio = 0.9f,
-                            stiffness = 400f
-                        )
-                    ) + shrinkHorizontally(
-                        shrinkTowards = Alignment.Start,
-                        animationSpec = spring(
-                            dampingRatio = 0.9f,
-                            stiffness = 400f
-                        )
-                    ),
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .fillMaxWidth()
+                if (showAttachmentMenu) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .fillMaxWidth()
                         .graphicsLayer {
                             // Position menu right above footer (footer height = buttonHeight + 24.dp padding)
                             translationY = -with(density) { (buttonHeight + 24.dp).toPx() }
@@ -2875,6 +2826,7 @@ fun BubbleTimelineScreen(
                                 )
                             }
                         }
+                    }
                     }
                 }
                 
