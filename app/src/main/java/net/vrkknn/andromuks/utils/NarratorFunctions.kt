@@ -433,6 +433,19 @@ fun SystemEventNarrator(
                         }
                     }
                     "ban" -> {
+                        // state_key contains the banned user's ID
+                        val bannedUserId = event.stateKey
+                        // Get banned user's display name using getUserProfile
+                        val bannedProfile = bannedUserId?.let { userId ->
+                            appViewModel?.getUserProfile(userId, roomId)
+                        }
+                        val bannedDisplayName = bannedProfile?.displayName
+                        
+                        // Request profile asynchronously if not found
+                        if (bannedDisplayName == null && appViewModel != null && bannedUserId != null) {
+                            appViewModel.requestUserProfile(bannedUserId, roomId)
+                        }
+                        
                         NarratorText(
                             text = buildAnnotatedString {
                                 withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
@@ -440,16 +453,29 @@ fun SystemEventNarrator(
                                 }
                                 append(" banned ")
                                 withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                    append(targetDisplayName)
+                                    append(bannedDisplayName ?: bannedUserId ?: "Unknown")
                                 }
                                 // Safe null check for reason string (was causing compilation error)
-            if (!reason.isNullOrEmpty()) {
+                                if (!reason.isNullOrEmpty()) {
                                     append(": $reason")
                                 }
                             }
                         )
                     }
                     "kick" -> {
+                        // state_key contains the kicked user's ID
+                        val kickedUserId = event.stateKey
+                        // Get kicked user's display name using getUserProfile
+                        val kickedProfile = kickedUserId?.let { userId ->
+                            appViewModel?.getUserProfile(userId, roomId)
+                        }
+                        val kickedDisplayName = kickedProfile?.displayName
+                        
+                        // Request profile asynchronously if not found
+                        if (kickedDisplayName == null && appViewModel != null && kickedUserId != null) {
+                            appViewModel.requestUserProfile(kickedUserId, roomId)
+                        }
+                        
                         NarratorText(
                             text = buildAnnotatedString {
                                 withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
@@ -457,10 +483,10 @@ fun SystemEventNarrator(
                                 }
                                 append(" kicked ")
                                 withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                    append(targetDisplayName)
+                                    append(kickedDisplayName ?: kickedUserId ?: "Unknown")
                                 }
                                 // Safe null check for reason string (was causing compilation error)
-            if (!reason.isNullOrEmpty()) {
+                                if (!reason.isNullOrEmpty()) {
                                     append(": $reason")
                                 }
                             }

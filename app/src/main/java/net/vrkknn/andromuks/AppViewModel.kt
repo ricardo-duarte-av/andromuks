@@ -1505,6 +1505,17 @@ class AppViewModel : ViewModel() {
 
         return candidateRooms.maxByOrNull { it.sortingTimestamp ?: 0L }?.id
     }
+    
+    /**
+     * Get all DM room IDs for a user from m.direct account data
+     * Returns empty set if user is not in m.direct or has no DM rooms
+     */
+    fun getDirectRoomIdsForUser(userId: String): Set<String> {
+        if (userId.isBlank()) return emptySet()
+        
+        val normalizedUserId = if (userId.startsWith("@")) userId else "@$userId"
+        return directMessageUserMap[normalizedUserId] ?: emptySet()
+    }
 
     /**
      * Get the count of unread rooms for Favourites tab

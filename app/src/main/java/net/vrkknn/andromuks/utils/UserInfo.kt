@@ -2,18 +2,8 @@ package net.vrkknn.andromuks.utils
 
 import net.vrkknn.andromuks.BuildConfig
 import android.content.Context
-import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.RectF
-import android.graphics.Typeface
-import android.provider.ContactsContract
 import android.util.Log
 import android.widget.Toast
-import android.content.ContentValues
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
@@ -42,14 +32,7 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import net.vrkknn.andromuks.utils.AvatarUtils
-import net.vrkknn.andromuks.utils.MediaCache
-import java.io.ByteArrayOutputStream
-import java.io.File
-import java.net.URL
 
 private fun usernameFromMatrixId(userId: String): String =
     userId.removePrefix("@").substringBefore(":")
@@ -370,98 +353,35 @@ fun UserInfoScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // Get DM room IDs for this user from m.direct
+                    // Make reactive to account data and room list changes
+                    val allRooms = appViewModel.allRooms
+                    val updateCounter = appViewModel.updateCounter
+                    val dmRoomIds = remember(userId, updateCounter) {
+                        appViewModel.getDirectRoomIdsForUser(userId)
+                    }
+                    
+                    // Check if we're joined to any of these rooms
+                    // Make reactive to room list changes
+                    val joinedDmRoomId = remember(dmRoomIds, allRooms) {
+                        dmRoomIds.firstOrNull { roomId ->
+                            appViewModel.getRoomById(roomId) != null
+                        }
+                    }
+                    
+                    val isDmAvailable = joinedDmRoomId != null
+                    
                     Button(
                         onClick = {
-                            val profile = userProfileInfo
-                            if (profile != null) {
-                                coroutineScope.launch {
-                                    val matrixUri = "matrix:u/${profile.userId.removePrefix("@")}"
-                                    val avatarBytes = loadAvatarBytes(context, appViewModel, profile)
-
-                                    val data = ArrayList<ContentValues>()
-                                    val imValues = ContentValues().apply {
-                                        put(
-                                            ContactsContract.Data.MIMETYPE,
-                                            ContactsContract.CommonDataKinds.Im.CONTENT_ITEM_TYPE
-                                        )
-                                        put(
-                                            ContactsContract.CommonDataKinds.Im.DATA,
-                                            matrixUri
-                                        )
-                                        put(
-                                            ContactsContract.CommonDataKinds.Im.PROTOCOL,
-                                            ContactsContract.CommonDataKinds.Im.PROTOCOL_CUSTOM
-                                        )
-                                        put(
-                                            ContactsContract.CommonDataKinds.Im.CUSTOM_PROTOCOL,
-                                            "Matrix"
-                                        )
-                                    }
-                                    data.add(imValues)
-
-                                    val websiteValues = ContentValues().apply {
-                                        put(
-                                            ContactsContract.Data.MIMETYPE,
-                                            ContactsContract.CommonDataKinds.Website.CONTENT_ITEM_TYPE
-                                        )
-                                        put(
-                                            ContactsContract.CommonDataKinds.Website.URL,
-                                            matrixUri
-                                        )
-                                        put(
-                                            ContactsContract.CommonDataKinds.Website.TYPE,
-                                            ContactsContract.CommonDataKinds.Website.TYPE_PROFILE
-                                        )
-                                    }
-                                    data.add(websiteValues)
-
-                                    avatarBytes?.let { bytes ->
-                                        val photoValues = ContentValues().apply {
-                                            put(
-                                                ContactsContract.Data.MIMETYPE,
-                                                ContactsContract.CommonDataKinds.Photo.CONTENT_ITEM_TYPE
-                                            )
-                                            put(ContactsContract.CommonDataKinds.Photo.PHOTO, bytes)
-                                        }
-                                        data.add(photoValues)
-                                    }
-
-                                    val intent = Intent(ContactsContract.Intents.Insert.ACTION).apply {
-                                        type = ContactsContract.RawContacts.CONTENT_TYPE
-                                        putExtra(
-                                            ContactsContract.Intents.Insert.NAME,
-                                            profile.displayName ?: usernameFromMatrixId(profile.userId)
-                                        )
-                                        putExtra(
-                                            ContactsContract.Intents.Insert.NOTES,
-                                            matrixUri
-                                        )
-                                        putParcelableArrayListExtra(
-                                            ContactsContract.Intents.Insert.DATA,
-                                            data
-                                        )
-                                    }
-
-                                    try {
-                                        ContextCompat.startActivity(
-                                            context,
-                                            intent,
-                                            null
-                                        )
-                                    } catch (e: Exception) {
-                                        Log.e("Andromuks", "Unable to launch contact insert", e)
-                                        Toast.makeText(
-                                            context,
-                                            "No contacts app available to add Matrix info",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                    }
-                                }
+                            if (isDmAvailable && joinedDmRoomId != null) {
+                                val encodedRoomId = java.net.URLEncoder.encode(joinedDmRoomId, "UTF-8")
+                                navController.navigate("room_timeline/$encodedRoomId")
                             }
                         },
+                        enabled = isDmAvailable,
                         modifier = Modifier.weight(1f)
                     ) {
-                        Text("Add to Contacts")
+                        Text("Go to DM")
                     }
 
                     Button(
@@ -634,94 +554,6 @@ fun SharedRoomItem(
     }
 }
 
-private suspend fun loadAvatarBytes(
-    context: Context,
-    appViewModel: AppViewModel,
-    profile: UserProfileInfo
-): ByteArray? = withContext(Dispatchers.IO) {
-    val avatarUrl = profile.avatarUrl
-    var bitmap: Bitmap? = null
-
-    if (!avatarUrl.isNullOrBlank()) {
-        try {
-            val file = if (avatarUrl.startsWith("mxc://")) {
-                MediaCache.getCachedFile(context, avatarUrl) ?: run {
-                    val httpUrl = AvatarUtils.mxcToHttpUrl(avatarUrl, appViewModel.homeserverUrl)
-                    if (httpUrl != null) {
-                        MediaCache.downloadAndCache(
-                            context,
-                            avatarUrl,
-                            httpUrl,
-                            appViewModel.authToken
-                        )
-                    } else {
-                        null
-                    }
-                }
-            } else if (avatarUrl.startsWith("http")) {
-                downloadUrlToFile(context, avatarUrl)
-            } else {
-                null
-            }
-
-            if (file != null && file.exists()) {
-                bitmap = BitmapFactory.decodeFile(file.absolutePath)
-            }
-        } catch (e: Exception) {
-            Log.w("Andromuks", "UserInfo: Unable to load avatar for contact", e)
-        }
-    }
-
-    if (bitmap == null) {
-        bitmap = createFallbackAvatar(
-            profile.displayName ?: usernameFromMatrixId(profile.userId),
-            profile.userId
-        )
-    }
-
-    val stream = ByteArrayOutputStream()
-    bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
-    stream.toByteArray()
-}
-
-private fun downloadUrlToFile(context: Context, url: String): File? {
-    return try {
-        val fileName = "matrix_avatar_${System.currentTimeMillis()}.img"
-        val targetFile = File(context.cacheDir, fileName)
-        URL(url).openStream().use { input ->
-            targetFile.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-        targetFile
-    } catch (e: Exception) {
-        Log.w("Andromuks", "UserInfo: Failed to download avatar from $url", e)
-        null
-    }
-}
-
-private fun createFallbackAvatar(displayName: String?, userId: String): Bitmap {
-    val size = 256
-    val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-    val canvas = Canvas(bitmap)
-
-    val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#${AvatarUtils.getUserColor(userId)}")
-    }
-    canvas.drawRect(RectF(0f, 0f, size.toFloat(), size.toFloat()), backgroundPaint)
-
-    val letter = AvatarUtils.getFallbackCharacter(displayName, userId).ifBlank { "?" }
-    val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textAlign = Paint.Align.CENTER
-        textSize = size * 0.5f
-        typeface = Typeface.DEFAULT_BOLD
-    }
-    val baseline = size / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
-    canvas.drawText(letter, size / 2f, baseline, textPaint)
-
-    return bitmap
-}
 
 /**
  * Dialog to display device list and encryption info
