@@ -356,7 +356,7 @@ fun RoomListScreen(
                 }
                 if (!effectiveInitialSyncComplete && effectiveProfileLoaded && !shouldBlockForPending && effectiveSpacesLoaded) {
                     val progressText = if (uiState.pendingSyncCompleteCount > 0) {
-                        "${uiState.processedSyncCompleteCount} / ${uiState.pendingSyncCompleteCount} messages"
+                        "${uiState.processedSyncCompleteCount} / ${uiState.pendingSyncCompleteCount} sync_complete messages"
                     } else {
                         "Loading rooms..."
                     }

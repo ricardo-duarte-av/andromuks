@@ -280,15 +280,28 @@ class AppViewModel : ViewModel() {
 
     fun topLevelSpacesFlow(): Flow<List<SpaceItem>> {
         val db = dbOrNull() ?: return flowOf(emptyList())
-        return db.spaceDao().getAllSpacesFlow().map { spaces ->
-            spaces.map { space ->
-                SpaceItem(
-                    id = space.spaceId,
-                    name = space.name ?: space.spaceId,
-                    avatarUrl = space.avatarUrl,
-                    rooms = emptyList()
-                )
-            }
+        return combine(
+            db.spaceDao().getAllSpacesFlow(),
+            db.spaceRoomDao().getAllRoomsForAllSpacesFlow()
+        ) { spaces, spaceRooms ->
+            // Get all space IDs that appear as children (these are subspaces)
+            val allSpaceIds = spaces.map { it.spaceId }.toSet()
+            val childSpaceIds = spaceRooms
+                .map { it.childId }
+                .filter { it in allSpaceIds } // Only consider children that are themselves spaces
+                .toSet()
+            
+            // Filter out subspaces - only show top-level spaces (spaces that are NOT children of other spaces)
+            spaces
+                .filter { it.spaceId !in childSpaceIds }
+                .map { space ->
+                    SpaceItem(
+                        id = space.spaceId,
+                        name = space.name ?: space.spaceId,
+                        avatarUrl = space.avatarUrl,
+                        rooms = emptyList()
+                    )
+                }
         }
     }
 
