@@ -292,8 +292,10 @@ class AppViewModel : ViewModel() {
                 .toSet()
             
             // Filter out subspaces - only show top-level spaces (spaces that are NOT children of other spaces)
+            // Sort by order field to preserve backend order from top_level_spaces array
             spaces
                 .filter { it.spaceId !in childSpaceIds }
+                .sortedBy { it.order }
                 .map { space ->
                     SpaceItem(
                         id = space.spaceId,

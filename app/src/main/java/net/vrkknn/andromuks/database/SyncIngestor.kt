@@ -947,6 +947,7 @@ class SyncIngestor(private val context: Context) {
                         spaceId = roomId,
                         name = meta.optString("name").takeIf { n -> n.isNotBlank() },
                         avatarUrl = meta.optString("avatar").takeIf { a -> a.isNotBlank() },
+                        order = Int.MAX_VALUE, // Spaces detected from creation_content (not in top_level_spaces) go to the end
                         updatedAt = System.currentTimeMillis()
                     )
                     try {
@@ -2117,6 +2118,7 @@ class SyncIngestor(private val context: Context) {
                             spaceId = spaceId,
                             name = meta?.optString("name")?.takeIf { it.isNotBlank() },
                             avatarUrl = meta?.optString("avatar")?.takeIf { it.isNotBlank() },
+                            order = i, // Preserve order from top_level_spaces array
                             updatedAt = System.currentTimeMillis()
                         )
                         spaces.add(space)
