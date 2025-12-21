@@ -53,7 +53,7 @@ import net.vrkknn.andromuks.database.entities.UnprocessedEventEntity
         RoomListSummaryEntity::class,
         UnprocessedEventEntity::class
     ],
-    version = 16,
+    version = 17,
     exportSchema = false
 )
 abstract class AndromuksDatabase : RoomDatabase() {

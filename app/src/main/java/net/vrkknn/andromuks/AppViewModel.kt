@@ -293,17 +293,32 @@ class AppViewModel : ViewModel() {
             
             // Filter out subspaces - only show top-level spaces (spaces that are NOT children of other spaces)
             // Sort by order field to preserve backend order from top_level_spaces array
-            spaces
-                .filter { it.spaceId !in childSpaceIds }
-                .sortedBy { it.order }
-                .map { space ->
-                    SpaceItem(
-                        id = space.spaceId,
-                        name = space.name ?: space.spaceId,
-                        avatarUrl = space.avatarUrl,
-                        rooms = emptyList()
-                    )
+            val filteredSpaces = spaces.filter { it.spaceId !in childSpaceIds }
+            val sortedSpaces = filteredSpaces.sortedWith(compareBy({ it.order }, { it.spaceId })) // Primary: order, Secondary: spaceId for ties
+            
+            if (BuildConfig.DEBUG && sortedSpaces.isNotEmpty()) {
+                // Debug: Log first few spaces with their order to verify ordering
+                android.util.Log.d("Andromuks", "topLevelSpacesFlow: Displaying ${sortedSpaces.size} spaces (filtered from ${spaces.size} total)")
+                sortedSpaces.take(10).forEach { space ->
+                    android.util.Log.d("Andromuks", "topLevelSpacesFlow: order=${space.order} -> ${space.spaceId} (${space.name})")
                 }
+                // Also log the last few to see the full range
+                if (sortedSpaces.size > 10) {
+                    android.util.Log.d("Andromuks", "... (${sortedSpaces.size - 10} more spaces) ...")
+                    sortedSpaces.takeLast(5).forEach { space ->
+                        android.util.Log.d("Andromuks", "topLevelSpacesFlow: order=${space.order} -> ${space.spaceId} (${space.name})")
+                    }
+                }
+            }
+            
+            sortedSpaces.map { space ->
+                SpaceItem(
+                    id = space.spaceId,
+                    name = space.name ?: space.spaceId,
+                    avatarUrl = space.avatarUrl,
+                    rooms = emptyList()
+                )
+            }
         }
     }
 

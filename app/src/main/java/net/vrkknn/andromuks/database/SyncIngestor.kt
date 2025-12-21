@@ -943,15 +943,41 @@ class SyncIngestor(private val context: Context) {
                 ?.optString("type")
                 ?.takeIf { it == "m.space" }
                 ?.let {
+                    // CRITICAL: Check if space already exists - if it does, preserve its order (from top_level_spaces)
+                    // Only set order=Int.MAX_VALUE if this is a new space not in top_level_spaces
+                    val existingSpace = try {
+                        spaceDao.getSpace(roomId)
+                    } catch (e: Exception) {
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "processRoom: Space $roomId not found in DB (new space or error: ${e.message})")
+                        }
+                        null
+                    }
+                    
+                    // If space exists and has a valid order (not Int.MAX_VALUE), NEVER overwrite it
+                    // This ensures spaces from top_level_spaces keep their correct order
+                    if (existingSpace != null && existingSpace.order != Int.MAX_VALUE) {
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "processRoom: Space $roomId already has valid order=${existingSpace.order} from top_level_spaces, skipping creation_content detection")
+                        }
+                        // Don't overwrite - space already has correct order from top_level_spaces
+                        return@let
+                    }
+                    
+                    val orderToUse = existingSpace?.order ?: Int.MAX_VALUE // Use existing order or MAX_VALUE for new spaces
+                    
                     val space = SpaceEntity(
                         spaceId = roomId,
                         name = meta.optString("name").takeIf { n -> n.isNotBlank() },
                         avatarUrl = meta.optString("avatar").takeIf { a -> a.isNotBlank() },
-                        order = Int.MAX_VALUE, // Spaces detected from creation_content (not in top_level_spaces) go to the end
+                        order = orderToUse, // Preserve order from top_level_spaces if space already exists
                         updatedAt = System.currentTimeMillis()
                     )
                     try {
                         spaceDao.upsert(space)
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "processRoom: Upserted space $roomId with order=${space.order}")
+                        }
                     } catch (e: Exception) {
                         Log.w(TAG, "Failed to persist space entity for $roomId: ${e.message}")
                     }
@@ -2103,7 +2129,13 @@ class SyncIngestor(private val context: Context) {
         try {
             // Process top_level_spaces (complete replacement)
             val topLevelSpaces = data.optJSONArray("top_level_spaces")
+            // ALWAYS log (not just DEBUG) to diagnose the issue
             if (topLevelSpaces != null) {
+                Log.i(TAG, "processSpaces: Found top_level_spaces array with ${topLevelSpaces.length()} spaces")
+            } else {
+                Log.i(TAG, "processSpaces: No top_level_spaces array in sync_complete")
+            }
+            if (topLevelSpaces != null && topLevelSpaces.length() > 0) {
                 val spaces = mutableListOf<SpaceEntity>()
                 val roomsJson = data.optJSONObject("rooms")
                 
@@ -2134,7 +2166,20 @@ class SyncIngestor(private val context: Context) {
                     // Also clear all space-room relationships since spaces are being replaced
                     spaceRoomDao.deleteAllSpaceRooms()
                 }
-                if (BuildConfig.DEBUG) Log.d(TAG, "Replaced all spaces with ${spaces.size} spaces from top_level_spaces")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Replaced all spaces with ${spaces.size} spaces from top_level_spaces")
+                    // Debug: Log first few spaces with their order to verify ordering
+                    spaces.take(10).forEach { space ->
+                        Log.d(TAG, "SyncIngestor: Saved space order=${space.order} -> ${space.spaceId} (${space.name})")
+                    }
+                    // Also log the last few to see the full range
+                    if (spaces.size > 10) {
+                        Log.d(TAG, "... (${spaces.size - 10} more spaces) ...")
+                        spaces.takeLast(5).forEach { space ->
+                            Log.d(TAG, "SyncIngestor: Saved space order=${space.order} -> ${space.spaceId} (${space.name})")
+                        }
+                    }
+                }
             }
             
             // Process space_edges (complete replacement per space)

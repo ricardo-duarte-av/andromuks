@@ -15,10 +15,10 @@ interface SpaceDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(spaces: List<SpaceEntity>)
 
-    @Query("SELECT * FROM spaces")
+    @Query("SELECT * FROM spaces ORDER BY display_order ASC")
     suspend fun getAllSpaces(): List<SpaceEntity>
 
-    @Query("SELECT * FROM spaces")
+    @Query("SELECT * FROM spaces ORDER BY display_order ASC")
     fun getAllSpacesFlow(): Flow<List<SpaceEntity>>
 
     @Query("SELECT * FROM spaces WHERE spaceId = :spaceId")
