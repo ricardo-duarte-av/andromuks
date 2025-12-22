@@ -5976,6 +5976,8 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setCurrentRoomIdForTimeline called for room: $roomId (current: $currentRoomId)")
         if (currentRoomId != roomId) {
             updateCurrentRoomIdInPrefs(roomId)
+            // Set current room in cache (unlimited events allowed for currently opened room)
+            RoomTimelineCache.setCurrentRoom(roomId)
         }
     }
     
@@ -5997,6 +5999,8 @@ class AppViewModel : ViewModel() {
                 saveToLruCache(currentRoomId)
             }
             clearTimelineCache()
+            // Clear current room in cache (will enforce limits on previously opened room)
+            RoomTimelineCache.setCurrentRoom(null)
         }
         updateCurrentRoomIdInPrefs("")
     }
@@ -10000,6 +10004,8 @@ class AppViewModel : ViewModel() {
     // OPTIMIZATION #4: Cache-first navigation method
     fun navigateToRoomWithCache(roomId: String, notificationTimestamp: Long? = null) {
         updateCurrentRoomIdInPrefs(roomId)
+        // Set current room in cache (unlimited events allowed for currently opened room)
+        RoomTimelineCache.setCurrentRoom(roomId)
         
         // CRITICAL FIX: Always load from DB and hydrate RAM cache BEFORE processing events
         // This ensures we always have the latest events from DB before rendering
