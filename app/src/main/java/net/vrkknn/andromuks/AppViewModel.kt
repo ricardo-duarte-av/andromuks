@@ -153,8 +153,13 @@ class AppViewModel : ViewModel() {
         // This helps catch any events that SyncIngestor might have missed
         // Can be tweaked as needed (default: 20 events)
         // To change: AppViewModel.INITIAL_ROOM_PAGINATE_LIMIT = <new_value>
+        // 
+        // DISABLED: Set to 0 to disable auto-paginate request after loading from cache.
+        // When disabled, the app will only show cached events and won't automatically
+        // request fresh data from the server in the background when opening a room.
+        // To re-enable: set this value to a positive number (e.g., 20)
         @JvmStatic
-        var INITIAL_ROOM_PAGINATE_LIMIT = 20
+        var INITIAL_ROOM_PAGINATE_LIMIT = 0
         
         // FCM registration debounce window to prevent duplicate registrations
         private const val FCM_REGISTRATION_DEBOUNCE_MS = 5000L // 5 seconds debounce window
