@@ -1267,11 +1267,51 @@ fun RoomTimelineScreen(
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
     
+    // Track scroll position using event ID anchor (more robust than index)
+    var anchorEventIdForRestore by remember { mutableStateOf<String?>(null) }
+    var anchorScrollOffsetForRestore by remember { mutableStateOf(0) }
+    var pendingScrollRestoration by remember { mutableStateOf(false) }
+    var expectedTimelineSizeAfterLoad by remember { mutableStateOf<Int?>(null) }
+    
     // Pull-to-refresh state
     var isRefreshingPull by remember { mutableStateOf(false) }
     val pullRefreshState = rememberPullRefreshState(
         refreshing = isRefreshingPull,
         onRefresh = {
+            // Capture current scroll position before pagination
+            // This ensures new events appear above the current viewport
+            val firstVisibleInfo = listState.layoutInfo.visibleItemsInfo
+                .sortedBy { it.index }
+                .firstOrNull { info ->
+                    val item = timelineItems.getOrNull(info.index)
+                    item is TimelineItem.Event
+                }
+            val eventItem = firstVisibleInfo?.let { info ->
+                timelineItems.getOrNull(info.index) as? TimelineItem.Event
+            }
+            
+            if (eventItem != null) {
+                // Set up scroll restoration to maintain viewport position
+                anchorEventIdForRestore = eventItem.event.eventId
+                anchorScrollOffsetForRestore = firstVisibleInfo?.offset ?: listState.firstVisibleItemScrollOffset
+                pendingScrollRestoration = true
+                expectedTimelineSizeAfterLoad = timelineItems.size
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Pull-to-refresh triggered, capturing anchor event: ${anchorEventIdForRestore} at offset ${anchorScrollOffsetForRestore}"
+                )
+            } else {
+                // Fallback: use first visible item index if no event found
+                anchorEventIdForRestore = null
+                anchorScrollOffsetForRestore = listState.firstVisibleItemScrollOffset
+                pendingScrollRestoration = true
+                expectedTimelineSizeAfterLoad = timelineItems.size
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Pull-to-refresh triggered, no anchor event found, using scroll offset: ${anchorScrollOffsetForRestore}"
+                )
+            }
+            
             // Use the oldest event from cache/database, not the oldest rendered event
             // The cache may have events that aren't currently rendered, so we need to use
             // the absolute oldest event to avoid requesting duplicates
@@ -1282,8 +1322,10 @@ fun RoomTimelineScreen(
     )
     
     // Monitor pagination state to stop refresh indicator
+    // Note: Refresh indicator is now cleared in scroll restoration LaunchedEffect
+    // This is kept as a fallback in case scroll restoration doesn't trigger
     LaunchedEffect(appViewModel.isPaginating) {
-        if (!appViewModel.isPaginating && isRefreshingPull) {
+        if (!appViewModel.isPaginating && isRefreshingPull && !pendingScrollRestoration) {
             isRefreshingPull = false
         }
     }
@@ -1304,12 +1346,6 @@ fun RoomTimelineScreen(
     var hasCompletedInitialLayout by remember { mutableStateOf(false) }
     var pendingInitialScroll by remember { mutableStateOf(true) }
     var hasMarkedAsRead by remember(roomId) { mutableStateOf(false) }
-    
-    // Track scroll position using event ID anchor (more robust than index)
-    var anchorEventIdForRestore by remember { mutableStateOf<String?>(null) }
-    var anchorScrollOffsetForRestore by remember { mutableStateOf(0) }
-    var pendingScrollRestoration by remember { mutableStateOf(false) }
-    var expectedTimelineSizeAfterLoad by remember { mutableStateOf<Int?>(null) }
 
     // Monitor scroll position to detect if user is at bottom or has detached
     // Also trigger automatic pagination when near the top
@@ -1398,9 +1434,11 @@ fun RoomTimelineScreen(
     }
 
     // Detect when pagination completes and trigger scroll restoration
-    LaunchedEffect(timelineItems.size) {
-        // When pagination finishes and we have an anchor event to restore to
-        if (!appViewModel.isPaginating && pendingScrollRestoration && anchorEventIdForRestore != null) {
+    LaunchedEffect(timelineItems.size, appViewModel.isPaginating) {
+        // When pagination finishes and we have scroll restoration pending
+        if (!appViewModel.isPaginating && pendingScrollRestoration) {
+            if (anchorEventIdForRestore != null) {
+                // Restore to anchor event (preferred method - more accurate)
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Pagination completed, restoring scroll to anchor event: $anchorEventIdForRestore")
             
             // Find the index of the anchor event in the new list
@@ -1421,13 +1459,28 @@ fun RoomTimelineScreen(
                 listState.scrollToItem(targetIndex, anchorScrollOffsetForRestore)
                 if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: ✅ Scroll position restored to event at index $targetIndex")
             } else {
-                Log.w("Andromuks", "RoomTimelineScreen: ⚠️ Could not find anchor event $anchorEventIdForRestore in new timeline")
+                    Log.w("Andromuks", "RoomTimelineScreen: ⚠️ Could not find anchor event $anchorEventIdForRestore in new timeline, falling back to scroll offset")
+                    // Fallback: try to maintain scroll position using offset
+                    val currentFirstIndex = listState.firstVisibleItemIndex
+                    if (currentFirstIndex >= 0 && currentFirstIndex < timelineItems.size) {
+                        listState.scrollToItem(currentFirstIndex, anchorScrollOffsetForRestore)
+                    }
+                }
+            } else {
+                // Fallback: restore using scroll offset (when no anchor event was captured)
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Pagination completed, restoring scroll using offset: $anchorScrollOffsetForRestore")
+                val currentFirstIndex = listState.firstVisibleItemIndex
+                if (currentFirstIndex >= 0 && currentFirstIndex < timelineItems.size) {
+                    listState.scrollToItem(currentFirstIndex, anchorScrollOffsetForRestore)
+                }
             }
             
             // Clear restoration state
             pendingScrollRestoration = false
             anchorEventIdForRestore = null
+            anchorScrollOffsetForRestore = 0
             expectedTimelineSizeAfterLoad = null
+            isRefreshingPull = false
         }
     }
     
@@ -2088,22 +2141,22 @@ fun RoomTimelineScreen(
                             }
                         } else {
                             Box(modifier = Modifier.fillMaxSize()) {
-                                LazyColumn(
+                            LazyColumn(
                                     modifier = Modifier
                                         .fillMaxSize()
                                         .pullRefresh(pullRefreshState),
-                                    state = listState,
-                                    // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                        start = 8.dp,
-                                        end = 0.dp,
-                                        top = 8.dp,
-                                        bottom = 120.dp // Extra padding at bottom for better scroll performance
-                                    ),
-                                    // PERFORMANCE: Enable smooth scrolling optimizations
-                                    userScrollEnabled = true
-                                ) {
-                                    // Show loading indicator at the top when paginating
+                                state = listState,
+                            // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                start = 8.dp,
+                                end = 0.dp,
+                                top = 8.dp,
+                                bottom = 120.dp // Extra padding at bottom for better scroll performance
+                            ),
+                            // PERFORMANCE: Enable smooth scrolling optimizations
+                            userScrollEnabled = true
+                        ) {
+                            // Show loading indicator at the top when paginating
                             if (appViewModel.isPaginating) {
                                 item(key = "loading_indicator") {
                                     Box(

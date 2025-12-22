@@ -14552,13 +14552,13 @@ class AppViewModel : ViewModel() {
                 
                 // Use the timelineRowId directly as max_timeline_id (NOT rowid!)
                 // The backend expects timelineRowId (which can be negative)
-                // When max_timeline_id is negative, backend returns events with MORE negative timeline_rowid (older events)
-                // We subtract 1 to ensure we get events older than what we have
-                val maxTimelineId = oldestTimelineRowId - 1
+                // The backend handles the logic to return events older than this timelineRowId
+                // (timelineRowIds are not consecutive, so backend does the math for us)
+                val maxTimelineId = oldestTimelineRowId
                 
                 if (BuildConfig.DEBUG) android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Requesting pagination for $roomId with oldest timelineRowId=$oldestTimelineRowId (from DB), max_timeline_id=$maxTimelineId, limit=$limit"
+                    "AppViewModel: Requesting pagination for $roomId with oldest timelineRowId=$oldestTimelineRowId, max_timeline_id=$maxTimelineId, limit=$limit"
                 )
                 
                 val paginateRequestId = requestIdCounter++
@@ -14633,13 +14633,13 @@ class AppViewModel : ViewModel() {
                 
                 val maxTimelineRowId = eventEntity.timelineRowId
                 
-                // Subtract 1 to ensure we get events older than what we have
-                // This prevents getting duplicate events that are exactly at the boundary
-                val maxTimelineId = maxTimelineRowId - 1
+                // Use the timelineRowId directly - backend handles the logic to return events older than this
+                // (timelineRowIds are not consecutive, so backend does the math for us)
+                val maxTimelineId = maxTimelineRowId
                 
                 if (BuildConfig.DEBUG) android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Requesting pagination for $roomId with eventId=$maxTimelineEventId, timelineRowId=$maxTimelineRowId (from DB), max_timeline_id=$maxTimelineId, limit=$limit"
+                    "AppViewModel: Requesting pagination for $roomId with eventId=$maxTimelineEventId, timelineRowId=$maxTimelineRowId, max_timeline_id=$maxTimelineId, limit=$limit"
                 )
                 
                 val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
