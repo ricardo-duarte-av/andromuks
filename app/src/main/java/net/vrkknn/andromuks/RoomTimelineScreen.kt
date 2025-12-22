@@ -41,6 +41,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.collectAsState
@@ -371,7 +375,7 @@ fun DateDivider(date: String) {
 
 // NOTE: Keep this screen in sync with `BubbleTimelineScreen`. Any structural or data-flow changes
 // should be mirrored between both implementations. Refer to `docs/BUBBLE_IMPLEMENTATION.md`.
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
 fun RoomTimelineScreen(
     roomId: String,
@@ -1262,6 +1266,27 @@ fun RoomTimelineScreen(
 
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
+    
+    // Pull-to-refresh state
+    var isRefreshingPull by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = isRefreshingPull,
+        onRefresh = {
+            // Use the oldest event from cache/database, not the oldest rendered event
+            // The cache may have events that aren't currently rendered, so we need to use
+            // the absolute oldest event to avoid requesting duplicates
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Pull-to-refresh triggered, requesting pagination with oldest event from cache/database")
+            isRefreshingPull = true
+            appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
+        }
+    )
+    
+    // Monitor pagination state to stop refresh indicator
+    LaunchedEffect(appViewModel.isPaginating) {
+        if (!appViewModel.isPaginating && isRefreshingPull) {
+            isRefreshingPull = false
+        }
+    }
 
     // Track if user is "attached" to the bottom (sticky scroll)
     var isAttachedToBottom by remember { mutableStateOf(true) }
@@ -2062,20 +2087,23 @@ fun RoomTimelineScreen(
                                 }
                             }
                         } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                state = listState,
-                            // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                start = 8.dp,
-                                end = 0.dp,
-                                top = 8.dp,
-                                bottom = 120.dp // Extra padding at bottom for better scroll performance
-                            ),
-                            // PERFORMANCE: Enable smooth scrolling optimizations
-                            userScrollEnabled = true
-                        ) {
-                            // Show loading indicator at the top when paginating
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .pullRefresh(pullRefreshState),
+                                    state = listState,
+                                    // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                        start = 8.dp,
+                                        end = 0.dp,
+                                        top = 8.dp,
+                                        bottom = 120.dp // Extra padding at bottom for better scroll performance
+                                    ),
+                                    // PERFORMANCE: Enable smooth scrolling optimizations
+                                    userScrollEnabled = true
+                                ) {
+                                    // Show loading indicator at the top when paginating
                             if (appViewModel.isPaginating) {
                                 item(key = "loading_indicator") {
                                     Box(
@@ -2225,6 +2253,14 @@ fun RoomTimelineScreen(
                                     }
                                 }
                             }
+                        }
+                            
+                            // Pull-to-refresh indicator (outside LazyColumn, inside Box)
+                            PullRefreshIndicator(
+                                refreshing = isRefreshingPull,
+                                state = pullRefreshState,
+                                modifier = Modifier.align(Alignment.TopCenter)
+                            )
                         }
                     }
                     }

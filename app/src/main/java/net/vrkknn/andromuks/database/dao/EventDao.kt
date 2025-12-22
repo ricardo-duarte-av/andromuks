@@ -98,6 +98,19 @@ interface EventDao {
     @Query("SELECT * FROM events WHERE roomId = :roomId AND eventId = :eventId LIMIT 1")
     suspend fun getEventById(roomId: String, eventId: String): EventEntity?
     
+    /**
+     * Get the event with the smallest timelineRowId for a room (can be negative).
+     * Used for pagination to find the oldest event in the timeline.
+     * Note: timelineRowId can be negative for state events or events from certain syncs.
+     */
+    @Query("""
+        SELECT * FROM events 
+        WHERE roomId = :roomId 
+        ORDER BY timelineRowId ASC, timestamp ASC 
+        LIMIT 1
+    """)
+    suspend fun getOldestEventByTimelineRowId(roomId: String): EventEntity?
+    
     @Query("SELECT * FROM events WHERE roomId = :roomId AND relatesToEventId = :relatesToEventId ORDER BY timestamp ASC")
     suspend fun getEventsByRelatesTo(roomId: String, relatesToEventId: String): List<EventEntity>
 

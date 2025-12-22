@@ -1045,7 +1045,8 @@ class SyncIngestor(private val context: Context) {
             val events = mutableListOf<EventPersistCandidate>()
             for (i in 0 until timeline.length()) {
                 val timelineEntry = timeline.optJSONObject(i) ?: continue
-                val rowid = timelineEntry.optLong("rowid", -1)
+                // CRITICAL: Only use timeline_rowid, never rowid (rowid is for backend debugging only)
+                val timelineRowid = timelineEntry.optLong("timeline_rowid", -1)
                 val eventJson = timelineEntry.optJSONObject("event") ?: continue
                 
                 collectReactionPersistenceFromEvent(roomId, eventJson, reactionUpserts, reactionDeletes)
@@ -1059,7 +1060,7 @@ class SyncIngestor(private val context: Context) {
                     parseEventFromJson(
                         roomId = roomId,
                         eventJson = eventJson,
-                        timelineRowid = rowid,
+                        timelineRowid = timelineRowid,
                         source = sourceLabel,
                         existingTimelineRowCache = existingTimelineRowCache
                     )
@@ -1567,14 +1568,17 @@ class SyncIngestor(private val context: Context) {
         }
         val decryptedType = eventJson.optString("decrypted_type")
         
+        // CRITICAL: Only use timeline_rowid, never rowid (rowid is for backend debugging only)
+        // timeline_rowid can be negative (for state events or certain syncs), so we accept any value
         var resolvedTimelineRowId = when {
-            timelineRowid > 0 -> timelineRowid
-            eventJson.has("timeline_row_id") -> eventJson.optLong("timeline_row_id").takeIf { it > 0 }
-            eventJson.has("rowid") -> eventJson.optLong("rowid").takeIf { it > 0 }
-            else -> null
-        } ?: -1L
+            timelineRowid != -1L -> timelineRowid  // Use parameter if provided (can be negative)
+            eventJson.has("timeline_row_id") -> eventJson.optLong("timeline_row_id")  // Can be negative
+            else -> -1L
+        }
         
-        if (resolvedTimelineRowId <= 0) {
+        // Only preserve from cache/database if we didn't get a valid timeline_rowid (i.e., it's -1)
+        // Negative values are valid timeline_rowid values, so we should NOT override them
+        if (resolvedTimelineRowId == -1L) {
             val cachedValue = existingTimelineRowCache[eventId]
             val preservedRowId = if (cachedValue != null) {
                 cachedValue
@@ -1583,7 +1587,8 @@ class SyncIngestor(private val context: Context) {
                 existingTimelineRowCache[eventId] = existing?.timelineRowId
                 existing?.timelineRowId
             }
-            if (preservedRowId != null && preservedRowId > 0) {
+            if (preservedRowId != null) {
+                // Accept preserved value even if negative (negative values are valid)
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         TAG,
@@ -2035,12 +2040,16 @@ class SyncIngestor(private val context: Context) {
             return null
         }
         
-        var resolvedTimelineRowId = when {
-            event.timelineRowid > 0 -> event.timelineRowid
-            event.rowid > 0 -> event.rowid
-            else -> -1L
+        // CRITICAL: Only use timelineRowid, never rowid (rowid is for backend debugging only)
+        // timelineRowid can be negative (for state events or certain syncs), so we accept any value
+        var resolvedTimelineRowId = if (event.timelineRowid != 0L) {
+            event.timelineRowid  // Can be negative
+        } else {
+            -1L
         }
-        if (resolvedTimelineRowId <= 0) {
+        // Only preserve from cache/database if we didn't get a valid timelineRowid (i.e., it's -1)
+        // Negative values are valid timelineRowid values, so we should NOT override them
+        if (resolvedTimelineRowId == -1L) {
             val cachedValue = existingTimelineRowCache[eventId]
             val preservedRowId = if (cachedValue != null) {
                 cachedValue
@@ -2049,7 +2058,8 @@ class SyncIngestor(private val context: Context) {
                 existingTimelineRowCache[eventId] = existing?.timelineRowId
                 existing?.timelineRowId
             }
-            if (preservedRowId != null && preservedRowId > 0) {
+            if (preservedRowId != null) {
+                // Accept preserved value even if negative (negative values are valid)
                 if (BuildConfig.DEBUG) {
                     Log.d(
                         TAG,

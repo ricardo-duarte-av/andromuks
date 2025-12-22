@@ -39,6 +39,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.ExperimentalMaterialApi
+import androidx.compose.material.pullrefresh.PullRefreshIndicator
+import androidx.compose.material.pullrefresh.pullRefresh
+import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.collectAsState
@@ -360,7 +364,7 @@ fun BubbleDateDivider(date: String) {
 
 // NOTE: Keep this screen in sync with `RoomTimelineScreen`. Any structural or data-flow changes
 // should be mirrored in both places. See `docs/BUBBLE_IMPLEMENTATION.md` for architectural details.
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
 fun BubbleTimelineScreen(
     roomId: String,
@@ -1232,6 +1236,30 @@ fun BubbleTimelineScreen(
 
     // List state and auto-scroll to bottom when data loads/changes
     val listState = rememberLazyListState()
+    
+    // Pull-to-refresh state
+    var isRefreshingPull by remember { mutableStateOf(false) }
+    val pullRefreshState = rememberPullRefreshState(
+        refreshing = isRefreshingPull,
+        onRefresh = {
+            // Use the smallest row ID from the cache instead of the displayed event
+            // This ensures we get events older than what we have, not just older than what's displayed
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Pull-to-refresh triggered, requesting pagination with smallest row ID from cache")
+            isRefreshingPull = true
+            // Use the oldest event from cache/database, not the oldest rendered event
+            // The cache may have events that aren't currently rendered, so we need to use
+            // the absolute oldest event to avoid requesting duplicates
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Pull-to-refresh triggered, requesting pagination with oldest event from cache/database")
+            appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
+        }
+    )
+    
+    // Monitor pagination state to stop refresh indicator
+    LaunchedEffect(appViewModel.isPaginating) {
+        if (!appViewModel.isPaginating && isRefreshingPull) {
+            isRefreshingPull = false
+        }
+    }
 
     // Track if user is "attached" to the bottom (sticky scroll)
     var isAttachedToBottom by remember { mutableStateOf(true) }
@@ -1882,19 +1910,22 @@ fun BubbleTimelineScreen(
                                 }
                             }
                         } else {
-                            LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                state = listState,
-                            // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                start = 8.dp,
-                                end = 0.dp,
-                                top = 8.dp,
-                                bottom = 120.dp // Extra padding at bottom for better scroll performance
-                            ),
-                            // PERFORMANCE: Enable smooth scrolling optimizations
-                            userScrollEnabled = true
-                        ) {
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                LazyColumn(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .pullRefresh(pullRefreshState),
+                                    state = listState,
+                                    // PERFORMANCE: Optimize for timeline rendering with proper padding and settings
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                        start = 8.dp,
+                                        end = 0.dp,
+                                        top = 8.dp,
+                                        bottom = 120.dp // Extra padding at bottom for better scroll performance
+                                    ),
+                                    // PERFORMANCE: Enable smooth scrolling optimizations
+                                    userScrollEnabled = true
+                                ) {
                             // Show loading indicator at the top when paginating
                             if (appViewModel.isPaginating) {
                                 item(key = "loading_indicator") {
@@ -2014,6 +2045,14 @@ fun BubbleTimelineScreen(
                                     }
                                 }
                             }
+                        }
+                            
+                            // Pull-to-refresh indicator (outside LazyColumn, inside Box)
+                            PullRefreshIndicator(
+                                refreshing = isRefreshingPull,
+                                state = pullRefreshState,
+                                modifier = Modifier.align(Alignment.TopCenter)
+                            )
                         }
                     }
                     }

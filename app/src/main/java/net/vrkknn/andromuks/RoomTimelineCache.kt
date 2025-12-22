@@ -20,13 +20,15 @@ import net.vrkknn.andromuks.BuildConfig
  */
 object RoomTimelineCache {
     private const val TAG = "RoomTimelineCache"
-    private const val MAX_EVENTS_PER_ROOM = 5000 // Keep a generous amount of events per room in RAM
+    // No limit on events per room - all events are kept in cache
+    // LRU eviction based on room access times handles memory management
     private const val TARGET_EVENTS_FOR_INSTANT_RENDER = 50 // Minimum events to skip paginate
     private const val MAX_ROOMS_IN_CACHE = 30 // Limit number of rooms kept in RAM at once
     
     private data class RoomCache(
         val events: MutableList<TimelineEvent> = mutableListOf(),
-        val eventIds: MutableSet<String> = mutableSetOf()
+        val eventIds: MutableSet<String> = mutableSetOf(),
+        var lastAccessedAt: Long = System.currentTimeMillis()
     )
 
     // Per-room cache: roomId -> RoomCache
@@ -54,6 +56,8 @@ object RoomTimelineCache {
         if (incomingEvents.isEmpty()) return 0
 
         val cache = roomEventsCache.getOrPut(roomId) { RoomCache() }
+        // Update access time when events are added (for LRU eviction)
+        cache.lastAccessedAt = System.currentTimeMillis()
 
         var addedCount = 0
         for (event in incomingEvents) {
@@ -74,6 +78,8 @@ object RoomTimelineCache {
         }
 
         // Ensure deterministic ordering: primary by timeline_rowid (ascending), fallback to timestamp, then eventId
+        // Note: timelineRowid can be negative, and negative numbers are naturally smaller than positive ones
+        // So we can just compare timelineRowid directly - no need for special handling
         // CRASH FIX: Defensive null checks in sort lambda (handles edge cases where nulls might sneak in)
         cache.events.sortWith { a, b ->
             // CRASH FIX: Defensive null checks in sort lambda
@@ -83,25 +89,20 @@ object RoomTimelineCache {
                 return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
             }
             
-            when {
-                a.timelineRowid > 0 && b.timelineRowid > 0 -> a.timelineRowid.compareTo(b.timelineRowid)
-                a.timelineRowid > 0 -> -1
-                b.timelineRowid > 0 -> 1
-                else -> {
-                    val tsCompare = a.timestamp.compareTo(b.timestamp)
-                    if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
-                }
+            // Sort by timelineRowid first (negative numbers are naturally smaller)
+            val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
+            if (rowIdCompare != 0) {
+                rowIdCompare
+            } else {
+                // If timelineRowid is the same, fallback to timestamp, then eventId
+                val tsCompare = a.timestamp.compareTo(b.timestamp)
+                if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
             }
         }
 
-        // Trim to max size (keep newest events)
-        if (cache.events.size > MAX_EVENTS_PER_ROOM) {
-            val toRemove = cache.events.size - MAX_EVENTS_PER_ROOM
-            if (BuildConfig.DEBUG) Log.d(TAG, "Trimming cache for room $roomId: removing $toRemove oldest events")
-            val removed = cache.events.subList(0, toRemove)
-            removed.forEach { cache.eventIds.remove(it.eventId) }
-            removed.clear()
-        }
+        // No limit on events per room - all events are kept
+        // LRU eviction of entire rooms handles memory management
+        // (Event limit removed - keep all events in cache)
 
         return addedCount
     }
@@ -143,8 +144,20 @@ object RoomTimelineCache {
      * Get cached events for a room
      * Returns null if not enough events cached, otherwise returns the cached events
      */
+    /**
+     * Mark a room as accessed (updates lastAccessedAt for LRU eviction)
+     */
+    fun markRoomAccessed(roomId: String) {
+        roomEventsCache[roomId]?.lastAccessedAt = System.currentTimeMillis()
+        // Accessing the map also updates LinkedHashMap order for LRU
+        roomEventsCache[roomId]
+    }
+    
     fun getCachedEvents(roomId: String): List<TimelineEvent>? {
         val cache = roomEventsCache[roomId] ?: return null
+        
+        // Mark room as accessed for LRU eviction
+        cache.lastAccessedAt = System.currentTimeMillis()
         
         return if (cache.events.size >= TARGET_EVENTS_FOR_INSTANT_RENDER) {
             if (BuildConfig.DEBUG) {
@@ -220,7 +233,8 @@ object RoomTimelineCache {
     
     /**
      * Get the oldest cached event's timeline_rowid for pagination
-     * Returns -1 if no cached events or if the oldest event has no timeline_rowid
+     * Returns the actual oldest event's timelineRowid (can be negative - that's valid!)
+     * Returns -1 if no cached events
      */
     fun getOldestCachedEventRowId(roomId: String): Long {
         val cache = roomEventsCache[roomId] ?: run {
@@ -233,10 +247,36 @@ object RoomTimelineCache {
             return -1L
         }
         
-        val oldestEvent = cache.events.firstOrNull { it.timelineRowid > 0 }
+        // Ensure cache is sorted correctly before retrieving oldest event
+        // This is important because the cache might have been created before the sorting fix
+        cache.events.sortWith { a, b ->
+            if (a == null || b == null) {
+                return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
+            }
+            val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
+            if (rowIdCompare != 0) {
+                rowIdCompare
+            } else {
+                val tsCompare = a.timestamp.compareTo(b.timestamp)
+                if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+            }
+        }
+        
+        // Cache is sorted by timelineRowid ASC, so first event is the oldest
+        // Note: timelineRowid can be negative (for state events or certain syncs)
+        val oldestEvent = cache.events.firstOrNull()
         val result = oldestEvent?.timelineRowid ?: -1L
         
-        if (BuildConfig.DEBUG) Log.d(TAG, "getOldestCachedEventRowId for $roomId: $result (cache has ${cache.events.size} events, oldest event: ${oldestEvent?.eventId})")
+        // Debug: Show range of timelineRowid values in cache
+        if (BuildConfig.DEBUG) {
+            val minRowId = cache.events.minOfOrNull { it.timelineRowid } ?: -1L
+            val maxRowId = cache.events.maxOfOrNull { it.timelineRowid } ?: -1L
+            val negativeCount = cache.events.count { it.timelineRowid < 0 }
+            val positiveCount = cache.events.count { it.timelineRowid > 0 }
+            val firstFew = cache.events.take(5).map { "${it.eventId.take(20)}... (rowId=${it.timelineRowid})" }.joinToString(", ")
+            Log.d(TAG, "getOldestCachedEventRowId for $roomId: result=$result, cache has ${cache.events.size} events, rowId range: $minRowId to $maxRowId (negative=$negativeCount, positive=$positiveCount)")
+            Log.d(TAG, "getOldestCachedEventRowId: First 5 events: $firstFew")
+        }
         return result
     }
     
@@ -293,14 +333,31 @@ object RoomTimelineCache {
         val maxRowId = newEvents.mapNotNull { it.timelineRowid.takeIf { row -> row > 0 } }.maxOrNull()
         val minRowDisplay = minRowId?.toString() ?: "n/a"
         val maxRowDisplay = maxRowId?.toString() ?: "n/a"
+        
+        val cacheBefore = getCachedEventCount(roomId)
+        val oldestRowIdBefore = getOldestCachedEventRowId(roomId)
 
         if (BuildConfig.DEBUG) Log.d(
             TAG,
-            "Merging ${newEvents.size} events for room $roomId - $minRowDisplay - $maxRowDisplay"
+            "Merging ${newEvents.size} events for room $roomId - rowId range: $minRowDisplay to $maxRowDisplay (cache before: $cacheBefore, oldestRowId: $oldestRowIdBefore)"
         )
         
         val added = addEventsToCache(roomId, newEvents)
-        if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId cache after merge: ${getCachedEventCount(roomId)} events (added $added)")
+        val cacheAfter = getCachedEventCount(roomId)
+        val oldestRowIdAfter = getOldestCachedEventRowId(roomId)
+        
+        if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId cache after merge: $cacheAfter events (added $added, was $cacheBefore). OldestRowId: $oldestRowIdBefore -> $oldestRowIdAfter")
+        
+        if (added == 0 && newEvents.isNotEmpty()) {
+            // Log detailed information about why all events were duplicates
+            val eventIds = newEvents.take(5).map { "${it.eventId} (rowId=${it.timelineRowid})" }.joinToString(", ")
+            val allNegative = newEvents.all { it.timelineRowid < 0 }
+            Log.w(TAG, "Room $roomId: All ${newEvents.size} events were duplicates! Requested with max_timeline_id around $oldestRowIdBefore, got events with rowId range $minRowDisplay-$maxRowDisplay (allNegative=$allNegative)")
+            if (BuildConfig.DEBUG) {
+                Log.w(TAG, "Room $roomId: Sample duplicate event IDs: $eventIds")
+                Log.w(TAG, "Room $roomId: Cache currently has ${cacheAfter} events, oldestRowId=$oldestRowIdAfter")
+            }
+        }
     }
     
     /**

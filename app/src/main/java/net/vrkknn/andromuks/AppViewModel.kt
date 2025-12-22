@@ -135,7 +135,7 @@ class AppViewModel : ViewModel() {
         private const val PROFILE_CACHE_FILE = "user_profiles_cache.json"
         
         // MEMORY MANAGEMENT: Constants for cache limits and cleanup
-        private const val MAX_TIMELINE_EVENTS_PER_ROOM = 100
+        private const val INITIAL_ROOM_LOAD_EVENTS = 200 // Events to load when opening a room
         private const val MAX_MEMBER_CACHE_SIZE = 5000
         private const val MAX_MESSAGE_VERSIONS_PER_EVENT = 50
         
@@ -6102,6 +6102,10 @@ class AppViewModel : ViewModel() {
     fun appendEventsToCachedRoom(roomId: String, newEvents: List<TimelineEvent>): Boolean {
         if (newEvents.isEmpty()) return true
         
+        // Update RoomTimelineCache with new events from SyncIngestor
+        RoomTimelineCache.mergePaginatedEvents(roomId, newEvents)
+        RoomTimelineCache.markRoomAccessed(roomId)
+        
         // Check if any event requires full re-render (edits, redactions, reactions)
         val requiresFullRerender = newEvents.any { event ->
             val relationType = event.relationType ?: event.content?.optJSONObject("m.relates_to")?.optString("rel_type")
@@ -9363,9 +9367,8 @@ class AppViewModel : ViewModel() {
                 
                 while (retryCount < maxRetries && dbEvents.isEmpty()) {
                     // Load latest events from database (events were just persisted by SyncIngestor)
-                    // CRITICAL: Load more events (up to MAX_TIMELINE_EVENTS_PER_ROOM) to ensure we capture all recent events
-                    // The previous limit of 200 was too restrictive and could miss newer events in active rooms
-                    dbEvents = bootstrapLoader!!.loadRoomEvents(roomId, MAX_TIMELINE_EVENTS_PER_ROOM)
+                    // Load initial events when opening a room (200 events)
+                    dbEvents = bootstrapLoader!!.loadRoomEvents(roomId, INITIAL_ROOM_LOAD_EVENTS)
                     
                     if (dbEvents.isEmpty() && retryCount < maxRetries - 1) {
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in DB yet (retry ${retryCount + 1}/$maxRetries), waiting ${retryDelay}ms")
@@ -9526,11 +9529,10 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loading timeline from database for $roomId (BATTERY OPTIMIZATION: no RAM cache)")
             try {
                 // CRITICAL FIX: Load more events to ensure we get the newest ones
-                // Using MAX_TIMELINE_EVENTS_PER_ROOM instead of 200 ensures we load all recent events
-                // This prevents "ancient view" where only old events are shown
+                // Load initial events when opening a room (200 events)
                 // Use runBlocking to wait for database query (prevents race condition)
                 val dbEvents = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                    bootstrapLoader!!.loadRoomEvents(roomId, MAX_TIMELINE_EVENTS_PER_ROOM)
+                    bootstrapLoader!!.loadRoomEvents(roomId, INITIAL_ROOM_LOAD_EVENTS)
                 }
                 
                 if (dbEvents.isNotEmpty()) {
@@ -9542,6 +9544,9 @@ class AppViewModel : ViewModel() {
                     
                     // Process events through chain processing (builds timeline structure)
                     processCachedEvents(roomId, dbEvents, openingFromNotification)
+                    
+                    // Mark room as accessed in RoomTimelineCache for LRU eviction
+                    RoomTimelineCache.markRoomAccessed(roomId)
                     
                     // WORKAROUND: Send initial paginate request to fetch latest events from server
                     // This helps catch any events that SyncIngestor might have missed
@@ -12349,6 +12354,8 @@ class AppViewModel : ViewModel() {
             
             var ownMessageCount = 0
             var reactionProcessedCount = 0
+            var filteredByRowId = 0
+            var filteredByType = 0
             for (i in 0 until eventsArray.length()) {
                 val eventJson = eventsArray.optJSONObject(i)
                 if (eventJson != null) {
@@ -12375,14 +12382,29 @@ class AppViewModel : ViewModel() {
                             if (processReactionFromTimeline(event)) {
                                 reactionProcessedCount++
                             }
-                        } else if (event.timelineRowid >= 0L) {
-                            // Only render non-reaction timeline entries
-                            timelineList.add(event)
+                            filteredByType++
+                        } else {
+                            // Accept message events regardless of timelineRowid (to catch events with negative IDs)
+                            // Also accept any other event with valid timelineRowid >= 0
+                            val shouldAdd = when {
+                                event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker" -> true
+                                event.timelineRowid >= 0L -> true
+                                else -> false
+                            }
+                            
+                            if (shouldAdd) {
+                                timelineList.add(event)
+                            } else {
+                                filteredByRowId++
+                                if (BuildConfig.DEBUG && filteredByRowId <= 5) {
+                                    android.util.Log.d("Andromuks", "AppViewModel: Filtered event ${event.eventId} type=${event.type} timelineRowid=${event.timelineRowid}")
+                                }
+                            }
                         }
                     }
                 }
             }
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}, ownMessages=$ownMessageCount, reactions=$reactionProcessedCount")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processed events - timeline=${timelineList.size}, members=${memberMap.size}, ownMessages=$ownMessageCount, reactions=$reactionProcessedCount, filteredByRowId=$filteredByRowId, filteredByType=$filteredByType")
             if (ownMessageCount > 0) {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ★★★ PAGINATE RESPONSE CONTAINS $ownMessageCount OF YOUR OWN MESSAGES ★★★")
             }
@@ -12395,10 +12417,17 @@ class AppViewModel : ViewModel() {
             processVersionedMessages(allEvents)
             
             // Handle empty pagination responses
-            if ((paginateRequests.containsKey(requestId) || backgroundPrefetchRequests.containsKey(requestId)) && timelineList.isEmpty()) {
+            // Only mark as "no more messages" if backend actually returned 0 events OR fewer events than requested
+            // Don't mark as empty if events were filtered out (e.g., all reactions/state events)
+            val totalEventsReturned = eventsArray.length()
+            // If we got a full page (100 events) but 0 timeline events, there might still be more messages
+            // Only mark as empty if we got fewer than requested AND 0 timeline events
+            val shouldMarkAsEmpty = timelineList.isEmpty() && totalEventsReturned < 100
+            
+            if ((paginateRequests.containsKey(requestId) || backgroundPrefetchRequests.containsKey(requestId)) && shouldMarkAsEmpty) {
                 android.util.Log.w("Andromuks", "AppViewModel: ========================================")
                 android.util.Log.w("Andromuks", "AppViewModel: ⚠️ EMPTY PAGINATION RESPONSE (requestId: $requestId)")
-                android.util.Log.w("Andromuks", "AppViewModel: Backend returned 0 events")
+                android.util.Log.w("Andromuks", "AppViewModel: Backend returned $totalEventsReturned events, timeline events: ${timelineList.size} (filtered: rowId=$filteredByRowId, type=$filteredByType)")
                 
                 // Mark as no more messages and show toast for user-initiated pagination
                 if (paginateRequests.containsKey(requestId)) {
@@ -12424,6 +12453,9 @@ class AppViewModel : ViewModel() {
                 android.util.Log.w("Andromuks", "AppViewModel: isPaginating set to FALSE")
                 android.util.Log.w("Andromuks", "AppViewModel: ========================================")
                 return reactionProcessedCount
+            } else if (timelineList.isEmpty() && totalEventsReturned >= 100) {
+                // Got a full page but all filtered out - log warning but don't mark as empty
+                android.util.Log.w("Andromuks", "AppViewModel: Got $totalEventsReturned events but 0 timeline events (filtered: rowId=$filteredByRowId, type=$filteredByType) - continuing pagination")
             }
             
             if (timelineList.isNotEmpty()) {
@@ -12443,7 +12475,11 @@ class AppViewModel : ViewModel() {
                         android.util.Log.w("Andromuks", "AppViewModel: No valid rowId found for pagination")
                     }
                 } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: This is a pagination request, not storing rowId")
+                    // For pagination requests, log the row ID range of returned events
+                    val minRowId = timelineList.minByOrNull { it.timelineRowid }?.timelineRowid
+                    val maxRowId = timelineList.maxByOrNull { it.timelineRowid }?.timelineRowid
+                    val cacheBefore = RoomTimelineCache.getCachedEventCount(roomId)
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Pagination response - received ${timelineList.size} events with rowId range: $minRowId to $maxRowId, cache before: $cacheBefore")
                 }
                 
                 // Populate edit chain mapping for clean edit handling using helper function
@@ -14334,15 +14370,9 @@ class AppViewModel : ViewModel() {
                 }
             }
             
-            // MEMORY MANAGEMENT: Limit timeline events to prevent memory pressure
-            val limitedTimelineEvents = if (sortedTimelineEvents.size > MAX_TIMELINE_EVENTS_PER_ROOM) {
-                // Keep the most recent events (sorted by timestamp, newest first in the list)
-                sortedTimelineEvents.sortedByDescending { it.timestamp }.take(MAX_TIMELINE_EVENTS_PER_ROOM).sortedBy { it.timestamp }
-            } else {
-                sortedTimelineEvents
-            }
-            
-            this.timelineEvents = limitedTimelineEvents
+            // No limit on timeline events - all events are kept in cache
+            // LRU eviction in RoomTimelineCache handles memory management
+            this.timelineEvents = sortedTimelineEvents
             // PERFORMANCE FIX: Removed persistRenderableEvents() from buildTimelineFromChain()
             // Pre-rendering on every sync was causing heavy CPU load with 580+ rooms.
             // Timeline is now rendered lazily when room is opened, not on every sync_complete.
@@ -14451,6 +14481,187 @@ class AppViewModel : ViewModel() {
                 }
 
                 isPaginating = false
+            }
+        }
+    }
+    
+    /**
+     * Request pagination from backend using the smallest row ID from the database.
+     * Used for pull-to-refresh to load older events.
+     * 
+     * @param roomId The room ID to paginate
+     * @param limit Number of events to fetch (default 100)
+     */
+    fun requestPaginationWithSmallestRowId(roomId: String, limit: Int = 100) {
+        if (isPaginating) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Already paginating, skipping request for $roomId")
+            return
+        }
+        
+        if (!isWebSocketConnected()) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot paginate for $roomId")
+            return
+        }
+        
+        val context = appContext ?: run {
+            android.util.Log.w("Andromuks", "AppViewModel: No app context, cannot paginate for $roomId")
+            return
+        }
+        
+        // Check cache first, then database - use whichever has the older event
+        // This ensures we don't request events that are already in the cache
+        isPaginating = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Get oldest from cache (in-memory, may have events not yet in DB)
+                val oldestCachedRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
+                
+                val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                val eventDao = db.eventDao()
+                
+                // Get the oldest event by timelineRowId from database (NOT rowid!) - can be negative
+                val oldestEventEntity = eventDao.getOldestEventByTimelineRowId(roomId)
+                val oldestDbRowId = oldestEventEntity?.timelineRowId
+                
+                // Use whichever is older (more negative = older for negative values)
+                // If both are negative, the more negative one is older
+                // If one is negative and one is positive, the negative one is older
+                val oldestTimelineRowId = when {
+                    oldestCachedRowId == -1L && oldestDbRowId == null -> {
+                        android.util.Log.w("Andromuks", "AppViewModel: No events found in cache or database for room $roomId, cannot paginate")
+                        withContext(Dispatchers.Main) {
+                            isPaginating = false
+                            android.widget.Toast.makeText(context, "No more messages to load", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        return@launch
+                    }
+                    oldestCachedRowId == -1L -> oldestDbRowId!!
+                    oldestDbRowId == null -> oldestCachedRowId
+                    oldestCachedRowId < oldestDbRowId -> oldestCachedRowId  // More negative = older
+                    else -> oldestDbRowId
+                }
+                
+                val source = if (oldestCachedRowId != -1L && oldestCachedRowId < (oldestDbRowId ?: Long.MAX_VALUE)) "cache" else "database"
+                
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Found oldest event (from $source): cached=$oldestCachedRowId, db=$oldestDbRowId, using=$oldestTimelineRowId")
+                    if (oldestEventEntity != null) {
+                        android.util.Log.d("Andromuks", "AppViewModel: Oldest DB event: eventId=${oldestEventEntity.eventId.take(20)}..., timelineRowId=${oldestEventEntity.timelineRowId}")
+                    }
+                }
+                
+                // Use the timelineRowId directly as max_timeline_id (NOT rowid!)
+                // The backend expects timelineRowId (which can be negative)
+                // When max_timeline_id is negative, backend returns events with MORE negative timeline_rowid (older events)
+                // We subtract 1 to ensure we get events older than what we have
+                val maxTimelineId = oldestTimelineRowId - 1
+                
+                if (BuildConfig.DEBUG) android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Requesting pagination for $roomId with oldest timelineRowId=$oldestTimelineRowId (from DB), max_timeline_id=$maxTimelineId, limit=$limit"
+                )
+                
+                val paginateRequestId = requestIdCounter++
+                paginateRequests[paginateRequestId] = roomId
+                
+                val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                    "room_id" to roomId,
+                    "max_timeline_id" to maxTimelineId,
+                    "limit" to limit,
+                    "reset" to false
+                ))
+                
+                if (result != WebSocketResult.SUCCESS) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Failed to send paginate request for $roomId: $result")
+                    withContext(Dispatchers.Main) {
+                        paginateRequests.remove(paginateRequestId)
+                        isPaginating = false
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Error querying database for oldest timelineRowId", e)
+                withContext(Dispatchers.Main) {
+                    isPaginating = false
+                }
+            }
+        }
+    }
+    
+    /**
+     * Request pagination from backend with a specific event ID as max_timeline_id.
+     * Used for pull-to-refresh to load older events.
+     * 
+     * @param roomId The room ID to paginate
+     * @param maxTimelineEventId The event ID to use as max_timeline_id (the oldest event currently rendered)
+     * @param limit Number of events to fetch (default 100)
+     */
+    fun requestPaginationWithEventId(roomId: String, maxTimelineEventId: String, limit: Int = 100) {
+        if (isPaginating) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Already paginating, skipping request for $roomId")
+            return
+        }
+        
+        if (!isWebSocketConnected()) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot paginate for $roomId")
+            return
+        }
+        
+        val context = appContext ?: run {
+            android.util.Log.w("Andromuks", "AppViewModel: No app context, cannot paginate for $roomId")
+            return
+        }
+        
+        isPaginating = true
+        val paginateRequestId = requestIdCounter++
+        paginateRequests[paginateRequestId] = roomId
+        
+        // Look up the event's timelineRowId from the database
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                val eventDao = db.eventDao()
+                val eventEntity = eventDao.getEventById(roomId, maxTimelineEventId)
+                
+                if (eventEntity == null) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Event $maxTimelineEventId not found in database for room $roomId, using 0 as max_timeline_id")
+                    withContext(Dispatchers.Main) {
+                        isPaginating = false
+                        paginateRequests.remove(paginateRequestId)
+                    }
+                    return@launch
+                }
+                
+                val maxTimelineRowId = eventEntity.timelineRowId
+                
+                // Subtract 1 to ensure we get events older than what we have
+                // This prevents getting duplicate events that are exactly at the boundary
+                val maxTimelineId = maxTimelineRowId - 1
+                
+                if (BuildConfig.DEBUG) android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: Requesting pagination for $roomId with eventId=$maxTimelineEventId, timelineRowId=$maxTimelineRowId (from DB), max_timeline_id=$maxTimelineId, limit=$limit"
+                )
+                
+                val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                    "room_id" to roomId,
+                    "max_timeline_id" to maxTimelineId,
+                    "limit" to limit,
+                    "reset" to false
+                ))
+                
+                if (result != WebSocketResult.SUCCESS) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Failed to send paginate request for $roomId: $result")
+                    withContext(Dispatchers.Main) {
+                        paginateRequests.remove(paginateRequestId)
+                        isPaginating = false
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Error looking up event for pagination", e)
+                withContext(Dispatchers.Main) {
+                    paginateRequests.remove(paginateRequestId)
+                    isPaginating = false
+                }
             }
         }
     }
