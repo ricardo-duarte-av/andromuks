@@ -2840,13 +2840,14 @@ fun TimelineEventItem(
     }
     
     // PERFORMANCE: Removed all animations for stable performance base
-    // Trigger sound notification immediately for new messages (if callback provided)
+    // Trigger sound notification only for messages we send (not received messages)
     val newMessageAnimations = appViewModel?.getNewMessageAnimations() ?: emptyMap()
     val isNewMessage = newMessageAnimations.containsKey(event.eventId)
     
-    // Trigger sound notification once when message first appears
+    // Trigger sound notification once when our own message first appears
+    // Only play sound for messages we send, not for received messages
     LaunchedEffect(event.eventId) {
-        if (isNewMessage && onNewBubbleAnimationStart != null) {
+        if (isNewMessage && isMine && onNewBubbleAnimationStart != null) {
             onNewBubbleAnimationStart.invoke()
         }
     }

@@ -294,97 +294,38 @@ fun RoomListScreen(
         }
     }
 
-    // Show loading screen if profile is missing, pending items are being processed, spaces are not loaded, or initial sync is not complete (unless timeout expired)
-    val showLoadingOverlay = !initialLoadComplete && (
-        coldStartRefreshing ||
-        !effectiveProfileLoaded ||
-        shouldBlockForPending ||
-        !effectiveSpacesLoaded ||
-        (!effectiveInitialSyncComplete) ||
-        !initialRoomSummariesReady
-    )
-
-    LaunchedEffect(showLoadingOverlay) {
-        if (!showLoadingOverlay) {
-            initialLoadComplete = true
-        }
-    }
-
-    if (showLoadingOverlay) {
-        Box(
-            modifier = modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                ExpressiveLoadingIndicator(modifier = Modifier.size(96.dp))
-                Spacer(modifier = Modifier.height(24.dp))
-                if (!effectiveProfileLoaded) {
-                    Text(
-                        text = "Loading profile...",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                if (shouldBlockForPending) {
-                    if (effectiveProfileLoaded) {
-                        Text(
-                            text = "Catching up on messages...",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
-                    } else {
-                        Text(
-                            text = "Loading profile...",
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                if (!effectiveSpacesLoaded && effectiveProfileLoaded && !shouldBlockForPending) {
-                    Text(
-                        text = "Loading rooms...",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = if (shouldBlockForPending) 8.dp else 0.dp)
-                    )
-                }
-                if (!effectiveInitialSyncComplete && effectiveProfileLoaded && !shouldBlockForPending && effectiveSpacesLoaded) {
-                    val progressText = if (uiState.pendingSyncCompleteCount > 0) {
-                        "${uiState.processedSyncCompleteCount} / ${uiState.pendingSyncCompleteCount} sync_complete messages"
-                    } else {
-                        "Loading rooms..."
-                    }
-                    Text(
-                        text = progressText,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = if (shouldBlockForPending || !effectiveSpacesLoaded) 8.dp else 0.dp)
-                    )
-                }
-                if (coldStartRefreshing) {
-                    Text(
-                        text = "Refreshing rooms...",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
+    // Track when initial load is complete for optimization purposes
+    LaunchedEffect(effectiveProfileLoaded, shouldBlockForPending, effectiveSpacesLoaded, effectiveInitialSyncComplete, initialRoomSummariesReady, coldStartRefreshing) {
+        if (effectiveProfileLoaded && !shouldBlockForPending && effectiveSpacesLoaded && effectiveInitialSyncComplete && initialRoomSummariesReady && !coldStartRefreshing) {
+            if (!initialLoadComplete) {
+                initialLoadComplete = true
             }
         }
-        return
     }
     
-    val inlineSyncInProgress = uiState.isProcessingPendingItems || !uiState.initialSyncComplete || !uiState.spacesLoaded
+    // Use inline status row instead of full-screen loading overlay
+    // Show inline status during initial load or ongoing sync operations
+    val inlineSyncInProgress = coldStartRefreshing || 
+        !effectiveProfileLoaded || 
+        shouldBlockForPending || 
+        !effectiveSpacesLoaded || 
+        !effectiveInitialSyncComplete ||
+        !initialRoomSummariesReady
+    
     val inlineSyncMessage = when {
-        uiState.isProcessingPendingItems -> "Processing new events..."
-        !uiState.initialSyncComplete -> "Finalizing sync..."
-        !uiState.spacesLoaded -> "Loading spaces..."
+        !effectiveProfileLoaded -> "Loading profile..."
+        shouldBlockForPending -> "Catching up on messages..."
+        !effectiveSpacesLoaded -> "Loading spaces..."
+        !effectiveInitialSyncComplete -> {
+            // Show sync progress counter if available
+            if (uiState.pendingSyncCompleteCount > 0) {
+                "${uiState.processedSyncCompleteCount} / ${uiState.pendingSyncCompleteCount} messages"
+            } else {
+                "Finalizing sync..."
+            }
+        }
+        coldStartRefreshing -> "Refreshing rooms..."
+        !initialRoomSummariesReady -> "Loading room summaries..."
         else -> "Refreshing rooms..."
     }
     val showNotificationActionIndicator = uiState.notificationActionInProgress

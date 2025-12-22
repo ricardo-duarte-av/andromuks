@@ -14368,16 +14368,11 @@ class AppViewModel : ViewModel() {
                     }
                 }
                 
-                // Play sound for new messages from other users
-                // BUT NOT when:
-                // 1. The message is for the currently open room (user is already viewing it)
-                // 2. During initial room loading (when opening a room for the first time)
-                // 3. App is not visible (handled by FCM notifications instead)
-                if (shouldPlaySound && isAppVisible && !hasMessageForCurrentRoom && !isInitialRoomLoad) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Playing sound for new message in room $newMessageRoomId (current room: $currentRoomId)")
-                    playNewMessageSound()
-                } else if (shouldPlaySound && hasMessageForCurrentRoom) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Suppressing sound for new message in current room $currentRoomId (user is viewing this room)")
+                // SOUND REMOVED: No longer play sound for received messages (animations removed)
+                // Sound is now only played for messages we send (handled in TimelineEventItem)
+                // This keeps the UI quiet for incoming messages while still providing feedback for our own sends
+                if (shouldPlaySound && BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: Sound suppressed for received message in room $newMessageRoomId (sound only plays for messages we send)")
                 }
             }
             
