@@ -39,6 +39,7 @@ import androidx.core.content.FileProvider
 import java.io.IOException
 import java.net.URL
 import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 
 class EnhancedNotificationDisplay(private val context: Context, private val homeserverUrl: String, private val authToken: String) {
     
@@ -63,6 +64,27 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     }
     
     private val conversationsApi = ConversationsApi(context, homeserverUrl, authToken, "")
+    
+    // Per-room locks to prevent concurrent notification updates for the same room
+    private val roomNotificationLocks = ConcurrentHashMap<String, Any>()
+    
+    // In-memory cache for avatar icons to avoid reloading on every notification update
+    // Key: avatar URL (MXC or HTTP), Value: IconCompat
+    // Using LRU cache with max size of 100 to limit memory usage
+    private val avatarIconCache = Collections.synchronizedMap(
+        object : LinkedHashMap<String, IconCompat>(16, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, IconCompat>?): Boolean {
+                return size > 100
+            }
+        }
+    )
+    
+    /**
+     * Get or create a lock object for a specific room
+     */
+    private fun getRoomLock(roomId: String): Any {
+        return roomNotificationLocks.computeIfAbsent(roomId) { Any() }
+    }
     
     /**
      * Create notification channel
@@ -377,10 +399,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 null
             }
             
-            // Create messaging style - extract existing style if available
-            val systemNotificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val notifID = notificationData.roomId.hashCode()
-            
             // Process message body - use HTML if available, otherwise fall back to plain text
             val messageBody = if (!notificationData.htmlBody.isNullOrEmpty()) {
                 try {
@@ -393,129 +411,137 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 notificationData.body
             }
             
-            // Extract existing MessagingStyle if available (with proper error handling)
-            val existingStyle = try {
-                systemNotificationManager.activeNotifications
-                    ?.lastOrNull { it.id == notifID }
-                    ?.let { MessagingStyle.extractMessagingStyleFromNotification(it.notification) }
-            } catch (e: Exception) {
-                Log.w(TAG, "Could not extract messaging style", e)
-                null
-            }
-            
-            // Create or update MessagingStyle
-            val messagingStyle = (existingStyle ?: NotificationCompat.MessagingStyle(me))
-                .setConversationTitle(
-                    if (isGroupRoom) notificationData.roomName else null
+            // SYNCHRONIZATION: Use per-room lock to prevent concurrent updates for the same room
+            // This ensures only one notification update happens at a time per room, preventing flicker
+            val roomLock = getRoomLock(notificationData.roomId)
+            synchronized(roomLock) {
+                // Create messaging style - extract existing style if available
+                val systemNotificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                val notifID = notificationData.roomId.hashCode()
+                
+                // Extract existing MessagingStyle if available (with proper error handling)
+                val existingStyle = try {
+                    systemNotificationManager.activeNotifications
+                        ?.lastOrNull { it.id == notifID }
+                        ?.let { MessagingStyle.extractMessagingStyleFromNotification(it.notification) }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Could not extract messaging style", e)
+                    null
+                }
+                
+                // Create or update MessagingStyle
+                val messagingStyle = (existingStyle ?: NotificationCompat.MessagingStyle(me))
+                    .setConversationTitle(
+                        if (isGroupRoom) notificationData.roomName else null
+                    )
+                    .setGroupConversation(isGroupRoom) // Helps Android decide when to show sender avatar vs your own
+                
+                // Add message to style
+                val message = if (hasImage && imageUri != null) {
+                    // Image message with downloaded image
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Adding image message to notification with URI: $imageUri")
+                    MessagingStyle.Message(
+                        "[Image]",
+                        notificationData.timestamp ?: System.currentTimeMillis(),
+                        messagePerson // Always use messagePerson, even for DMs
+                    ).setData("image/*", imageUri)
+                } else {
+                    // Text message
+                    MessagingStyle.Message(
+                        messageBody,
+                        notificationData.timestamp ?: System.currentTimeMillis(),
+                        messagePerson // Always use messagePerson, even for DMs
+                    )
+                }
+                
+                messagingStyle.addMessage(message)
+                
+                // Create RoomItem for shortcut update
+                val roomItem = RoomItem(
+                    id = notificationData.roomId,
+                    name = notificationData.roomName ?: notificationData.roomId,
+                    messagePreview = notificationData.body,
+                    messageSender = notificationData.senderDisplayName ?: notificationData.sender,
+                    unreadCount = 1,
+                    highlightCount = 0,
+                    avatarUrl = notificationData.roomAvatarUrl,
+                    sortingTimestamp = notificationData.timestamp ?: System.currentTimeMillis()
                 )
-                .setGroupConversation(isGroupRoom) // Helps Android decide when to show sender avatar vs your own
-            
-            // Add message to style
-            val message = if (hasImage && imageUri != null) {
-                // Image message with downloaded image
-                if (BuildConfig.DEBUG) Log.d(TAG, "Adding image message to notification with URI: $imageUri")
-                MessagingStyle.Message(
-                    "[Image]",
-                    notificationData.timestamp ?: System.currentTimeMillis(),
-                    messagePerson // Always use messagePerson, even for DMs
-                ).setData("image/*", imageUri)
-            } else {
-                // Text message
-                MessagingStyle.Message(
-                    messageBody,
-                    notificationData.timestamp ?: System.currentTimeMillis(),
-                    messagePerson // Always use messagePerson, even for DMs
-                )
-            }
-            
-            messagingStyle.addMessage(message)
-            
-            // Create RoomItem for shortcut update
-            val roomItem = RoomItem(
-                id = notificationData.roomId,
-                name = notificationData.roomName ?: notificationData.roomId,
-                messagePreview = notificationData.body,
-                messageSender = notificationData.senderDisplayName ?: notificationData.sender,
-                unreadCount = 1,
-                highlightCount = 0,
-                avatarUrl = notificationData.roomAvatarUrl,
-                sortingTimestamp = notificationData.timestamp ?: System.currentTimeMillis()
-            )
-            
-            // SHORTCUT OPTIMIZATION: Update shortcut when notification is shown
-            // This ensures the room is in shortcuts when user receives messages (similar to when sending)
-            // Uses efficient single-room update method, not full list processing
-            conversationsApi?.updateShortcutsFromSyncRooms(listOf(roomItem))
-            
-            // Try to get existing shortcut for notification bubble
-            val shortcutInfo = conversationsApi?.let { api ->
+                
+                // SHORTCUT OPTIMIZATION: Update shortcut when notification is shown
+                // This ensures the room is in shortcuts when user receives messages (similar to when sending)
+                // Uses efficient single-room update method, not full list processing
+                conversationsApi?.updateShortcutsFromSyncRooms(listOf(roomItem))
+                
+                // Try to get existing shortcut for notification bubble
+                val shortcutInfo = conversationsApi?.let { api ->
                 try {
                     val existingShortcut = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
                         .firstOrNull { it.id == notificationData.roomId }
                     
-                    if (existingShortcut != null) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Found existing shortcut: ${existingShortcut.shortLabel}")
-                        existingShortcut
-                    } else {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "No existing shortcut yet, will be created asynchronously")
+                        if (existingShortcut != null) {
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Found existing shortcut: ${existingShortcut.shortLabel}")
+                            existingShortcut
+                        } else {
+                            if (BuildConfig.DEBUG) Log.d(TAG, "No existing shortcut yet, will be created asynchronously")
+                            null
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error getting shortcut info", e)
                         null
                     }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error getting shortcut info", e)
-                    null
                 }
-            }
-            
-            // Create conversation channel for this room
-            createConversationChannel(notificationData.roomId, notificationData.roomName ?: notificationData.roomId, isGroupRoom)
-            
-            // Use conversation channel for all notifications
-            val channelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
-            
-            // CRITICAL FIX: Check if a bubble already exists for this room
-            // When bubble is open, we still need to post the notification (for unread indicator and bubble lifecycle)
-            // but make it silent and non-interruptive to avoid closing the inactive bubble
-            val bubbleAlreadyOpen = BubbleTracker.isBubbleOpen(notificationData.roomId)
-            val bubbleIsVisible = BubbleTracker.isBubbleVisible(notificationData.roomId)
-            val totalOpenBubbles = BubbleTracker.getOpenBubbles().size
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "Bubble check for room ${notificationData.roomId}: open = $bubbleAlreadyOpen, visible = $bubbleIsVisible, total open bubbles = $totalOpenBubbles")
-                if (totalOpenBubbles >= 4) {
-                    Log.w(TAG, "WARNING: ${totalOpenBubbles} bubbles are currently open - this may cause issues")
+                
+                // Create conversation channel for this room
+                createConversationChannel(notificationData.roomId, notificationData.roomName ?: notificationData.roomId, isGroupRoom)
+                
+                // Use conversation channel for all notifications
+                val channelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
+                
+                // CRITICAL FIX: Check if a bubble already exists for this room
+                // When bubble is open, we still need to post the notification (for unread indicator and bubble lifecycle)
+                // but make it silent and non-interruptive to avoid closing the inactive bubble
+                val bubbleAlreadyOpen = BubbleTracker.isBubbleOpen(notificationData.roomId)
+                val bubbleIsVisible = BubbleTracker.isBubbleVisible(notificationData.roomId)
+                val totalOpenBubbles = BubbleTracker.getOpenBubbles().size
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Bubble check for room ${notificationData.roomId}: open = $bubbleAlreadyOpen, visible = $bubbleIsVisible, total open bubbles = $totalOpenBubbles")
+                    if (totalOpenBubbles >= 4) {
+                        Log.w(TAG, "WARNING: ${totalOpenBubbles} bubbles are currently open - this may cause issues")
+                    }
                 }
-            }
-            
-            // Always create bubble metadata - needed for bubble lifecycle management
-            // The metadata's setSuppressNotification will be set based on visibility
-            val bubbleMetadata = createBubbleMetadata(
-                notificationData = notificationData,
-                isGroupRoom = isGroupRoom,
-                roomAvatarIcon = roomAvatarIcon,
-                senderAvatarIcon = senderAvatarIcon
-            )
-            
-            // Determine large icon based on room type
-            // For DMs: use sender's avatar (the conversation-level avatar)
-            // For groups: use room avatar (the conversation-level avatar)
-            val largeIconBitmap = if (isGroupRoom) {
-                circularRoomAvatar ?: circularSenderAvatar // Prefer room avatar for groups
-            } else {
-                circularSenderAvatar ?: circularRoomAvatar // Prefer sender avatar for DMs
-            }
-            
-            // Create main notification
-            // CRITICAL: When bubble is open, make notification silent and non-interruptive
-            // This keeps the bubble alive and updates unread indicator without closing/recreating the bubble
-            val notification = NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(R.drawable.matrix) // Minimized icon in status bar
-                .setStyle(messagingStyle)
-                .setContentIntent(createRoomIntent(notificationData))
-                .setAutoCancel(true)
-                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Required for Android Auto
-                .setGroup(notificationData.roomId) // Group by room
-                .setGroupSummary(false)
-                .apply {
+                
+                // Always create bubble metadata - needed for bubble lifecycle management
+                // The metadata's setSuppressNotification will be set based on visibility
+                val bubbleMetadata = createBubbleMetadata(
+                    notificationData = notificationData,
+                    isGroupRoom = isGroupRoom,
+                    roomAvatarIcon = roomAvatarIcon,
+                    senderAvatarIcon = senderAvatarIcon
+                )
+                
+                // Determine large icon based on room type
+                // For DMs: use sender's avatar (the conversation-level avatar)
+                // For groups: use room avatar (the conversation-level avatar)
+                val largeIconBitmap = if (isGroupRoom) {
+                    circularRoomAvatar ?: circularSenderAvatar // Prefer room avatar for groups
+                } else {
+                    circularSenderAvatar ?: circularRoomAvatar // Prefer sender avatar for DMs
+                }
+                
+                // Create main notification
+                // CRITICAL: When bubble is open, make notification silent and non-interruptive
+                // This keeps the bubble alive and updates unread indicator without closing/recreating the bubble
+                val notification = NotificationCompat.Builder(context, channelId)
+                    .setSmallIcon(R.drawable.matrix) // Minimized icon in status bar
+                    .setStyle(messagingStyle)
+                    .setContentIntent(createRoomIntent(notificationData))
+                    .setAutoCancel(true)
+                    .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Required for Android Auto
+                    .setGroup(notificationData.roomId) // Group by room
+                    .setGroupSummary(false)
+                    .apply {
                     // Set large icon (always set if available)
                     if (largeIconBitmap != null) {
                         setLargeIcon(largeIconBitmap)
@@ -551,6 +577,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         setDefaults(0) // No sound, vibration, or lights
                     } else {
                         // Normal notification behavior when bubble is not open
+                        setOnlyAlertOnce(true) // Prevent heads-up flicker on rapid updates
                         setPriority(NotificationCompat.PRIORITY_HIGH)
                         setDefaults(NotificationCompat.DEFAULT_ALL)
                     }
@@ -579,27 +606,28 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                                     markReadAction = markReadAction
                                 )
                             )
-                    )
-                }
-                .build()
-            
-            // Grant URI permission for image if present
-            if (imageUri != null) {
+                        )
+                    }
+                    .build()
+                
+                // Grant URI permission for image if present
+                if (imageUri != null) {
                 try {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Granting URI permission for notification image: $imageUri")
-                    context.grantUriPermission(
-                        "com.android.systemui",  // System UI package for notifications
-                        imageUri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-                } catch (e: Exception) {
-                    Log.w(TAG, "Could not grant URI permission for notification image", e)
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Granting URI permission for notification image: $imageUri")
+                        context.grantUriPermission(
+                            "com.android.systemui",  // System UI package for notifications
+                            imageUri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Could not grant URI permission for notification image", e)
+                    }
                 }
-            }
-            
-            // Show notification
-            val notificationManager = NotificationManagerCompat.from(context)
-            notificationManager.notify(notifID, notification)
+                
+                // Show notification
+                val notificationManager = NotificationManagerCompat.from(context)
+                notificationManager.notify(notifID, notification)
+            } // End synchronized block
             
             // SHORTCUT OPTIMIZATION: Shortcuts already updated above when notification is shown
             // Using efficient single-room update via updateShortcutsFromSyncRooms
@@ -861,9 +889,16 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     /**
      * Load avatar as IconCompat using content:// URI for better bubble support
      * Falls back to bitmap-based icon if ContentUri creation fails
+     * Uses in-memory cache to avoid reloading the same avatar on every notification update
      */
     private suspend fun loadAvatarAsIcon(avatarUrl: String): IconCompat? {
         return try {
+            // Check cache first to avoid reloading
+            avatarIconCache[avatarUrl]?.let { cachedIcon ->
+                if (BuildConfig.DEBUG) Log.d(TAG, "Using cached avatar icon for: $avatarUrl")
+                return cachedIcon
+            }
+            
             if (BuildConfig.DEBUG) Log.d(TAG, "━━━ loadAvatarAsIcon called ━━━")
             if (BuildConfig.DEBUG) Log.d(TAG, "  Avatar URL: $avatarUrl")
             
@@ -871,7 +906,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val bitmap = loadAvatarBitmap(avatarUrl)
             if (BuildConfig.DEBUG) Log.d(TAG, "  Bitmap loaded: ${bitmap != null}")
             
-            if (bitmap != null) {
+            val icon = if (bitmap != null) {
                 // Make it circular and use directly as adaptive bitmap
                 val circularBitmap = createCircularBitmap(bitmap)
                 if (BuildConfig.DEBUG) Log.d(TAG, "  ✓✓✓ SUCCESS: Created circular bitmap icon for notification Person")
@@ -880,6 +915,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 Log.w(TAG, "  ✗✗✗ FAILED: loadAvatarBitmap returned null, using default icon")
                 createDefaultAdaptiveIcon()
             }
+            
+            // Cache the icon for future use
+            avatarIconCache[avatarUrl] = icon
+            
+            icon
         } catch (e: Exception) {
             Log.e(TAG, "  ✗✗✗ EXCEPTION: Error loading avatar as icon: $avatarUrl", e)
             createDefaultAdaptiveIcon()
