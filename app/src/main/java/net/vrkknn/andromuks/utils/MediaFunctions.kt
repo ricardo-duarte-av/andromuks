@@ -2,7 +2,9 @@ package net.vrkknn.andromuks.utils
 
 import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.rememberTransformableState
 import androidx.compose.foundation.gestures.transformable
@@ -38,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.material3.ColorScheme
 import androidx.compose.ui.graphics.Color
@@ -241,11 +244,13 @@ private fun formatDuration(durationMs: Int): String {
 }
 
 /**
- * Renders a caption with HTML support when available
+ * Renders a caption with HTML support when available.
+ * If caption is empty/null, displays the filename instead.
  */
 @Composable
 private fun MediaCaption(
-    caption: String,
+    caption: String?,
+    filename: String,
     event: TimelineEvent?,
     homeserverUrl: String,
     authToken: String,
@@ -253,8 +258,12 @@ private fun MediaCaption(
     isCompactMedia: Boolean = false, // For audio and file messages
     appViewModel: AppViewModel? = null
 ) {
+    // Always show something: caption if available, otherwise filename
+    val displayText = if (!caption.isNullOrBlank()) caption else filename
+    
     // Check if the event supports HTML rendering (has sanitized_html or formatted_body)
-    val supportsHtml = event != null && supportsHtmlRendering(event)
+    // Only use HTML if we're showing the caption (not filename fallback)
+    val supportsHtml = !caption.isNullOrBlank() && event != null && supportsHtmlRendering(event)
     
     // Use minimal padding for compact media messages (audio and file)
     val padding = if (isCompactMedia) {
@@ -275,9 +284,9 @@ private fun MediaCaption(
             appViewModel = appViewModel
         )
     } else {
-        // Fallback to plain text
+        // Fallback to plain text (caption or filename)
         Text(
-            text = caption,
+            text = displayText,
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface,
             modifier = padding
@@ -451,6 +460,7 @@ fun MediaMessage(
                         authToken = authToken,
                         isEncrypted = isEncrypted,
                         loadThumbnailsIfAvailable = useThumbnails,
+                        isMine = isMine,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
                                 showVideoPlayer = true
@@ -464,9 +474,10 @@ fun MediaMessage(
                         }
                     )
                     
-                    // Caption text below the image, inside the same bubble
+                    // Caption text below the image, inside the same bubble (always show filename if no caption)
                     MediaCaption(
                         caption = mediaMessage.caption,
+                        filename = mediaMessage.filename,
                         event = event,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
@@ -532,6 +543,7 @@ fun MediaMessage(
                         authToken = authToken,
                         isEncrypted = isEncrypted,
                         loadThumbnailsIfAvailable = useThumbnails,
+                        isMine = isMine,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
                                 showVideoPlayer = true
@@ -545,9 +557,10 @@ fun MediaMessage(
                         }
                     )
                     
-                    // Caption text below the image, inside the same bubble
+                    // Caption text below the image, inside the same bubble (always show filename if no caption)
                     MediaCaption(
                         caption = mediaMessage.caption,
+                        filename = mediaMessage.filename,
                         event = event,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
@@ -609,6 +622,7 @@ fun MediaMessage(
                         authToken = authToken,
                         isEncrypted = isEncrypted,
                         loadThumbnailsIfAvailable = useThumbnails,
+                        isMine = isMine,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
                                 showVideoPlayer = true
@@ -620,6 +634,18 @@ fun MediaMessage(
                             // Trigger menu from image long press
                             triggerMenuFromImage++
                         }
+                    )
+                    
+                    // Always show filename (even if no caption)
+                    MediaCaption(
+                        caption = null,
+                        filename = mediaMessage.filename,
+                        event = event,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onUserClick = onUserClick,
+                        isCompactMedia = mediaMessage.msgType == "m.audio" || mediaMessage.msgType == "m.file",
+                        appViewModel = appViewModel
                     )
                     
                     // Timestamp (for consecutive messages)
@@ -679,6 +705,7 @@ fun MediaMessage(
                         authToken = authToken,
                         isEncrypted = isEncrypted,
                         loadThumbnailsIfAvailable = useThumbnails,
+                        isMine = isMine,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
                                 showVideoPlayer = true
@@ -690,6 +717,18 @@ fun MediaMessage(
                             // Trigger menu from image long press
                             triggerMenuFromImage++
                         }
+                    )
+                    
+                    // Always show filename (even if no caption)
+                    MediaCaption(
+                        caption = null,
+                        filename = mediaMessage.filename,
+                        event = event,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        onUserClick = onUserClick,
+                        isCompactMedia = mediaMessage.msgType == "m.audio" || mediaMessage.msgType == "m.file",
+                        appViewModel = appViewModel
                     )
                     
                     // Timestamp (for consecutive messages)
@@ -740,6 +779,7 @@ private fun MediaContent(
     authToken: String,
     isEncrypted: Boolean,
     loadThumbnailsIfAvailable: Boolean,
+    isMine: Boolean = false, // For determining bubble shape
     onImageClick: () -> Unit = {},
     onImageLongPress: (() -> Unit)? = null
 ) {
@@ -748,36 +788,8 @@ private fun MediaContent(
     // Determine if we're using thumbnails
     val useThumbnail = loadThumbnailsIfAvailable && mediaMessage.info.thumbnailUrl != null
     
-    // Pre-calculate image dimensions to determine if we should wrap content
-    // If using thumbnails: try thumbnail dimensions first, fallback to full image dimensions if thumbnail dimensions not available
-    // If not using thumbnails: use full image dimensions
-    val imageWidthDp = if (useThumbnail) {
-        // First try thumbnail width
-        if (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0) {
-            with(density) { mediaMessage.info.thumbnailWidth!!.toDp() }
-        } else if (mediaMessage.info.width > 0) {
-            // Fallback to full image width if thumbnail width not available
-            with(density) { mediaMessage.info.width.toDp() }
-        } else null
-    } else {
-        // Not using thumbnails, use full image width
-        if (mediaMessage.info.width > 0) {
-            with(density) { mediaMessage.info.width.toDp() }
-        } else null
-    }
-    
-    // Determine if image is small enough to wrap content (estimate < 400dp)
-    val shouldWrapContent = imageWidthDp != null && imageWidthDp < 400.dp
-    
     Column(
-        modifier = Modifier
-            .then(
-                if (shouldWrapContent && (mediaMessage.msgType == "m.image" || mediaMessage.msgType == "m.video")) {
-                    Modifier.wrapContentWidth()
-                } else {
-                    Modifier.fillMaxWidth()
-                }
-            ),
+        modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.Start
     ) {
         if (mediaMessage.msgType == "m.audio") {
@@ -825,9 +837,10 @@ private fun MediaContent(
             // Check if there's a caption
             val hasCaption = !mediaMessage.caption.isNullOrBlank()
             
-            // Very tiny padding for image frame
-            val imagePadding = 4.dp
-            val bottomPadding = if (hasCaption) 8.dp else imagePadding
+            // Image frame padding: 2dp on left, top, and right (between thumbnail frame and message bubble)
+            val imageFramePadding = 2.dp
+            // Bottom padding is separate - used for spacing between image frame and caption/filename
+            val bottomPadding = 0.dp
 
             // Calculate actual image size in dp if dimensions are available
             // If using thumbnails: try thumbnail dimensions first, fallback to full image dimensions if thumbnail dimensions not available
@@ -847,82 +860,39 @@ private fun MediaContent(
                 } else null
             }
 
-            BoxWithConstraints(
+            // Image frame with border and padding (2dp on left, top, right)
+            // Use same rounded corners as message bubble (top corners only)
+            val imageFrameShape = RoundedCornerShape(
+                topStart = if (isMine) 12.dp else 4.dp,
+                topEnd = if (isMine) 4.dp else 12.dp,
+                bottomStart = 0.dp,
+                bottomEnd = 0.dp
+            )
+            
+            // Frame always fills bubble width to accommodate caption size
+            Surface(
                 modifier = Modifier
-                    .then(
-                        if (shouldWrapContent) {
-                            // Wrap content when image is small, but limit max width
-                            Modifier
-                                .wrapContentWidth()
-                                .widthIn(max = (imageWidthDp ?: 400.dp) + (imagePadding * 2) + 10.dp)
-                        } else {
-                            Modifier.fillMaxWidth()
-                        }
-                    )
+                    .fillMaxWidth()
+                    .padding(
+                        start = imageFramePadding,
+                        end = imageFramePadding,
+                        top = imageFramePadding
+                        // No bottom padding - caption/filename will provide spacing
+                    ),
+                shape = imageFrameShape,
+                color = Color.Transparent,
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f) // Visible but subtle
+                )
             ) {
-                // Calculate available width (accounting for padding)
-                // When wrapping, maxWidth might be unbounded, so use image width as fallback
-                val effectiveMaxWidth = if (shouldWrapContent) {
-                    // When wrapping, use image width + padding as the effective max
-                    (imageWidthDp ?: 400.dp) + (imagePadding * 2)
-                } else {
-                    maxWidth
-                }
-                val availableWidth = effectiveMaxWidth - (imagePadding * 2)
-                val maxHeight = 300.dp - (imagePadding + bottomPadding)
-                
-                // Determine if image should be rendered at actual size or scaled
-                // If Column is wrapping, we know image is small, so render at actual size
-                val shouldRenderAtActualSize = if (shouldWrapContent) {
-                    imageWidthDp != null && imageHeightDp != null
-                } else {
-                    imageWidthDp != null && imageHeightDp != null &&
-                    imageWidthDp <= availableWidth && imageHeightDp <= maxHeight
-                }
-                
-                val calculatedHeight =
-                    if (aspectRatio > 0) {
-                        if (shouldRenderAtActualSize) {
-                            // Use actual image height, but don't exceed maxHeight
-                            imageHeightDp!!.coerceAtMost(maxHeight)
-                        } else {
-                            // Scale down to fit available space
-                            (availableWidth / aspectRatio).coerceAtMost(maxHeight)
-                        }
-                    } else {
-                        200.dp // Default height
-                    }
-                
-                val calculatedWidth = if (shouldRenderAtActualSize && imageWidthDp != null) {
-                    // Use actual image width, but don't exceed available width
-                    imageWidthDp.coerceAtMost(availableWidth)
-                } else {
-                    availableWidth
-                }
-
-                // Image container with padding (frame around image)
+                // Box to clip the image to frame shape
+                // Image will fill the frame width and be clipped by the frame
                 Box(
                     modifier = Modifier
-                        .then(
-                            if (shouldRenderAtActualSize) {
-                                // Wrap content when image is small (don't enlarge)
-                                Modifier
-                                    .wrapContentWidth()
-                                    .wrapContentHeight()
-                            } else {
-                                // Fill available space when image is large (scale down)
-                                Modifier
-                                    .fillMaxWidth()
-                                    .height(calculatedHeight)
-                            }
-                        )
-                        .padding(
-                            start = imagePadding,
-                            end = imagePadding,
-                            top = imagePadding,
-                            bottom = bottomPadding
-                        ),
-                    contentAlignment = if (shouldRenderAtActualSize) Alignment.TopStart else Alignment.Center
+                        .fillMaxWidth()
+                        .clip(imageFrameShape),
+                    contentAlignment = Alignment.Center
                 ) {
                     val context = LocalContext.current
                     val coroutineScope = rememberCoroutineScope()
@@ -1047,10 +1017,10 @@ private fun MediaContent(
                             Log.d("Andromuks", "AsyncImage: Starting image load for $imageUrl")
                             Log.d("Andromuks", "AsyncImage: useThumbnail=$useThumbnail, aspectRatio=$aspectRatio")
                             Log.d("Andromuks", "AsyncImage: Full image dimensions: ${fullWidth}x${fullHeight}, Thumbnail dimensions: ${thumbWidth}x${thumbHeight}")
-                            Log.d("Andromuks", "AsyncImage: calculatedWidth=${calculatedWidth.value}dp, calculatedHeight=${calculatedHeight.value}dp")
                         }
 
                         // PERFORMANCE: Use optimized AsyncImage with better caching
+                        // Image fills frame width and maintains aspect ratio, clipped by frame
                         AsyncImage(
                             model = ImageRequest.Builder(context)
                                 .data(imageUrl ?: "")
@@ -1066,25 +1036,16 @@ private fun MediaContent(
                             imageLoader = imageLoader,
                             contentDescription = mediaMessage.filename,
                             modifier = Modifier
-                                .then(
-                                    if (shouldRenderAtActualSize) {
-                                        // Render at actual size (don't enlarge) maintaining aspect ratio
-                                        Modifier
-                                            .width(calculatedWidth)
-                                            .aspectRatio(aspectRatio)
-                                    } else {
-                                        // Scale to fit container maintaining aspect ratio
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .aspectRatio(aspectRatio)
-                                    }
-                                )
+                                .fillMaxWidth()
+                                .aspectRatio(aspectRatio)
+                                .scale(1.02f) // Make image slightly larger than frame so it gets clipped
                                 .combinedClickable(
                                     onClick = { onImageClick() },
                                     onLongClick = { onImageLongPress?.invoke() }
                                 ),
                             placeholder = blurHashPainter,
                             error = blurHashPainter,
+                            contentScale = androidx.compose.ui.layout.ContentScale.FillWidth, // Fill frame width, maintain aspect ratio
                             onSuccess = {
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
                             },
@@ -1104,8 +1065,12 @@ private fun MediaContent(
                         )
                     } else if (mediaMessage.msgType == "m.video") {
                         // Video thumbnail with play button overlay
+                        // Fill frame width and maintain aspect ratio, clipped by frame
                         Box(
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(aspectRatio)
+                                .scale(1.02f), // Make thumbnail slightly larger than frame so it gets clipped
                             contentAlignment = Alignment.Center
                         ) {
                             // Check if video has a thumbnail
@@ -1172,6 +1137,7 @@ private fun MediaContent(
                                             ),
                                     placeholder = thumbnailBlurHashPainter,
                                     error = thumbnailBlurHashPainter,
+                                    contentScale = androidx.compose.ui.layout.ContentScale.FillWidth, // Fill frame width, maintain aspect ratio
                                     onSuccess = {
                                         if (BuildConfig.DEBUG) Log.d(
                                             "Andromuks",
@@ -1219,7 +1185,8 @@ private fun MediaContent(
                                     horizontalAlignment = Alignment.CenterHorizontally,
                                     verticalArrangement = Arrangement.Center,
                                     modifier = Modifier
-                                        .fillMaxSize()
+                                        .fillMaxWidth()
+                                        .aspectRatio(aspectRatio)
                                         .combinedClickable(
                                             onClick = { onImageClick() },
                                             onLongClick = { onImageLongPress?.invoke() }
