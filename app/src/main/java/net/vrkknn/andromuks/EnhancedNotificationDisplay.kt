@@ -160,9 +160,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     /**
      * Creates a conversation channel for a specific room/conversation
      * This is required for per-conversation notification settings
+     * Note: Conversation channels require Android R+, but we create a regular channel on older versions
      */
     private fun createConversationChannel(roomId: String, roomName: String, isGroupRoom: Boolean) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             
             // Create a unique channel ID for this conversation
@@ -180,6 +181,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
 
             // Create native Android notification channel
             // Use IMPORTANCE_HIGH for Android Auto compatibility
+            val soundUri = android.net.Uri.parse("android.resource://" + context.packageName + "/" + soundResource)
             val channel = NotificationChannel(
                 conversationChannelId,
                 roomName,
@@ -188,16 +190,28 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 description = "Notifications for $roomName"
                 enableVibration(true)
                 enableLights(true)
-                setSound(android.net.Uri.parse("android.resource://" + context.packageName + "/" + soundResource), null)
-                setAllowBubbles(true)
+                // CRITICAL: Set sound with AudioAttributes for proper Android Auto support
+                val audioAttributes = android.media.AudioAttributes.Builder()
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                    .build()
+                setSound(soundUri, audioAttributes)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    setAllowBubbles(true)
+                }
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             
-            // Set conversation ID for Android 11+ conversation features
-            channel.setConversationId(CONVERSATION_CHANNEL_ID, roomId)
+            // Set conversation ID for Android 11+ conversation features (requires API 30+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                channel.setConversationId(CONVERSATION_CHANNEL_ID, roomId)
+            }
             
             // Create the channel
             notificationManager.createNotificationChannel(channel)
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "Created/updated conversation channel: $conversationChannelId, sound: ${channel.sound}, importance: ${channel.importance}")
+            }
         }
     }
     
@@ -312,10 +326,18 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 null
             }
             
-            // Create "me" person for MessagingStyle root (the local user) WITH avatar
+            // Helper function to build Person URI (same format as PersonsApi)
+            fun buildPersonUri(userId: String): String {
+                val sanitized = userId.removePrefix("@")
+                return "matrix:u/$sanitized"
+            }
+            
+            // Create "me" person for MessagingStyle root (the local user) WITH avatar and URI
+            // URI is required for Android's notification ranking system to recognize conversations
             val me = Person.Builder()
                 .setName(currentUserDisplayName)
                 .setKey(currentUserId)
+                .setUri(buildPersonUri(currentUserId))
                 .apply {
                     if (currentUserAvatarIcon != null) {
                         setIcon(currentUserAvatarIcon)
@@ -323,11 +345,13 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 }
                 .build()
             
-            // Create message person WITH sender avatar icon for individual messages
+            // Create message person WITH sender avatar icon and URI for individual messages
             // Always create messagePerson, even for DMs
+            // URI is required for Android's notification ranking system to recognize conversations
             val messagePerson = Person.Builder()
                 .setKey(notificationData.sender)
                 .setName(notificationData.senderDisplayName ?: notificationData.sender)
+                .setUri(buildPersonUri(notificationData.sender))
                 .setIcon(senderAvatarIcon)
                 .build()
             
@@ -420,6 +444,54 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 notificationData.body
             }
             
+            // CRITICAL: Update shortcut SYNCHRONOUSLY before entering synchronized block
+            // Android's notification ranking system requires the shortcut to exist
+            // and be registered before the notification is posted to recognize it as a conversation
+            // This ensures "Ranking is not conversation" errors don't occur
+            // Must be done OUTSIDE synchronized block because it's a suspend function
+            val roomItem = RoomItem(
+                id = notificationData.roomId,
+                name = notificationData.roomName ?: notificationData.roomId,
+                messagePreview = notificationData.body,
+                messageSender = notificationData.senderDisplayName ?: notificationData.sender,
+                unreadCount = 1,
+                highlightCount = 0,
+                avatarUrl = notificationData.roomAvatarUrl,
+                sortingTimestamp = notificationData.timestamp ?: System.currentTimeMillis()
+            )
+            conversationsApi?.updateConversationShortcutsSync(listOf(roomItem))
+            
+            // CRITICAL: Get shortcut using ALL flags to ensure we get the active shortcut
+            // Android's notification ranking system requires the shortcut to be "active"
+            // Using FLAG_MATCH_DYNAMIC | FLAG_MATCH_PINNED | FLAG_MATCH_MANIFEST ensures we get it
+            val shortcutInfo = conversationsApi?.let { api ->
+                try {
+                    // Try to get from active shortcuts first (most reliable for ranking system)
+                    val allShortcuts = ShortcutManagerCompat.getShortcuts(
+                        context, 
+                        ShortcutManagerCompat.FLAG_MATCH_DYNAMIC or 
+                        ShortcutManagerCompat.FLAG_MATCH_PINNED or 
+                        ShortcutManagerCompat.FLAG_MATCH_MANIFEST
+                    )
+                    val existingShortcut = allShortcuts.firstOrNull { it.id == notificationData.roomId }
+                    
+                    if (existingShortcut != null) {
+                        if (BuildConfig.DEBUG) {
+                            val isActive = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
+                                .any { it.id == notificationData.roomId }
+                            Log.d(TAG, "Found shortcut: ${existingShortcut.shortLabel}, categories: ${existingShortcut.categories}, isActive: $isActive")
+                        }
+                        existingShortcut
+                    } else {
+                        if (BuildConfig.DEBUG) Log.w(TAG, "WARNING: Shortcut not found after sync update - notification may not be recognized as conversation")
+                        null
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error getting shortcut info", e)
+                    null
+                }
+            }
+            
             // SYNCHRONIZATION: Use per-room lock to prevent concurrent updates for the same room
             // This ensures only one notification update happens at a time per room, preventing flicker
             val roomLock = getRoomLock(notificationData.roomId)
@@ -465,47 +537,29 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 
                 messagingStyle.addMessage(message)
                 
-                // Create RoomItem for shortcut update
-                val roomItem = RoomItem(
-                    id = notificationData.roomId,
-                    name = notificationData.roomName ?: notificationData.roomId,
-                    messagePreview = notificationData.body,
-                    messageSender = notificationData.senderDisplayName ?: notificationData.sender,
-                    unreadCount = 1,
-                    highlightCount = 0,
-                    avatarUrl = notificationData.roomAvatarUrl,
-                    sortingTimestamp = notificationData.timestamp ?: System.currentTimeMillis()
-                )
-                
-                // SHORTCUT OPTIMIZATION: Update shortcut when notification is shown
-                // This ensures the room is in shortcuts when user receives messages (similar to when sending)
-                // Uses efficient single-room update method, not full list processing
-                conversationsApi?.updateShortcutsFromSyncRooms(listOf(roomItem))
-                
-                // Try to get existing shortcut for notification bubble
-                val shortcutInfo = conversationsApi?.let { api ->
-                try {
-                    val existingShortcut = ShortcutManagerCompat.getShortcuts(context, ShortcutManagerCompat.FLAG_MATCH_DYNAMIC)
-                        .firstOrNull { it.id == notificationData.roomId }
-                    
-                        if (existingShortcut != null) {
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Found existing shortcut: ${existingShortcut.shortLabel}")
-                            existingShortcut
-                        } else {
-                            if (BuildConfig.DEBUG) Log.d(TAG, "No existing shortcut yet, will be created asynchronously")
-                            null
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error getting shortcut info", e)
-                        null
-                    }
-                }
-                
                 // Create conversation channel for this room
                 createConversationChannel(notificationData.roomId, notificationData.roomName ?: notificationData.roomId, isGroupRoom)
                 
                 // Use conversation channel for all notifications
-                val channelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
+                // Fallback to DM or GROUP channel if conversation channel doesn't exist (Android < R)
+                val conversationChannelId = "${CONVERSATION_CHANNEL_ID}_${notificationData.roomId}"
+                val channelId = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                    val channel = notificationManager.getNotificationChannel(conversationChannelId)
+                    if (channel != null) {
+                        if (BuildConfig.DEBUG) {
+                            Log.d(TAG, "Using conversation channel: $conversationChannelId, sound: ${channel.sound}, importance: ${channel.importance}, shouldVibrate: ${channel.shouldVibrate()}")
+                        }
+                        conversationChannelId
+                    } else {
+                        if (BuildConfig.DEBUG) Log.w(TAG, "Conversation channel not found, using fallback channel")
+                        // Fallback to appropriate channel based on room type
+                        if (isGroupRoom) GROUP_CHANNEL_ID else DM_CHANNEL_ID
+                    }
+                } else {
+                    // Android < O doesn't support channels, use default
+                    if (isGroupRoom) GROUP_CHANNEL_ID else DM_CHANNEL_ID
+                }
                 
                 // CRITICAL FIX: Check if a bubble already exists for this room
                 // When bubble is open, we still need to post the notification (for unread indicator and bubble lifecycle)
@@ -548,18 +602,29 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     .setAutoCancel(true)
                     .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Required for Android Auto
-                    .setGroup(notificationData.roomId) // Group by room
-                    .setGroupSummary(false)
+                    // NOTE: Removed grouping - Android Auto/DHU may filter grouped notifications
+                    // Grouping is useful for phone UI but may prevent Android Auto from showing notifications
+                    // .setGroup(notificationData.roomId) // Group by room
+                    // .setGroupSummary(false)
                     .apply {
                     // Set large icon (always set if available)
                     if (largeIconBitmap != null) {
                         setLargeIcon(largeIconBitmap)
                     }
                     
-                    // Link to shortcut - prefer full shortcut info over just ID
+                    // CRITICAL: Link to shortcut - Android's notification ranking system requires
+                    // a properly registered shortcut with conversation category to recognize notifications as conversations
+                    // Prefer full shortcut info over just ID for better recognition
                     if (shortcutInfo != null) {
+                        if (BuildConfig.DEBUG) {
+                            val hasConversationCategory = shortcutInfo.categories?.contains("android.shortcut.conversation") == true
+                            Log.d(TAG, "Using shortcut info for notification - ID: ${shortcutInfo.id}, hasConversationCategory: $hasConversationCategory")
+                        }
                         setShortcutInfo(shortcutInfo)
                     } else {
+                        if (BuildConfig.DEBUG) {
+                            Log.w(TAG, "WARNING: No shortcut info available, using shortcut ID only - notification may not be recognized as conversation")
+                        }
                         setShortcutId(notificationData.roomId)
                     }
                     
@@ -576,19 +641,48 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         }
                     }
                     
-                    // CRITICAL: When bubble is open, make notification silent and non-interruptive
-                    if (bubbleAlreadyOpen) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Bubble is open - making notification silent and non-interruptive for room: ${notificationData.roomId}")
+                    // CRITICAL: When bubble is open, make notification silent but maintain HIGH priority for Android Auto
+                    // NOTE: Android Auto may filter silent notifications, so we only make it silent if bubble is actually visible
+                    if (bubbleAlreadyOpen && bubbleIsVisible) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Bubble is open and visible - making notification silent but keeping HIGH priority for Android Auto: ${notificationData.roomId}")
                         // Silent notification - no sound, vibration, or heads-up
+                        // BUT maintain HIGH priority for Android Auto compatibility
                         setSilent(true)
                         setOnlyAlertOnce(true) // Avoid re-alerting
-                        setPriority(NotificationCompat.PRIORITY_LOW) // Lower priority to avoid interruption
+                        setPriority(NotificationCompat.PRIORITY_HIGH) // Keep HIGH priority for Android Auto
                         setDefaults(0) // No sound, vibration, or lights
                     } else {
-                        // Normal notification behavior when bubble is not open
+                        // Normal notification behavior when bubble is not open or not visible
+                        // This ensures Android Auto can display the notification
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Normal notification (bubble open=$bubbleAlreadyOpen, visible=$bubbleIsVisible) - ensuring Android Auto compatibility: ${notificationData.roomId}")
+                        // CRITICAL: Do NOT call setSilent() at all for normal notifications
+                        // Calling setSilent(false) doesn't work - instead, explicitly set sound/vibration
                         setOnlyAlertOnce(true) // Prevent heads-up flicker on rapid updates
                         setPriority(NotificationCompat.PRIORITY_HIGH)
-                        setDefaults(NotificationCompat.DEFAULT_ALL)
+                        // CRITICAL: On Android 8.0+, channels control sound/vibration
+                        // We must ensure the channel has sound enabled, then the notification will use it
+                        // Don't try to override channel settings - they take precedence
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                            val channel = notificationManager.getNotificationChannel(channelId)
+                            if (channel != null) {
+                                // Log channel state for debugging
+                                if (BuildConfig.DEBUG) {
+                                    Log.d(TAG, "Channel state - sound: ${channel.sound}, importance: ${channel.importance}, shouldVibrate: ${channel.shouldVibrate()}")
+                                }
+                                // On Android 8.0+, channel settings control notification behavior
+                                // If channel has sound, notification will use it automatically
+                                // We can't override channel settings with setSound() or setDefaults()
+                                // The channel must be configured correctly (which it should be from createConversationChannel)
+                            } else {
+                                if (BuildConfig.DEBUG) Log.w(TAG, "Channel not found: $channelId - notification may be silent")
+                                // Fallback: try to use defaults (may not work on O+)
+                                setDefaults(NotificationCompat.DEFAULT_ALL)
+                            }
+                        } else {
+                            // Android < O - use defaults directly
+                            setDefaults(NotificationCompat.DEFAULT_ALL)
+                        }
                     }
                     
                     // Store event_id in extras for later retrieval
@@ -604,18 +698,26 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     val markReadAction = createMarkReadAction(notificationData)
                     addAction(markReadAction)
                     
-                    // Android Auto: surface the conversation via CarExtender/UnreadConversation
-                    extend(
-                        NotificationCompat.CarExtender()
-                            .setUnreadConversation(
-                                createUnreadConversation(
-                                    notificationData = notificationData,
-                                    messagingStyle = messagingStyle,
-                                    replyAction = replyAction,
-                                    markReadAction = markReadAction
-                                )
-                            )
-                        )
+                    // Android Auto/DHU: surface the conversation via CarExtender/UnreadConversation
+                    // CRITICAL: CarExtender must be added for Android Auto/DHU to recognize the notification
+                    val unreadConversation = createUnreadConversation(
+                        notificationData = notificationData,
+                        messagingStyle = messagingStyle,
+                        replyAction = replyAction,
+                        markReadAction = markReadAction
+                    )
+                    if (BuildConfig.DEBUG) {
+                        val messageCount = unreadConversation.messages?.size ?: 0
+                        val hasReply = unreadConversation.replyPendingIntent != null
+                        val hasRead = unreadConversation.readPendingIntent != null
+                        Log.d(TAG, "CarExtender UnreadConversation details - messages: $messageCount, hasReplyAction: $hasReply, hasReadAction: $hasRead, timestamp: ${unreadConversation.latestTimestamp}")
+                    }
+                    val carExtender = NotificationCompat.CarExtender()
+                        .setUnreadConversation(unreadConversation)
+                    extend(carExtender)
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "CarExtender attached to notification")
+                    }
                     }
                     .build()
                 
@@ -635,7 +737,41 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 
                 // Show notification
                 val notificationManager = NotificationManagerCompat.from(context)
+                if (BuildConfig.DEBUG) {
+                    // On Android 8.0+, defaults may be 0 even if channel has sound - channel controls it
+                    // Check channel directly to see if it has sound enabled
+                    val channelHasSound = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                        val ch = nm.getNotificationChannel(channelId)
+                        ch?.sound != null && ch.importance >= NotificationManager.IMPORTANCE_DEFAULT
+                    } else {
+                        (notification.defaults and Notification.DEFAULT_SOUND) != 0
+                    }
+                    val hasCarExtender = notification.extras?.containsKey("android.car.EXTENSIONS") == true
+                    Log.d(TAG, "Posting notification for Android Auto - ID: $notifID, channel: $channelId, priority: ${notification.priority}, channelHasSound: $channelHasSound, visibility: ${notification.visibility}")
+                    Log.d(TAG, "Notification has CarExtender: $hasCarExtender")
+                    Log.d(TAG, "Notification category: ${notification.category}, flags: ${notification.flags}, defaults: ${notification.defaults}")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                        val ch = nm.getNotificationChannel(channelId)
+                        ch?.let {
+                            Log.d(TAG, "Channel details - sound: ${it.sound}, importance: ${it.importance}, shouldVibrate: ${it.shouldVibrate()}")
+                        } ?: Log.w(TAG, "Channel not found: $channelId")
+                    }
+                }
                 notificationManager.notify(notifID, notification)
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "✓ Notification posted successfully for room: ${notificationData.roomId}")
+                    // Verify CarExtender was actually attached by checking the built notification
+                    val builtNotification = notification
+                    val carExtenderCheck = NotificationCompat.CarExtender(builtNotification)
+                    val unreadConv = carExtenderCheck.unreadConversation
+                    if (unreadConv != null) {
+                        Log.d(TAG, "✓✓✓ CarExtender verification - UnreadConversation found: ${unreadConv.messages?.size ?: 0} messages")
+                    } else {
+                        Log.w(TAG, "⚠⚠⚠ WARNING: CarExtender UnreadConversation is NULL after building notification!")
+                    }
+                }
             } // End synchronized block
             
             // SHORTCUT OPTIMIZATION: Shortcuts already updated above when notification is shown
@@ -858,23 +994,45 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         // Limit to a few recent messages for car UI
         val latestMessages = messagingStyle.messages.takeLast(5)
 
+        // CRITICAL: Android Auto/DHU requires UnreadConversation to have valid pending intents
+        // Ensure both reply and read actions have valid pending intents
+        val replyPendingIntent = replyAction.actionIntent
+        val readPendingIntent = markReadAction.actionIntent
+        
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "CarExtender: ReplyPendingIntent is null: ${replyPendingIntent == null}, ReadPendingIntent is null: ${readPendingIntent == null}")
+        }
+        
         val builder = NotificationCompat.CarExtender.UnreadConversation.Builder(conversationTitle)
             .setLatestTimestamp(
                 latestMessages.lastOrNull()?.timestamp
                     ?: notificationData.timestamp
                     ?: System.currentTimeMillis()
             )
-            .setReadPendingIntent(markReadAction.actionIntent)
+            .setReadPendingIntent(readPendingIntent)
             .setReplyAction(
-                replyAction.actionIntent,
+                replyPendingIntent,
                 RemoteInput.Builder(KEY_REPLY_TEXT).setLabel("Reply").build()
             )
 
         latestMessages.forEach { msg ->
-            builder.addMessage(msg.text?.toString() ?: "")
+            // Extract message text - handle CharSequence properly for Android Auto
+            val messageText = when {
+                msg.text != null -> msg.text.toString()
+                msg.dataUri != null -> "[Media]"
+                else -> ""
+            }
+            if (messageText.isNotEmpty()) {
+                builder.addMessage(messageText)
+                if (BuildConfig.DEBUG) Log.d(TAG, "CarExtender: Added message to UnreadConversation: ${messageText.take(50)}...")
+            }
         }
-
-        return builder.build()
+        
+        val unreadConversation = builder.build()
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "CarExtender: Created UnreadConversation with title='$conversationTitle', ${latestMessages.size} messages, timestamp=${unreadConversation.latestTimestamp}")
+        }
+        return unreadConversation
     }
     
     /**
