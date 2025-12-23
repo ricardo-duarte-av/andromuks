@@ -501,6 +501,12 @@ class SyncIngestor(private val context: Context) {
         
         // Process account_data if present (must be done before other processing)
         // IMPORTANT: Partial updates - only replace keys present in incoming sync, merge with existing
+        // Rules:
+        // 1. Keys present in incoming account_data replace/update our local copy
+        // 2. Keys missing from incoming account_data are preserved (not touched)
+        // 3. Keys present but empty/null in incoming account_data are removed from our local copy
+        // 4. If account_data is null/empty in sync, we preserve our local copy (don't process)
+        // 5. If clear_state=true, we clear everything and replace with incoming (if present)
         // BATTERY OPTIMIZATION: account_data can be large (50KB+), so we:
         // 1. Use efficient JSON copying (manual key copy instead of toString/parse)
         // 2. Skip DB write if nothing changed (detect during merge)
@@ -516,7 +522,7 @@ class SyncIngestor(private val context: Context) {
                     accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
                     if (BuildConfig.DEBUG) Log.d(TAG, "Account data: clear_state=true -> replaced stored account_data (${accountDataStr.length} chars, ${incomingAccountData.length()} keys)")
                 } else {
-                    // Normal path: merge existing + incoming (incoming keys replace existing keys)
+                    // Normal path: merge existing + incoming with proper handling of empty/null values
                     val existingAccountDataStr = accountDataDao.getAccountData()
                     if (existingAccountDataStr != null) {
                         val existingAccountData = JSONObject(existingAccountDataStr)
@@ -524,28 +530,52 @@ class SyncIngestor(private val context: Context) {
                         // BATTERY OPTIMIZATION: Manual key copy is more efficient than toString() + parse
                         val merged = JSONObject()
                         
+                        // Step 1: Copy all existing keys (preserve keys not in incoming sync)
                         val existingKeys = existingAccountData.keys()
                         while (existingKeys.hasNext()) {
                             val key = existingKeys.next()
                             merged.put(key, existingAccountData.get(key))
                         }
                         
+                        // Step 2: Process incoming keys
+                        // - If key is present and has value: replace/update
+                        // - If key is present but empty/null: remove from merged (clear it)
                         var hasChanges = false
                         val incomingKeys = incomingAccountData.keys()
                         while (incomingKeys.hasNext()) {
                             val key = incomingKeys.next()
                             val incomingValue = incomingAccountData.get(key)
-                            val existingValue = merged.opt(key)
                             
-                            val valueChanged = when {
-                                existingValue == null || existingValue == JSONObject.NULL -> true
-                                else -> incomingValue.toString() != existingValue.toString()
+                            // Check if value is empty/null (should clear the key)
+                            val isEmpty = when {
+                                incomingValue == null -> true
+                                incomingValue == JSONObject.NULL -> true
+                                incomingValue is JSONObject && incomingValue.length() == 0 -> true
+                                incomingValue is org.json.JSONArray && incomingValue.length() == 0 -> true
+                                incomingValue is String && incomingValue.isBlank() -> true
+                                else -> false
                             }
                             
-                            if (valueChanged) {
-                                merged.put(key, incomingValue)
-                                hasChanges = true
-                                if (BuildConfig.DEBUG) Log.d(TAG, "Account data: Merged key '$key' from incoming sync")
+                            if (isEmpty) {
+                                // Key is present but empty/null - remove it from merged data (clear local copy)
+                                if (merged.has(key)) {
+                                    merged.remove(key)
+                                    hasChanges = true
+                                    if (BuildConfig.DEBUG) Log.d(TAG, "Account data: Removed key '$key' (empty/null in incoming sync)")
+                                }
+                            } else {
+                                // Key has value - update/replace
+                                val existingValue = merged.opt(key)
+                                val valueChanged = when {
+                                    existingValue == null || existingValue == JSONObject.NULL -> true
+                                    else -> incomingValue.toString() != existingValue.toString()
+                                }
+                                
+                                if (valueChanged) {
+                                    merged.put(key, incomingValue)
+                                    hasChanges = true
+                                    if (BuildConfig.DEBUG) Log.d(TAG, "Account data: Updated key '$key' from incoming sync")
+                                }
                             }
                         }
                         
@@ -557,11 +587,30 @@ class SyncIngestor(private val context: Context) {
                             if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No changes detected, skipping DB write")
                         }
                     } else {
-                        // No existing data, use incoming as-is
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No existing data, using incoming as-is")
-                        val accountDataStr = incomingAccountData.toString()
+                        // No existing data, use incoming as-is (but still filter out empty keys)
+                        val filtered = JSONObject()
+                        val incomingKeys = incomingAccountData.keys()
+                        while (incomingKeys.hasNext()) {
+                            val key = incomingKeys.next()
+                            val value = incomingAccountData.get(key)
+                            // Only add non-empty values
+                            val isEmpty = when {
+                                value == null -> true
+                                value == JSONObject.NULL -> true
+                                value is JSONObject && value.length() == 0 -> true
+                                value is org.json.JSONArray && value.length() == 0 -> true
+                                value is String && value.isBlank() -> true
+                                else -> false
+                            }
+                            if (!isEmpty) {
+                                filtered.put(key, value)
+                            }
+                        }
+                        
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No existing data, using incoming as-is (filtered empty keys)")
+                        val accountDataStr = filtered.toString()
                         accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Persisted initial account_data to database (${accountDataStr.length} chars, ${incomingAccountData.length()} keys)")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Persisted initial account_data to database (${accountDataStr.length} chars, ${filtered.length()} keys)")
                     }
                 }
             } catch (e: Exception) {
@@ -571,6 +620,9 @@ class SyncIngestor(private val context: Context) {
                 accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
                 Log.w(TAG, "Stored incoming account_data as-is (merge failed)")
             }
+        } else {
+            // account_data is null/empty in sync - preserve our local copy (don't process)
+            if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No account_data in incoming sync, preserving local copy")
         }
         
         // Store sync metadata

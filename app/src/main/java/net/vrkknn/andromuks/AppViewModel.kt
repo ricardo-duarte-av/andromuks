@@ -3827,124 +3827,222 @@ class AppViewModel : ViewModel() {
     /**
      * Process account_data from sync_complete or database
      * Can be called with either a sync JSON object or a direct account_data JSON string
+     * 
+     * Rules for processing:
+     * 1. Only process keys that are present in accountDataJson (partial updates)
+     * 2. If a key is present but empty/null, clear the corresponding state
+     * 3. If a key is missing, preserve existing state (don't touch it)
      */
     private fun processAccountData(accountDataJson: JSONObject) {
         // Account data is already extracted, process it directly
         
         // Process recent emoji account data
-        val recentEmojiData = accountDataJson.optJSONObject("io.element.recent_emoji")
-        if (recentEmojiData != null) {
-            val content = recentEmojiData.optJSONObject("content")
-            val recentEmojiArray = content?.optJSONArray("recent_emoji")
-            
-            if (recentEmojiArray != null) {
-                val frequencies = mutableListOf<Pair<String, Int>>()
-                for (i in 0 until recentEmojiArray.length()) {
-                    val emojiEntry = recentEmojiArray.optJSONArray(i)
-                    if (emojiEntry != null && emojiEntry.length() >= 1) {
-                        val emoji = emojiEntry.optString(0)
-                        if (emoji.isNotBlank()) {
-                            // Get count from entry, default to 1 if not present
-                            val count = if (emojiEntry.length() >= 2) {
-                                emojiEntry.optInt(1, 1)
-                            } else {
-                                1
-                            }
-                            frequencies.add(Pair(emoji, count))
-                        }
-                    }
-                }
-                // Sort by frequency (descending) to ensure proper order
-                val sortedFrequencies = frequencies.sortedByDescending { it.second }
-                // BUG FIX: Only update recent emojis if we found valid entries
-                // This prevents clearing recent emojis when account_data contains io.element.recent_emoji
-                // but the array is empty or all entries are invalid (preserves existing state)
-                if (sortedFrequencies.isNotEmpty()) {
-                    // Store frequencies and update UI list
-                    recentEmojiFrequencies = sortedFrequencies.toMutableList()
-                    recentEmojis = sortedFrequencies.map { it.first }
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data with frequencies (sorted by count)")
-                } else {
-                    // Array exists but is empty or all entries invalid - preserve existing state
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: account_data contains io.element.recent_emoji but array is empty/invalid, preserving existing ${recentEmojis.size} recent emojis")
-                }
-            }
-        }
-        
-        // Process m.direct account data for DM room detection
-        val mDirectData = accountDataJson.optJSONObject("m.direct")
-        if (mDirectData != null) {
-            val content = mDirectData.optJSONObject("content")
-            if (content != null) {
-                val dmRoomIds = mutableSetOf<String>()
-                val dmUserMap = mutableMapOf<String, MutableSet<String>>()
+        // Check if key is present (even if null/empty) - this indicates we should process it
+        if (accountDataJson.has("io.element.recent_emoji")) {
+            val recentEmojiData = accountDataJson.optJSONObject("io.element.recent_emoji")
+            if (recentEmojiData != null) {
+                val content = recentEmojiData.optJSONObject("content")
+                val recentEmojiArray = content?.optJSONArray("recent_emoji")
                 
-                // Extract all room IDs from m.direct content
-                val keys = content.names()
-                if (keys != null) {
-                    for (i in 0 until keys.length()) {
-                        val userId = keys.optString(i)
-                        val roomIdsArray = content.optJSONArray(userId)
-                        if (roomIdsArray != null) {
-                            val roomsForUser = dmUserMap.getOrPut(userId) { mutableSetOf() }
-                            for (j in 0 until roomIdsArray.length()) {
-                                val roomId = roomIdsArray.optString(j)
-                                if (roomId.isNotBlank()) {
-                                    dmRoomIds.add(roomId)
-                                    roomsForUser.add(roomId)
+                if (recentEmojiArray != null && recentEmojiArray.length() > 0) {
+                    val frequencies = mutableListOf<Pair<String, Int>>()
+                    for (i in 0 until recentEmojiArray.length()) {
+                        val emojiEntry = recentEmojiArray.optJSONArray(i)
+                        if (emojiEntry != null && emojiEntry.length() >= 1) {
+                            val emoji = emojiEntry.optString(0)
+                            if (emoji.isNotBlank()) {
+                                // Get count from entry, default to 1 if not present
+                                val count = if (emojiEntry.length() >= 2) {
+                                    emojiEntry.optInt(1, 1)
+                                } else {
+                                    1
                                 }
+                                frequencies.add(Pair(emoji, count))
                             }
                         }
                     }
-                }
-                
-                // Update the DM room IDs cache
-                directMessageRoomIds = dmRoomIds
-                directMessageUserMap = dmUserMap.mapValues { it.value.toSet() }
-                if (BuildConfig.DEBUG) android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Loaded ${dmRoomIds.size} DM room IDs for ${dmUserMap.size} users from m.direct account data"
-                )
-                
-                // PERFORMANCE: Update existing rooms in roomMap with correct DM status from account_data
-                // This ensures rooms loaded from database have correct isDirectMessage flag
-                updateRoomsDirectMessageStatus(dmRoomIds)
-            }
-        }
-        
-        // Process im.ponies.emote_rooms for custom emoji packs
-        val emoteRoomsData = accountDataJson.optJSONObject("im.ponies.emote_rooms")
-        if (emoteRoomsData != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found im.ponies.emote_rooms account data")
-            val content = emoteRoomsData.optJSONObject("content")
-            val rooms = content?.optJSONObject("rooms")
-            if (rooms != null) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found rooms object in emote_rooms, requesting emoji pack data")
-                // Request emoji pack data for each room/pack combination
-                val keys = rooms.names()
-                if (keys != null) {
-                    for (i in 0 until keys.length()) {
-                        val roomId = keys.optString(i)
-                        val packsObj = rooms.optJSONObject(roomId)
-                        if (packsObj != null) {
-                            val packNames = packsObj.names()
-                            if (packNames != null) {
-                                for (j in 0 until packNames.length()) {
-                                    val packName = packNames.optString(j)
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting emoji pack data for pack $packName in room $roomId")
-                                    requestEmojiPackData(roomId, packName)
-                                }
-                            }
-                        }
+                    // Sort by frequency (descending) to ensure proper order
+                    val sortedFrequencies = frequencies.sortedByDescending { it.second }
+                    if (sortedFrequencies.isNotEmpty()) {
+                        // Store frequencies and update UI list
+                        recentEmojiFrequencies = sortedFrequencies.toMutableList()
+                        recentEmojis = sortedFrequencies.map { it.first }
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data with frequencies (sorted by count)")
+                    } else {
+                        // Key is present but array is empty - clear recent emojis
+                        recentEmojiFrequencies.clear()
+                        recentEmojis = emptyList()
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: io.element.recent_emoji is present but empty, cleared recent emojis")
                     }
                 } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No room keys found in emote_rooms")
+                    // Key is present but content/array is null or empty - clear recent emojis
+                    recentEmojiFrequencies.clear()
+                    recentEmojis = emptyList()
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: io.element.recent_emoji is present but empty/null, cleared recent emojis")
                 }
             } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No rooms object found in emote_rooms content")
+                // Key is present but value is null - clear recent emojis
+                recentEmojiFrequencies.clear()
+                recentEmojis = emptyList()
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: io.element.recent_emoji is null, cleared recent emojis")
+            }
+        }
+        // If key is missing, don't process it (preserve existing state)
+        
+        // Process m.direct account data for DM room detection
+        if (accountDataJson.has("m.direct")) {
+            val mDirectData = accountDataJson.optJSONObject("m.direct")
+            if (mDirectData != null) {
+                val content = mDirectData.optJSONObject("content")
+                if (content != null && content.length() > 0) {
+                    val dmRoomIds = mutableSetOf<String>()
+                    val dmUserMap = mutableMapOf<String, MutableSet<String>>()
+                    
+                    // Extract all room IDs from m.direct content
+                    val keys = content.names()
+                    if (keys != null) {
+                        for (i in 0 until keys.length()) {
+                            val userId = keys.optString(i)
+                            val roomIdsArray = content.optJSONArray(userId)
+                            if (roomIdsArray != null) {
+                                val roomsForUser = dmUserMap.getOrPut(userId) { mutableSetOf() }
+                                for (j in 0 until roomIdsArray.length()) {
+                                    val roomId = roomIdsArray.optString(j)
+                                    if (roomId.isNotBlank()) {
+                                        dmRoomIds.add(roomId)
+                                        roomsForUser.add(roomId)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Update the DM room IDs cache
+                    directMessageRoomIds = dmRoomIds
+                    directMessageUserMap = dmUserMap.mapValues { it.value.toSet() }
+                    if (BuildConfig.DEBUG) android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Loaded ${dmRoomIds.size} DM room IDs for ${dmUserMap.size} users from m.direct account data"
+                    )
+                    
+                    // PERFORMANCE: Update existing rooms in roomMap with correct DM status from account_data
+                    // This ensures rooms loaded from database have correct isDirectMessage flag
+                    updateRoomsDirectMessageStatus(dmRoomIds)
+                } else {
+                    // Key is present but content is null or empty - clear DM room IDs
+                    directMessageRoomIds = emptySet()
+                    directMessageUserMap = emptyMap()
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: m.direct is present but empty/null, cleared DM room IDs")
+                }
+            } else {
+                // Key is present but value is null - clear DM room IDs
+                directMessageRoomIds = emptySet()
+                directMessageUserMap = emptyMap()
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: m.direct is null, cleared DM room IDs")
+            }
+        }
+        // If key is missing, don't process it (preserve existing state)
+        
+        // Process im.ponies.emote_rooms for custom emoji packs
+        if (accountDataJson.has("im.ponies.emote_rooms")) {
+            val emoteRoomsData = accountDataJson.optJSONObject("im.ponies.emote_rooms")
+            if (emoteRoomsData != null) {
+                val content = emoteRoomsData.optJSONObject("content")
+                val rooms = content?.optJSONObject("rooms")
+                if (rooms != null && rooms.length() > 0) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found im.ponies.emote_rooms account data")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found rooms object in emote_rooms, requesting emoji pack data")
+                    // Request emoji pack data for each room/pack combination
+                    val keys = rooms.names()
+                    if (keys != null) {
+                        for (i in 0 until keys.length()) {
+                            val roomId = keys.optString(i)
+                            val packsObj = rooms.optJSONObject(roomId)
+                            if (packsObj != null) {
+                                val packNames = packsObj.names()
+                                if (packNames != null) {
+                                    for (j in 0 until packNames.length()) {
+                                        val packName = packNames.optString(j)
+                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting emoji pack data for pack $packName in room $roomId")
+                                        requestEmojiPackData(roomId, packName)
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No room keys found in emote_rooms")
+                    }
+                } else {
+                    // Key is present but rooms is null or empty - clear emoji/sticker packs
+                    customEmojiPacks = emptyList()
+                    stickerPacks = emptyList()
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: im.ponies.emote_rooms is present but empty/null, cleared emoji/sticker packs")
+                }
+            } else {
+                // Key is present but value is null - clear emoji/sticker packs
+                customEmojiPacks = emptyList()
+                stickerPacks = emptyList()
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: im.ponies.emote_rooms is null, cleared emoji/sticker packs")
             }
         } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms account data found")
+            // Key is missing from incoming account_data - preserve existing state
+            // Only reload from database if we have no packs loaded (e.g., after clear_state)
+            if (customEmojiPacks.isEmpty() && stickerPacks.isEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms in incoming sync and no packs loaded, reloading from database")
+                reloadEmojiPacksFromDatabase()
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms in incoming sync, preserving existing ${customEmojiPacks.size} emoji packs and ${stickerPacks.size} sticker packs")
+            }
+        }
+    }
+    
+    /**
+     * Reload emoji packs from the database if they're missing.
+     * This ensures custom emojis/stickers are preserved even when account_data sync doesn't include im.ponies.emote_rooms.
+     */
+    private fun reloadEmojiPacksFromDatabase() {
+        appContext?.let { context ->
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
+                    val accountDataJson = bootstrapLoader.loadAccountData()
+                    if (accountDataJson != null) {
+                        val accountDataObj = org.json.JSONObject(accountDataJson)
+                        val emoteRoomsData = accountDataObj.optJSONObject("im.ponies.emote_rooms")
+                        if (emoteRoomsData != null) {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reloading emoji packs from database")
+                            withContext(Dispatchers.Main) {
+                                // Process emote_rooms from database to request emoji pack data
+                                val content = emoteRoomsData.optJSONObject("content")
+                                val rooms = content?.optJSONObject("rooms")
+                                if (rooms != null) {
+                                    val keys = rooms.names()
+                                    if (keys != null) {
+                                        for (i in 0 until keys.length()) {
+                                            val roomId = keys.optString(i)
+                                            val packsObj = rooms.optJSONObject(roomId)
+                                            if (packsObj != null) {
+                                                val packNames = packsObj.names()
+                                                if (packNames != null) {
+                                                    for (j in 0 until packNames.length()) {
+                                                        val packName = packNames.optString(j)
+                                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reloading emoji pack data for pack $packName in room $roomId from database")
+                                                        requestEmojiPackData(roomId, packName)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms found in database either")
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Error reloading emoji packs from database: ${e.message}", e)
+                }
+            }
         }
     }
     
