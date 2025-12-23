@@ -38,6 +38,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavType
 import androidx.navigation.navArgument
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -391,27 +395,50 @@ class MainActivity : ComponentActivity() {
                         
                         if (roomId != null && replyText != null) {
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Calling appViewModel.sendMessageFromNotification for room: $roomId")
+                            
+                            // Mark that we're processing a reply to prevent notification updates during Android's processing window
+                            // This prevents race conditions that cause duplicate sends
+                            try {
+                                val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                                val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                                val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                                
+                                if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                                    val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
+                                    enhancedNotificationDisplay.markReplyProcessing(roomId)
+                                }
+                            } catch (e: Exception) {
+                                Log.e("Andromuks", "MainActivity: Error marking reply processing", e)
+                            }
+                            
                             // Deduplication is handled in sendMessageFromNotification
                             appViewModel.sendMessageFromNotification(roomId, replyText) {
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Reply message sent successfully")
                                 // Update the notification with the sent message
-                                try {
-                                    val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
-                                    val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
-                                    val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
-                                    
-                                    if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                                        val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
-                                        enhancedNotificationDisplay.updateNotificationWithReply(roomId, replyText)
-                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Updated notification with reply for room: $roomId")
-                                    } else {
-                                        Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
+                                // Add a delay to let Android finish processing the reply action first
+                                // This prevents race conditions that cause duplicate sends
+                                CoroutineScope(Dispatchers.Main).launch {
+                                    delay(200) // 200ms delay to let Android finish processing
+                                    try {
+                                        val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                                        val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
+                                        val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
+                                        
+                                        if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
+                                            val enhancedNotificationDisplay = EnhancedNotificationDisplay(this@MainActivity, homeserverUrl, authToken)
+                                            enhancedNotificationDisplay.updateNotificationWithReply(roomId, replyText)
+                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Updated notification with reply for room: $roomId (after delay)")
+                                        } else {
+                                            Log.w("Andromuks", "MainActivity: Cannot update notification - missing homeserver or auth token")
+                                        }
+                                    } catch (e: Exception) {
+                                        Log.e("Andromuks", "MainActivity: Error updating notification with reply", e)
                                     }
-                                } catch (e: Exception) {
-                                    Log.e("Andromuks", "MainActivity: Error updating notification with reply", e)
                                 }
                             }
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: sendMessageFromNotification call completed")
+                            // Abort broadcast to prevent other receivers from processing this reply
+                            abortBroadcast()
                         } else {
                             Log.w("Andromuks", "MainActivity: Missing required data - roomId: $roomId, replyText: $replyText")
                         }

@@ -59,6 +59,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
         
         // Remote input key
         private const val KEY_REPLY_TEXT = "key_reply_text"
+        
+        // Reply processing window to prevent race conditions when updating notifications
+        private const val REPLY_PROCESSING_WINDOW_MS = 500L // 500ms window to let Android finish processing
+        
         private val autoExpandedBubbleRooms =
             Collections.synchronizedSet(mutableSetOf<String>())
     }
@@ -78,6 +82,11 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
         }
     )
+    
+    // Track rooms that are currently processing a reply to prevent notification updates
+    // during Android's reply processing window (prevents race condition that causes duplicate sends)
+    // Key: roomId, Value: timestamp when reply processing started
+    private val roomsProcessingReply = Collections.synchronizedMap<String, Long>(mutableMapOf())
     
     /**
      * Get or create a lock object for a specific room
@@ -1177,6 +1186,27 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
     }
     
     /**
+     * Mark that a reply is being processed for a room
+     * This prevents notification updates during Android's reply processing window
+     * to avoid race conditions that cause duplicate sends
+     */
+    fun markReplyProcessing(roomId: String) {
+        val now = System.currentTimeMillis()
+        roomsProcessingReply[roomId] = now
+        if (BuildConfig.DEBUG) Log.d(TAG, "Marked reply processing started for room: $roomId at $now")
+        
+        // Clean up old entries after processing window expires
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+            kotlinx.coroutines.delay(Companion.REPLY_PROCESSING_WINDOW_MS + 100) // Add buffer
+            val entryTime = roomsProcessingReply[roomId]
+            if (entryTime == now) { // Only remove if it's still our entry (not overwritten)
+                roomsProcessingReply.remove(roomId)
+                if (BuildConfig.DEBUG) Log.d(TAG, "Cleaned up reply processing marker for room: $roomId")
+            }
+        }
+    }
+    
+    /**
      * Updates notification with a sent reply message
      * This adds the message to the MessagingStyle and re-issues the notification
      */
@@ -1188,6 +1218,31 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             val isBubbleOpen = BubbleTracker.isBubbleOpen(roomId)
             if (isBubbleOpen) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Skipping notification update - bubble is open for room: $roomId (prevents bubble from closing)")
+                return
+            }
+            
+            // RACE CONDITION FIX: Check if we're currently processing a reply for this room
+            // Updating the notification while Android is processing the reply action causes
+            // Android to fire the action multiple times, leading to duplicate sends
+            val now = System.currentTimeMillis()
+            val replyProcessingStart = roomsProcessingReply[roomId]
+            if (replyProcessingStart != null && (now - replyProcessingStart) < Companion.REPLY_PROCESSING_WINDOW_MS) {
+                val timeSinceStart = now - replyProcessingStart
+                if (BuildConfig.DEBUG) Log.d(TAG, "Skipping notification update - reply still processing for room: $roomId (started ${timeSinceStart}ms ago, window: ${Companion.REPLY_PROCESSING_WINDOW_MS}ms)")
+                // Schedule a delayed update to try again after the processing window
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                    kotlinx.coroutines.delay(Companion.REPLY_PROCESSING_WINDOW_MS - timeSinceStart + 100) // Add 100ms buffer
+                    // Check again if still processing
+                    val stillProcessing = roomsProcessingReply[roomId]?.let { 
+                        (System.currentTimeMillis() - it) < Companion.REPLY_PROCESSING_WINDOW_MS 
+                    } ?: false
+                    if (!stillProcessing) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Retrying delayed notification update for room: $roomId")
+                        updateNotificationWithReply(roomId, replyText)
+                    } else {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Skipping delayed notification update - still processing for room: $roomId")
+                    }
+                }
                 return
             }
             

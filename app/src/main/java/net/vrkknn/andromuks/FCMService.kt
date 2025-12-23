@@ -10,6 +10,7 @@ import android.content.SharedPreferences
 import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationCompat.MessagingStyle
 import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
@@ -523,6 +524,35 @@ class FCMService : FirebaseMessagingService() {
                     // This shouldn't happen, but handle it gracefully
                     if (BuildConfig.DEBUG) Log.w(TAG, "Notification was pending but not active - already cancelled")
                     continue
+                }
+                
+                // IGNORE DISMISS IF LAST MESSAGE WAS SENT BY US: Check if the notification's last message
+                // was sent by the current user. If so, ignore the dismiss request because the backend
+                // is dismissing due to our own reply, which we don't want to hide.
+                try {
+                    val messagingStyle = MessagingStyle.extractMessagingStyleFromNotification(existingNotification.notification)
+                    if (messagingStyle != null) {
+                        val messages = messagingStyle.messages
+                        if (messages.isNotEmpty()) {
+                            val lastMessage = messages.last()
+                            val lastMessagePersonKey = lastMessage.person?.key
+                            
+                            // Get current user ID from SharedPreferences
+                            val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
+                            val currentUserId = sharedPrefs.getString("current_user_id", "") ?: ""
+                            
+                            if (currentUserId.isNotEmpty() && lastMessagePersonKey == currentUserId) {
+                                if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - NOT dismissing notification - last message was sent by current user (user: $currentUserId)")
+                                if (BuildConfig.DEBUG) Log.d(TAG, "This prevents notification dismissal when we send a reply and backend marks room as read")
+                                continue
+                            }
+                            
+                            if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId - Last message sender: $lastMessagePersonKey, current user: $currentUserId - will process dismiss")
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error checking if last message was sent by current user, proceeding with dismiss", e)
+                    // Continue with dismiss logic if we can't check
                 }
                 
                 // Check if bubble is actually open using BubbleTracker (source of truth)

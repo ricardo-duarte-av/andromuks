@@ -18,6 +18,12 @@ class NotificationReplyReceiver : BroadcastReceiver() {
     companion object {
         private const val TAG = "NotificationReplyReceiver"
         private const val KEY_REPLY_TEXT = "key_reply_text"
+        
+        // In-memory deduplication to prevent processing the same reply multiple times
+        // Key: "roomId|replyText|timestamp" (using timestamp to allow same message after window)
+        // Value: processing time
+        private val recentProcessedReplies = mutableMapOf<String, Long>()
+        private const val DEDUP_WINDOW_MS = 3000L // 3 seconds deduplication window
     }
     
     override fun onReceive(context: Context, intent: Intent) {
@@ -37,6 +43,27 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             Log.e(TAG, "replyText is null, cannot send reply")
             return
         }
+        
+        // DEDUPLICATION: Check if we've processed this exact reply recently
+        // Use a combination of roomId and replyText to create a unique key
+        // Include a timestamp component to allow same message after dedup window expires
+        val now = System.currentTimeMillis()
+        val dedupKey = "$roomId|$replyText"
+        val lastProcessedTime = recentProcessedReplies[dedupKey]
+        
+        if (lastProcessedTime != null && (now - lastProcessedTime) < DEDUP_WINDOW_MS) {
+            val timeSinceLastProcess = now - lastProcessedTime
+            if (BuildConfig.DEBUG) Log.d(TAG, "Skipping duplicate reply processing - processed ${timeSinceLastProcess}ms ago (dedup window: ${DEDUP_WINDOW_MS}ms)")
+            // Return early to prevent duplicate processing
+            return
+        }
+        
+        // Mark this reply as processed (before forwarding to prevent race conditions)
+        recentProcessedReplies[dedupKey] = now
+        
+        // Clean up old entries (keep only recent entries within dedup window)
+        val cutoffTime = now - DEDUP_WINDOW_MS
+        recentProcessedReplies.entries.removeAll { it.value < cutoffTime }
         
         // Delegate to the same action flow used by PendingIntent so we don't double-send
         val forwardIntent = Intent("net.vrkknn.andromuks.ACTION_REPLY").apply {
