@@ -3,7 +3,6 @@ package net.vrkknn.andromuks
 import net.vrkknn.andromuks.BuildConfig
 
 import android.content.Context
-import android.content.Intent
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.PeriodicWorkRequestBuilder
@@ -16,14 +15,15 @@ import java.util.concurrent.TimeUnit
 /**
  * WebSocketHealthCheckWorker - Periodic WorkManager job to ensure WebSocket service stays alive
  * 
- * This worker runs periodically (every 15-30 minutes) to:
+ * This worker runs periodically (every 15 minutes) to:
  * - Check if WebSocketService is running
  * - Check if WebSocket connection is active
- * - Restart service if it was killed by Android
+ * - Restart service via ServiceStartWorker if it was killed by Android
  * - Trigger reconnection if service is running but disconnected
  * 
  * This is a backup mechanism - the primary connection is maintained by the foreground service.
  * WorkManager ensures the service gets restarted even if Android kills it aggressively.
+ * Uses ServiceStartWorker for reliable service restart even when app process is killed.
  */
 class WebSocketHealthCheckWorker(
     context: Context,
@@ -53,10 +53,10 @@ class WebSocketHealthCheckWorker(
             if (BuildConfig.DEBUG) Log.d(TAG, "Health check: serviceRunning=$isServiceRunning, websocketConnected=$isWebSocketConnected")
             
             if (!isServiceRunning) {
-                // Service was killed - restart it
-                Log.w(TAG, "WebSocketService not running - restarting service")
+                // Service was killed - restart it via ServiceStartWorker (more reliable than direct start)
+                Log.w(TAG, "WebSocketService not running - scheduling restart via ServiceStartWorker")
                 WebSocketService.logActivity("Health Check: Service Not Running - Restarting", null)
-                restartService(applicationContext)
+                ServiceStartWorker.enqueue(applicationContext, "WebSocketHealthCheckWorker - service killed")
                 return@withContext Result.success()
             }
             
@@ -95,18 +95,6 @@ class WebSocketHealthCheckWorker(
         }
     }
     
-    /**
-     * Restart the WebSocketService
-     */
-    private fun restartService(context: Context) {
-        try {
-            val intent = Intent(context, WebSocketService::class.java)
-            context.startForegroundService(intent)
-            if (BuildConfig.DEBUG) Log.d(TAG, "WebSocketService restart initiated")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to restart WebSocketService", e)
-        }
-    }
     
     companion object {
         private const val WORK_NAME = "websocket_health_check"
