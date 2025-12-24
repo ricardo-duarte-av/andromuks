@@ -39,8 +39,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import net.vrkknn.andromuks.LocalScrollHighlightState
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -77,6 +84,29 @@ fun SystemEventNarrator(
     val configuration = LocalConfiguration.current
     val screenWidth = with(density) { configuration.screenWidthDp.dp.toPx() }
     
+    // Highlight animation when this event is the active scroll target
+    val scrollHighlightState = LocalScrollHighlightState.current
+    val isHighlightTarget =
+        scrollHighlightState.requestId > 0 && scrollHighlightState.eventId == event.eventId
+    val highlightAnim = remember(event.eventId) { Animatable(0f) }
+    
+    LaunchedEffect(scrollHighlightState.requestId, isHighlightTarget) {
+        if (isHighlightTarget) {
+            highlightAnim.snapTo(1f)
+            highlightAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 5000, easing = FastOutSlowInEasing)
+            )
+        } else if (!isHighlightTarget && highlightAnim.value > 0f) {
+            highlightAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+            )
+        }
+    }
+    
+    val highlightValue = highlightAnim.value
+    
     // Get read receipts for this event
     val readReceipts = remember(event.eventId, appViewModel?.readReceiptsUpdateCounter) {
         if (appViewModel != null) {
@@ -103,6 +133,21 @@ fun SystemEventNarrator(
                     // Capture the narrator row's position on screen
                     narratorBounds = layoutCoordinates.boundsInWindow()
                 }
+                .then(
+                    // Add glow effect when highlighted
+                    if (highlightValue > 0.01f) {
+                        val glowColor = MaterialTheme.colorScheme.tertiary
+                        val glowIntensity = highlightValue * 0.6f // Max 60% opacity
+                        Modifier.shadow(
+                            elevation = (8.dp + 12.dp * highlightValue),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                            ambientColor = glowColor.copy(alpha = glowIntensity * 0.4f),
+                            spotColor = glowColor.copy(alpha = glowIntensity * 0.6f)
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
                 .combinedClickable(
                     onClick = { /* Regular click does nothing */ },
                     onLongClick = { 
@@ -118,7 +163,22 @@ fun SystemEventNarrator(
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
+                .weight(1f)
+                .then(
+                    // Add subtle background glow when highlighted
+                    if (highlightValue > 0.01f) {
+                        val glowColor = MaterialTheme.colorScheme.tertiary
+                        val glowAlpha = highlightValue * 0.15f // Subtle background glow
+                        Modifier.background(
+                            color = glowColor.copy(alpha = glowAlpha),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp)
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
+                .padding(horizontal = if (highlightValue > 0.01f) 4.dp else 0.dp, vertical = if (highlightValue > 0.01f) 2.dp else 0.dp)
         ) {
             // Small avatar for the actor (clickable)
             AvatarImage(
