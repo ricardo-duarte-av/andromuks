@@ -166,7 +166,11 @@ fun ReplyPreview(
                         event.decrypted?.optString("body", "")
                     }
                 }
-                else -> null
+                else -> {
+                    // For non-message events (system events, stickers, etc.), use the formatting function
+                    // This handles all event types including joins, leaves, ACL changes, etc.
+                    formatEventForReplyPreview(event, appViewModel, event.roomId)
+                }
             }
         }
     } ?: "Message not found"
