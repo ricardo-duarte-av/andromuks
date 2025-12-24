@@ -511,11 +511,19 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 }
                 
                 // Create or update MessagingStyle
+                // CRITICAL: Android Auto requires setConversationTitle() when shortcut category is android.shortcut.conversation
+                // For DMs, use sender name as conversation title; for groups, use room name
+                val conversationTitle = if (isGroupRoom) {
+                    notificationData.roomName
+                } else {
+                    // For DMs, Android Auto still requires a conversation title when shortcut category is conversation
+                    // Use sender display name as the conversation title
+                    notificationData.senderDisplayName ?: notificationData.sender
+                }
+                
                 val messagingStyle = (existingStyle ?: NotificationCompat.MessagingStyle(me))
-                    .setConversationTitle(
-                        if (isGroupRoom) notificationData.roomName else null
-                    )
-                    .setGroupConversation(isGroupRoom) // Helps Android decide when to show sender avatar vs your own
+                    .setConversationTitle(conversationTitle)
+                    .setGroupConversation(isGroupRoom) // Must be explicitly set - Android Auto does not infer it
                 
                 // Add message to style
                 val message = if (hasImage && imageUri != null) {

@@ -23,21 +23,8 @@ class AndromuksCarAppService : CarAppService() {
     override fun onCreateSession(sessionInfo: SessionInfo): Session {
         return object : Session() {
             override fun onCreateScreen(intent: Intent): Screen {
-                return object : Screen(carContext) {
-                    override fun onGetTemplate(): Template {
-                        val exitAction = Action.Builder()
-                            .setTitle(carContext.getString(R.string.car_action_close))
-                            .setOnClickListener { carContext.finishCarApp() }
-                            .build()
-
-                        return MessageTemplate.Builder(
-                            carContext.getString(R.string.car_app_placeholder_message)
-                        )
-                            .setTitle(carContext.getString(R.string.app_name))
-                            .addAction(exitAction)
-                            .build()
-                    }
-                }
+                // Start with the landing screen
+                return CarLandingScreen(carContext)
             }
         }
     }
