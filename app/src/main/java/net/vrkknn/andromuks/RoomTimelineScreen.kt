@@ -1725,6 +1725,22 @@ fun RoomTimelineScreen(
         }
         
         appViewModel.ensureTimelineCacheIsFresh(roomId)
+        
+        // EMERGENCY PAGINATION: If room has fewer than 200 events, request emergency pagination
+        // This ensures the room is populated before rendering
+        val eventCount = withContext(Dispatchers.IO) {
+            appViewModel.getRoomEventCountFromDb(roomId)
+        }
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: DB event count for room $roomId: $eventCount")
+        
+        if (eventCount < 200) {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Only $eventCount events in DB (< 200), requesting emergency pagination")
+            // Request emergency pagination (no max_timeline_event, limit 200)
+            appViewModel.requestEmergencyPagination(roomId, limit = 200)
+        } else {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Sufficient events in DB ($eventCount >= 200), skipping emergency pagination")
+        }
+        
         // Request room state first, then timeline
         appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId)

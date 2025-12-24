@@ -14770,6 +14770,40 @@ class AppViewModel : ViewModel() {
         }
     }
     
+    /**
+     * Emergency pagination: Request 200 events from backend with no max_timeline_id constraint.
+     * Used when room has fewer than 200 events in database to populate the room before rendering.
+     * 
+     * @param roomId The room ID to paginate
+     * @param limit Number of events to fetch (default 200)
+     */
+    fun requestEmergencyPagination(roomId: String, limit: Int = 200) {
+        if (!isWebSocketConnected()) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot perform emergency pagination for $roomId")
+            return
+        }
+        
+        val paginateRequestId = requestIdCounter++
+        paginateRequests[paginateRequestId] = roomId
+        
+        if (BuildConfig.DEBUG) android.util.Log.d(
+            "Andromuks",
+            "AppViewModel: Sending emergency pagination request for $roomId (max_timeline_id=0, limit=$limit, reqId=$paginateRequestId)"
+        )
+        
+        val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+            "room_id" to roomId,
+            "max_timeline_id" to 0, // No max_timeline_event constraint - fetch latest events
+            "limit" to limit,
+            "reset" to false
+        ))
+        
+        if (result != WebSocketResult.SUCCESS) {
+            android.util.Log.w("Andromuks", "AppViewModel: Failed to send emergency pagination request for $roomId: $result")
+            paginateRequests.remove(paginateRequestId)
+        }
+    }
+    
     private fun mergePaginationEvents(newEvents: List<TimelineEvent>) {
         if (newEvents.isEmpty()) {
             return

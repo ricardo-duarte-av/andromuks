@@ -1664,19 +1664,19 @@ fun BubbleTimelineScreen(
         // This ensures bubbles load quickly from cache, and fetch more if needed
         appViewModel.ensureTimelineCacheIsFresh(roomId)
         
-        // Check DB event count - if less than 20 events, request pagination
-        // This ensures bubbles have enough content to display without empty timelines
+        // EMERGENCY PAGINATION: If room has fewer than 200 events, request emergency pagination
+        // This ensures the room is populated before rendering
         val eventCount = withContext(Dispatchers.IO) {
             appViewModel.getRoomEventCountFromDb(roomId)
         }
         if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: DB event count for room $roomId: $eventCount")
         
-        if (eventCount < 20) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Only $eventCount events in DB (< 20), requesting pagination")
-            // Request pagination to get more events
-            appViewModel.loadOlderMessages(roomId, showToast = false)
+        if (eventCount < 200) {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Only $eventCount events in DB (< 200), requesting emergency pagination")
+            // Request emergency pagination (no max_timeline_event, limit 200)
+            appViewModel.requestEmergencyPagination(roomId, limit = 200)
         } else {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Sufficient events in DB ($eventCount >= 20), skipping pagination")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Sufficient events in DB ($eventCount >= 200), skipping emergency pagination")
         }
         
         // Request room state first, then timeline
