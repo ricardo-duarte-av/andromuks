@@ -199,7 +199,7 @@ fun RoomListScreen(
 
     // Refresh stableSection from DB-backed snapshot when counters or space selection change.
     LaunchedEffect(roomListUpdateCounter, uiState.roomSummaryUpdateCounter, uiState.currentSpaceId) {
-        // If initial sync isn’t complete yet and we already have data, keep current UI to avoid flicker.
+        // If initial sync isn't complete yet and we already have data, keep current UI to avoid flicker.
         if (!uiState.initialSyncComplete) {
             val hadContent = stableSection.rooms.isNotEmpty() || stableSection.spaces.isNotEmpty()
             if (hadContent) return@LaunchedEffect
@@ -209,21 +209,34 @@ fun RoomListScreen(
             runCatching { appViewModel.buildSectionSnapshot() }.getOrNull()
         }
         if (snapshot != null) {
-            // If we already have rooms and the new snapshot is empty, keep the old one to avoid flicker
-            if (stableSection.rooms.isNotEmpty() && snapshot.rooms.isEmpty()) {
+            // CRITICAL FIX: Always update if rooms are added or removed (by ID comparison)
+            // This ensures rooms don't vanish when they temporarily lose summaries/timestamps
+            val oldRoomIds = stableSection.rooms.map { it.id }.toSet()
+            val newRoomIds = snapshot.rooms.map { it.id }.toSet()
+            val roomsAdded = newRoomIds - oldRoomIds
+            val roomsRemoved = oldRoomIds - newRoomIds
+            
+            // If rooms were added or removed, always update (room still exists in DB, just lost summary data)
+            if (roomsAdded.isNotEmpty() || roomsRemoved.isNotEmpty()) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "RoomListScreen: Rooms added/removed - added:${roomsAdded.size} removed:${roomsRemoved.size}, updating stableSection")
+                }
+                stableSection = snapshot
                 return@LaunchedEffect
             }
-            // Only replace if the snapshot has meaningful data (rooms with summaries/timestamps/unreads or any spaces),
-            // or if we previously had no content.
-            val hasMeaningfulRooms = snapshot.rooms.any { room ->
-                (room.sortingTimestamp ?: 0L) > 0L ||
-                        !room.messagePreview.isNullOrBlank() ||
-                        (room.unreadCount ?: 0) > 0 ||
-                        (room.highlightCount ?: 0) > 0
+            
+            // If we already have rooms and the new snapshot is empty, keep the old one to avoid flicker
+            // BUT only if we're not in initial sync (to allow empty state during startup)
+            if (stableSection.rooms.isNotEmpty() && snapshot.rooms.isEmpty() && uiState.initialSyncComplete) {
+                return@LaunchedEffect
             }
-            val hasContent = hasMeaningfulRooms || snapshot.spaces.isNotEmpty()
-            val hadContent = stableSection.rooms.isNotEmpty() || stableSection.spaces.isNotEmpty()
-            if (hasContent || !hadContent) {
+            
+            // For other cases, update if snapshot has any rooms or spaces
+            // Removed "meaningful rooms" check - rooms should be shown if they exist in DB, even without summaries
+            if (snapshot.rooms.isNotEmpty() || snapshot.spaces.isNotEmpty()) {
+                stableSection = snapshot
+            } else if (stableSection.rooms.isEmpty() && stableSection.spaces.isEmpty()) {
+                // Both old and new are empty - safe to update
                 stableSection = snapshot
             }
         }
@@ -401,6 +414,13 @@ fun RoomListScreen(
         // Use DB snapshot to avoid empty in-memory sections on tab switches
         val newSection = withContext(Dispatchers.IO) { runCatching { appViewModel.buildSectionSnapshot() }.getOrNull() } ?: return@LaunchedEffect
         
+        // CRITICAL FIX: Check if rooms were added or removed first (by ID comparison)
+        // This ensures rooms don't vanish when they temporarily lose summaries/timestamps
+        val oldRoomIds = stableSection.rooms.map { it.id }.toSet()
+        val newRoomIds = newSection.rooms.map { it.id }.toSet()
+        val roomsAdded = newRoomIds - oldRoomIds
+        val roomsRemoved = oldRoomIds - newRoomIds
+        
         // FIX: Compare only meaningful fields, ignore micro timestamp changes
         // Compare room order (by ID sequence), unread counts, and names
         // Don't compare exact sortingTimestamp (millisecond differences don't matter visually)
@@ -409,9 +429,7 @@ fun RoomListScreen(
         val roomsChanged = oldRoomSignature != newRoomSignature
         
         // Also check if room order changed (by ID sequence)
-        val oldRoomIds = stableSection.rooms.map { it.id }
-        val newRoomIds = newSection.rooms.map { it.id }
-        val orderChanged = oldRoomIds != newRoomIds
+        val orderChanged = oldRoomIds.toList() != newRoomIds.toList()
         
         val spacesChanged = stableSection.spaces.map { "${it.id}:${it.name}" } != 
                            newSection.spaces.map { "${it.id}:${it.name}" }
@@ -428,6 +446,14 @@ fun RoomListScreen(
             previousSectionType = stableSection.type
             stableSection = newSection
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Section type changed from ${previousSectionType} to ${newSection.type}")
+        } else if (roomsAdded.isNotEmpty() || roomsRemoved.isNotEmpty()) {
+            // CRITICAL FIX: Rooms were added or removed - always update to show/hide them
+            // This prevents rooms from vanishing when they temporarily lose summary data
+            stableSection = newSection
+            sectionAnimationDirection = 0
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "RoomListScreen: Rooms added/removed - added:${roomsAdded.size} removed:${roomsRemoved.size}, updating section")
+            }
         } else if (roomsChanged || spacesChanged) {
             // Same section type but data changed - update without animation
             // ANTI-FLICKER: If only order changed (not data), preserve room instances from old section
