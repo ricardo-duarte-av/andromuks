@@ -296,18 +296,30 @@ fun ReplyPreviewInput(
     roomId: String? = null,
     onMatrixUserClick: (String) -> Unit = {}
 ) {
-    val profile = userProfileCache[event.sender]
+    // CRITICAL FIX: Use reactive member map from appViewModel if available
+    // This ensures the display name updates when profiles are loaded opportunistically
+    val reactiveMemberMap = if (appViewModel != null && roomId != null) {
+        remember(roomId, appViewModel.memberUpdateCounter) {
+            appViewModel.getMemberMap(roomId)
+        }
+    } else {
+        null
+    }
+    
+    // Prefer reactive member map over static userProfileCache
+    val profile = reactiveMemberMap?.get(event.sender) ?: userProfileCache[event.sender]
     var displayName = profile?.displayName ?: event.sender
     
     // If we don't have a display name, try to fetch it
     var isFetchingProfile by remember { mutableStateOf(false) }
     
-    if (profile?.displayName == null && appViewModel != null && !isFetchingProfile) {
+    if (profile?.displayName == null && appViewModel != null && roomId != null && !isFetchingProfile) {
         LaunchedEffect(event.sender) {
             if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "No display name for ${event.sender}, fetching profile...")
             isFetchingProfile = true
-            appViewModel.requestUserProfile(event.sender)
-            // Note: The profile will be updated via the profile cache when the response comes back
+            // Use opportunistic profile loading (same as timeline screens)
+            appViewModel.requestUserProfileOnDemand(event.sender, roomId)
+            // Note: The profile will be updated via the reactive member map when the response comes back
         }
     }
     
@@ -370,18 +382,25 @@ fun ReplyPreviewInput(
         
         // Update display name if we got a full event with sender info
         if (fetchedEvent!!.sender.isNotBlank()) {
-            val fetchedProfile = userProfileCache[fetchedEvent!!.sender]
+            // Use reactive member map if available, otherwise fall back to userProfileCache
+            val fetchedProfile = reactiveMemberMap?.get(fetchedEvent!!.sender) ?: userProfileCache[fetchedEvent!!.sender]
             if (fetchedProfile?.displayName != null) {
-                // The display name will be updated in the UI automatically
+                // The display name will be updated in the UI automatically via reactive member map
             }
         }
     }
+    
+    // CRITICAL FIX: Re-read profile from reactive member map to get latest display name
+    // This ensures we show the display name once it's loaded, even if it wasn't available initially
+    val latestProfile = reactiveMemberMap?.get(event.sender) ?: profile
+    val finalDisplayName = latestProfile?.displayName?.takeIf { it.isNotBlank() } ?: event.sender
     
     // Final debug logging
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "=== FINAL VALUES ===")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Event sender: ${event.sender}")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Profile: $profile")
-    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Display name: $displayName")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Latest profile: $latestProfile")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Display name: $finalDisplayName")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Final body: '$body'")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Final msgType: '$msgType'")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Content null: ${content == null}")
@@ -416,7 +435,7 @@ fun ReplyPreviewInput(
             // Message preview
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = displayName,
+                    text = finalDisplayName,
                     style = MaterialTheme.typography.labelMedium,
                     color = net.vrkknn.andromuks.utils.UserColorUtils.getUserColor(event.sender),
                     maxLines = 1,

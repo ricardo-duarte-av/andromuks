@@ -2177,10 +2177,7 @@ fun BubbleTimelineScreen(
                                 if (replyingToEvent != null) {
                                     ReplyPreviewInput(
                                         event = replyingToEvent!!,
-                                        userProfileCache =
-                                            userProfileCache.mapValues { (_, pair) ->
-                                                MemberProfile(pair.first, pair.second)
-                                            },
+                                        userProfileCache = memberMap, // Use reactive memberMap instead of static userProfileCache
                                         onCancel = { replyingToEvent = null },
                                         appViewModel = appViewModel,
                                         roomId = roomId
