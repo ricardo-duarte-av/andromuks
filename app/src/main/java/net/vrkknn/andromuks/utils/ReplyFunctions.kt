@@ -284,6 +284,156 @@ fun Modifier.messageBubbleMenu(
 }
 
 /**
+ * Formats an event for display in a reply preview.
+ * Handles all event types including messages, stickers, system events, etc.
+ * 
+ * @param event The timeline event to format
+ * @param appViewModel Optional AppViewModel for accessing user profiles
+ * @param roomId Optional room ID for profile lookups
+ * @return A string description of the event suitable for reply preview
+ */
+fun formatEventForReplyPreview(
+    event: TimelineEvent,
+    appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
+    roomId: String? = null
+): String {
+    val eventType = event.type
+    val content = event.content ?: event.decrypted
+    
+    return when (eventType) {
+        "m.room.message", "m.room.encrypted" -> {
+            // Handle message events
+            // For encrypted events, check decryptedType first
+            val actualMsgType = if (eventType == "m.room.encrypted" && event.decryptedType != null) {
+                // For encrypted events, use decryptedType to determine the message type
+                when (event.decryptedType) {
+                    "m.sticker" -> "m.sticker"
+                    else -> content?.optString("msgtype", "") ?: ""
+                }
+            } else {
+                content?.optString("msgtype", "") ?: ""
+            }
+            val body = content?.optString("body", "") ?: ""
+            
+            when (actualMsgType) {
+                "m.image" -> "📷 Image"
+                "m.video" -> "🎥 Video"
+                "m.audio" -> "🎵 Audio"
+                "m.file" -> "📎 File"
+                "m.sticker" -> {
+                    // Try to get sticker body/name
+                    val stickerBody = body.takeIf { it.isNotBlank() } ?: "Sticker"
+                    "🎨 $stickerBody"
+                }
+                "m.emote" -> {
+                    // For emote, show the action text (body without /me prefix)
+                    if (body.isNotBlank()) body else "Emote"
+                }
+                "m.text" -> {
+                    if (body.isBlank()) "Empty message" else body
+                }
+                else -> {
+                    // Fallback for other msgtypes or if msgtype is missing
+                    if (body.isNotBlank()) body else "Message"
+                }
+            }
+        }
+        "m.sticker" -> {
+            // Standalone sticker event
+            val body = content?.optString("body", "") ?: ""
+            val stickerBody = body.takeIf { it.isNotBlank() } ?: "Sticker"
+            "🎨 $stickerBody"
+        }
+        "m.room.member" -> {
+            // Handle member events (join, leave, ban, kick, invite, profile changes)
+            val membership = content?.optString("membership", "")
+            val reason = content?.optString("reason", "")
+            val reasonText = if (!reason.isNullOrBlank()) ": $reason" else ""
+            
+            when (membership) {
+                "join" -> {
+                    // Check if this is a profile change vs actual join
+                    val unsigned = event.unsigned
+                    val prevContent = unsigned?.optJSONObject("prev_content")
+                    val prevMembership = prevContent?.optString("membership", "")
+                    val isProfileChange = prevContent != null && prevMembership == "join"
+                    
+                    if (isProfileChange) {
+                        // Profile change - check what changed
+                        val prevDisplayName = prevContent.optString("displayname", "")
+                        val prevAvatar = prevContent.optString("avatar_url", "")
+                        val currentDisplayName = content?.optString("displayname", "") ?: ""
+                        val currentAvatar = content?.optString("avatar_url", "") ?: ""
+                        
+                        when {
+                            prevDisplayName != currentDisplayName && prevAvatar != currentAvatar -> "Changed profile"
+                            prevDisplayName != currentDisplayName -> "Changed display name"
+                            prevAvatar != currentAvatar -> "Changed avatar"
+                            else -> "Joined the room"
+                        }
+                    } else {
+                        "Joined the room"
+                    }
+                }
+                "leave" -> "Left the room$reasonText"
+                "ban" -> {
+                    val bannedUserId = event.stateKey
+                    val bannedDisplayName = bannedUserId?.let { userId ->
+                        appViewModel?.getUserProfile(userId, roomId)?.displayName
+                    } ?: bannedUserId ?: "Unknown"
+                    "Banned $bannedDisplayName$reasonText"
+                }
+                "kick" -> {
+                    val kickedUserId = event.stateKey
+                    val kickedDisplayName = kickedUserId?.let { userId ->
+                        appViewModel?.getUserProfile(userId, roomId)?.displayName
+                    } ?: kickedUserId ?: "Unknown"
+                    "Kicked $kickedDisplayName$reasonText"
+                }
+                "invite" -> {
+                    val invitedUserId = event.stateKey
+                    val invitedDisplayName = invitedUserId?.let { userId ->
+                        appViewModel?.getUserProfile(userId, roomId)?.displayName
+                    } ?: invitedUserId ?: "Unknown"
+                    "Invited $invitedDisplayName$reasonText"
+                }
+                else -> "Member event"
+            }
+        }
+        "m.room.name" -> {
+            val roomName = content?.optString("name", "") ?: ""
+            if (roomName.isNotBlank()) {
+                "Changed room name to \"$roomName\""
+            } else {
+                "Changed room name"
+            }
+        }
+        "m.room.topic" -> "Changed room topic"
+        "m.room.avatar" -> "Changed room avatar"
+        "m.room.pinned_events" -> "Updated pinned events"
+        "m.room.power_levels" -> "Changed power levels"
+        "m.room.tombstone" -> {
+            val replacementRoom = content?.optString("replacement_room", "") ?: ""
+            if (replacementRoom.isNotBlank()) {
+                "Replaced this room"
+            } else {
+                "Tombstoned this room"
+            }
+        }
+        "m.room.server_acl" -> "Updated server ACL"
+        "m.space.parent" -> "Updated space parent"
+        else -> {
+            // Fallback for unknown event types
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("ReplyPreviewInput", "Unknown event type for reply preview: $eventType")
+            }
+            val eventTypeStr = eventType ?: "unknown"
+            "Event: ${eventTypeStr.removePrefix("m.").replace(".", " ")}"
+        }
+    }
+}
+
+/**
  * Reply preview component for the text input area.
  * Shows a compact preview of the message being replied to with a cancel button.
  */
@@ -323,26 +473,24 @@ fun ReplyPreviewInput(
         }
     }
     
-    // Get message content - handle both encrypted and non-encrypted messages
-    var content = event.content ?: event.decrypted
-    var body = content?.optString("body", "") ?: ""
-    var msgType = content?.optString("msgtype", "") ?: ""
-    
-    // If content is null OR we're missing important fields (body, msgType), fetch the full event
+    // Get the event to use (may be fetched if original was incomplete)
+    var currentEvent = event
     var isFetchingEvent by remember { mutableStateOf(false) }
     var fetchedEvent by remember { mutableStateOf<TimelineEvent?>(null) }
     
-    val needsFullEvent = content == null || body.isBlank() || msgType.isBlank()
+    // Check if we need to fetch the full event (for non-message events or if content is missing)
+    val content = event.content ?: event.decrypted
+    val needsFullEvent = content == null || 
+        (event.type !in listOf("m.room.message", "m.room.encrypted", "m.sticker") && content.optString("body", "").isBlank())
     
     if (needsFullEvent && appViewModel != null && roomId != null && !isFetchingEvent && fetchedEvent == null) {
         LaunchedEffect(event.eventId) {
-            if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Missing content/body/msgType, fetching full event details for: ${event.eventId}")
-            if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Content null: ${content == null}, Body blank: ${body.isBlank()}, MsgType blank: ${msgType.isBlank()}")
+            if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Missing content or non-message event, fetching full event details for: ${event.eventId}, type: ${event.type}")
             isFetchingEvent = true
             appViewModel.getEvent(roomId, event.eventId) { fullEvent ->
                 isFetchingEvent = false
                 if (fullEvent != null) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Successfully fetched event: ${fullEvent.eventId}")
+                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Successfully fetched event: ${fullEvent.eventId}, type: ${fullEvent.type}")
                     fetchedEvent = fullEvent
                 } else {
                     android.util.Log.w("ReplyPreviewInput", "Failed to fetch event: ${event.eventId}")
@@ -351,44 +499,13 @@ fun ReplyPreviewInput(
         }
     }
     
-    // Use fetched event data if available
+    // Use fetched event if available
     if (fetchedEvent != null) {
-        if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Processing fetched event data...")
-        if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Fetched event type: '${fetchedEvent!!.type}'")
-        
-        // Choose content source based on event type
-        content = when (fetchedEvent!!.type) {
-            "m.room.encrypted" -> {
-                if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Event is encrypted, using decrypted content")
-                fetchedEvent!!.decrypted
-            }
-            "m.room.message" -> {
-                if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Event is message, using content")
-                fetchedEvent!!.content
-            }
-            else -> {
-                if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Unknown event type, trying decrypted then content")
-                fetchedEvent!!.decrypted ?: fetchedEvent!!.content
-            }
-        }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Selected content: $content")
-        
-        body = content?.optString("body", "") ?: ""
-        msgType = content?.optString("msgtype", "") ?: ""
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Fetched body: '$body'")
-        if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Fetched msgType: '$msgType'")
-        
-        // Update display name if we got a full event with sender info
-        if (fetchedEvent!!.sender.isNotBlank()) {
-            // Use reactive member map if available, otherwise fall back to userProfileCache
-            val fetchedProfile = reactiveMemberMap?.get(fetchedEvent!!.sender) ?: userProfileCache[fetchedEvent!!.sender]
-            if (fetchedProfile?.displayName != null) {
-                // The display name will be updated in the UI automatically via reactive member map
-            }
-        }
+        currentEvent = fetchedEvent!!
     }
+    
+    // Format the event description using the helper function
+    val eventDescription = formatEventForReplyPreview(currentEvent, appViewModel, roomId)
     
     // CRITICAL FIX: Re-read profile from reactive member map to get latest display name
     // This ensures we show the display name once it's loaded, even if it wasn't available initially
@@ -398,12 +515,11 @@ fun ReplyPreviewInput(
     // Final debug logging
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "=== FINAL VALUES ===")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Event sender: ${event.sender}")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Event type: ${currentEvent.type}")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Profile: $profile")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Latest profile: $latestProfile")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Display name: $finalDisplayName")
-    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Final body: '$body'")
-    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Final msgType: '$msgType'")
-    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Content null: ${content == null}")
+    if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Event description: '$eventDescription'")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Fetched event null: ${fetchedEvent == null}")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Is fetching event: $isFetchingEvent")
     if (BuildConfig.DEBUG) android.util.Log.d("ReplyPreviewInput", "Is fetching profile: $isFetchingProfile")
@@ -444,12 +560,7 @@ fun ReplyPreviewInput(
                 Text(
                     text = when {
                         isFetchingEvent -> "Loading message..."
-                        msgType == "m.image" -> "📷 Image"
-                        msgType == "m.video" -> "🎥 Video"
-                        msgType == "m.audio" -> "🎵 Audio"
-                        msgType == "m.file" -> "📎 File"
-                        body.isBlank() -> "Empty message"
-                        else -> body
+                        else -> eventDescription
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
