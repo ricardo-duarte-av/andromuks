@@ -2798,7 +2798,8 @@ fun TimelineEventItem(
             onRoomClick = { roomId ->
                 // Convert room ID to RoomLink and call onRoomLinkClick
                 onRoomLinkClick(RoomLink(roomIdOrAlias = roomId))
-            }
+            },
+            onReply = { event -> onReply(event) }
         )
         return
     }

@@ -2,15 +2,38 @@ package net.vrkknn.andromuks.utils
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Reply
+import net.vrkknn.andromuks.BuildConfig
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,10 +65,17 @@ fun SystemEventNarrator(
     appViewModel: AppViewModel? = null,
     roomId: String,
     onUserClick: (String) -> Unit = {},
-    onRoomClick: (String) -> Unit = {}
+    onRoomClick: (String) -> Unit = {},
+    onReply: (TimelineEvent) -> Unit = {}
 ) {
+    var showMenu by remember { mutableStateOf(false) }
+    var narratorBounds by remember { mutableStateOf<Rect?>(null) }
     val content = event.content
     val eventType = event.type
+    
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val screenWidth = with(density) { configuration.screenWidthDp.dp.toPx() }
     
     // Get read receipts for this event
     val readReceipts = remember(event.eventId, appViewModel?.readReceiptsUpdateCounter) {
@@ -64,13 +94,26 @@ fun SystemEventNarrator(
         appViewModel?.getMemberMap(roomId) ?: emptyMap()
     }
     
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 2.dp)
+                .onGloballyPositioned { layoutCoordinates ->
+                    // Capture the narrator row's position on screen
+                    narratorBounds = layoutCoordinates.boundsInWindow()
+                }
+                .combinedClickable(
+                    onClick = { /* Regular click does nothing */ },
+                    onLongClick = { 
+                        if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Long press detected")
+                        showMenu = true 
+                    },
+                    onLongClickLabel = "Show message options"
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
         // Left side - centered content
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -1174,6 +1217,97 @@ fun SystemEventNarrator(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontStyle = FontStyle.Italic
             )
+        }
+        }
+        
+        // Floating menu for system events (only Reply option) - same style as MessageBubbleWithMenu
+        if (showMenu) {
+            Popup(
+                onDismissRequest = {
+                    if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Popup dismissed")
+                    showMenu = false
+                },
+                properties = PopupProperties(
+                    focusable = true,
+                    dismissOnBackPress = true,
+                    dismissOnClickOutside = true
+                )
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    // Fullscreen transparent scrim to capture outside taps
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(androidx.compose.ui.graphics.Color.Transparent)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = {
+                                        if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Scrim tapped, dismissing menu")
+                                        showMenu = false
+                                    }
+                                )
+                            }
+                    )
+                    
+                    // Card with Reply button positioned above narrator row
+                    if (narratorBounds != null) {
+                        Card(
+                            modifier = Modifier
+                                .offset {
+                                    with(density) {
+                                        // Calculate menu position relative to narrator row
+                                        val buttonCount = 1 // Only Reply button
+                                        val menuWidth = ((44 * buttonCount).dp + 16.dp).toPx() // 44dp per button + padding
+                                        val menuHeight = 50.dp.toPx()
+                                        val narratorCenterX = narratorBounds!!.left + (narratorBounds!!.width / 2)
+                                        val menuX = narratorCenterX - (menuWidth / 2)
+                                        val menuY = narratorBounds!!.top - menuHeight - 8.dp.toPx()
+                                        
+                                        // Clamp to keep menu on screen
+                                        val margin = 8.dp.toPx()
+                                        val clampedX = menuX
+                                            .coerceAtLeast(margin)
+                                            .coerceAtMost(screenWidth - menuWidth - margin)
+                                        val clampedY = menuY.coerceAtLeast(margin)
+                                        
+                                        if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Menu position: x=$clampedX, y=$clampedY, menuWidth=$menuWidth")
+                                        
+                                        IntOffset(
+                                            x = clampedX.toInt(),
+                                            y = clampedY.toInt()
+                                        )
+                                    }
+                                },
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surface
+                            ),
+                            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                // Reply button (only option for system events)
+                                IconButton(
+                                    onClick = {
+                                        if (BuildConfig.DEBUG) android.util.Log.d("NarratorFunctions", "SystemEventNarrator: Reply clicked")
+                                        showMenu = false
+                                        onReply(event)
+                                    },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Reply,
+                                        contentDescription = "Reply",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
