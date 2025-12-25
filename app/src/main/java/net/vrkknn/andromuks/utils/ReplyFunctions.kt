@@ -84,6 +84,7 @@ import androidx.compose.material.icons.filled.Reply
 import androidx.compose.material.icons.filled.TagFaces
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Visibility
 import net.vrkknn.andromuks.MemberProfile
 import net.vrkknn.andromuks.ReplyInfo
 import net.vrkknn.andromuks.TimelineEvent
@@ -1021,39 +1022,6 @@ fun MessageBubbleWithMenu(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             run {
-                                if (hasDeletedSnapshot) {
-                                    IconButton(
-                                        onClick = {
-                                            showMenu = false
-                                            deletedDialogText = deletedContentSummary
-                                            deletedReason = redactionReason
-                                            deletedError = null
-                                            loadedDeletedEvent = null
-                                            loadedDeletedContext = emptyList()
-                                            showDeletedDialog = true
-                                            if (appViewModel != null) {
-                                                deletedLoading = true
-                                                coroutineScope.launch {
-                                                    val result = appViewModel.loadOriginalEventWithContext(
-                                                        roomId = event.roomId,
-                                                        eventId = event.eventId
-                                                    )
-                                                    deletedLoading = false
-                                                    loadedDeletedEvent = result.event
-                                                    loadedDeletedContext = result.contextEvents
-                                                    deletedError = result.error
-                                                }
-                                            }
-                                        },
-                                        modifier = Modifier.size(40.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Info,
-                                            contentDescription = "Show deleted content",
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                }
                                 // React button
                                 IconButton(
                                     onClick = {
@@ -1118,6 +1086,40 @@ fun MessageBubbleWithMenu(
                                             imageVector = Icons.Default.Delete,
                                             contentDescription = "Delete",
                                             tint = MaterialTheme.colorScheme.error
+                                        )
+                                    }
+                                }
+                                
+                                // View Original button (only show if message has been deleted/redacted)
+                                if (isRedacted && appViewModel != null) {
+                                    IconButton(
+                                        onClick = {
+                                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: View Original clicked")
+                                            showMenu = false
+                                            deletedDialogText = deletedContentSummary
+                                            deletedReason = redactionReason
+                                            deletedError = null
+                                            loadedDeletedEvent = null
+                                            loadedDeletedContext = emptyList()
+                                            showDeletedDialog = true
+                                            deletedLoading = true
+                                            coroutineScope.launch {
+                                                val result = appViewModel.loadOriginalEventWithContext(
+                                                    roomId = event.roomId,
+                                                    eventId = event.eventId
+                                                )
+                                                deletedLoading = false
+                                                loadedDeletedEvent = result.event
+                                                loadedDeletedContext = result.contextEvents
+                                                deletedError = result.error
+                                            }
+                                        },
+                                        modifier = Modifier.size(40.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Visibility,
+                                            contentDescription = "View Original Message",
+                                            tint = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 }
