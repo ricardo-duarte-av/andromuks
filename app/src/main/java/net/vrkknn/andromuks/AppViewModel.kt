@@ -3832,6 +3832,10 @@ class AppViewModel : ViewModel() {
      * 1. Only process keys that are present in accountDataJson (partial updates)
      * 2. If a key is present but empty/null, clear the corresponding state
      * 3. If a key is missing, preserve existing state (don't touch it)
+     * 
+     * IMPORTANT: This function should be called with the MERGED account_data from the database
+     * (after SyncIngestor has merged incoming + existing), not the incoming partial data.
+     * This ensures that keys not present in the incoming sync are preserved.
      */
     private fun processAccountData(accountDataJson: JSONObject) {
         // Account data is already extracted, process it directly
@@ -4737,10 +4741,41 @@ class AppViewModel : ViewModel() {
         val memberStateChanged = newMemberStateHash != oldMemberStateHash
 
         // Process account_data for recent emojis and m.direct
+        // IMPORTANT: Load merged account_data from database (after SyncIngestor has merged it)
+        // instead of using incoming partial data, to preserve keys not in incoming sync
         val data = syncJson.optJSONObject("data")
-        val accountData = data?.optJSONObject("account_data")
-        if (accountData != null) {
-            processAccountData(accountData)
+        val incomingAccountData = data?.optJSONObject("account_data")
+        if (incomingAccountData != null) {
+            // Load merged account_data from database (SyncIngestor has already merged it)
+            appContext?.let { context ->
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        val database = AndromuksDatabase.getInstance(context)
+                        val accountDataDao = database.accountDataDao()
+                        val mergedAccountDataStr = accountDataDao.getAccountData()
+                        if (mergedAccountDataStr != null) {
+                            val mergedAccountData = JSONObject(mergedAccountDataStr)
+                            withContext(Dispatchers.Main) {
+                                processAccountData(mergedAccountData)
+                            }
+                        } else {
+                            // No merged data yet, use incoming (first sync or clear_state)
+                            withContext(Dispatchers.Main) {
+                                processAccountData(incomingAccountData)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Error loading merged account_data, using incoming: ${e.message}", e)
+                        // Fallback to incoming if database access fails
+                        withContext(Dispatchers.Main) {
+                            processAccountData(incomingAccountData)
+                        }
+                    }
+                }
+            } ?: run {
+                // No context available, use incoming (shouldn't happen in normal flow)
+                processAccountData(incomingAccountData)
+            }
         }
         
         // Auto-save state periodically (every 10 sync_complete messages) for crash recovery
@@ -4791,8 +4826,40 @@ class AppViewModel : ViewModel() {
         }
         
         // Process account_data for recent emojis and m.direct
-        if (accountData != null) {
-            processAccountData(accountData)
+        // IMPORTANT: Load merged account_data from database (after SyncIngestor has merged it)
+        // instead of using incoming partial data, to preserve keys not in incoming sync
+        val incomingAccountData = accountData
+        if (incomingAccountData != null) {
+            // Load merged account_data from database (SyncIngestor has already merged it)
+            appContext?.let { context ->
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        val database = AndromuksDatabase.getInstance(context)
+                        val accountDataDao = database.accountDataDao()
+                        val mergedAccountDataStr = accountDataDao.getAccountData()
+                        if (mergedAccountDataStr != null) {
+                            val mergedAccountData = JSONObject(mergedAccountDataStr)
+                            withContext(Dispatchers.Main) {
+                                processAccountData(mergedAccountData)
+                            }
+                        } else {
+                            // No merged data yet, use incoming (first sync or clear_state)
+                            withContext(Dispatchers.Main) {
+                                processAccountData(incomingAccountData)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Error loading merged account_data, using incoming: ${e.message}", e)
+                        // Fallback to incoming if database access fails
+                        withContext(Dispatchers.Main) {
+                            processAccountData(incomingAccountData)
+                        }
+                    }
+                }
+            } ?: run {
+                // No context available, use incoming (shouldn't happen in normal flow)
+                processAccountData(incomingAccountData)
+            }
         }
         
         // Auto-save state periodically (every 10 sync_complete messages) for crash recovery
