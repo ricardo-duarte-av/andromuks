@@ -4697,9 +4697,31 @@ class AppViewModel : ViewModel() {
                         }
                     }
                     
+                    // CRITICAL FIX: Mark this requestId as persisted, but don't commit yet
+                    // We'll commit only after processing is also complete
                     if (requestId < 0) {
-                        withContext(Dispatchers.Main) {
-                            onSyncCompletePersisted(requestId)
+                        val shouldCommit = synchronized(syncProcessingLock) {
+                            persistedSyncIds.add(requestId)
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked sync_complete requestId=$requestId as persisted (processed: ${processedSyncIds.contains(requestId)})")
+                            // Check if processing is also complete
+                            processedSyncIds.contains(requestId)
+                        }
+                        
+                        if (shouldCommit) {
+                            // Both persistence and processing are complete - safe to commit
+                            withContext(Dispatchers.Main) {
+                                onSyncCompletePersisted(requestId)
+                                // Clean up tracking sets to prevent memory leaks (keep only recent IDs)
+                                // Keep last 100 IDs to handle out-of-order completion
+                                synchronized(syncProcessingLock) {
+                                    if (persistedSyncIds.size > 100) {
+                                        persistedSyncIds.removeAll { it > requestId + 50 }
+                                    }
+                                    if (processedSyncIds.size > 100) {
+                                        processedSyncIds.removeAll { it > requestId + 50 }
+                                    }
+                                }
+                            }
                         }
                     }
                 } catch (e: Exception) {
@@ -4736,6 +4758,28 @@ class AppViewModel : ViewModel() {
                 // Switch back to main thread for UI updates only
                 withContext(Dispatchers.Main) {
                     processParsedSyncResult(syncResult, syncJson)
+                    
+                    // CRITICAL FIX: Mark this requestId as processed, and commit if persistence is also complete
+                    val requestId = syncJson.optInt("request_id", 0)
+                    if (requestId < 0) {
+                        synchronized(syncProcessingLock) {
+                            processedSyncIds.add(requestId)
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked sync_complete requestId=$requestId as processed (persisted: ${persistedSyncIds.contains(requestId)})")
+                            // Check if persistence is also complete
+                            if (persistedSyncIds.contains(requestId)) {
+                                // Both persistence and processing are complete - safe to commit
+                                onSyncCompletePersisted(requestId)
+                                // Clean up tracking sets to prevent memory leaks (keep only recent IDs)
+                                // Keep last 100 IDs to handle out-of-order completion
+                                if (persistedSyncIds.size > 100) {
+                                    persistedSyncIds.removeAll { it > requestId + 50 }
+                                }
+                                if (processedSyncIds.size > 100) {
+                                    processedSyncIds.removeAll { it > requestId + 50 }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -6529,6 +6573,12 @@ class AppViewModel : ViewModel() {
     private var lastReceivedRequestId: Int = 0 // Tracks ANY incoming request_id (for pong detection)
     private var lastReceivedSyncId: Int = 0 // Tracks ONLY sync_complete negative request_ids (for reconnection)
     @Volatile private var pendingLastReceivedSyncId: Int? = null // Candidate sync_complete ID awaiting persistence
+    
+    // CRITICAL FIX: Track which sync_complete requestIds have been persisted and processed
+    // We only commit lastReceivedSyncId after BOTH are complete to prevent missing messages on crash
+    private val persistedSyncIds = mutableSetOf<Int>() // RequestIds that have been persisted to DB
+    private val processedSyncIds = mutableSetOf<Int>() // RequestIds that have been fully processed
+    private val syncProcessingLock = Any() // Lock for sync processing tracking
     private val pendingSyncLock = Any()
     private var hasPersistedSync = false
     private var lastSyncTimestamp: Long = 0 // Timestamp of last sync_complete received
@@ -7600,8 +7650,10 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Commits a persisted sync_complete request ID after the payload has been written to storage.
-     * This ensures we never advance lastReceivedSyncId before the local database is consistent.
+     * Commits a persisted sync_complete request ID after BOTH the payload has been written to storage
+     * AND the events have been fully processed.
+     * This ensures we never advance lastReceivedSyncId before the local database is consistent
+     * and all events are processed, preventing missing messages on crash/reconnect.
      */
     private fun onSyncCompletePersisted(requestId: Int) {
         if (requestId >= 0) {
@@ -7617,7 +7669,7 @@ class AppViewModel : ViewModel() {
             pendingLastReceivedSyncId
         }
         
-        // Primary rule: commit to the lowest persisted requestId so far
+        // Primary rule: commit to the lowest persisted AND processed requestId so far
         val shouldUpdate = lastReceivedSyncId == 0 || requestId < lastReceivedSyncId
         if (shouldUpdate) {
             val previous = lastReceivedSyncId
@@ -7625,7 +7677,7 @@ class AppViewModel : ViewModel() {
             hasPersistedSync = true
             if (BuildConfig.DEBUG) android.util.Log.d(
                 "Andromuks",
-                "AppViewModel: Committed lastReceivedSyncId from $previous to $requestId after persistence (pending=$pendingSnapshot)"
+                "AppViewModel: Committed lastReceivedSyncId from $previous to $requestId after BOTH persistence AND processing complete (pending=$pendingSnapshot)"
             )
             
             WebSocketService.updateLastReceivedSyncId(lastReceivedSyncId)
