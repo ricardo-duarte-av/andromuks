@@ -1317,6 +1317,10 @@ class AppViewModel : ViewModel() {
     var initialSyncComplete by mutableStateOf(false) // Public state for UI to observe
         private set
     
+    // CRITICAL FIX: Serialize sync_complete processing to prevent race conditions
+    // Multiple sync_complete messages can arrive rapidly, and concurrent processing can cause messages to be missed
+    private val syncCompleteProcessingMutex = Mutex() // Mutex to serialize sync_complete processing after init_complete
+    
     // Track sync_complete progress for UI display
     var pendingSyncCompleteCount by mutableStateOf(0)
         private set
@@ -4711,24 +4715,28 @@ class AppViewModel : ViewModel() {
         }
         
         // PERFORMANCE: Move heavy JSON parsing to background thread
+        // CRITICAL FIX: Serialize sync_complete processing to prevent race conditions
+        // Multiple sync_complete messages can arrive rapidly, and concurrent processing can cause messages to be missed
         viewModelScope.launch(Dispatchers.Default) {
-            // Parse sync data on background thread (200-500ms for large accounts)
-            // BATTERY OPTIMIZATION: Pass existing rooms for change detection (skip parsing unchanged rooms)
-            val syncResult = SpaceRoomParser.parseSyncUpdate(
-                syncJson,
-                roomMemberCache,
-                this@AppViewModel,
-                existingRooms = synchronized(roomMap) { HashMap(roomMap) }, // snapshot to avoid ConcurrentModification
-                isAppVisible = isAppVisible // Pass visibility state
-            )
-            
-            // BATTERY OPTIMIZATION: SpaceRoomParser now only parses metadata (name, unread counts, tags)
-            // Last messages are queried directly in RoomListScreen from database (always fresh)
-            // No need to merge summaries here - RoomListScreen queries database directly when displayed
-            
-            // Switch back to main thread for UI updates only
-            withContext(Dispatchers.Main) {
-                processParsedSyncResult(syncResult, syncJson)
+            syncCompleteProcessingMutex.withLock {
+                // Parse sync data on background thread (200-500ms for large accounts)
+                // BATTERY OPTIMIZATION: Pass existing rooms for change detection (skip parsing unchanged rooms)
+                val syncResult = SpaceRoomParser.parseSyncUpdate(
+                    syncJson,
+                    roomMemberCache,
+                    this@AppViewModel,
+                    existingRooms = synchronized(roomMap) { HashMap(roomMap) }, // snapshot to avoid ConcurrentModification
+                    isAppVisible = isAppVisible // Pass visibility state
+                )
+                
+                // BATTERY OPTIMIZATION: SpaceRoomParser now only parses metadata (name, unread counts, tags)
+                // Last messages are queried directly in RoomListScreen from database (always fresh)
+                // No need to merge summaries here - RoomListScreen queries database directly when displayed
+                
+                // Switch back to main thread for UI updates only
+                withContext(Dispatchers.Main) {
+                    processParsedSyncResult(syncResult, syncJson)
+                }
             }
         }
     }
@@ -7783,7 +7791,9 @@ class AppViewModel : ViewModel() {
                             if (bootstrapResult.runId.isNotEmpty()) {
                                 currentRunId = bootstrapResult.runId
                                 lastReceivedSyncId = bootstrapResult.lastReceivedId
-                                hasPersistedSync = false
+                                // CRITICAL FIX: Set hasPersistedSync to true if we loaded a valid lastReceivedSyncId from database
+                                // This ensures we include last_received_id when reconnecting
+                                hasPersistedSync = bootstrapResult.lastReceivedId != 0
                                 pendingLastReceivedSyncId = null
                                 
                                 // Get vapid key from SharedPreferences (not stored in DB yet)
@@ -7793,7 +7803,7 @@ class AppViewModel : ViewModel() {
                                 // Sync restored state with service (run_id is in SharedPreferences)
                                 WebSocketService.setReconnectionState(bootstrapResult.lastReceivedId)
                                 
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state from DB - run_id: ${bootstrapResult.runId}, last_received_id: ${bootstrapResult.lastReceivedId}")
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state from DB - run_id: ${bootstrapResult.runId}, last_received_id: ${bootstrapResult.lastReceivedId}, hasPersistedSync: $hasPersistedSync")
                             }
                             
                             // Update room map with ALL rooms from database
@@ -15818,10 +15828,33 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initializing WebSocket connection using viewModelScope (survives activity recreation)")
             
             // Set reconnection parameters in service BEFORE connecting
-            val lastReceivedId = getLastReceivedId()
+            // CRITICAL FIX: If in-memory value is 0 but we have a run_id, try loading from database
+            // This handles cases where the app was killed before onSyncCompletePersisted was called
+            var lastReceivedId = getLastReceivedId()
+            if (lastReceivedId == 0 && appContext != null && getCurrentRunId().isNotEmpty()) {
+                // We have a run_id but no lastReceivedId - try loading from database
+                try {
+                    val storedLastReceivedId = withContext(Dispatchers.IO) {
+                        val database = AndromuksDatabase.getInstance(appContext!!)
+                        val syncMetaDao = database.syncMetaDao()
+                        syncMetaDao.get("last_received_id")?.toIntOrNull() ?: 0
+                    }
+                    if (storedLastReceivedId != 0) {
+                        lastReceivedId = storedLastReceivedId
+                        lastReceivedSyncId = storedLastReceivedId
+                        hasPersistedSync = true
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reloaded lastReceivedId from database: $lastReceivedId")
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Failed to reload lastReceivedId from database: ${e.message}", e)
+                }
+            }
+            
             if (lastReceivedId != 0) {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting reconnection parameters - lastReceivedId: $lastReceivedId")
                 WebSocketService.setReconnectionState(lastReceivedId)
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No lastReceivedId available (value: 0) - will connect without last_received_event parameter")
             }
             
             // Start WebSocket service BEFORE connecting websocket
