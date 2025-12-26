@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
+import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.ui.components.AvatarImage
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -65,7 +66,11 @@ fun InviteDetailScreen(
     
     // Handle Android back key - just navigate back, don't refuse the invite
     // Back button should only dismiss the screen, not refuse the invitation
+    // The invite remains pending and will still be visible in the room list
     BackHandler {
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "InviteDetailScreen: Back button pressed - navigating back without refusing invite for room $roomId")
+        }
         navController.popBackStack()
     }
     

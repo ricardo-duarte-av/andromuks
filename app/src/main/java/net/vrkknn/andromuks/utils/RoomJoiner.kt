@@ -388,12 +388,13 @@ fun RoomJoinerScreen(
         }
     }
     
-    // Handle back button
+    // Handle back button - just dismiss, don't refuse the invite
+    // Back button should only dismiss the screen, not refuse the invitation
+    // The invite remains pending and will still be visible in the room list
     BackHandler(enabled = true) {
         if (!isJoining) {
-            if (inviteId != null) {
-                // This is an invite - use refuseRoomInvite and go back
-                appViewModel.refuseRoomInvite(inviteId)
+            if (BuildConfig.DEBUG && inviteId != null) {
+                android.util.Log.d("Andromuks", "RoomJoinerScreen: Back button pressed - dismissing without refusing invite for room $inviteId")
             }
             onDismiss()
         }
