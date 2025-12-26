@@ -63,7 +63,8 @@ fun InviteDetailScreen(
         appViewModel.getRoomSummary(roomId)
     }
     
-    // Handle Android back key
+    // Handle Android back key - just navigate back, don't refuse the invite
+    // Back button should only dismiss the screen, not refuse the invitation
     BackHandler {
         navController.popBackStack()
     }

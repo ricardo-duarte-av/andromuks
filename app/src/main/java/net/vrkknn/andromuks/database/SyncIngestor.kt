@@ -639,6 +639,9 @@ class SyncIngestor(private val context: Context) {
         // Process spaces (top_level_spaces and space_edges)
         processSpaces(data)
         
+        // Process invited_rooms - handle room invitations
+        processInvitedRooms(data)
+        
         // Process left_rooms - delete all data for rooms we've left
         val leftRooms = data.optJSONArray("left_rooms")
         if (leftRooms != null && leftRooms.length() > 0) {
@@ -2304,6 +2307,207 @@ class SyncIngestor(private val context: Context) {
      */
     suspend fun getStoredRunId(): String = withContext(Dispatchers.IO) {
         syncMetaDao.get("run_id") ?: ""
+    }
+    
+    /**
+     * Get current user ID from SharedPreferences
+     */
+    private fun getCurrentUserId(): String {
+        return try {
+            val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            sharedPrefs.getString("current_user_id", "") ?: ""
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to get current user ID from SharedPreferences: ${e.message}", e)
+            ""
+        }
+    }
+    
+    /**
+     * Process invited_rooms from sync_complete
+     * Extracts room metadata and inviter information from invite_state events
+     */
+    private suspend fun processInvitedRooms(data: JSONObject) = withContext(Dispatchers.IO) {
+        val invitedRooms = data.optJSONArray("invited_rooms") ?: return@withContext
+        
+        if (invitedRooms.length() == 0) return@withContext
+        
+        val currentUserId = getCurrentUserId()
+        if (currentUserId.isBlank()) {
+            Log.w(TAG, "SyncIngestor: Cannot process invites - current user ID not available")
+            return@withContext
+        }
+        
+        if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Processing ${invitedRooms.length()} room invitations")
+        
+        val invites = mutableListOf<net.vrkknn.andromuks.database.entities.InviteEntity>()
+        
+        for (i in 0 until invitedRooms.length()) {
+            val inviteJson = invitedRooms.optJSONObject(i) ?: continue
+            val roomId = inviteJson.optString("room_id", "")
+            val createdAt = inviteJson.optLong("created_at", 0)
+            val inviteState = inviteJson.optJSONArray("invite_state")
+            
+            if (roomId.isBlank() || inviteState == null) continue
+            
+            var inviterUserId = ""
+            var inviterDisplayName: String? = null
+            var roomName: String? = null
+            var roomAvatar: String? = null
+            var roomTopic: String? = null
+            var roomCanonicalAlias: String? = null
+            var inviteReason: String? = null
+            var isDirectMessage = false
+            
+            // Parse invite_state events to extract room metadata and inviter info
+            // First pass: Find our invite event to identify the inviter
+            for (j in 0 until inviteState.length()) {
+                val stateEvent = inviteState.optJSONObject(j) ?: continue
+                val eventType = stateEvent.optString("type", "")
+                val stateKey = stateEvent.optString("state_key", "")
+                val content = stateEvent.optJSONObject("content")
+                
+                if (eventType == "m.room.member") {
+                    val membership = content?.optString("membership", "")
+                    // Our invite event: state_key matches current user and membership="invite"
+                    // The sender of this event is the inviter
+                    if (membership == "invite" && stateKey == currentUserId) {
+                        inviterUserId = stateEvent.optString("sender", "")
+                        // Extract invite reason if present
+                        inviteReason = content?.optString("reason")?.takeIf { it.isNotBlank() }
+                        // Check if is_direct flag is set
+                        val isDirect = content?.optBoolean("is_direct", false) ?: false
+                        if (isDirect) {
+                            isDirectMessage = true
+                        }
+                        break // Found our invite event, can break
+                    }
+                }
+            }
+            
+            // Second pass: Extract all metadata and inviter details
+            for (j in 0 until inviteState.length()) {
+                val stateEvent = inviteState.optJSONObject(j) ?: continue
+                val eventType = stateEvent.optString("type", "")
+                val stateKey = stateEvent.optString("state_key", "")
+                val content = stateEvent.optJSONObject("content")
+                
+                when (eventType) {
+                    "m.room.member" -> {
+                        val membership = content?.optString("membership", "")
+                        // Get inviter's display name and avatar from their member event (membership="join")
+                        if (membership == "join" && stateKey == inviterUserId && inviterUserId.isNotBlank()) {
+                            inviterDisplayName = content.optString("displayname")?.takeIf { it.isNotBlank() }
+                            // Use inviter's avatar as room avatar for DMs if room avatar is not available
+                            val inviterAvatar = content.optString("avatar_url")?.takeIf { it.isNotBlank() }
+                            if (inviterAvatar != null && roomAvatar == null && isDirectMessage) {
+                                roomAvatar = inviterAvatar
+                            }
+                        }
+                    }
+                    "m.room.name" -> {
+                        roomName = content?.optString("name")?.takeIf { it.isNotBlank() }
+                    }
+                    "m.room.avatar" -> {
+                        val avatarUrl = content?.optString("url")?.takeIf { it.isNotBlank() }
+                        if (avatarUrl != null) {
+                            roomAvatar = avatarUrl
+                        }
+                    }
+                    "m.room.topic" -> {
+                        // Handle both simple topic format and complex m.topic format
+                        val simpleTopic = content?.optString("topic")?.takeIf { it.isNotBlank() }
+                        if (simpleTopic != null) {
+                            roomTopic = simpleTopic
+                        } else {
+                            // Try m.topic.m.text format
+                            val mTopic = content?.optJSONObject("m.topic")
+                            val mText = mTopic?.optJSONArray("m.text")
+                            if (mText != null && mText.length() > 0) {
+                                val firstText = mText.optJSONObject(0)
+                                val body = firstText?.optString("body")?.takeIf { it.isNotBlank() }
+                                if (body != null) {
+                                    roomTopic = body
+                                }
+                            }
+                        }
+                    }
+                    "m.room.canonical_alias" -> {
+                        roomCanonicalAlias = content?.optString("alias")?.takeIf { it.isNotBlank() }
+                    }
+                    "m.room.create" -> {
+                        // Check if additional_creators contains current user ID (indicates DM)
+                        val additionalCreators = content?.optJSONArray("additional_creators")
+                        if (additionalCreators != null) {
+                            for (k in 0 until additionalCreators.length()) {
+                                val creatorId = additionalCreators.optString(k, "")
+                                if (creatorId == currentUserId) {
+                                    isDirectMessage = true
+                                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Detected DM invite - additional_creators contains current user")
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // For DMs, if we have an inviter but no room name, use inviter's display name
+            if (isDirectMessage && roomName.isNullOrBlank() && inviterDisplayName != null) {
+                roomName = inviterDisplayName
+            }
+            
+            // Only create invite if we have an inviter (required field)
+            if (inviterUserId.isNotBlank()) {
+                val inviteEntity = net.vrkknn.andromuks.database.entities.InviteEntity(
+                    roomId = roomId,
+                    createdAt = createdAt,
+                    inviterUserId = inviterUserId,
+                    inviterDisplayName = inviterDisplayName,
+                    roomName = roomName,
+                    roomAvatar = roomAvatar,
+                    roomTopic = roomTopic,
+                    roomCanonicalAlias = roomCanonicalAlias,
+                    inviteReason = inviteReason,
+                    isDirectMessage = isDirectMessage
+                )
+                invites.add(inviteEntity)
+                
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "SyncIngestor: Parsed invite for room $roomId: name=$roomName, inviter=$inviterUserId (displayName=$inviterDisplayName, DM: $isDirectMessage)")
+                }
+            } else {
+                Log.w(TAG, "SyncIngestor: Skipping invite for room $roomId - no inviter found (currentUserId=$currentUserId)")
+                // Debug: Log invite_state to understand why inviter wasn't found
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "SyncIngestor: Debug - invite_state events for room $roomId:")
+                    for (j in 0 until inviteState.length()) {
+                        val stateEvent = inviteState.optJSONObject(j)
+                        if (stateEvent != null) {
+                            val eventType = stateEvent.optString("type", "")
+                            val stateKey = stateEvent.optString("state_key", "")
+                            val sender = stateEvent.optString("sender", "")
+                            if (eventType == "m.room.member") {
+                                val content = stateEvent.optJSONObject("content")
+                                val membership = content?.optString("membership", "")
+                                Log.d(TAG, "SyncIngestor:   - member event: state_key=$stateKey, sender=$sender, membership=$membership")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Persist all invites to database in a single transaction
+        if (invites.isNotEmpty()) {
+            database.withTransaction {
+                for (invite in invites) {
+                    inviteDao.upsert(invite)
+                }
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Persisted ${invites.size} invites to database")
+        } else {
+            if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: No invites to persist (invites list is empty)")
+        }
     }
     
     /**

@@ -479,6 +479,12 @@ fun RoomListScreen(
     var searchQuery by remember { mutableStateOf("") }
     // Note: me is already declared above in the loading check
     
+    // Observe invites in RoomListScreen so we can display them in a separate section
+    val roomListUpdateCounterForInvites = uiState.roomListUpdateCounter
+    val pendingInvites = remember(roomListUpdateCounterForInvites) {
+        appViewModel.getPendingInvites()
+    }
+    
     // State for showing RoomJoinerScreen for invites
     var showRoomJoiner by remember { mutableStateOf(false) }
     var inviteToJoin by remember { mutableStateOf<RoomInvite?>(null) }
@@ -857,6 +863,34 @@ fun RoomListScreen(
                 )
             }
             
+            // Room invitations section - shown above room list for immediate visibility
+            AnimatedVisibility(pendingInvites.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "Room Invitations",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(bottom = 8.dp)
+                    )
+                    pendingInvites.forEach { invite ->
+                        InviteListItem(
+                            invite = invite,
+                            onClick = {
+                                inviteToJoin = invite
+                                showRoomJoiner = true
+                            },
+                            homeserverUrl = appViewModel.homeserverUrl,
+                            authToken = authToken
+                        )
+                    }
+                }
+            }
+            
             // Room list in elevated frame
             Surface(
                 color = MaterialTheme.colorScheme.surface,
@@ -917,9 +951,8 @@ fun RoomListScreen(
                                 timestampUpdateTrigger = timestampUpdateTrigger,
                                 hapticFeedback = hapticFeedback,
                                 listState = currentListState,
-                                onInviteClick = { invite ->
-                                    inviteToJoin = invite
-                                    showRoomJoiner = true
+                                onInviteClick = { 
+                                    // Invites are now handled in RoomListScreen, not here
                                 }
                             )
                         }
@@ -960,9 +993,8 @@ fun RoomListScreen(
                                 timestampUpdateTrigger = timestampUpdateTrigger,
                                 hapticFeedback = hapticFeedback,
                                 listState = currentListState,
-                                onInviteClick = { invite ->
-                                    inviteToJoin = invite
-                                    showRoomJoiner = true
+                                onInviteClick = { 
+                                    // Invites are now handled in RoomListScreen, not here
                                 }
                             )
                         }
@@ -976,9 +1008,8 @@ fun RoomListScreen(
                                 timestampUpdateTrigger = timestampUpdateTrigger,
                                 hapticFeedback = hapticFeedback,
                                 listState = currentListState,
-                                onInviteClick = { invite ->
-                                    inviteToJoin = invite
-                                    showRoomJoiner = true
+                                onInviteClick = { 
+                                    // Invites are now handled in RoomListScreen, not here
                                 }
                             )
                         }
@@ -992,9 +1023,8 @@ fun RoomListScreen(
                                 timestampUpdateTrigger = timestampUpdateTrigger,
                                 hapticFeedback = hapticFeedback,
                                 listState = currentListState,
-                                onInviteClick = { invite ->
-                                    inviteToJoin = invite
-                                    showRoomJoiner = true
+                                onInviteClick = { 
+                                    // Invites are now handled in RoomListScreen, not here
                                 }
                             )
                         }
@@ -1772,9 +1802,6 @@ fun RoomListContent(
             }
     }
     
-    // CRITICAL: Observe roomListUpdateCounter to recompose when invites are added
-    val roomListUpdateCounter = appViewModel.roomListUpdateCounter
-    val pendingInvites = remember(roomListUpdateCounter) { appViewModel.getPendingInvites() }
     val coroutineScope = rememberCoroutineScope()
     var roomOpenInProgress by remember { mutableStateOf<String?>(null) }
     
@@ -1787,37 +1814,6 @@ fun RoomListContent(
             bottom = 8.dp
         )
     ) {
-        // Show pending invites at the top
-        if (pendingInvites.isNotEmpty()) {
-            item {
-                Text(
-                    text = "Room Invitations",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-            
-            items(pendingInvites.size) { idx ->
-                val invite = pendingInvites[idx]
-                InviteListItem(
-                    invite = invite,
-                    onClick = {
-                        // Show RoomJoinerScreen for invite
-                        onInviteClick(invite)
-                    },
-                    homeserverUrl = appViewModel.homeserverUrl,
-                    authToken = authToken
-                )
-            }
-            
-            // Separator
-            item {
-                Spacer(modifier = Modifier.height(16.dp))
-            }
-        }
-        
         // Use the cached filteredRooms from the remember block above
         items(
             count = debouncedRooms.size,

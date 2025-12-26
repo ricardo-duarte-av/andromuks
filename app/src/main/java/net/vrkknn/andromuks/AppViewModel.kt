@@ -4407,6 +4407,11 @@ class AppViewModel : ViewModel() {
                     // Returns set of room IDs that had events persisted (for notifying timeline screens)
                     val roomsWithEvents = syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId, isAppVisible) ?: emptySet()
                     
+                    // CRITICAL: Reload invites from database immediately after ingestSyncComplete completes
+                    // This ensures invites are loaded into memory before processParsedSyncResult runs
+                    // and before RoomListScreen checks for invites
+                    reloadInvitesFromDatabaseSync()
+                    
                     // CRITICAL: Notify RoomListScreen that room summaries may have been updated
                     // SyncIngestor updates summaries when isAppVisible == true, so we need to refresh the summary display
                     // This ensures room list shows new message previews/senders immediately
@@ -4652,6 +4657,11 @@ class AppViewModel : ViewModel() {
                     // Returns set of room IDs that had events persisted (for notifying timeline screens)
                     val roomsWithEvents = syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId, isAppVisible) ?: emptySet()
                     
+                    // CRITICAL: Reload invites from database immediately after ingestSyncComplete completes
+                    // This ensures invites are loaded into memory before processParsedSyncResult runs
+                    // and before RoomListScreen checks for invites
+                    reloadInvitesFromDatabaseSync()
+                    
                     // CRITICAL: Notify RoomListScreen that room summaries may have been updated
                     // SyncIngestor updates summaries, so we need to refresh the summary display
                     // This ensures room list shows new message previews/senders immediately
@@ -4803,6 +4813,10 @@ class AppViewModel : ViewModel() {
     private fun processParsedSyncResult(syncResult: SyncUpdateResult, syncJson: JSONObject) {
         // CRITICAL: Increment sync message count FIRST to prevent duplicate processing
         syncMessageCount++
+        
+        // NOTE: Invites are reloaded from database right after ingestSyncComplete completes
+        // (in the background thread, before processParsedSyncResult runs)
+        // This ensures invites are loaded before the UI checks for them
         
         // Populate member cache from sync data and check for changes
         val oldMemberStateHash = generateMemberStateHash()
@@ -5003,8 +5017,8 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Process room invitations first
-        processRoomInvites(syncJson)
+        // NOTE: Invites are reloaded from database at the start of processParsedSyncResult()
+        // This ensures invites are always loaded even when there are no room changes
         
         // BATTERY OPTIMIZATION: Disabled timeline event caching - events are always persisted to DB by SyncIngestor
         // We now always load from DB when opening a room (no need for multi-room RAM cache)
@@ -15147,141 +15161,84 @@ class AppViewModel : ViewModel() {
     }
     
     
-    private fun processRoomInvites(syncJson: JSONObject) {
-        val data = syncJson.optJSONObject("data")
-        if (data != null) {
-            val invitedRooms = data.optJSONArray("invited_rooms")
-            if (invitedRooms != null) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing ${invitedRooms.length()} room invitations")
-                
-                for (i in 0 until invitedRooms.length()) {
-                    val inviteJson = invitedRooms.optJSONObject(i)
-                    if (inviteJson != null) {
-                        val roomId = inviteJson.optString("room_id", "")
-                        val createdAt = inviteJson.optLong("created_at", 0)
-                        val inviteState = inviteJson.optJSONArray("invite_state")
-                        
-                        if (roomId.isNotBlank() && inviteState != null) {
-                            var inviterUserId = ""
-                            var inviterDisplayName: String? = null
-                            var roomName: String? = null
-                            var roomAvatar: String? = null
-                            var roomTopic: String? = null
-                            var roomCanonicalAlias: String? = null
-                            var inviteReason: String? = null
-                            var isDirectMessage = false
-                            
-                            // Parse invite state events
-                            for (j in 0 until inviteState.length()) {
-                                val stateEvent = inviteState.optJSONObject(j)
-                                if (stateEvent != null) {
-                                    val eventType = stateEvent.optString("type", "")
-                                    val sender = stateEvent.optString("sender", "")
-                                    val content = stateEvent.optJSONObject("content")
-                                    
-                                    when (eventType) {
-                                        "m.room.member" -> {
-                                            val stateKey = stateEvent.optString("state_key", "")
-                                            val membership = content?.optString("membership", "")
-                                            if (membership == "invite" && stateKey.isNotBlank()) {
-                                                inviterUserId = sender
-                                                inviterDisplayName = content?.optString("displayname")?.takeIf { it.isNotBlank() }
-                                                inviteReason = content?.optString("reason")?.takeIf { it.isNotBlank() }
-                                                // Check if is_direct is true in the member event
-                                                val isDirect = content?.optBoolean("is_direct", false) ?: false
-                                                if (isDirect) {
-                                                    isDirectMessage = true
-                                                }
-                                            }
-                                        }
-                                        "m.room.create" -> {
-                                            // Check if additional_creators contains our user ID (indicates DM request)
-                                            val additionalCreators = content?.optJSONArray("additional_creators")
-                                            if (additionalCreators != null) {
-                                                for (k in 0 until additionalCreators.length()) {
-                                                    val creatorId = additionalCreators.optString(k, "")
-                                                    if (creatorId == currentUserId) {
-                                                        isDirectMessage = true
-                                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Detected DM invite - additional_creators contains current user")
-                                                        break
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        "m.room.name" -> {
-                                            roomName = content?.optString("name")?.takeIf { it.isNotBlank() }
-                                        }
-                                        "m.room.avatar" -> {
-                                            roomAvatar = content?.optString("url")?.takeIf { it.isNotBlank() }
-                                        }
-                                        "m.room.topic" -> {
-                                            roomTopic = content?.optString("topic")?.takeIf { it.isNotBlank() }
-                                        }
-                                        "m.room.canonical_alias" -> {
-                                            roomCanonicalAlias = content?.optString("alias")?.takeIf { it.isNotBlank() }
-                                        }
-                                    }
+    /**
+     * Reload invites from database synchronously (invites are now parsed and persisted by SyncIngestor)
+     * Updates in-memory pendingInvites map and triggers UI update if invites changed
+     * This is called from a coroutine context, so it can use suspend functions
+     */
+    private suspend fun reloadInvitesFromDatabaseSync() {
+        appContext?.let { context ->
+            withContext(Dispatchers.IO) {
+                try {
+                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                    val inviteEntities = database.inviteDao().getAllInvites()
+                    val loadedInvites = inviteEntities.map { entity ->
+                        RoomInvite(
+                            roomId = entity.roomId,
+                            createdAt = entity.createdAt,
+                            inviterUserId = entity.inviterUserId,
+                            inviterDisplayName = entity.inviterDisplayName,
+                            roomName = entity.roomName,
+                            roomAvatar = entity.roomAvatar,
+                            roomTopic = entity.roomTopic,
+                            roomCanonicalAlias = entity.roomCanonicalAlias,
+                            inviteReason = entity.inviteReason,
+                            isDirectMessage = entity.isDirectMessage
+                        )
+                    }
+                    
+                    // Check if invites changed (new invites added or existing invites updated)
+                    val oldSize = pendingInvites.size
+                    val newInviteRoomIds = loadedInvites.map { it.roomId }.toSet()
+                    val oldInviteRoomIds = pendingInvites.keys.toSet()
+                    val invitesChanged = newInviteRoomIds != oldInviteRoomIds || 
+                        loadedInvites.any { newInvite ->
+                            val oldInvite = pendingInvites[newInvite.roomId]
+                            oldInvite == null || oldInvite != newInvite
+                        }
+                    
+                    // Update pendingInvites map
+                    pendingInvites.clear()
+                    loadedInvites.forEach { invite ->
+                        pendingInvites[invite.roomId] = invite
+                    }
+                    
+                    // CRITICAL: Always trigger UI update when invites are loaded from database
+                    // This ensures invites appear immediately, even if they were already in memory
+                    // We always increment the counter to force UI recomposition
+                    withContext(Dispatchers.Main) {
+                        needsRoomListUpdate = true
+                        roomListUpdateCounter++
+                        val newInviteCount = loadedInvites.size - oldSize
+                        if (BuildConfig.DEBUG) {
+                            if (invitesChanged) {
+                                if (newInviteCount > 0) {
+                                    android.util.Log.d("Andromuks", "AppViewModel: Reloaded invites from database - found $newInviteCount new invites (total: ${pendingInvites.size}, was: $oldSize), triggering UI update (counter: $roomListUpdateCounter)")
+                                } else if (newInviteCount < 0) {
+                                    android.util.Log.d("Andromuks", "AppViewModel: Reloaded invites from database - removed ${-newInviteCount} invites (total: ${pendingInvites.size}, was: $oldSize), triggering UI update (counter: $roomListUpdateCounter)")
+                                } else {
+                                    android.util.Log.d("Andromuks", "AppViewModel: Reloaded invites from database - invites updated (total: ${pendingInvites.size}), triggering UI update (counter: $roomListUpdateCounter)")
                                 }
-                            }
-                            
-                            if (inviterUserId.isNotBlank()) {
-                                val invite = RoomInvite(
-                                    roomId = roomId,
-                                    createdAt = createdAt,
-                                    inviterUserId = inviterUserId,
-                                    inviterDisplayName = inviterDisplayName,
-                                    roomName = roomName,
-                                    roomAvatar = roomAvatar,
-                                    roomTopic = roomTopic,
-                                    roomCanonicalAlias = roomCanonicalAlias,
-                                    inviteReason = inviteReason,
-                                    isDirectMessage = isDirectMessage
-                                )
-                                
-                                val isNewInvite = !pendingInvites.containsKey(roomId)
-                                pendingInvites[roomId] = invite
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added room invite: $roomName from $inviterUserId (DM: $isDirectMessage)")
-                                
-                                // CRITICAL: Save invite to database for persistence
-                                appContext?.let { context ->
-                                    viewModelScope.launch(Dispatchers.IO) {
-                                        try {
-                                            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                                            val inviteEntity = net.vrkknn.andromuks.database.entities.InviteEntity(
-                                                roomId = invite.roomId,
-                                                createdAt = invite.createdAt,
-                                                inviterUserId = invite.inviterUserId,
-                                                inviterDisplayName = invite.inviterDisplayName,
-                                                roomName = invite.roomName,
-                                                roomAvatar = invite.roomAvatar,
-                                                roomTopic = invite.roomTopic,
-                                                roomCanonicalAlias = invite.roomCanonicalAlias,
-                                                inviteReason = invite.inviteReason,
-                                                isDirectMessage = invite.isDirectMessage
-                                            )
-                                            database.inviteDao().upsert(inviteEntity)
-                                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved invite to database: $roomId")
-                                        } catch (e: Exception) {
-                                            android.util.Log.e("Andromuks", "AppViewModel: Error saving invite to database", e)
-                                        }
-                                    }
-                                }
-                                
-                                // CRITICAL: If this is a new invite, immediately trigger UI update
-                                // This bypasses the debounce to show invites as soon as they arrive
-                                if (isNewInvite) {
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: New invite detected - immediately updating room list UI")
-                                    needsRoomListUpdate = true
-                                    // Force immediate UI update (bypass debounce for invites)
-                                    roomListUpdateCounter++
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Invite UI update triggered immediately (roomListUpdateCounter: $roomListUpdateCounter)")
-                                }
+                            } else {
+                                android.util.Log.d("Andromuks", "AppViewModel: Reloaded invites from database - no changes detected but incrementing counter anyway to ensure UI update (total: ${pendingInvites.size}, counter: $roomListUpdateCounter)")
                             }
                         }
                     }
+                } catch (e: Exception) {
+                    android.util.Log.e("Andromuks", "AppViewModel: Error reloading invites from database", e)
                 }
-                
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Total pending invites: ${pendingInvites.size}")
+            }
+        }
+    }
+    
+    /**
+     * Reload invites from database asynchronously (for use from non-suspend contexts)
+     * Updates in-memory pendingInvites map and triggers UI update if invites changed
+     */
+    private fun reloadInvitesFromDatabase() {
+        appContext?.let { context ->
+            viewModelScope.launch(Dispatchers.IO) {
+                reloadInvitesFromDatabaseSync()
             }
         }
     }
