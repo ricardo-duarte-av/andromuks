@@ -4721,6 +4721,12 @@ class AppViewModel : ViewModel() {
                                         processedSyncIds.removeAll { it > requestId + 50 }
                                     }
                                 }
+                                
+                                // CRITICAL: Periodically check for gaps and recover if needed
+                                // Check every 10 sync_completes to avoid overhead
+                                if (syncMessageCount % 10 == 0) {
+                                    checkAndRecoverGaps()
+                                }
                             }
                         }
                     }
@@ -7732,6 +7738,128 @@ class AppViewModel : ViewModel() {
      * Gets the last received sync_complete request_id for reconnection
      */
     fun getLastReceivedId(): Int = lastReceivedSyncId
+    
+    /**
+     * Check for gaps in sync_complete sequence and recover if needed.
+     * 
+     * Request IDs are negative and decrease: -100 is older than -99, -99 is older than -98.
+     * If gaps are detected, we rollback lastReceivedSyncId to the last known good ID before the gap
+     * (the highest/closest to 0 ID we have that's less than the gap).
+     * 
+     * Example: If we have -100, -99, -97, -96 (missing -98), we rollback to -99
+     * (the highest ID we have that's less than -98).
+     * 
+     * We update lastReceivedSyncId and trigger a WebSocket reconnection with the corrected
+     * last_received_event parameter. The server will then send all messages from that point,
+     * filling in the gaps.
+     * 
+     * We only recover recent gaps (within the last 100 messages) to avoid recovering
+     * very old gaps that might have been filled already.
+     */
+    private fun checkAndRecoverGaps() {
+        if (appContext == null) {
+            return
+        }
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                ensureSyncIngestor()
+                val ingestor = syncIngestor ?: return@launch
+                
+                val stats = ingestor.getSyncCompleteStats()
+                
+                if (stats.gapCount == 0) {
+                    // No gaps detected
+                    if (BuildConfig.DEBUG) {
+                        android.util.Log.d("Andromuks", "Gap check: No gaps detected (count: ${stats.count}, range: ${stats.minRequestId} to ${stats.maxRequestId})")
+                    }
+                    return@launch
+                }
+                
+                android.util.Log.w(
+                    "Andromuks",
+                    "GAP DETECTED: Found ${stats.gapCount} missing sync_complete messages: request_ids ${stats.gaps.take(10)}${if (stats.gaps.size > 10) "..." else ""} (range: ${stats.minRequestId} to ${stats.maxRequestId})"
+                )
+                
+                // Only recover if we have a valid range and gaps are recent
+                if (stats.minRequestId != null && stats.maxRequestId != null) {
+                    val rangeSize = stats.maxRequestId - stats.minRequestId + 1
+                    val gapRatio = stats.gapCount.toFloat() / rangeSize
+                    
+                    // Request IDs are negative and decrease: -100 is older than -99
+                    // If we have -100, -99, -97, -96 (missing -98), we should rollback to -97
+                    // (the most recent/highest request_id we have before the gap)
+                    
+                    // Find the first gap (lowest/most negative missing ID)
+                    val firstGap = stats.gaps.firstOrNull()
+                    
+                    // Only recover if:
+                    // 1. Gaps are within the last 100 messages (recent)
+                    // 2. Gap ratio is reasonable (< 50% - if more than 50% are missing, something is very wrong)
+                    // 3. We have at least one gap
+                    // Note: Since request_ids are negative, "recent" means closer to 0
+                    // So we check if the gap is within 100 of our current lastReceivedSyncId
+                    val isRecentGap = firstGap != null && (lastReceivedSyncId - firstGap) < 100
+                    
+                    if (firstGap != null && isRecentGap && gapRatio < 0.5f) {
+                        // Find the most recent (highest/closest to 0) request_id we have before the gap
+                        // This is the last known good ID before the missing messages
+                        // Example: If we have -100, -99, -97, -96 (missing -98), we should rollback to -99
+                        // (the highest ID we have that's less than -98)
+                        val storedIds = ingestor.getAllStoredRequestIds()
+                        
+                        // Find the highest request_id that is less than firstGap (i.e., the last one we received before the gap)
+                        // Since request_ids are negative and decrease, "highest" means closest to 0
+                        // So if firstGap is -98, we want the max of all IDs < -98, which would be -99
+                        // But wait - if we have -100, -99, -97, -96 and gap is -98, we want -99 (the last before gap)
+                        // Actually, we want the highest ID that is < firstGap
+                        val lastKnownGoodId = storedIds
+                            .filter { it < firstGap } // IDs before the gap
+                            .maxOrNull() // Get the highest (closest to 0) one
+                        
+                        if (lastKnownGoodId != null) {
+                            android.util.Log.w(
+                                "Andromuks",
+                                "GAP RECOVERY: Found gap at $firstGap, rolling back lastReceivedSyncId from $lastReceivedSyncId to $lastKnownGoodId (last known good before gap)"
+                            )
+                            
+                            withContext(Dispatchers.Main) {
+                                val previous = lastReceivedSyncId
+                                lastReceivedSyncId = lastKnownGoodId
+                                hasPersistedSync = true
+                                
+                                WebSocketService.updateLastReceivedSyncId(lastReceivedSyncId)
+                                WebSocketService.setReconnectionState(lastReceivedSyncId)
+                                
+                                android.util.Log.w(
+                                    "Andromuks",
+                                    "GAP RECOVERY: Updated lastReceivedSyncId from $previous to $lastKnownGoodId. Triggering reconnection to recover missing messages."
+                                )
+                                
+                                // Trigger reconnection with corrected last_received_event
+                                // The server will send all messages from lastKnownGoodId forward, filling the gaps
+                                WebSocketService.triggerReconnectionSafely("Gap recovery: missing sync_complete messages detected")
+                            }
+                        } else {
+                            android.util.Log.w(
+                                "Andromuks",
+                                "GAP RECOVERY: Found gap at $firstGap but could not determine last known good ID"
+                            )
+                        }
+                    } else {
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.d(
+                                "Andromuks",
+                                "GAP DETECTED but not recovering: isRecent=$isRecentGap, gapRatio=$gapRatio, firstGap=$firstGap"
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "Error checking for gaps: ${e.message}", e)
+            }
+        }
+    }
     
     /**
      * Determines whether the current session has persisted sync data,

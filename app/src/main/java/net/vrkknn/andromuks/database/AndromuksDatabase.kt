@@ -19,6 +19,7 @@ import net.vrkknn.andromuks.database.dao.SpaceRoomDao
 import net.vrkknn.andromuks.database.dao.SyncMetaDao
 import net.vrkknn.andromuks.database.dao.RoomListSummaryDao
 import net.vrkknn.andromuks.database.dao.UnprocessedEventDao
+import net.vrkknn.andromuks.database.dao.RawSyncCompleteDao
 import net.vrkknn.andromuks.database.entities.AccountDataEntity
 import net.vrkknn.andromuks.database.entities.EventEntity
 import net.vrkknn.andromuks.database.entities.InviteEntity
@@ -34,6 +35,7 @@ import net.vrkknn.andromuks.database.entities.SpaceEntity
 import net.vrkknn.andromuks.database.entities.SpaceRoomEntity
 import net.vrkknn.andromuks.database.entities.SyncMetaEntity
 import net.vrkknn.andromuks.database.entities.UnprocessedEventEntity
+import net.vrkknn.andromuks.database.entities.RawSyncCompleteEntity
 
 @Database(
     entities = [
@@ -51,9 +53,10 @@ import net.vrkknn.andromuks.database.entities.UnprocessedEventEntity
         RoomMemberEntity::class,
         RenderableEventEntity::class,
         RoomListSummaryEntity::class,
-        UnprocessedEventEntity::class
+        UnprocessedEventEntity::class,
+        RawSyncCompleteEntity::class
     ],
-    version = 17,
+    version = 18,
     exportSchema = false
 )
 abstract class AndromuksDatabase : RoomDatabase() {
@@ -72,6 +75,7 @@ abstract class AndromuksDatabase : RoomDatabase() {
     abstract fun renderableEventDao(): RenderableEventDao
     abstract fun roomListSummaryDao(): RoomListSummaryDao
     abstract fun unprocessedEventDao(): UnprocessedEventDao
+    abstract fun rawSyncCompleteDao(): RawSyncCompleteDao
 
     companion object {
         @Volatile private var instance: AndromuksDatabase? = null

@@ -23,6 +23,7 @@ import net.vrkknn.andromuks.database.dao.SpaceDao
 import net.vrkknn.andromuks.database.dao.SpaceRoomDao
 import net.vrkknn.andromuks.database.dao.SyncMetaDao
 import net.vrkknn.andromuks.database.dao.UnprocessedEventDao
+import net.vrkknn.andromuks.database.dao.RawSyncCompleteDao
 import net.vrkknn.andromuks.database.entities.AccountDataEntity
 import net.vrkknn.andromuks.database.entities.EventEntity
 import net.vrkknn.andromuks.database.entities.PendingRoomEntity
@@ -35,6 +36,7 @@ import net.vrkknn.andromuks.database.entities.SpaceEntity
 import net.vrkknn.andromuks.database.entities.SpaceRoomEntity
 import net.vrkknn.andromuks.database.entities.SyncMetaEntity
 import net.vrkknn.andromuks.database.entities.UnprocessedEventEntity
+import net.vrkknn.andromuks.database.entities.RawSyncCompleteEntity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
@@ -66,6 +68,7 @@ class SyncIngestor(private val context: Context) {
     private val inviteDao = database.inviteDao()
     private val pendingRoomDao = database.pendingRoomDao()
     private val unprocessedEventDao: UnprocessedEventDao = database.unprocessedEventDao()
+    private val rawSyncCompleteDao = database.rawSyncCompleteDao()
     
     private val TAG = "SyncIngestor"
     
@@ -633,6 +636,26 @@ class SyncIngestor(private val context: Context) {
             // Store since token if present
             if (since.isNotEmpty()) {
                 syncMetaDao.upsert(SyncMetaEntity("since", since))
+            }
+            
+            // CRITICAL: Store raw sync_complete JSON to detect gaps in request_id sequence
+            // Only store if request_id is negative (valid sync_complete)
+            if (requestId < 0) {
+                try {
+                    val rawJson = syncJson.toString()
+                    rawSyncCompleteDao.insert(RawSyncCompleteEntity(requestId, rawJson))
+                    
+                    // Periodically clean up old entries (keep last 1000)
+                    // This prevents unbounded growth while keeping enough history for gap detection
+                    val count = rawSyncCompleteDao.getCount()
+                    if (count > 1500) {
+                        rawSyncCompleteDao.deleteOldEntries(1000)
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Cleaned up old raw_sync_complete entries (kept 1000 most recent)")
+                    }
+                } catch (e: Exception) {
+                    // Don't fail the entire sync if raw storage fails
+                    Log.w(TAG, "Failed to store raw sync_complete JSON: ${e.message}", e)
+                }
             }
         }
         
@@ -2620,5 +2643,95 @@ class SyncIngestor(private val context: Context) {
         }
         hasPending
     }
+    
+    /**
+     * Detect gaps in the request_id sequence of received sync_complete messages.
+     * Returns a list of missing request_ids between min and max.
+     * 
+     * Since request_ids are consecutive negative integers, any gap indicates a missing message.
+     * 
+     * @return List of missing request_ids, or empty list if no gaps found
+     */
+    suspend fun detectGapsInSyncComplete(): List<Int> = withContext(Dispatchers.IO) {
+        try {
+            val minId = rawSyncCompleteDao.getMinRequestId()
+            val maxId = rawSyncCompleteDao.getMaxRequestId()
+            
+            if (minId == null || maxId == null) {
+                // No sync_complete messages stored yet
+                return@withContext emptyList()
+            }
+            
+            // Get all stored request_ids
+            val storedIds = rawSyncCompleteDao.getAllRequestIds().toSet()
+            
+            // Find gaps by checking each ID in the range
+            val gaps = mutableListOf<Int>()
+            for (id in minId..maxId) {
+                if (!storedIds.contains(id)) {
+                    gaps.add(id)
+                }
+            }
+            
+            if (gaps.isNotEmpty()) {
+                Log.w(TAG, "GAP DETECTED: Found ${gaps.size} missing sync_complete messages: request_ids $gaps (range: $minId to $maxId)")
+            } else if (BuildConfig.DEBUG) {
+                Log.d(TAG, "No gaps detected in sync_complete sequence (range: $minId to $maxId, count: ${storedIds.size})")
+            }
+            
+            gaps
+        } catch (e: Exception) {
+            Log.e(TAG, "Error detecting gaps in sync_complete: ${e.message}", e)
+            emptyList()
+        }
+    }
+    
+    /**
+     * Get all stored request_ids from raw_sync_complete table.
+     * Used for gap recovery to find the last known good ID before a gap.
+     */
+    suspend fun getAllStoredRequestIds(): Set<Int> = withContext(Dispatchers.IO) {
+        try {
+            rawSyncCompleteDao.getAllRequestIds().toSet()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting all stored request IDs: ${e.message}", e)
+            emptySet()
+        }
+    }
+    
+    /**
+     * Get statistics about stored sync_complete messages.
+     * Useful for debugging and monitoring.
+     */
+    suspend fun getSyncCompleteStats(): SyncCompleteStats = withContext(Dispatchers.IO) {
+        try {
+            val count = rawSyncCompleteDao.getCount()
+            val minId = rawSyncCompleteDao.getMinRequestId()
+            val maxId = rawSyncCompleteDao.getMaxRequestId()
+            val gaps = detectGapsInSyncComplete()
+            
+            SyncCompleteStats(
+                count = count,
+                minRequestId = minId,
+                maxRequestId = maxId,
+                gapCount = gaps.size,
+                gaps = gaps
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting sync_complete stats: ${e.message}", e)
+            SyncCompleteStats(0, null, null, 0, emptyList())
+        }
+    }
+    
+    /**
+     * Data class for sync_complete statistics
+     */
+    data class SyncCompleteStats(
+        val count: Int,
+        val minRequestId: Int?,
+        val maxRequestId: Int?,
+        val gapCount: Int,
+        val gaps: List<Int>
+    )
 }
 
