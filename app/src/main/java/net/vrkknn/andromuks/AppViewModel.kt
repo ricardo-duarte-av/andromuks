@@ -1431,16 +1431,16 @@ class AppViewModel : ViewModel() {
         // 3. Reset requestIdCounter to 1
         requestIdCounter = 1
         
-        // 4. FORCE CLEAR last_received_sync_id to 0 for clean state (keep run_id for reconnection)
-        lastReceivedSyncId = 0
+        // 4. Clear timeline caches on full refresh (all caches are stale)
+        RoomTimelineCache.clearAll()
+        synchronized(timelineLruCacheLock) {
+            timelineLruCache.clear()
+        }
         lastReceivedRequestId = 0
-        
-        // Sync cleared state with service (run_id is in SharedPreferences)
-        WebSocketService.setReconnectionState(0)
         
         val preservedRunId = currentRunId
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: State reset complete - run_id preserved: $preservedRunId")
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: FORCE REFRESH - lastReceivedSyncId cleared to 0, will reconnect with run_id but NO last_received_id (full payload)")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: FORCE REFRESH - timeline caches cleared, will reconnect with run_id only (no last_received_id)")
         
         // Rehydrate UI from DB immediately so room/space info is available while we wait for fresh sync payloads.
         viewModelScope.launch(Dispatchers.IO) {
@@ -4344,28 +4344,8 @@ class AppViewModel : ViewModel() {
         // Update service with new sync timestamp
         WebSocketService.updateLastSyncTimestamp()
         
-        // Extract request_id from sync_complete (used as last_received_id)
+        // Extract request_id from sync_complete (no longer tracked for reconnection)
         val requestId = syncJson.optInt("request_id", 0)
-        
-        if (requestId != 0) {
-            if (requestId < 0) {
-                synchronized(pendingSyncLock) {
-                    val currentPending = pendingLastReceivedSyncId
-                    if (currentPending == null || requestId < currentPending) {
-                        pendingLastReceivedSyncId = requestId
-                        //if (BuildConfig.DEBUG) android.util.Log.d(
-                        //    "Andromuks",
-                        //    "AppViewModel: Recorded pending sync_complete requestId=$requestId (previous pending=$currentPending)"
-                       // )
-                    }// else {
-                    //    if (BuildConfig.DEBUG) android.util.Log.d(
-                    //        "Andromuks",
-                    //        "AppViewModel: Pending sync_complete requestId=$requestId ignored (current pending=$currentPending)"
-                    //    )
-                    //}
-                }
-            }
-        }
         
         // Persist sync_complete to database (run in background)
         // CRITICAL FIX: Return the summary update job so we can wait for it to complete
@@ -4597,28 +4577,8 @@ class AppViewModel : ViewModel() {
         // Update service with new sync timestamp
         WebSocketService.updateLastSyncTimestamp()
         
-        // Extract request_id from sync_complete (used as last_received_id)
+        // Extract request_id from sync_complete (no longer tracked for reconnection)
         val requestId = syncJson.optInt("request_id", 0)
-        
-        if (requestId != 0) {
-            if (requestId < 0) {
-                synchronized(pendingSyncLock) {
-                    val currentPending = pendingLastReceivedSyncId
-                    if (currentPending == null || requestId < currentPending) {
-                        pendingLastReceivedSyncId = requestId
-                        //if (BuildConfig.DEBUG) android.util.Log.d(
-                        //    "Andromuks",
-                        //    "AppViewModel: Recorded pending sync_complete requestId=$requestId (previous pending=$currentPending)"
-                        //)
-                    } //else {
-                    //    if (BuildConfig.DEBUG) android.util.Log.d(
-                    //        "Andromuks",
-                    //        "AppViewModel: Pending sync_complete requestId=$requestId ignored (current pending=$currentPending)"
-                    //    )
-                    //}
-                }
-            }
-        }
         
         // Persist sync_complete to database (run in background)
         appContext?.let { context ->
@@ -4697,39 +4657,7 @@ class AppViewModel : ViewModel() {
                         }
                     }
                     
-                    // CRITICAL FIX: Mark this requestId as persisted, but don't commit yet
-                    // We'll commit only after processing is also complete
-                    if (requestId < 0) {
-                        val shouldCommit = synchronized(syncProcessingLock) {
-                            persistedSyncIds.add(requestId)
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked sync_complete requestId=$requestId as persisted (processed: ${processedSyncIds.contains(requestId)})")
-                            // Check if processing is also complete
-                            processedSyncIds.contains(requestId)
-                        }
-                        
-                        if (shouldCommit) {
-                            // Both persistence and processing are complete - safe to commit
-                            withContext(Dispatchers.Main) {
-                                onSyncCompletePersisted(requestId)
-                                // Clean up tracking sets to prevent memory leaks (keep only recent IDs)
-                                // Keep last 100 IDs to handle out-of-order completion
-                                synchronized(syncProcessingLock) {
-                                    if (persistedSyncIds.size > 100) {
-                                        persistedSyncIds.removeAll { it > requestId + 50 }
-                                    }
-                                    if (processedSyncIds.size > 100) {
-                                        processedSyncIds.removeAll { it > requestId + 50 }
-                                    }
-                                }
-                                
-                                // CRITICAL: Periodically check for gaps and recover if needed
-                                // Check every 10 sync_completes to avoid overhead
-                                if (syncMessageCount % 10 == 0) {
-                                    checkAndRecoverGaps()
-                                }
-                            }
-                        }
-                    }
+                    // NOTE: We no longer track requestId for reconnection - all caches are cleared on connect/reconnect
                 } catch (e: Exception) {
                     android.util.Log.e("Andromuks", "AppViewModel: Error persisting sync_complete: ${e.message}", e)
                     // Don't block UI updates if persistence fails
@@ -4765,27 +4693,7 @@ class AppViewModel : ViewModel() {
                 withContext(Dispatchers.Main) {
                     processParsedSyncResult(syncResult, syncJson)
                     
-                    // CRITICAL FIX: Mark this requestId as processed, and commit if persistence is also complete
-                    val requestId = syncJson.optInt("request_id", 0)
-                    if (requestId < 0) {
-                        synchronized(syncProcessingLock) {
-                            processedSyncIds.add(requestId)
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked sync_complete requestId=$requestId as processed (persisted: ${persistedSyncIds.contains(requestId)})")
-                            // Check if persistence is also complete
-                            if (persistedSyncIds.contains(requestId)) {
-                                // Both persistence and processing are complete - safe to commit
-                                onSyncCompletePersisted(requestId)
-                                // Clean up tracking sets to prevent memory leaks (keep only recent IDs)
-                                // Keep last 100 IDs to handle out-of-order completion
-                                if (persistedSyncIds.size > 100) {
-                                    persistedSyncIds.removeAll { it > requestId + 50 }
-                                }
-                                if (processedSyncIds.size > 100) {
-                                    processedSyncIds.removeAll { it > requestId + 50 }
-                                }
-                            }
-                        }
-                    }
+                    // NOTE: We no longer track requestId for reconnection - all caches are cleared on connect/reconnect
                 }
             }
         }
@@ -6577,16 +6485,7 @@ class AppViewModel : ViewModel() {
     
     private var webSocket: WebSocket? = null
     private var lastReceivedRequestId: Int = 0 // Tracks ANY incoming request_id (for pong detection)
-    private var lastReceivedSyncId: Int = 0 // Tracks ONLY sync_complete negative request_ids (for reconnection)
-    @Volatile private var pendingLastReceivedSyncId: Int? = null // Candidate sync_complete ID awaiting persistence
-    
-    // CRITICAL FIX: Track which sync_complete requestIds have been persisted and processed
-    // We only commit lastReceivedSyncId after BOTH are complete to prevent missing messages on crash
-    private val persistedSyncIds = mutableSetOf<Int>() // RequestIds that have been persisted to DB
-    private val processedSyncIds = mutableSetOf<Int>() // RequestIds that have been fully processed
-    private val syncProcessingLock = Any() // Lock for sync processing tracking
-    private val pendingSyncLock = Any()
-    private var hasPersistedSync = false
+    // NOTE: We no longer track last_received_id - all timeline caches are cleared on connect/reconnect
     private var lastSyncTimestamp: Long = 0 // Timestamp of last sync_complete received
     private var currentRunId: String = "" // Unique connection ID from gomuks backend
     private var vapidKey: String = "" // VAPID key for push notifications
@@ -7535,26 +7434,7 @@ class AppViewModel : ViewModel() {
         if (requestId != 0) {
             // Track ALL incoming request_ids for general purposes (pong detection, etc.)
             lastReceivedRequestId = requestId
-            
-            // Separately track ONLY negative request_ids from sync_complete for reconnection
-            if (requestId < 0) {
-                synchronized(pendingSyncLock) {
-                    val currentPending = pendingLastReceivedSyncId
-                    if (currentPending == null || requestId < currentPending) {
-                        pendingLastReceivedSyncId = requestId
-                        //if (BuildConfig.DEBUG) android.util.Log.d(
-                        //    "Andromuks",
-                        //    "AppViewModel: Recorded pending sync_complete requestId=$requestId (previous pending=$currentPending)"
-                        //)
-                    } //else {
-                    //    if (BuildConfig.DEBUG) android.util.Log.d(
-                    //        "Andromuks",
-                    //        "AppViewModel: Pending sync_complete requestId=$requestId ignored (current pending=$currentPending)"
-                    //    )
-                    //}
-                }
-            }
-            
+            // NOTE: We no longer track negative request_ids for reconnection - all caches are cleared on connect/reconnect
             // Pong handling is now done directly in NetworkUtils
         }
     }
@@ -7593,8 +7473,7 @@ class AppViewModel : ViewModel() {
         currentRunId = runId
         this.vapidKey = vapidKey // Keep for backward compatibility, but not used
         
-        // Update service with last_received_sync_id only (run_id is read from SharedPreferences)
-        WebSocketService.setReconnectionState(lastReceivedSyncId)
+        // NOTE: We no longer update last_received_sync_id - all caches are cleared on connect/reconnect
         
         // CRITICAL FIX: Process deferred emoji pack requests when WebSocket is ready
         // This ensures custom emojis are loaded even if account_data was processed before WebSocket connected
@@ -7656,61 +7535,12 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Commits a persisted sync_complete request ID after BOTH the payload has been written to storage
-     * AND the events have been fully processed.
-     * This ensures we never advance lastReceivedSyncId before the local database is consistent
-     * and all events are processed, preventing missing messages on crash/reconnect.
+     * @deprecated No longer used - we no longer track last_received_id
+     * All timeline caches are cleared on connect/reconnect instead
      */
+    @Deprecated("No longer used - we no longer track last_received_id")
     private fun onSyncCompletePersisted(requestId: Int) {
-        if (requestId >= 0) {
-            return
-        }
-        
-        // Track the lowest pending requestId we have seen (even if not yet persisted)
-        val pendingSnapshot = synchronized(pendingSyncLock) {
-            if (pendingLastReceivedSyncId == requestId) {
-                // We just persisted the lowest pending one, clear it
-                pendingLastReceivedSyncId = null
-            }
-            pendingLastReceivedSyncId
-        }
-        
-        // Primary rule: commit to the lowest persisted AND processed requestId so far
-        val shouldUpdate = lastReceivedSyncId == 0 || requestId < lastReceivedSyncId
-        if (shouldUpdate) {
-            val previous = lastReceivedSyncId
-            lastReceivedSyncId = requestId
-            hasPersistedSync = true
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Committed lastReceivedSyncId from $previous to $requestId after BOTH persistence AND processing complete (pending=$pendingSnapshot)"
-            )
-            
-            WebSocketService.updateLastReceivedSyncId(lastReceivedSyncId)
-            WebSocketService.setReconnectionState(lastReceivedSyncId)
-            WebSocketService.markInitialSyncPersisted()
-            return
-        }
-        
-        // Secondary safety: if a lower pending ID exists and is below what we've committed,
-        // force a downshift so the next reconnect asks the server for that earlier range.
-        if (pendingSnapshot != null && pendingSnapshot < lastReceivedSyncId) {
-            val previous = lastReceivedSyncId
-            lastReceivedSyncId = pendingSnapshot
-            if (BuildConfig.DEBUG) android.util.Log.w(
-                "Andromuks",
-                "AppViewModel: Forcing downshift of lastReceivedSyncId from $previous to pending $pendingSnapshot to avoid gaps"
-            )
-            WebSocketService.updateLastReceivedSyncId(lastReceivedSyncId)
-            WebSocketService.setReconnectionState(lastReceivedSyncId)
-            WebSocketService.markInitialSyncPersisted()
-            return
-        }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Persisted sync_complete requestId=$requestId ignored (current lastReceivedSyncId=$lastReceivedSyncId, pending=$pendingSnapshot)"
-        )
+        // No-op - we no longer track last_received_id
     }
     
     /**
@@ -7737,135 +7567,41 @@ class AppViewModel : ViewModel() {
     /**
      * Gets the last received sync_complete request_id for reconnection
      */
-    fun getLastReceivedId(): Int = lastReceivedSyncId
+    /**
+     * @deprecated No longer used - we never pass last_received_id on connect/reconnect
+     */
+    @Deprecated("No longer used - we no longer track last_received_id")
+    fun getLastReceivedId(): Int = 0
     
     /**
      * Check for gaps in sync_complete sequence and recover if needed.
      * 
      * Request IDs are negative and decrease: -100 is older than -99, -99 is older than -98.
-     * If gaps are detected, we rollback lastReceivedSyncId to the last known good ID before the gap
-     * (the highest/closest to 0 ID we have that's less than the gap).
+     * @deprecated No longer used - we no longer track last_received_id or detect gaps
+     * All timeline caches are cleared on connect/reconnect instead
      * 
-     * Example: If we have -100, -99, -97, -96 (missing -98), we rollback to -99
-     * (the highest ID we have that's less than -98).
-     * 
-     * We update lastReceivedSyncId and trigger a WebSocket reconnection with the corrected
+     * (Historical note: Previously, if gaps were detected, we would rollback lastReceivedSyncId
+     * to the last known good ID before the gap and trigger a reconnection.)
      * last_received_event parameter. The server will then send all messages from that point,
      * filling in the gaps.
      * 
      * We only recover recent gaps (within the last 100 messages) to avoid recovering
      * very old gaps that might have been filled already.
      */
+    /**
+     * @deprecated No longer used - we no longer track last_received_id or detect gaps
+     * All timeline caches are cleared on connect/reconnect instead
+     */
+    @Deprecated("No longer used - we no longer track last_received_id")
     private fun checkAndRecoverGaps() {
-        if (appContext == null) {
-            return
-        }
-        
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                ensureSyncIngestor()
-                val ingestor = syncIngestor ?: return@launch
-                
-                val stats = ingestor.getSyncCompleteStats()
-                
-                if (stats.gapCount == 0) {
-                    // No gaps detected
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "Gap check: No gaps detected (count: ${stats.count}, range: ${stats.minRequestId} to ${stats.maxRequestId})")
-                    }
-                    return@launch
-                }
-                
-                android.util.Log.w(
-                    "Andromuks",
-                    "GAP DETECTED: Found ${stats.gapCount} missing sync_complete messages: request_ids ${stats.gaps.take(10)}${if (stats.gaps.size > 10) "..." else ""} (range: ${stats.minRequestId} to ${stats.maxRequestId})"
-                )
-                
-                // Only recover if we have a valid range and gaps are recent
-                if (stats.minRequestId != null && stats.maxRequestId != null) {
-                    val rangeSize = stats.maxRequestId - stats.minRequestId + 1
-                    val gapRatio = stats.gapCount.toFloat() / rangeSize
-                    
-                    // Request IDs are negative and decrease: -100 is older than -99
-                    // If we have -100, -99, -97, -96 (missing -98), we should rollback to -97
-                    // (the most recent/highest request_id we have before the gap)
-                    
-                    // Find the first gap (lowest/most negative missing ID)
-                    val firstGap = stats.gaps.firstOrNull()
-                    
-                    // Only recover if:
-                    // 1. Gaps are within the last 100 messages (recent)
-                    // 2. Gap ratio is reasonable (< 50% - if more than 50% are missing, something is very wrong)
-                    // 3. We have at least one gap
-                    // Note: Since request_ids are negative, "recent" means closer to 0
-                    // So we check if the gap is within 100 of our current lastReceivedSyncId
-                    val isRecentGap = firstGap != null && (lastReceivedSyncId - firstGap) < 100
-                    
-                    if (firstGap != null && isRecentGap && gapRatio < 0.5f) {
-                        // Find the most recent (highest/closest to 0) request_id we have before the gap
-                        // This is the last known good ID before the missing messages
-                        // Example: If we have -100, -99, -97, -96 (missing -98), we should rollback to -99
-                        // (the highest ID we have that's less than -98)
-                        val storedIds = ingestor.getAllStoredRequestIds()
-                        
-                        // Find the highest request_id that is less than firstGap (i.e., the last one we received before the gap)
-                        // Since request_ids are negative and decrease, "highest" means closest to 0
-                        // So if firstGap is -98, we want the max of all IDs < -98, which would be -99
-                        // But wait - if we have -100, -99, -97, -96 and gap is -98, we want -99 (the last before gap)
-                        // Actually, we want the highest ID that is < firstGap
-                        val lastKnownGoodId = storedIds
-                            .filter { it < firstGap } // IDs before the gap
-                            .maxOrNull() // Get the highest (closest to 0) one
-                        
-                        if (lastKnownGoodId != null) {
-                            android.util.Log.w(
-                                "Andromuks",
-                                "GAP RECOVERY: Found gap at $firstGap, rolling back lastReceivedSyncId from $lastReceivedSyncId to $lastKnownGoodId (last known good before gap)"
-                            )
-                            
-                            withContext(Dispatchers.Main) {
-                                val previous = lastReceivedSyncId
-                                lastReceivedSyncId = lastKnownGoodId
-                                hasPersistedSync = true
-                                
-                                WebSocketService.updateLastReceivedSyncId(lastReceivedSyncId)
-                                WebSocketService.setReconnectionState(lastReceivedSyncId)
-                                
-                                android.util.Log.w(
-                                    "Andromuks",
-                                    "GAP RECOVERY: Updated lastReceivedSyncId from $previous to $lastKnownGoodId. Triggering reconnection to recover missing messages."
-                                )
-                                
-                                // Trigger reconnection with corrected last_received_event
-                                // The server will send all messages from lastKnownGoodId forward, filling the gaps
-                                WebSocketService.triggerReconnectionSafely("Gap recovery: missing sync_complete messages detected")
-                            }
-                        } else {
-                            android.util.Log.w(
-                                "Andromuks",
-                                "GAP RECOVERY: Found gap at $firstGap but could not determine last known good ID"
-                            )
-                        }
-                    } else {
-                        if (BuildConfig.DEBUG) {
-                            android.util.Log.d(
-                                "Andromuks",
-                                "GAP DETECTED but not recovering: isRecent=$isRecentGap, gapRatio=$gapRatio, firstGap=$firstGap"
-                            )
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "Error checking for gaps: ${e.message}", e)
-            }
-        }
+        // No-op - we no longer track last_received_id or detect gaps
     }
     
     /**
-     * Determines whether the current session has persisted sync data,
-     * allowing us to include last_received_id on reconnection attempts.
+     * @deprecated No longer used - we never pass last_received_id on connect/reconnect
      */
-    fun shouldIncludeLastReceivedId(): Boolean = hasPersistedSync
+    @Deprecated("No longer used - we no longer track last_received_id")
+    fun shouldIncludeLastReceivedId(): Boolean = false
     
     /**
      * Gets the current VAPID key for push notifications
@@ -7931,7 +7667,7 @@ class AppViewModel : ViewModel() {
             editor.putLong("state_saved_timestamp", System.currentTimeMillis())
             
             editor.apply()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved state to storage - run_id: $currentRunId, last_received_sync_id: $lastReceivedSyncId, rooms: ${allRooms.size}")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved state to storage - run_id: $currentRunId, rooms: ${allRooms.size}")
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to save state to storage", e)
         }
@@ -7970,20 +7706,13 @@ class AppViewModel : ViewModel() {
                             // Restore WebSocket state from DB
                             if (bootstrapResult.runId.isNotEmpty()) {
                                 currentRunId = bootstrapResult.runId
-                                lastReceivedSyncId = bootstrapResult.lastReceivedId
-                                // CRITICAL FIX: Set hasPersistedSync to true if we loaded a valid lastReceivedSyncId from database
-                                // This ensures we include last_received_id when reconnecting
-                                hasPersistedSync = bootstrapResult.lastReceivedId != 0
-                                pendingLastReceivedSyncId = null
+                                // NOTE: We no longer restore last_received_id - all caches are cleared on connect/reconnect
                                 
                                 // Get vapid key from SharedPreferences (not stored in DB yet)
                                 val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
                                 vapidKey = prefs.getString("ws_vapid_key", "") ?: ""
                                 
-                                // Sync restored state with service (run_id is in SharedPreferences)
-                                WebSocketService.setReconnectionState(bootstrapResult.lastReceivedId)
-                                
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state from DB - run_id: ${bootstrapResult.runId}, last_received_id: ${bootstrapResult.lastReceivedId}, hasPersistedSync: $hasPersistedSync")
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state from DB - run_id: ${bootstrapResult.runId} (no last_received_id)")
                             }
                             
                             // Update room map with ALL rooms from database
@@ -8114,15 +7843,9 @@ class AppViewModel : ViewModel() {
             
             if (runId.isNotEmpty()) {
                 currentRunId = runId
-                lastReceivedSyncId = 0
-                pendingLastReceivedSyncId = null
-                hasPersistedSync = false
                 vapidKey = savedVapidKey
                 
-                // Sync restored state with service (run_id is in SharedPreferences)
-                WebSocketService.setReconnectionState(lastReceivedSyncId)
-                
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state - run_id: $runId (last_received_sync_id not restored)")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state - run_id: $runId (no last_received_id)")
             }
             
             // Restore room data
@@ -8188,9 +7911,6 @@ class AppViewModel : ViewModel() {
             
             // Also clear in-memory state
             currentRunId = ""
-            lastReceivedSyncId = 0
-            pendingLastReceivedSyncId = null
-            hasPersistedSync = false
             vapidKey = ""
             navigationCallbackTriggered = false // Reset navigation flag for fresh start
             
@@ -8234,9 +7954,6 @@ class AppViewModel : ViewModel() {
             
             // Clear in-memory state
             currentRunId = ""
-            lastReceivedSyncId = 0
-            pendingLastReceivedSyncId = null
-            hasPersistedSync = false
             vapidKey = ""
             navigationCallbackTriggered = false
             
@@ -16007,35 +15724,9 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initializing WebSocket connection using viewModelScope (survives activity recreation)")
             
-            // Set reconnection parameters in service BEFORE connecting
-            // CRITICAL FIX: If in-memory value is 0 but we have a run_id, try loading from database
-            // This handles cases where the app was killed before onSyncCompletePersisted was called
-            var lastReceivedId = getLastReceivedId()
-            if (lastReceivedId == 0 && appContext != null && getCurrentRunId().isNotEmpty()) {
-                // We have a run_id but no lastReceivedId - try loading from database
-                try {
-                    val storedLastReceivedId = withContext(Dispatchers.IO) {
-                        val database = AndromuksDatabase.getInstance(appContext!!)
-                        val syncMetaDao = database.syncMetaDao()
-                        syncMetaDao.get("last_received_id")?.toIntOrNull() ?: 0
-                    }
-                    if (storedLastReceivedId != 0) {
-                        lastReceivedId = storedLastReceivedId
-                        lastReceivedSyncId = storedLastReceivedId
-                        hasPersistedSync = true
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reloaded lastReceivedId from database: $lastReceivedId")
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Failed to reload lastReceivedId from database: ${e.message}", e)
-                }
-            }
-            
-            if (lastReceivedId != 0) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Setting reconnection parameters - lastReceivedId: $lastReceivedId")
-                WebSocketService.setReconnectionState(lastReceivedId)
-            } else {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No lastReceivedId available (value: 0) - will connect without last_received_event parameter")
-            }
+            // NOTE: We no longer set reconnection parameters for last_received_id
+            // All timeline caches are cleared on connect/reconnect instead
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Connecting WebSocket without last_received_id (caches will be cleared on connect)")
             
             // Start WebSocket service BEFORE connecting websocket
             startWebSocketService()

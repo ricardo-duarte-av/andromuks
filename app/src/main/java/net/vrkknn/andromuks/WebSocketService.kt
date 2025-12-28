@@ -614,7 +614,7 @@ class WebSocketService : Service() {
                 serviceInstance.pingJob?.isActive == true -> "Running"
                 else -> "Unknown state"
             }
-            android.util.Log.i("WebSocketService", "Pinger status: $status (lastReceivedSyncId: ${serviceInstance.lastReceivedSyncId}, lastKnownLag: ${serviceInstance.lastKnownLagMs}ms)")
+            android.util.Log.i("WebSocketService", "Pinger status: $status (lastKnownLag: ${serviceInstance.lastKnownLagMs}ms)")
         }
         
         /**
@@ -1321,14 +1321,12 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Set reconnection state (last_received_event only)
-         * run_id is always read from SharedPreferences - not tracked in service state
-         * vapid_key is not used (we use FCM)
+         * @deprecated No longer used - we never pass last_received_id on connect/reconnect
+         * All timeline caches are cleared on connect/reconnect instead
          */
+        @Deprecated("No longer used - caches are cleared on connect/reconnect")
         fun setReconnectionState(lastReceivedId: Int) {
-            val serviceInstance = instance ?: return
-            serviceInstance.lastReceivedSyncId = lastReceivedId
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Updated last_received_sync_id: $lastReceivedId (run_id read from SharedPreferences)")
+            // No-op - we no longer track last_received_id
         }
         
         /**
@@ -1346,15 +1344,17 @@ class WebSocketService : Service() {
         }
         
         /**
-         * Get last received sync ID for reconnection
+         * @deprecated No longer used - we never pass last_received_id on connect/reconnect
          */
-        fun getLastReceivedSyncId(): Int = instance?.lastReceivedSyncId ?: 0
+        @Deprecated("No longer used - we no longer track last_received_id")
+        fun getLastReceivedSyncId(): Int = 0
         
         /**
-         * Update last received sync ID
+         * @deprecated No longer used - we never pass last_received_id on connect/reconnect
          */
+        @Deprecated("No longer used - we no longer track last_received_id")
         fun updateLastReceivedSyncId(syncId: Int) {
-            instance?.lastReceivedSyncId = syncId
+            // No-op
         }
         
         /**
@@ -1366,7 +1366,7 @@ class WebSocketService : Service() {
             
         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "updateLastSyncTimestamp() called - connectionState: ${serviceInstance.connectionState}")
             
-            // Start ping loop on first sync_complete (when we have a valid lastReceivedSyncId)
+            // Start ping loop on first sync_complete
             if (!serviceInstance.pingLoopStarted) {
                 serviceInstance.pingLoopStarted = true
                 serviceInstance.hasEverReachedReadyState = true
@@ -1397,35 +1397,31 @@ class WebSocketService : Service() {
          * Mark that at least one sync_complete has been persisted this session.
          * This unlocks the ability to include last_received_event on reconnections.
          */
+        /**
+         * @deprecated No longer used - we never pass last_received_id on connect/reconnect
+         */
+        @Deprecated("No longer used - we no longer track last_received_id")
         fun markInitialSyncPersisted() {
-            val serviceInstance = instance ?: return
-            if (!serviceInstance.hasPersistedSync) {
-                serviceInstance.hasPersistedSync = true
-                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Initial sync persisted - last_received_event will be included on reconnections")
-            }
+            // No-op
         }
         
         /**
-         * Clear reconnection state (only last_received_sync_id - run_id stays in SharedPreferences)
+         * Clear reconnection state (no-op - we no longer track last_received_id)
          */
         fun clearReconnectionState() {
-            val serviceInstance = instance ?: return
-            serviceInstance.lastReceivedSyncId = 0
-            serviceInstance.hasPersistedSync = false
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Cleared reconnection state (last_received_sync_id reset, run_id preserved in SharedPreferences)")
+            // No-op - we no longer track last_received_id
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "clearReconnectionState called (no-op - we no longer track last_received_id)")
         }
         
         /**
-         * Get reconnection parameters for WebSocket URL construction
-         * Returns: (runId from SharedPreferences, lastReceivedSyncId, isReconnecting)
+         * @deprecated No longer used - we never pass last_received_id on connect/reconnect
+         * Returns: (runId from SharedPreferences, 0, false)
          */
+        @Deprecated("No longer used - we no longer track last_received_id")
         fun getReconnectionParameters(): Triple<String, Int, Boolean> {
-            val serviceInstance = instance ?: return Triple("", 0, false)
             val runId = getCurrentRunId() // Always read from SharedPreferences
-            val lastReceivedId = serviceInstance.lastReceivedSyncId
-            val isReconnecting = lastReceivedId > 0 // If we have lastReceivedId, we're reconnecting
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "getReconnectionParameters: runId='$runId' (from SharedPreferences), lastReceivedSyncId=$lastReceivedId, isReconnecting=$isReconnecting")
-            return Triple(runId, lastReceivedId, isReconnecting)
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "getReconnectionParameters: runId='$runId' (no last_received_id)")
+            return Triple(runId, 0, false)
         }
         
         /**
@@ -1437,7 +1433,6 @@ class WebSocketService : Service() {
             serviceInstance.reconnectionJob = null
             serviceInstance.isReconnecting = false
             // DO NOT reset connectionState here - it's set when init_complete arrives
-            // DO NOT clear lastReceivedSyncId - it's needed for future reconnections
             serviceInstance.initCompleteRetryCount = 0 // Reset retry count on successful connection
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Reset reconnection state (reconnection job cancelled, retry count reset)")
         }
@@ -1461,6 +1456,11 @@ class WebSocketService : Service() {
             
             // Reset retry count on successful init_complete
             serviceInstance.initCompleteRetryCount = 0
+            
+            // CRITICAL: Clear all timeline caches on connect/reconnect - all caches are stale
+            // This ensures we don't use stale data after reconnection
+            RoomTimelineCache.clearAll()
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Cleared all timeline caches on init_complete (caches marked as stale)")
             
             // Now mark as CONNECTED - connection is healthy
             serviceInstance.connectionState = ConnectionState.CONNECTED
@@ -1680,12 +1680,9 @@ class WebSocketService : Service() {
     private var connectionState = ConnectionState.DISCONNECTED
     private var lastPongTimestamp = 0L // Track last pong for heartbeat monitoring
     private var connectionStartTime: Long = 0 // Track when WebSocket connection was established (0 = not connected)
-    private var hasPersistedSync = false
-    
-        // Reconnection state management
-        // run_id is always read from SharedPreferences - not stored in service state
-        // vapid_key is not used (we use FCM)
-        private var lastReceivedSyncId: Int = 0
+    // Reconnection state management
+    // run_id is always read from SharedPreferences - not stored in service state
+    // NOTE: We no longer track last_received_id - all timeline caches are cleared on connect/reconnect
     
     // Connection health tracking
     private var lastSyncTimestamp: Long = 0
@@ -2129,7 +2126,8 @@ class WebSocketService : Service() {
     }
     
     private fun shouldIncludeLastReceivedForReconnect(): Boolean {
-        return hasPersistedSync && lastReceivedSyncId != 0
+        // Always return false - we never pass last_received_id on connect/reconnect
+        return false
     }
     
     // REMOVED: attemptFallbackReconnection() - This created ad-hoc WebSocket connections
@@ -2203,12 +2201,6 @@ class WebSocketService : Service() {
             return
         }
         
-        // Don't send pings if we don't have a valid lastReceivedSyncId yet
-        if (lastReceivedSyncId == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Skipping ping - no sync_complete received yet (lastReceivedSyncId: $lastReceivedSyncId)")
-            return
-        }
-        
         // Guard: Don't send if ping is already in flight
         if (pingInFlight) {
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Skipping ping - ping already in flight")
@@ -2220,12 +2212,13 @@ class WebSocketService : Service() {
         lastPingTimestamp = System.currentTimeMillis()
         pingInFlight = true // Mark ping as in flight
         
-        val data = mapOf("last_received_id" to lastReceivedSyncId)
+        // NOTE: We no longer send last_received_id in ping - we never pass it on connect/reconnect
+        val data = emptyMap<String, Any>()
         
-        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Sending ping (requestId: $reqId, lastReceivedSyncId: $lastReceivedSyncId)")
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Sending ping (requestId: $reqId)")
         
         // Log ping status before sending
-        android.util.Log.i("WebSocketService", "Pinger status: Sending ping (requestId: $reqId, lastReceivedSyncId: $lastReceivedSyncId)")
+        android.util.Log.i("WebSocketService", "Pinger status: Sending ping (requestId: $reqId)")
         
         // Send ping directly via WebSocket
         try {
@@ -2491,10 +2484,8 @@ class WebSocketService : Service() {
         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service created - serviceStartTime: $serviceStartTime")
         
         // run_id is always read from SharedPreferences when needed - no need to restore on startup
-        // Reset last_received_sync_id on service startup (will be set when sync_complete arrives)
-        lastReceivedSyncId = 0
-        hasPersistedSync = false
-        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service startup - last_received_sync_id reset (run_id will be read from SharedPreferences when needed)")
+        // NOTE: We no longer track last_received_id - all timeline caches are cleared on connect/reconnect
+        if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Service startup - run_id will be read from SharedPreferences when needed")
         
         // Start state corruption monitoring immediately when service is created
         if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Starting service state monitoring from onCreate")
@@ -2681,7 +2672,6 @@ class WebSocketService : Service() {
             connectionState = ConnectionState.DISCONNECTED
             isReconnecting = false
             isCurrentlyConnected = false
-            hasPersistedSync = false
             
             // Stop foreground service
             stopForeground(true)

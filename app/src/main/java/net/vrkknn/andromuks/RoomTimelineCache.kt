@@ -448,12 +448,20 @@ object RoomTimelineCache {
     }
     
     /**
-     * Clear all caches (useful on logout)
+     * Clear all caches (useful on logout or WebSocket reconnect)
      */
     fun clearAllCaches() {
         roomEventsCache.clear()
         roomsInitialized.clear()
         if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches")
+    }
+    
+    /**
+     * Clear all caches - alias for clearAllCaches() for consistency
+     * Called on WebSocket connect/reconnect to mark all caches as stale
+     */
+    fun clearAll() {
+        clearAllCaches()
     }
     
     /**

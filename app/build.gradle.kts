@@ -62,9 +62,20 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+    kotlinOptions {
+        jvmTarget = "21"
+    }
     buildFeatures {
         compose = true
         buildConfig = true
+    }
+}
+
+kapt {
+    correctErrorTypes = true
+    javacOptions {
+        option("-source", "21")
+        option("-target", "21")
     }
 }
 

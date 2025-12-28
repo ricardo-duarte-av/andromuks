@@ -271,19 +271,15 @@ fun connectToWebsocket(
 
     val webSocketUrl = trimWebsocketHost(url)
     
-    // RUSH TO HEALTHY: Build WebSocket URL with reconnection parameters
+    // Build WebSocket URL with reconnection parameters
     // run_id is always read from SharedPreferences (via AppViewModel.getCurrentRunId())
-    // last_received_event is included whenever we have a non-zero lastReceivedId
+    // NOTE: We NEVER pass last_received_id - all caches are cleared on connect/reconnect
     val runId = appViewModel.getCurrentRunId() // Always from SharedPreferences
-    val lastReceivedId = appViewModel.getLastReceivedId()
-    val shouldIncludeLastReceived = lastReceivedId != 0
-    val isReconnecting = shouldIncludeLastReceived
     
-    // Debug logging to help diagnose reconnection issues
-    if (BuildConfig.DEBUG || shouldIncludeLastReceived) {
-        Log.i(
+    if (BuildConfig.DEBUG) {
+        Log.d(
             "NetworkUtils",
-            "WebSocket URL params - runId: '$runId', lastReceivedId: $lastReceivedId, shouldInclude: $shouldIncludeLastReceived, reason: $reason"
+            "WebSocket URL params - runId: '$runId', reason: $reason (no last_received_id - caches cleared on connect)"
         )
     }
     
@@ -314,17 +310,10 @@ fun connectToWebsocket(
     val queryParams = mutableListOf<String>()
     if (actualRunId.isNotEmpty()) {
         queryParams.add("run_id=$actualRunId")
-        // Always include last_received_event when we have a non-zero lastReceivedId
-        if (shouldIncludeLastReceived) {
-            queryParams.add("last_received_event=$lastReceivedId")
-            Log.i(
-                "NetworkUtils",
-                "Connecting with run_id: $actualRunId, last_received_event: $lastReceivedId, compression: $compressionEnabled"
-            )
-        } else if (BuildConfig.DEBUG) {
+        if (BuildConfig.DEBUG) {
             Log.d(
                 "NetworkUtils",
-                "Connecting with run_id: $actualRunId (no last_received_event - lastReceivedId=$lastReceivedId), compression: $compressionEnabled"
+                "Connecting with run_id: $actualRunId, compression: $compressionEnabled"
             )
         }
     } else {
