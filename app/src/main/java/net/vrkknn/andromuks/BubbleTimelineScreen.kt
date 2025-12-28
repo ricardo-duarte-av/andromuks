@@ -1350,7 +1350,8 @@ fun BubbleTimelineScreen(
     }
 
     // Monitor scroll position to detect if user is at bottom or has detached
-    // Also trigger automatic pagination when near the top
+    // Monitor scroll position to detect if user is at bottom or has detached
+    // REMOVED: Automatic pagination when near top - pagination now only happens via pull-to-refresh
     LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size) {
         // Don't trigger pagination until initial scroll to bottom is complete
         if (!hasInitialSnapCompleted || !hasLoadedInitialBatch) {
@@ -1644,6 +1645,10 @@ fun BubbleTimelineScreen(
         hasMarkedAsRead = false // Reset mark as read state when room changes
         appViewModel.promoteToPrimaryIfNeeded("bubble_timeline_$roomId")
         appViewModel.navigateToRoomWithCache(roomId)
+        
+        // CRITICAL: Add room to opened rooms (exempt from cache clearing on WebSocket reconnect)
+        RoomTimelineCache.addOpenedRoom(roomId)
+        
         val requireInitComplete = !appViewModel.isWebSocketConnected()
         val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete)
         readinessCheckComplete = true
@@ -1660,29 +1665,19 @@ fun BubbleTimelineScreen(
         isInitialLoad = true
         hasInitialSnapCompleted = false
         
-        // CRITICAL FIX: Load events from DB first, then check if we need pagination
-        // This ensures bubbles load quickly from cache, and fetch more if needed
-        appViewModel.ensureTimelineCacheIsFresh(roomId)
-        
-        // EMERGENCY PAGINATION: If room has fewer than 200 events, request emergency pagination
-        // This ensures the room is populated before rendering
-        val eventCount = withContext(Dispatchers.IO) {
-            appViewModel.getRoomEventCountFromDb(roomId)
-        }
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: DB event count for room $roomId: $eventCount")
-        
-        if (eventCount < 200) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Only $eventCount events in DB (< 200), requesting emergency pagination")
-            // Request emergency pagination (no max_timeline_event, limit 200)
-            appViewModel.requestEmergencyPagination(roomId, limit = 200)
-        } else {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Sufficient events in DB ($eventCount >= 200), skipping emergency pagination")
-        }
-        
         // Request room state first, then timeline
+        // requestRoomTimeline() handles cache-first approach: uses cache if available, otherwise issues paginate
         // BubbleTimelineScreen: Don't use LRU cache since bubbles manage their own state independently
         appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId, useLruCache = false)
+    }
+    
+    // CRITICAL: Remove room from opened rooms when bubble closes
+    DisposableEffect(roomId) {
+        onDispose {
+            RoomTimelineCache.removeOpenedRoom(roomId)
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Removed room $roomId from opened rooms (bubble closed)")
+        }
     }
     
     // Refresh timeline when app resumes (to show new events received while suspended)

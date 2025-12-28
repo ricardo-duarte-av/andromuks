@@ -225,24 +225,9 @@ class BootstrapLoader(private val context: Context) {
             rooms.add(room)
         }
         
-        // 5. Pre-load timeline events for top N rooms into RoomTimelineCache
-        // This enables instant room opening for frequently accessed rooms
-        val roomsToPreload = roomSummaries.take(10) // Preload top 10 rooms
-        var totalEventsLoaded = 0
-        
-        for (summary in roomsToPreload) {
-            val events = eventDao.getEventsForRoomDesc(summary.roomId, 200)
-            if (events.isNotEmpty()) {
-                val timelineEvents = events.mapNotNull { entity -> entityToTimelineEvent(entity) }
-                
-                // Seed RoomTimelineCache with events from DB
-                RoomTimelineCache.seedCacheWithPaginatedEvents(summary.roomId, timelineEvents)
-                totalEventsLoaded += timelineEvents.size
-                if (BuildConfig.DEBUG) Log.d(TAG, "Pre-loaded ${timelineEvents.size} events for room ${summary.roomId}")
-            }
-        }
-        
-        if (BuildConfig.DEBUG) Log.d(TAG, "Bootstrap complete: ${rooms.size} rooms, $totalEventsLoaded events pre-loaded, runId=$storedRunId, lastReceivedId=$lastReceivedId")
+        // 5. Event pre-loading removed - cache is now populated only from sync_complete messages or paginate responses
+        // This ensures cache consistency and prevents stale data from DB
+        if (BuildConfig.DEBUG) Log.d(TAG, "Bootstrap complete: ${rooms.size} rooms, runId=$storedRunId, lastReceivedId=$lastReceivedId")
         
         BootstrapResult(
             rooms = rooms,

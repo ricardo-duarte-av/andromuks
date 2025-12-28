@@ -1348,7 +1348,7 @@ fun RoomTimelineScreen(
     var hasMarkedAsRead by remember(roomId) { mutableStateOf(false) }
 
     // Monitor scroll position to detect if user is at bottom or has detached
-    // Also trigger automatic pagination when near the top
+    // REMOVED: Automatic pagination when near top - pagination now only happens via pull-to-refresh
     LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size, timelineItems.size) {
         // Don't trigger pagination until initial scroll to bottom is complete
         if (!hasInitialSnapCompleted || !hasLoadedInitialBatch) {
@@ -1391,45 +1391,8 @@ fun RoomTimelineScreen(
                 }
             }
             
-            val firstVisibleIndex = listState.firstVisibleItemIndex
-            val totalItems = timelineItems.size
-            
-            if (
-                totalItems > 0 &&
-                firstVisibleIndex <= 5 &&
-                !pendingScrollRestoration &&
-                !appViewModel.isPaginating &&
-                appViewModel.hasMoreMessages
-            ) {
-                val firstVisibleInfo = listState.layoutInfo.visibleItemsInfo
-                    .sortedBy { it.index }
-                    .firstOrNull { info ->
-                        val item = timelineItems.getOrNull(info.index)
-                        item is TimelineItem.Event
-                    }
-                val eventItem = firstVisibleInfo?.let { info ->
-                    timelineItems.getOrNull(info.index) as? TimelineItem.Event
-                }
-                if (eventItem != null) {
-                    if (BuildConfig.DEBUG) Log.d(
-                        "Andromuks",
-                        "RoomTimelineScreen: Near top (index=$firstVisibleIndex/$totalItems). Loading older events from DB."
-                    )
-                    anchorEventIdForRestore = eventItem.event.eventId
-                    anchorScrollOffsetForRestore = firstVisibleInfo?.offset ?: listState.firstVisibleItemScrollOffset
-                    pendingScrollRestoration = true
-                    expectedTimelineSizeAfterLoad = timelineItems.size
-                    appViewModel.loadOlderMessages(roomId, showToast = false)
-                }
-            }
-            
-            if (firstVisibleIndex <= 5) {
-                if (BuildConfig.DEBUG) Log.d(
-                    "Andromuks",
-                    "RoomTimelineScreen: Near top (index=$firstVisibleIndex/$totalItems). hasMore=${appViewModel.hasMoreMessages}, pendingScroll=$pendingScrollRestoration"
-                )
-            }
-
+            // REMOVED: Automatic pagination when near top - pagination now only happens via pull-to-refresh
+            // Users must explicitly pull-to-refresh to load older messages
         }
     }
 
@@ -1707,6 +1670,9 @@ fun RoomTimelineScreen(
         // CRITICAL FIX: Set currentRoomId immediately when screen opens (for all navigation paths)
         // This ensures state is consistent whether opening from RoomListScreen, notification, or shortcut
         appViewModel.setCurrentRoomIdForTimeline(roomId)
+        // CRITICAL: Add room to opened rooms (exempt from cache clearing on WebSocket reconnect)
+        // This is also done in setCurrentRoomIdForTimeline, but we ensure it here too
+        RoomTimelineCache.addOpenedRoom(roomId)
         
         // Reset state for new room
         pendingScrollRestoration = false
@@ -1724,24 +1690,8 @@ fun RoomTimelineScreen(
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Setting loading state for room: $roomId")
         }
         
-        appViewModel.ensureTimelineCacheIsFresh(roomId)
-        
-        // EMERGENCY PAGINATION: If room has fewer than 200 events, request emergency pagination
-        // This ensures the room is populated before rendering
-        val eventCount = withContext(Dispatchers.IO) {
-            appViewModel.getRoomEventCountFromDb(roomId)
-        }
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: DB event count for room $roomId: $eventCount")
-        
-        if (eventCount < 200) {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Only $eventCount events in DB (< 200), requesting emergency pagination")
-            // Request emergency pagination (no max_timeline_event, limit 200)
-            appViewModel.requestEmergencyPagination(roomId, limit = 200)
-        } else {
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Sufficient events in DB ($eventCount >= 200), skipping emergency pagination")
-        }
-        
         // Request room state first, then timeline
+        // requestRoomTimeline() handles cache-first approach: uses cache if available, otherwise issues paginate
         appViewModel.requestRoomState(roomId)
         appViewModel.requestRoomTimeline(roomId)
     }
@@ -1752,7 +1702,12 @@ fun RoomTimelineScreen(
     // 1. User navigates back (composable removed)
     // 2. User switches to a different room (roomId changes, old room's effect disposes)
     DisposableEffect(roomId) {
+        // CRITICAL: Add room to opened rooms when screen opens (exempt from cache clearing on reconnect)
+        RoomTimelineCache.addOpenedRoom(roomId)
+        
         onDispose {
+            // CRITICAL: Remove room from opened rooms when screen closes
+            RoomTimelineCache.removeOpenedRoom(roomId)
             // Only clear if this room is still the current room (user navigated away)
             // If user switched to a different room, the new room's LaunchedEffect will have already set currentRoomId
             if (appViewModel.currentRoomId == roomId) {

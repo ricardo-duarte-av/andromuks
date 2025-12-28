@@ -331,13 +331,12 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
     }
     val vapidKey = remember { appViewModel.getVapidKey() }
     val runId = remember { appViewModel.getCurrentRunId() }
-    val lastReceivedId = remember { appViewModel.getLastReceivedId() }
     val currentRequestId = remember { appViewModel.getCurrentRequestId() }
     val lastReceivedRequestId = remember { appViewModel.getLastReceivedRequestId() }
     val homeserverUrl = remember { appViewModel.homeserverUrl }
     
-    // Construct the current WebSocket URL
-    val currentWebSocketUrl = remember(homeserverUrl, runId, lastReceivedId) {
+    // Construct the current WebSocket URL (no longer includes last_received_id)
+    val currentWebSocketUrl = remember(homeserverUrl, runId) {
         if (homeserverUrl.isBlank()) {
             "Not available"
         } else {
@@ -352,8 +351,8 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
             val wsHost = baseUrl.split("/").firstOrNull() ?: baseUrl
             val baseWebSocketUrl = "wss://$wsHost/_gomuks/websocket"
             
-            if (runId.isNotEmpty() && lastReceivedId != 0) {
-                "$baseWebSocketUrl?run_id=$runId&last_received_event=$lastReceivedId"
+            if (runId.isNotEmpty()) {
+                "$baseWebSocketUrl?run_id=$runId"
             } else {
                 baseWebSocketUrl
             }
@@ -471,17 +470,6 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
                 value = runId.ifEmpty { "Not available" },
                 onCopy = if (runId.isNotEmpty()) {
                     { copyToClipboard("Run ID", runId) }
-                } else null
-            )
-            
-            HorizontalDivider()
-            
-            // Last Received ID
-            FCMInfoItem(
-                label = "Last Received ID",
-                value = if (lastReceivedId != 0) lastReceivedId.toString() else "Not set",
-                onCopy = if (lastReceivedId != 0) {
-                    { copyToClipboard("Last Received ID", lastReceivedId.toString()) }
                 } else null
             )
             

@@ -95,6 +95,7 @@ class WebSocketService : Service() {
         private var primaryReconnectionCallback: ((String) -> Unit)? = null
         private var primaryOfflineModeCallback: ((Boolean) -> Unit)? = null
         private var primaryActivityLogCallback: ((String, String?) -> Unit)? = null
+        private var primaryClearCacheCallback: (() -> Unit)? = null
         
         // Legacy callbacks - kept for backward compatibility during migration
         // These will be removed in a future phase after migration is complete
@@ -463,6 +464,16 @@ class WebSocketService : Service() {
         }
         
         /**
+         * Get the active clear cache callback (primary only)
+         * Internal helper to ensure we use primary callback when available
+         */
+        private fun getActiveClearCacheCallback(): (() -> Unit)? {
+            synchronized(callbacksLock) {
+                return primaryClearCacheCallback
+            }
+        }
+        
+        /**
          * STEP 1.3: Safely invoke reconnection callback with error handling and logging
          * 
          * This method uses stored callbacks (not AppViewModel references), allowing callbacks
@@ -762,6 +773,35 @@ class WebSocketService : Service() {
          * @param callback Callback function to invoke when reconnection is needed
          * @return true if registration succeeded, false if another instance is already primary
          */
+        /**
+         * Set the clear cache callback for the primary ViewModel
+         * Called when WebSocket connects/reconnects to clear all timeline caches
+         */
+        fun setPrimaryClearCacheCallback(viewModelId: String, callback: () -> Unit): Boolean {
+            synchronized(callbacksLock) {
+                // Check if another instance is already registered as primary
+                if (primaryViewModelId != null && primaryViewModelId != viewModelId) {
+                    android.util.Log.w("WebSocketService", "setPrimaryClearCacheCallback: Another instance ($primaryViewModelId) is already registered as primary. Rejecting registration from $viewModelId")
+                    return false
+                }
+                
+                // Same instance re-registering - allow it (might be reconnecting after being cleared)
+                if (primaryViewModelId == viewModelId) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setPrimaryClearCacheCallback: Primary instance $viewModelId re-registering callback")
+                } else {
+                    // New primary instance
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setPrimaryClearCacheCallback: Registering $viewModelId as primary instance")
+                    primaryViewModelId = viewModelId
+                }
+                
+                primaryClearCacheCallback = callback
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "setPrimaryClearCacheCallback: Successfully registered primary clear cache callback for $viewModelId")
+                
+                return true
+            }
+        }
+        
         fun setReconnectionCallback(viewModelId: String, callback: (String) -> Unit): Boolean {
             synchronized(callbacksLock) {
                 // Check if another instance is already registered as primary
@@ -1459,8 +1499,23 @@ class WebSocketService : Service() {
             
             // CRITICAL: Clear all timeline caches on connect/reconnect - all caches are stale
             // This ensures we don't use stale data after reconnection
+            // Also notifies AppViewModel to clear its internal caches
             RoomTimelineCache.clearAll()
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Cleared all timeline caches on init_complete (caches marked as stale)")
+            
+            // Notify AppViewModel to clear its internal caches via callback
+            val clearCacheCallback = getActiveClearCacheCallback()
+            if (clearCacheCallback != null) {
+                try {
+                    clearCacheCallback.invoke()
+                    if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Notified AppViewModel to clear all timeline caches")
+                } catch (e: Exception) {
+                    android.util.Log.e("WebSocketService", "Error invoking clear cache callback: ${e.message}", e)
+                }
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Clear cache callback not available - RoomTimelineCache already cleared")
+            }
+            
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Cleared all timeline caches on init_complete (all rooms marked as needing pagination)")
             
             // Now mark as CONNECTED - connection is healthy
             serviceInstance.connectionState = ConnectionState.CONNECTED
