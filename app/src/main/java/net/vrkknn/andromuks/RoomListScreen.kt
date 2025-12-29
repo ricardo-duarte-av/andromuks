@@ -1844,24 +1844,8 @@ fun RoomListContent(
                                 // This ensures state is consistent across all navigation paths
                                 appViewModel.setCurrentRoomIdForTimeline(roomIdForNavigation)
                                 
-                                // Mark as read in background (fire-and-forget)
-                                launch(Dispatchers.IO) {
-                                    runCatching {
-                                        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                                        val eventDao = database.eventDao()
-                                        val lastEvent = eventDao.getMostRecentEventForRoom(roomIdForNavigation)
-                                        if (lastEvent != null) {
-                                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Marking room $roomIdForNavigation as read with last event: ${lastEvent.eventId}")
-                                            withContext(Dispatchers.Main) {
-                                                appViewModel.markRoomAsRead(roomIdForNavigation, lastEvent.eventId)
-                                            }
-                                        }
-                                    }.onFailure {
-                                        android.util.Log.w("Andromuks", "RoomListScreen: Failed to mark room as read when opening: ${it.message}", it)
-                                    }
-                                }
-
                                 // Navigate immediately; prefetch runs best-effort.
+                                // NOTE: markRoomAsRead is handled by navigateToRoomWithCache, so we don't need to call it here
                                 appViewModel.navigateToRoomWithCache(roomIdForNavigation)
                                 navController.navigate("room_timeline/$roomIdForNavigation")
 

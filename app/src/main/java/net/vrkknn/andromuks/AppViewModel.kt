@@ -6180,6 +6180,9 @@ class AppViewModel : ViewModel() {
         // Clear tracked oldest rowIds since caches are cleared
         oldestRowIdPerRoom.clear()
         
+        // Clear pending paginate tracking since caches are cleared
+        roomsWithPendingPaginate.clear()
+        
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: All timeline caches cleared - all rooms marked as needing pagination")
     }
     
@@ -6420,6 +6423,8 @@ class AppViewModel : ViewModel() {
         }
     }
     private val timelineRequests = mutableMapOf<Int, String>() // requestId -> roomId
+    // Track rooms with pending initial paginate requests to prevent duplicates
+    private val roomsWithPendingPaginate = Collections.synchronizedSet(mutableSetOf<String>())
     private val profileRequestRooms = mutableMapOf<Int, String>() // requestId -> roomId (for profile requests initiated from a specific room)
     private val roomStateRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val messageRequests = mutableMapOf<Int, String>() // requestId -> roomId
@@ -9648,15 +9653,31 @@ class AppViewModel : ViewModel() {
             
             // Still send paginate request to fetch any newer events from server
             // Only send when opening a new room (not refreshing the same room)
-            if (!isRefreshingSameRoom && webSocket != null && INITIAL_ROOM_PAGINATE_LIMIT > 0) {
+            // GUARD: Check if a paginate request is already pending for this room (atomic check-and-set)
+            val wasAdded = roomsWithPendingPaginate.add(roomId)
+            
+            if (!isRefreshingSameRoom && webSocket != null && INITIAL_ROOM_PAGINATE_LIMIT > 0 && wasAdded) {
                 val paginateRequestId = requestIdCounter++
+                timelineRequests[paginateRequestId] = roomId
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending paginate request to fetch newer events for $roomId (limit=$INITIAL_ROOM_PAGINATE_LIMIT, reqId=$paginateRequestId)")
-                sendWebSocketCommand("paginate", paginateRequestId, mapOf(
+                val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
                     "room_id" to roomId,
                     "max_timeline_id" to 0, // Fetch latest events
                     "limit" to INITIAL_ROOM_PAGINATE_LIMIT,
                     "reset" to false
                 ))
+                
+                if (result != WebSocketResult.SUCCESS) {
+                    // Remove from tracking if send failed
+                    timelineRequests.remove(paginateRequestId)
+                    roomsWithPendingPaginate.remove(roomId)
+                    android.util.Log.w("Andromuks", "AppViewModel: Failed to send paginate request for newer events for $roomId: $result")
+                }
+            } else if (!wasAdded && BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: Skipping paginate request for newer events for $roomId - already have a pending paginate request")
+            } else if (!wasAdded) {
+                // Remove if we didn't add it (already pending)
+                roomsWithPendingPaginate.remove(roomId)
             }
             
             return
@@ -9670,6 +9691,20 @@ class AppViewModel : ViewModel() {
             // Set loading state and clear timeline
             timelineEvents = emptyList()
             isTimelineLoading = true
+            return
+        }
+        
+        // GUARD: Check if a paginate request is already pending for this room (atomic check-and-set)
+        // This prevents multiple paginate requests when requestRoomTimeline is called multiple times
+        val wasAdded = roomsWithPendingPaginate.add(roomId)
+        if (!wasAdded) {
+            // Room already has a pending paginate request
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping paginate request for $roomId - already have a pending paginate request")
+            // Still set loading state and clear timeline if needed
+            if (!isRefreshingSameRoom) {
+                timelineEvents = emptyList()
+                isTimelineLoading = true
+            }
             return
         }
         
@@ -9692,7 +9727,13 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked room $roomId as actively cached (will receive events from sync_complete)")
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: Failed to send paginate request for $roomId: $result")
+                // Remove from tracking if send failed
+                timelineRequests.remove(paginateRequestId)
+                roomsWithPendingPaginate.remove(roomId)
             }
+        } else {
+            // Not sending paginate, so remove from tracking
+            roomsWithPendingPaginate.remove(roomId)
         }
         
         // Set loading state and clear timeline when cache is empty and we're waiting for paginate response
@@ -10217,6 +10258,25 @@ class AppViewModel : ViewModel() {
                     val mostRecentEvent = cachedEvents.maxByOrNull { it.timestamp }
                     if (mostRecentEvent != null) {
                         markRoomAsRead(roomId, mostRecentEvent.eventId)
+                    } else {
+                        // No cached events - try to get from database as fallback
+                        viewModelScope.launch(Dispatchers.IO) {
+                            runCatching {
+                                appContext?.let { context ->
+                                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                                    val eventDao = database.eventDao()
+                                    val lastEvent = eventDao.getMostRecentEventForRoom(roomId)
+                                    if (lastEvent != null) {
+                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marking room $roomId as read from DB (no cached events) with event: ${lastEvent.eventId}")
+                                        withContext(Dispatchers.Main) {
+                                            markRoomAsRead(roomId, lastEvent.eventId)
+                                        }
+                                    }
+                                }
+                            }.onFailure {
+                                android.util.Log.w("Andromuks", "AppViewModel: Failed to mark room as read from DB: ${it.message}", it)
+                            }
+                        }
                     }
                 } else {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)")
@@ -12579,6 +12639,7 @@ class AppViewModel : ViewModel() {
                 // Populate edit chain mapping for clean edit handling using helper function
                 // CRITICAL FIX: For pagination, merge events instead of clearing to preserve newer events
                 val isPaginationRequest = paginateRequests.containsKey(requestId)
+                val isInitialPaginate = timelineRequests.containsKey(requestId)
                 buildEditChainsFromEvents(timelineList, clearExisting = !isPaginationRequest)
                 
                 // Process edit relationships
@@ -12593,6 +12654,11 @@ class AppViewModel : ViewModel() {
                 } else {
                     // This is an initial paginate - build timeline from chain mapping
                     handleInitialTimelineBuild(roomId, timelineList)
+                    // Clean up pending paginate tracking when initial paginate completes
+                    if (isInitialPaginate) {
+                        timelineRequests.remove(requestId)
+                        roomsWithPendingPaginate.remove(roomId)
+                    }
                 }
                 
                 // Mark room as read when timeline is successfully loaded - use most recent event by timestamp
@@ -12721,7 +12787,10 @@ class AppViewModel : ViewModel() {
             reactionUpdateCounter++ // Trigger UI recomposition for reactions
         }
 
-        timelineRequests.remove(requestId)
+        val roomIdFromTimeline = timelineRequests.remove(requestId)
+        if (roomIdFromTimeline != null) {
+            roomsWithPendingPaginate.remove(roomIdFromTimeline)
+        }
         paginateRequests.remove(requestId)
         backgroundPrefetchRequests.remove(requestId)
     }
@@ -15193,6 +15262,17 @@ class AppViewModel : ViewModel() {
      * Also updates the database to persist the change across app restarts.
      */
     private fun optimisticallyClearUnreadCounts(roomId: String) {
+        // CRITICAL FIX: Always update the database, regardless of in-memory state
+        // The database is the source of truth, and we must update it even if roomMap doesn't have the room
+        // or if the room was already cleared in a previous session
+        // The Room Flows will automatically emit when the database changes, triggering UI update
+        appContext?.let { context ->
+            viewModelScope.launch(Dispatchers.IO) {
+                updateDatabaseUnreadCounts(context, roomId)
+            }
+        }
+        
+        // Update in-memory state if the room exists in roomMap
         val existingRoom = roomMap[roomId]
         if (existingRoom != null && ((existingRoom.unreadCount != null && existingRoom.unreadCount > 0) || 
             (existingRoom.highlightCount != null && existingRoom.highlightCount > 0))) {
@@ -15219,40 +15299,47 @@ class AppViewModel : ViewModel() {
                 }
                 setSpaces(updatedSpaces, skipCounterUpdate = false)
             }
+        }
+        
+        // Invalidate cache to force recalculation of sections and badge counts
+        invalidateRoomSectionCache()
+        
+        // Trigger UI update
+        roomListUpdateCounter++
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Optimistically cleared unread counts for room $roomId")
+    }
+    
+    private suspend fun updateDatabaseUnreadCounts(context: android.content.Context, roomId: String) {
+        try {
+            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
             
-            // CRITICAL: Update database to persist the cleared unread counts across app restarts
-            // The database is the source of truth on app startup, so we must update it
-            appContext?.let { context ->
-                viewModelScope.launch(Dispatchers.IO) {
-                    try {
-                        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                        val roomSummaryDao = database.roomSummaryDao()
-                        val existingSummary = roomSummaryDao.getRoomSummary(roomId)
-                        
-                        if (existingSummary != null) {
-                            // Update the summary with cleared unread counts
-                            val updatedSummary = existingSummary.copy(
-                                unreadCount = 0,
-                                highlightCount = 0
-                            )
-                            roomSummaryDao.upsert(updatedSummary)
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated database room_summary for $roomId - cleared unread counts")
-                        } else {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No room_summary found in database for $roomId, skipping DB update")
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.w("Andromuks", "AppViewModel: Failed to update database when clearing unread counts for $roomId: ${e.message}", e)
-                    }
-                }
+            // Update roomListSummaryDao (primary source for Flows)
+            val roomListSummaryDao = database.roomListSummaryDao()
+            val existingListSummaries = roomListSummaryDao.getRoomSummariesByIds(listOf(roomId))
+            val existingListSummary = existingListSummaries.firstOrNull()
+            if (existingListSummary != null) {
+                val updatedListSummary = existingListSummary.copy(
+                    unreadCount = 0,
+                    highlightCount = 0
+                )
+                roomListSummaryDao.upsert(updatedListSummary)
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated database room_list_summary for $roomId - cleared unread counts")
             }
             
-            // Invalidate cache to force recalculation of sections and badge counts
-            invalidateRoomSectionCache()
-            
-            // Trigger UI update
-            roomListUpdateCounter++
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Optimistically cleared unread counts for room $roomId")
+            // Update roomSummaryDao (fallback source for Flows)
+            val roomSummaryDao = database.roomSummaryDao()
+            val existingSummary = roomSummaryDao.getRoomSummary(roomId)
+            if (existingSummary != null) {
+                val updatedSummary = existingSummary.copy(
+                    unreadCount = 0,
+                    highlightCount = 0
+                )
+                roomSummaryDao.upsert(updatedSummary)
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated database room_summary for $roomId - cleared unread counts")
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("Andromuks", "AppViewModel: Failed to update database when clearing unread counts for $roomId: ${e.message}", e)
         }
     }
     

@@ -84,7 +84,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
@@ -452,10 +454,23 @@ fun RoomTimelineScreen(
         myPl >= required
     }
 
-    if (BuildConfig.DEBUG) Log.d(
-        "Andromuks",
-        "RoomTimelineScreen: Timeline events count: ${timelineEvents.size}, isLoading: $isLoading"
-    )
+    // Log timeline events count only when it actually changes (not on every recomposition)
+    // This prevents excessive logging during scroll
+    // Use remember to track previous values and only log when they actually change
+    var previousSize by remember { mutableStateOf(-1) }
+    var previousIsLoading by remember { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(timelineEvents.size, isLoading) {
+        val currentSize = timelineEvents.size
+        val currentIsLoading = isLoading
+        if (currentSize != previousSize || currentIsLoading != previousIsLoading) {
+            if (BuildConfig.DEBUG) Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Timeline events count: $currentSize, isLoading: $currentIsLoading"
+            )
+            previousSize = currentSize
+            previousIsLoading = currentIsLoading
+        }
+    }
 
     // Reply state
     var replyingToEvent by remember { mutableStateOf<TimelineEvent?>(null) }
@@ -1345,54 +1360,70 @@ fun RoomTimelineScreen(
     var lastKnownTimelineEventId by remember { mutableStateOf<String?>(null) }
     var hasCompletedInitialLayout by remember { mutableStateOf(false) }
     var pendingInitialScroll by remember { mutableStateOf(true) }
-    var hasMarkedAsRead by remember(roomId) { mutableStateOf(false) }
 
-    // Monitor scroll position to detect if user is at bottom or has detached
-    // REMOVED: Automatic pagination when near top - pagination now only happens via pull-to-refresh
-    LaunchedEffect(listState.firstVisibleItemIndex, listState.layoutInfo.visibleItemsInfo.size, timelineItems.size) {
-        // Don't trigger pagination until initial scroll to bottom is complete
+    // PERFORMANCE: Use derivedStateOf to compute isAtBottom only when scroll position actually changes
+    // This prevents recomposition on every scroll event - only recomposes when isAtBottom value changes
+    val isAtBottom by remember(listState, timelineItems) {
+        derivedStateOf {
+            if (timelineItems.isEmpty() || listState.layoutInfo.totalItemsCount == 0) {
+                false
+            } else {
+                val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+                val lastTimelineItemIndex = timelineItems.lastIndex
+                lastVisibleIndex >= lastTimelineItemIndex - 1 // Within last item
+            }
+        }
+    }
+
+    // PERFORMANCE: Monitor scroll position changes - only triggers when isAtBottom value actually changes
+    // Since isAtBottom is a derivedStateOf, it only recomposes when the boolean value changes
+    LaunchedEffect(isAtBottom, timelineItems.size) {
         if (!hasInitialSnapCompleted || !hasLoadedInitialBatch) {
             return@LaunchedEffect
         }
-        if (sortedEvents.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
-            // Check if we're at the very bottom (last item is visible)
-            val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+        
+        if (sortedEvents.isEmpty() || listState.layoutInfo.totalItemsCount == 0) {
+            return@LaunchedEffect
+        }
+
+        if (!hasCompletedInitialLayout) {
+            hasCompletedInitialLayout = true
+        }
+
+        // Update attachment state based on current position
+        if (isAtBottom && !isAttachedToBottom) {
+            // User scrolled back to bottom, re-attach
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: User reached bottom, re-attaching")
+            isAttachedToBottom = true
+            if (!hasInitialSnapCompleted) {
+                hasInitialSnapCompleted = true
+            }
+        } else if (!isAtBottom && isAttachedToBottom && listState.firstVisibleItemIndex > 0) {
+            // User scrolled up from bottom, detach
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: User scrolled up, detaching from bottom")
+            isAttachedToBottom = false
+        }
+    }
+    
+    // PERFORMANCE: Separate LaunchedEffect for auto-scroll when attached to bottom
+    // This only triggers when timelineItems.size changes (new messages), not on every scroll
+    LaunchedEffect(timelineItems.size, isAttachedToBottom) {
+        if (!hasInitialSnapCompleted || !hasLoadedInitialBatch) {
+            return@LaunchedEffect
+        }
+        
+        // CRITICAL FIX: If we're attached to bottom but new items appeared below viewport, auto-scroll
+        if (isAttachedToBottom && !isAtBottom && timelineItems.isNotEmpty()) {
             val lastTimelineItemIndex = timelineItems.lastIndex
-            val isAtBottom = lastVisibleIndex >= lastTimelineItemIndex - 1 // Within last item
-
-            if (!hasCompletedInitialLayout) {
-                hasCompletedInitialLayout = true
-            }
-
-            // Update attachment state based on current position
-            if (isAtBottom && !isAttachedToBottom) {
-                // User scrolled back to bottom, re-attach
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: User reached bottom, re-attaching")
-                isAttachedToBottom = true
-                if (!hasInitialSnapCompleted) {
-                    hasInitialSnapCompleted = true
-                }
-            } else if (
-                !isAtBottom && isAttachedToBottom && listState.firstVisibleItemIndex > 0
-            ) {
-                // User scrolled up from bottom, detach
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: User scrolled up, detaching from bottom")
-                isAttachedToBottom = false
-            }
-            
-            // CRITICAL FIX: If we're attached to bottom but new items appeared below viewport, auto-scroll
-            if (isAttachedToBottom && !isAtBottom && lastTimelineItemIndex >= 0) {
+            if (lastTimelineItemIndex >= 0) {
                 if (BuildConfig.DEBUG) Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Attached to bottom but not at bottom (lastVisible=$lastVisibleIndex, lastItem=$lastTimelineItemIndex). Auto-scrolling to show new items."
+                    "RoomTimelineScreen: Attached to bottom but not at bottom (lastItem=$lastTimelineItemIndex). Auto-scrolling to show new items."
                 )
                 coroutineScope.launch {
                     listState.scrollToItem(lastTimelineItemIndex)
                 }
             }
-            
-            // REMOVED: Automatic pagination when near top - pagination now only happens via pull-to-refresh
-            // Users must explicitly pull-to-refresh to load older messages
         }
     }
 
@@ -1619,24 +1650,8 @@ fun RoomTimelineScreen(
     }
 
     
-    // Mark room as read when initial load completes and last message is rendered
-    // CRITICAL: Only depend on hasInitialSnapCompleted and roomId - NOT timelineItems.size
-    // Including timelineItems.size causes the effect to restart on every timeline change,
-    // leading to hundreds of duplicate mark_read commands
-    LaunchedEffect(hasInitialSnapCompleted, roomId) {
-        if (hasInitialSnapCompleted && !hasMarkedAsRead && timelineItems.isNotEmpty()) {
-            // Get the last event ID from the timeline (find last Event, not DateDivider)
-            val lastEvent = timelineItems.lastOrNull() as? TimelineItem.Event
-                ?: timelineItems.reversed().firstOrNull { it is TimelineItem.Event } as? TimelineItem.Event
-            val lastEventId = lastEvent?.event?.eventId
-            
-            if (lastEventId != null) {
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Marking room $roomId as read with last event: $lastEventId")
-                appViewModel.markRoomAsRead(roomId, lastEventId)
-                hasMarkedAsRead = true
-            }
-        }
-    }
+    // NOTE: markRoomAsRead is handled by navigateToRoomWithCache, so we don't need to call it here
+    // This prevents duplicate mark_read calls and race conditions
 
     LaunchedEffect(timelineItems.size, readinessCheckComplete, pendingInitialScroll) {
         if (pendingInitialScroll && readinessCheckComplete && timelineItems.isNotEmpty() &&
@@ -1657,7 +1672,6 @@ fun RoomTimelineScreen(
         lastInitialScrollSize = 0
         highlightedEventId = null
         highlightRequestId = 0
-        hasMarkedAsRead = false // Reset mark as read state when room changes
         appViewModel.promoteToPrimaryIfNeeded("room_timeline_$roomId")
         appViewModel.navigateToRoomWithCache(roomId)
         val requireInitComplete = !appViewModel.isWebSocketConnected()
@@ -1690,10 +1704,10 @@ fun RoomTimelineScreen(
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Setting loading state for room: $roomId")
         }
         
-        // Request room state first, then timeline
-        // requestRoomTimeline() handles cache-first approach: uses cache if available, otherwise issues paginate
+        // Request room state
+        // NOTE: navigateToRoomWithCache() already calls requestRoomTimeline() if cache is empty,
+        // so we don't need to call it again here to avoid duplicate paginate requests
         appViewModel.requestRoomState(roomId)
-        appViewModel.requestRoomTimeline(roomId)
     }
     
     // CRITICAL FIX: Clear currentRoomId when leaving the room (back navigation or room change)
@@ -1721,10 +1735,21 @@ fun RoomTimelineScreen(
     
     // Track last known refresh trigger to detect when app resumes
     var lastKnownRefreshTrigger by remember { mutableStateOf(appViewModel.timelineRefreshTrigger) }
+    var isInitialLoadComplete by remember(roomId) { mutableStateOf(false) }
+    
+    // Mark initial load as complete after a short delay to distinguish from app resume
+    LaunchedEffect(roomId) {
+        kotlinx.coroutines.delay(500) // Wait 500ms after room opens
+        isInitialLoadComplete = true
+    }
     
     // Refresh timeline when app resumes (to show new events received while suspended)
+    // Only refresh if initial load is complete (not during initial room opening)
     LaunchedEffect(appViewModel.timelineRefreshTrigger) {
-        if (appViewModel.timelineRefreshTrigger > 0 && appViewModel.currentRoomId == roomId) {
+        if (appViewModel.timelineRefreshTrigger > 0 && 
+            appViewModel.currentRoomId == roomId && 
+            isInitialLoadComplete &&
+            appViewModel.timelineRefreshTrigger != lastKnownRefreshTrigger) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: App resumed, refreshing timeline for room: $roomId")
             // Don't reset state flags - this is just a refresh, not a new room load
             appViewModel.requestRoomTimeline(roomId)

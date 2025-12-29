@@ -1665,11 +1665,11 @@ fun BubbleTimelineScreen(
         isInitialLoad = true
         hasInitialSnapCompleted = false
         
-        // Request room state first, then timeline
-        // requestRoomTimeline() handles cache-first approach: uses cache if available, otherwise issues paginate
+        // Request room state
+        // NOTE: navigateToRoomWithCache() already calls requestRoomTimeline() if cache is empty,
+        // so we don't need to call it again here to avoid duplicate paginate requests
         // BubbleTimelineScreen: Don't use LRU cache since bubbles manage their own state independently
         appViewModel.requestRoomState(roomId)
-        appViewModel.requestRoomTimeline(roomId, useLruCache = false)
     }
     
     // CRITICAL: Remove room from opened rooms when bubble closes
@@ -1680,12 +1680,27 @@ fun BubbleTimelineScreen(
         }
     }
     
+    // Track last known refresh trigger to detect when app resumes
+    var lastKnownRefreshTrigger by remember { mutableStateOf(appViewModel.timelineRefreshTrigger) }
+    var isInitialLoadComplete by remember(roomId) { mutableStateOf(false) }
+    
+    // Mark initial load as complete after a short delay to distinguish from app resume
+    LaunchedEffect(roomId) {
+        kotlinx.coroutines.delay(500) // Wait 500ms after room opens
+        isInitialLoadComplete = true
+    }
+    
     // Refresh timeline when app resumes (to show new events received while suspended)
+    // Only refresh if initial load is complete (not during initial room opening)
     LaunchedEffect(appViewModel.timelineRefreshTrigger) {
-        if (appViewModel.timelineRefreshTrigger > 0 && appViewModel.currentRoomId == roomId) {
+        if (appViewModel.timelineRefreshTrigger > 0 && 
+            appViewModel.currentRoomId == roomId && 
+            isInitialLoadComplete &&
+            appViewModel.timelineRefreshTrigger != lastKnownRefreshTrigger) {
             if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: App resumed, refreshing timeline for room: $roomId")
             // Don't reset state flags - this is just a refresh, not a new room load
             appViewModel.requestRoomTimeline(roomId, useLruCache = false)
+            lastKnownRefreshTrigger = appViewModel.timelineRefreshTrigger
         }
     }
 
