@@ -176,37 +176,6 @@ fun SettingsScreen(
             )
             
             CacheStatisticsSection(appViewModel = appViewModel, navController = navController)
-            
-            // Room Disk Usage Section
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "Room Disk Usage",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "View disk usage per room in the database",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    
-                    Button(
-                        onClick = { navController.navigate("room_disk_stats") },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("View Room Disk Usage")
-                    }
-                }
-            }
 
             // WebSocket Debug Section
             Text(
@@ -273,36 +242,6 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-            }
-
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "Unprocessed Events",
-                        style = MaterialTheme.typography.bodyLarge,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text = "Inspect events that could not be persisted",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Button(
-                        onClick = { navController.navigate("unprocessed_events") },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("View Unprocessed Events")
-                    }
                 }
             }
         }
