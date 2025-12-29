@@ -2906,12 +2906,14 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Loads edit history from database if not in memory.
-     * This is useful when the user requests edit history on a cold start or after memory was cleared.
+     * @deprecated No longer loading edit history from database - timeline events are not persisted.
+     * All events (including edit events) are stored in RoomTimelineCache only.
+     * This function will always return null since events are no longer in the database.
      * @param eventId The original event ID (not the edit event ID)
      * @param roomId The room ID containing the event
-     * @return VersionedMessage if found in database, null otherwise
+     * @return Always returns null (events are not persisted to database)
      */
+    @Deprecated("Timeline events are no longer persisted to database - using cache only")
     suspend fun loadMessageVersionsFromDb(eventId: String, roomId: String): VersionedMessage? = withContext(Dispatchers.IO) {
         try {
             val context = appContext ?: return@withContext null
@@ -2993,7 +2995,7 @@ class AppViewModel : ViewModel() {
     
     /**
      * Checks if a message has been edited (O(1) lookup from memory)
-     * Note: This only checks in-memory cache. For database check, use loadMessageVersionsFromDb.
+     * Note: This checks the in-memory cache which is populated from RoomTimelineCache.
      */
     fun isMessageEdited(eventId: String): Boolean {
         val versioned = getMessageVersions(eventId)
@@ -3001,9 +3003,13 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Checks if a message has been edited by querying the database.
-     * This is useful when checking edit status on cold start.
+     * @deprecated No longer checking database for edit status - timeline events are not persisted.
+     * This function will always return false since events are no longer in the database.
+     * @param eventId The event ID to check
+     * @param roomId The room ID containing the event
+     * @return Always returns false (events are not persisted to database)
      */
+    @Deprecated("Timeline events are no longer persisted to database - using cache only")
     suspend fun isMessageEditedInDb(eventId: String, roomId: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val context = appContext ?: return@withContext false
@@ -8416,9 +8422,37 @@ class AppViewModel : ViewModel() {
             android.util.Log.w("Andromuks", "AppViewModel: ⚠️ MISMATCH - eventChainMap has ${eventChainMap.size} entries but we added $regularEventCount regular events!")
         }
         
-        // Build version history cache so UI can render the latest edits immediately
+        // Process cached events to establish edit relationships
+        // All events (including edit events) are already in the cache - no need to load from DB
+        // Edit events from both paginate and sync_complete are in the cache
+        val editEventsInCache = cachedEvents.filter { isEditEvent(it) }
+        
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: Processing cached events - ${cachedEvents.size} total, ${editEventsInCache.size} edit events in cache")
+            
+            // Debug: Log edit events in cache to verify they're being identified
+            if (editEventsInCache.isNotEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: Edit events in cache: ${editEventsInCache.map { "${it.eventId} -> ${it.content?.optJSONObject("m.relates_to")?.optString("event_id") ?: it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id")}" }.joinToString(", ")}")
+            }
+        }
+        
+        // Process ALL cached events together to establish version relationships
+        // This ensures edit history is available when the timeline is built
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: Processing ${cachedEvents.size} cached events to establish version relationships")
+        }
         processVersionedMessages(cachedEvents)
-
+        
+        // DEBUG: Verify version relationships were established
+        if (BuildConfig.DEBUG) {
+            val eventsWithEdits = cachedEvents.filter { !isEditEvent(it) && messageVersions[it.eventId]?.versions?.size ?: 0 > 1 }
+            if (eventsWithEdits.isNotEmpty()) {
+                android.util.Log.d("Andromuks", "AppViewModel: ✅ Established edit relationships for ${eventsWithEdits.size} messages after processing cached events")
+            } else if (editEventsInCache.isNotEmpty()) {
+                android.util.Log.w("Andromuks", "AppViewModel: ⚠️ Found ${editEventsInCache.size} edit events in cache but no version relationships established - this indicates a problem")
+            }
+        }
+        
         // Process edit relationships
         processEditRelationships()
         
@@ -11240,13 +11274,29 @@ class AppViewModel : ViewModel() {
         messageRequests[editRequestId] = roomId
         pendingSendCount++
         
+        // CRITICAL FIX: Preserve reply relationship when editing a reply message
+        // According to Matrix spec, edit events should preserve m.in_reply_to if the original message was a reply
+        val replyInfo = originalEvent.getReplyInfo()
+        
+        // Build relates_to structure with edit relationship
+        val relatesTo = mutableMapOf<String, Any>(
+            "rel_type" to "m.replace",
+            "event_id" to originalEvent.eventId
+        )
+        
+        // Preserve reply relationship if the original message was a reply
+        // The m.in_reply_to should be nested inside m.relates_to for edit events
+        if (replyInfo != null) {
+            relatesTo["m.in_reply_to"] = mapOf(
+                "event_id" to replyInfo.eventId
+            )
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Preserving reply relationship to event: ${replyInfo.eventId} when editing ${originalEvent.eventId}")
+        }
+        
         val commandData = mapOf(
             "room_id" to roomId,
             "text" to text,
-            "relates_to" to mapOf(
-                "rel_type" to "m.replace",
-                "event_id" to originalEvent.eventId
-            ),
+            "relates_to" to relatesTo,
             "mentions" to mapOf(
                 "user_ids" to emptyList<String>(),
                 "room" to false
@@ -17039,25 +17089,8 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing background prefetch request, silently adding ${timelineList.size} events to cache (roomId: $roomId)")
         RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)
         
-        // Persist prefetched events to database
-        val persistenceJob = appContext?.let { context ->
-            ensureSyncIngestor()
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    syncIngestor?.persistPaginatedEvents(roomId, timelineList)
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error persisting prefetched events: ${e.message}", e)
-                }
-            }
-        }
-        
-        if (persistenceJob != null) {
-            persistenceJob.invokeOnCompletion {
-                signalRoomSnapshotReady(roomId)
-            }
-        } else {
-            signalRoomSnapshotReady(roomId)
-        }
+        // No longer persisting to database - using cache only
+        signalRoomSnapshotReady(roomId)
         
         val newCacheCount = RoomTimelineCache.getCachedEventCount(roomId)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✅ Background prefetch completed - cache now has $newCacheCount events for room $roomId")
@@ -17157,18 +17190,7 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Persist paginated events to database
-        appContext?.let { context ->
-            ensureSyncIngestor()
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    syncIngestor?.persistPaginatedEvents(roomId, timelineList)
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Persisted ${timelineList.size} paginated events to database for room $roomId")
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error persisting paginated events: ${e.message}", e)
-                }
-            }
-        }
+        // No longer persisting to database - using cache only
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Timeline events AFTER merge: ${timelineEvents.size}")
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache AFTER merge: ${RoomTimelineCache.getCachedEventCount(roomId)} events")
@@ -17226,17 +17248,7 @@ class AppViewModel : ViewModel() {
         applyAggregatedReactionsFromEvents(timelineList, "handleInitialTimelineBuild")
         
         // Persist initial paginated events to database
-        appContext?.let { context ->
-            ensureSyncIngestor()
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    syncIngestor?.persistPaginatedEvents(roomId, timelineList)
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Persisted ${timelineList.size} initial paginated events to database for room $roomId")
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error persisting initial paginated events: ${e.message}", e)
-                }
-            }
-        }
+        // No longer persisting to database - using cache only
         
         smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
     }

@@ -70,13 +70,6 @@ class SyncIngestor(private val context: Context) {
     private val TAG = "SyncIngestor"
     
     companion object {
-        // BATTERY OPTIMIZATION: Track pending receipts for deferred processing
-        // Key: roomId, Value: List of ReceiptEntity
-        private val pendingReceipts = mutableMapOf<String, MutableList<ReceiptEntity>>()
-        
-        // Lock for thread-safe access to pending receipts
-        @JvmStatic
-        private val pendingReceiptsLock = Any()
         
         // Adaptive threshold for pending rooms (starts high, reduces if processing takes too long)
         // This prevents massive payload accumulation while adapting to device performance
@@ -405,8 +398,6 @@ class SyncIngestor(private val context: Context) {
      */
     suspend fun handleClearStateSignal() = withContext(Dispatchers.IO) {
         if (BuildConfig.DEBUG) Log.w(TAG, "SyncIngestor: clear_state=true received - clearing room/state/summaries and spaces (events preserved)")
-        // Clear pending receipt cache in memory
-        synchronized(pendingReceiptsLock) { pendingReceipts.clear() }
         
         database.withTransaction {
             roomSummaryDao.deleteAll()
@@ -416,8 +407,7 @@ class SyncIngestor(private val context: Context) {
             spaceRoomDao.deleteAllSpaceRooms()
             pendingRoomDao.deleteAll()
             inviteDao.deleteAllInvites()
-            receiptDao.deleteAll()
-            reactionDao.clearAll()
+            // No longer persisting receipts or reactions - they're in cache only
         }
     }
     
@@ -623,12 +613,10 @@ class SyncIngestor(private val context: Context) {
                 // Delete all data for left rooms in a single transaction
                 database.withTransaction {
                     for (roomId in leftRoomIds) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Deleting data for left room: $roomId (events, state, summaries, receipts, reactions)")
-                        eventDao.deleteAllForRoom(roomId)
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Deleting data for left room: $roomId (state, summaries)")
+                        // No longer persisting events, receipts, or reactions - they're in cache only
                         roomStateDao.deleteForRoom(roomId)
                         roomSummaryDao.deleteForRoom(roomId)
-                        receiptDao.deleteForRoom(roomId)
-                        reactionDao.clearRoom(roomId)
                         // Also delete invite if it exists
                         inviteDao.deleteInvite(roomId)
                         // Also delete pending room if it exists
@@ -1013,9 +1001,6 @@ class SyncIngestor(private val context: Context) {
             
         }
         
-        val reactionUpserts = mutableMapOf<String, ReactionEntity>()
-        val reactionDeletes = mutableSetOf<String>()
-        
         // 2. Process timeline events - only update cache if room is cached, no DB persistence
         val timeline = roomObj.optJSONArray("timeline")
         if (timeline != null) {
@@ -1029,7 +1014,7 @@ class SyncIngestor(private val context: Context) {
                     val timelineRowid = timelineEntry.optLong("timeline_rowid", -1)
                     val eventJson = timelineEntry.optJSONObject("event") ?: continue
                     
-                    collectReactionPersistenceFromEvent(roomId, eventJson, reactionUpserts, reactionDeletes)
+                    // No longer collecting reactions for persistence - they're in cache only
                     
                     val sourceLabel = "timeline[$i]"
                     val eventId = eventJson.optString("event_id") ?: "<missing>"
@@ -1073,7 +1058,7 @@ class SyncIngestor(private val context: Context) {
                 for (i in 0 until timeline.length()) {
                     val timelineEntry = timeline.optJSONObject(i) ?: continue
                     val eventJson = timelineEntry.optJSONObject("event") ?: continue
-                    collectReactionPersistenceFromEvent(roomId, eventJson, reactionUpserts, reactionDeletes)
+                    // No longer collecting reactions for persistence - they're in cache only
                 }
             }
         }
@@ -1090,7 +1075,7 @@ class SyncIngestor(private val context: Context) {
                 for (i in 0 until eventsArray.length()) {
                     val eventJson = eventsArray.optJSONObject(i) ?: continue
                     
-                    collectReactionPersistenceFromEvent(roomId, eventJson, reactionUpserts, reactionDeletes)
+                    // No longer collecting reactions for persistence - they're in cache only
                     
                     // Try to get timeline_rowid from event if available, otherwise use -1
                     val timelineRowid = eventJson.optLong("timeline_rowid", -1)
@@ -1133,76 +1118,18 @@ class SyncIngestor(private val context: Context) {
                 // Room not in cache - still collect reactions but discard events
                 for (i in 0 until eventsArray.length()) {
                     val eventJson = eventsArray.optJSONObject(i) ?: continue
-                    collectReactionPersistenceFromEvent(roomId, eventJson, reactionUpserts, reactionDeletes)
+                    // No longer collecting reactions for persistence - they're in cache only
                 }
             }
         }
         
-        if (reactionDeletes.isNotEmpty()) {
-            if (BuildConfig.DEBUG) Log.d(
-                TAG,
-                "SyncIngestor: Deleting ${reactionDeletes.size} reactions (sync) -> ${reactionDeletes.joinToString()}"
-            )
-            reactionDao.deleteByEventIds(reactionDeletes.toList())
-        }
-        if (reactionUpserts.isNotEmpty()) {
-            if (BuildConfig.DEBUG) Log.d(
-                TAG,
-                "SyncIngestor: Upserting ${reactionUpserts.size} reactions (sync) -> ${
-                    reactionUpserts.values.joinToString { it.eventId }
-                }"
-            )
-            reactionDao.upsertAll(reactionUpserts.values.toList())
-        }
+        // No longer persisting reactions - they're received from paginate and sync_complete
+        // Reactions are stored in the event's aggregatedReactions field in the cache
         
-        // 4. Process receipts
-        // BATTERY OPTIMIZATION: Defer receipt processing when backgrounded
-        val receiptsJson = roomObj.optJSONObject("receipts")
-        if (receiptsJson != null) {
-            val receipts = mutableListOf<ReceiptEntity>()
-            val receiptKeys = receiptsJson.keys()
-            
-            while (receiptKeys.hasNext()) {
-                val eventId = receiptKeys.next()
-                val receiptArray = receiptsJson.optJSONArray(eventId) ?: continue
-                
-                for (i in 0 until receiptArray.length()) {
-                    val receiptJson = receiptArray.optJSONObject(i) ?: continue
-                    val userId = receiptJson.optString("user_id") ?: continue
-                    val data = receiptJson.optJSONObject("data")
-                    val timestamp = data?.optLong("ts", 0L) ?: 0L
-                    val type = data?.optString("type") ?: "m.read"
-                    
-                    receipts.add(
-                        ReceiptEntity(
-                            userId = userId,
-                            eventId = eventId,
-                            roomId = roomId,
-                            timestamp = timestamp,
-                            type = type
-                        )
-                    )
-                }
-            }
-            
-            if (receipts.isNotEmpty()) {
-                if (isAppVisible) {
-                    // Foreground: Process receipts immediately
-                    receiptDao.upsertAll(receipts)
-                } else {
-                    // Background: Defer receipt processing
-                    synchronized(pendingReceiptsLock) {
-                        val roomReceipts = pendingReceipts.getOrPut(roomId) { mutableListOf() }
-                        roomReceipts.addAll(receipts)
-                        if (BuildConfig.DEBUG) {
-                            Log.d(TAG, "SyncIngestor: Deferred ${receipts.size} receipts for room $roomId (app backgrounded, total pending: ${roomReceipts.size})")
-                        }
-                    }
-                }
-            }
-        }
+        // No longer persisting receipts - they're received from paginate and sync_complete
+        // Receipts are available in the sync_complete response when needed
         
-        // 5. Update room summary (last message, unread counts, etc.)
+        // 4. Update room summary (last message, unread counts, etc.)
         val unreadMessages = meta?.optInt("unread_messages", 0) ?: 0
         val unreadHighlights = meta?.optInt("unread_highlights", 0) ?: 0
         // Always extract previews/senders for summary persistence (room list relies on DB on cold start).
@@ -1808,78 +1735,16 @@ class SyncIngestor(private val context: Context) {
     }
     
     /**
-     * Persist paginated events to database (from paginate responses)
-     * This is separate from sync_complete ingestion since paginate responses have a different structure
+     * @deprecated No longer persisting paginated events to database - using cache only
+     * Events are stored in RoomTimelineCache (LRU cache) and can be updated by sync_complete
+     * Database is only used for room summaries (RoomListScreen), not for timeline events
      */
+    @Deprecated("No longer persisting timeline events to database - using cache only")
     suspend fun persistPaginatedEvents(roomId: String, events: List<TimelineEvent>) = withContext(Dispatchers.IO) {
-        if (events.isEmpty()) return@withContext
-        
-        try {
-            val reactionUpserts = mutableMapOf<String, ReactionEntity>()
-            val reactionDeletes = mutableSetOf<String>()
-            val candidates = mutableListOf<EventPersistCandidate>()
-            val existingTimelineRowCache = mutableMapOf<String, Long?>()
-            for ((index, event) in events.withIndex()) {
-                collectReactionPersistenceFromTimelineEvent(roomId, event, reactionUpserts, reactionDeletes)
-                val sourceLabel = "paginate[$index]"
-                var parseLogged = false
-                val entity = try {
-                    parseEventFromTimelineEvent(
-                        roomId = roomId,
-                        event = event,
-                        source = sourceLabel,
-                        existingTimelineRowCache = existingTimelineRowCache
-                    )
-                } catch (e: Exception) {
-                    parseLogged = true
-                    logUnprocessedEvent(roomId, event.toJsonObject(), sourceLabel, "parse_exception", e)
-                    null
-                }
-                if (entity != null) {
-                    candidates.add(EventPersistCandidate(entity, sourceLabel))
-                } else if (!parseLogged) {
-                    logUnprocessedEvent(roomId, event.toJsonObject(), sourceLabel, "parse_returned_null")
-                }
-            }
-            
-            if (candidates.isNotEmpty() || reactionUpserts.isNotEmpty() || reactionDeletes.isNotEmpty()) {
-                // CRITICAL: Use NonCancellable to ensure database transaction completes even if coroutine is cancelled
-                // This prevents data loss when ViewModel is cleared (e.g., when activity is destroyed)
-                withContext(NonCancellable) {
-                    database.withTransaction {
-                        if (candidates.isNotEmpty()) {
-                            eventDao.upsertAll(candidates.map { it.entity })
-                        }
-                        if (reactionDeletes.isNotEmpty()) {
-                            if (BuildConfig.DEBUG) Log.d(
-                                TAG,
-                                "SyncIngestor: Deleting ${reactionDeletes.size} reactions -> ${reactionDeletes.joinToString()}"
-                            )
-                            reactionDao.deleteByEventIds(reactionDeletes.toList())
-                        }
-                        if (reactionUpserts.isNotEmpty()) {
-                            if (BuildConfig.DEBUG) Log.d(
-                                TAG,
-                                "SyncIngestor: Upserting ${reactionUpserts.size} reactions -> ${
-                                    reactionUpserts.values.joinToString { it.eventId }
-                                }"
-                            )
-                            reactionDao.upsertAll(reactionUpserts.values.toList())
-                        }
-                    }
-                }
-                candidates.forEach { candidate ->
-                    logEventPersisted(
-                        roomId = roomId,
-                        eventId = candidate.entity.eventId,
-                        source = candidate.source,
-                        type = candidate.entity.type,
-                        timelineRowId = candidate.entity.timelineRowId
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error persisting paginated events for room $roomId: ${e.message}", e)
+        // No-op: Events, reactions, and receipts are now stored in RoomTimelineCache only, not in database
+        // Database is only used for room summaries and room state
+        if (BuildConfig.DEBUG && events.isNotEmpty()) {
+            Log.d(TAG, "SyncIngestor: Skipping DB persistence for ${events.size} paginated events (using cache only)")
         }
     }
     
@@ -2416,61 +2281,30 @@ class SyncIngestor(private val context: Context) {
             }
         }
         
-        // Process pending receipts
-        val receiptsToProcess = synchronized(pendingReceiptsLock) {
-            // Get all pending receipts and clear the map
-            val allReceipts = pendingReceipts.values.flatten()
-            pendingReceipts.clear()
-            allReceipts
-        }
-        
-        if (receiptsToProcess.isEmpty()) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: No pending receipts to process")
-            return@withContext
-        }
-        
-        // Group receipts by room for efficient batch upserts
-        val receiptsByRoom = receiptsToProcess.groupBy { it.roomId }
-        
-        database.withTransaction {
-            receiptsByRoom.forEach { (roomId, receipts) ->
-                receiptDao.upsertAll(receipts)
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: Rushed processing ${receipts.size} pending receipts for room $roomId")
-                }
-            }
-        }
-        
-        if (BuildConfig.DEBUG) {
-            Log.d(TAG, "SyncIngestor: Rushed processing ${receiptsToProcess.size} total pending receipts across ${receiptsByRoom.size} rooms")
-        }
+        // No longer processing pending receipts - they're not persisted to database
     }
     
     /**
-     * @deprecated Use rushProcessPendingItems() instead
+     * @deprecated No longer processing receipts - they're not persisted to database
      */
-    @Deprecated("Use rushProcessPendingItems() to process both rooms and receipts")
+    @Deprecated("Receipts are no longer persisted to database")
     suspend fun rushProcessPendingReceipts() = rushProcessPendingItems()
     
     /**
-     * Get count of pending receipts (for debugging/monitoring)
+     * @deprecated No longer tracking pending receipts - they're not persisted to database
      */
-    fun getPendingReceiptsCount(): Int {
-        return synchronized(pendingReceiptsLock) {
-            pendingReceipts.values.sumOf { it.size }
-        }
-    }
+    @Deprecated("Receipts are no longer persisted to database")
+    fun getPendingReceiptsCount(): Int = 0
     
     /**
-     * Check if there are any pending rooms or receipts to process
+     * Check if there are any pending rooms to process
      * This is used to determine if RoomListScreen should wait before displaying
      */
     suspend fun hasPendingItems(): Boolean = withContext(Dispatchers.IO) {
         val pendingRoomCount = pendingRoomDao.getPendingCount()
-        val pendingReceiptCount = getPendingReceiptsCount()
-        val hasPending = pendingRoomCount > 0 || pendingReceiptCount > 0
+        val hasPending = pendingRoomCount > 0
         if (BuildConfig.DEBUG && hasPending) {
-            Log.d(TAG, "SyncIngestor: hasPendingItems = true (rooms: $pendingRoomCount, receipts: $pendingReceiptCount)")
+            Log.d(TAG, "SyncIngestor: hasPendingItems = true (rooms: $pendingRoomCount)")
         }
         hasPending
     }
