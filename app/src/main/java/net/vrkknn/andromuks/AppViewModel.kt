@@ -33,6 +33,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -5884,6 +5885,50 @@ class AppViewModel : ViewModel() {
      * This updates the UI with any changes that happened while app was in background
      */
     private fun refreshUIState() {
+        // CRITICAL FIX: Don't rebuild allRooms from roomMap - it may have stale unread counts
+        // Instead, refresh roomMap from database first to ensure we have latest unread counts
+        // This prevents stale unread counts from being propagated to allRooms
+        appContext?.let { context ->
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
+                    val roomListSummaryDao = database.roomListSummaryDao()
+                    val roomSummaryDao = database.roomSummaryDao()
+                    
+                    // Refresh unread counts in roomMap from database for all rooms
+                    val allRoomIds = roomMap.keys.toList()
+                    if (allRoomIds.isNotEmpty()) {
+                        val listSummaries = roomListSummaryDao.getRoomSummariesByIds(allRoomIds)
+                        val summaries = allRoomIds.mapNotNull { roomId ->
+                            roomSummaryDao.getRoomSummary(roomId)
+                        }
+                        
+                        // Update roomMap with fresh unread counts from database
+                        withContext(Dispatchers.Main) {
+                            listSummaries.forEach { listSummary ->
+                                val room = roomMap[listSummary.roomId]
+                                if (room != null) {
+                                    // Update unread counts from database (source of truth)
+                                    val summary = summaries.find { it.roomId == listSummary.roomId }
+                                    val dbUnreadCount = listSummary.unreadCount.takeIf { it > 0 } ?: summary?.unreadCount?.takeIf { it > 0 }
+                                    val dbHighlightCount = listSummary.highlightCount.takeIf { it > 0 } ?: summary?.highlightCount?.takeIf { it > 0 }
+                                    
+                                    if (room.unreadCount != dbUnreadCount || room.highlightCount != dbHighlightCount) {
+                                        roomMap[listSummary.roomId] = room.copy(
+                                            unreadCount = dbUnreadCount,
+                                            highlightCount = dbHighlightCount
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Failed to refresh unread counts from database: ${e.message}", e)
+                }
+            }
+        }
+        
         val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshing UI with ${sortedRooms.size} rooms")
@@ -15265,12 +15310,6 @@ class AppViewModel : ViewModel() {
         // CRITICAL FIX: Always update the database, regardless of in-memory state
         // The database is the source of truth, and we must update it even if roomMap doesn't have the room
         // or if the room was already cleared in a previous session
-        // The Room Flows will automatically emit when the database changes, triggering UI update
-        appContext?.let { context ->
-            viewModelScope.launch(Dispatchers.IO) {
-                updateDatabaseUnreadCounts(context, roomId)
-            }
-        }
         
         // Update in-memory state if the room exists in roomMap
         val existingRoom = roomMap[roomId]
@@ -15304,10 +15343,85 @@ class AppViewModel : ViewModel() {
         // Invalidate cache to force recalculation of sections and badge counts
         invalidateRoomSectionCache()
         
-        // Trigger UI update
-        roomListUpdateCounter++
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Optimistically cleared unread counts for room $roomId")
+        // Trigger UI update AFTER database update completes
+        // CRITICAL FIX: Add small delay to allow Room Flows to emit after database update
+        // Room Flows emit asynchronously when database changes, so we need to wait
+        // for the Flow to emit the new value before triggering UI refresh
+        appContext?.let { context ->
+            viewModelScope.launch(Dispatchers.IO) {
+                updateDatabaseUnreadCounts(context, roomId)
+                
+                // CRITICAL FIX: Small delay to ensure database transaction has committed
+                // Room database uses transactions, so we need to wait for commit to complete
+                kotlinx.coroutines.delay(50)
+                
+                // CRITICAL FIX: Verify database update completed by reading directly from database
+                // Don't rely on Flow emissions - read the actual database value to ensure update succeeded
+                val db = dbOrNull()
+                if (db != null) {
+                    try {
+                        // Read directly from database to verify update
+                        var retryCount = 0
+                        val maxRetries = 10
+                        val retryDelay = 50L // 50ms between retries
+                        
+                        while (retryCount < maxRetries) {
+                            val roomListSummaryDao = db.roomListSummaryDao()
+                            val updatedSummary = roomListSummaryDao.getRoomSummariesByIds(listOf(roomId)).firstOrNull()
+                            
+                            if (updatedSummary != null && updatedSummary.unreadCount == 0) {
+                                // Database update confirmed - room has unreadCount=0
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✅ Verified database update for $roomId - unreadCount=0 (retry $retryCount)")
+                                break
+                            } else if (updatedSummary == null) {
+                                // Room doesn't exist in room_list_summary - we created it, so it should exist now
+                                // Retry to see if it appears (database transaction might still be committing)
+                                if (BuildConfig.DEBUG && retryCount < 3) android.util.Log.d("Andromuks", "AppViewModel: Room $roomId not in room_list_summary yet (retry $retryCount) - waiting for transaction commit")
+                            } else {
+                                // Room exists but unreadCount is not 0 - update might not have completed yet
+                                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: ⚠️ Room $roomId still has unreadCount=${updatedSummary.unreadCount} (retry $retryCount) - update may not have committed yet")
+                            }
+                            
+                            if (retryCount < maxRetries - 1) {
+                                kotlinx.coroutines.delay(retryDelay)
+                                retryCount++
+                            } else {
+                                // Max retries reached - log warning but continue
+                                android.util.Log.w("Andromuks", "AppViewModel: ⚠️ Failed to verify database update for $roomId after $maxRetries retries - proceeding anyway")
+                                break
+                            }
+                        }
+                        
+                        // Also verify room_summary (fallback source) and fix if needed
+                        val roomSummaryDao = db.roomSummaryDao()
+                        val updatedRoomSummary = roomSummaryDao.getRoomSummary(roomId)
+                        if (updatedRoomSummary != null && updatedRoomSummary.unreadCount != 0) {
+                            // Fallback table still has unread - update it too
+                            val fixedSummary = updatedRoomSummary.copy(unreadCount = 0, highlightCount = 0)
+                            roomSummaryDao.upsert(fixedSummary)
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Fixed room_summary for $roomId - cleared unread counts (was ${updatedRoomSummary.unreadCount})")
+                        }
+                    } catch (e: Exception) {
+                        // Database read failed - use delay as fallback
+                        kotlinx.coroutines.delay(150)
+                        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Database verification failed for $roomId, using delay fallback: ${e.message}")
+                    }
+                } else {
+                    // No database - use delay as fallback
+                    kotlinx.coroutines.delay(150)
+                }
+                
+                // After DB update and Flow emission, increment counter on main thread to trigger UI refresh
+                withContext(Dispatchers.Main) {
+                    roomListUpdateCounter++
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Optimistically cleared unread counts for room $roomId")
+                }
+            }
+        } ?: run {
+            // Fallback: increment immediately if no context (shouldn't happen)
+            roomListUpdateCounter++
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Optimistically cleared unread counts for room $roomId (no context)")
+        }
     }
     
     private suspend fun updateDatabaseUnreadCounts(context: android.content.Context, roomId: String) {
@@ -15319,24 +15433,68 @@ class AppViewModel : ViewModel() {
             val existingListSummaries = roomListSummaryDao.getRoomSummariesByIds(listOf(roomId))
             val existingListSummary = existingListSummaries.firstOrNull()
             if (existingListSummary != null) {
+                val oldUnread = existingListSummary.unreadCount
+                val oldHighlight = existingListSummary.highlightCount
                 val updatedListSummary = existingListSummary.copy(
                     unreadCount = 0,
                     highlightCount = 0
                 )
                 roomListSummaryDao.upsert(updatedListSummary)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated database room_list_summary for $roomId - cleared unread counts")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated database room_list_summary for $roomId - unreadCount: $oldUnread -> 0, highlightCount: $oldHighlight -> 0")
+            } else {
+                // CRITICAL FIX: Create entry if it doesn't exist
+                // This ensures the room has unreadCount=0 even if it hasn't been synced yet
+                val newListSummary = net.vrkknn.andromuks.database.entities.RoomListSummaryEntity(
+                    roomId = roomId,
+                    displayName = null,
+                    avatarMxc = null,
+                    lastMessageEventId = null,
+                    lastMessageSenderUserId = null,
+                    lastMessagePreview = null,
+                    lastMessageTimestamp = null,
+                    unreadCount = 0,
+                    highlightCount = 0,
+                    isLowPriority = false
+                )
+                roomListSummaryDao.upsert(newListSummary)
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Created database room_list_summary for $roomId with cleared unread counts")
             }
             
             // Update roomSummaryDao (fallback source for Flows)
             val roomSummaryDao = database.roomSummaryDao()
             val existingSummary = roomSummaryDao.getRoomSummary(roomId)
             if (existingSummary != null) {
+                val oldUnread = existingSummary.unreadCount
+                val oldHighlight = existingSummary.highlightCount
                 val updatedSummary = existingSummary.copy(
                     unreadCount = 0,
                     highlightCount = 0
                 )
                 roomSummaryDao.upsert(updatedSummary)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated database room_summary for $roomId - cleared unread counts")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated database room_summary for $roomId - unreadCount: $oldUnread -> 0, highlightCount: $oldHighlight -> 0")
+            } else {
+                // CRITICAL FIX: Create entry if it doesn't exist (but only if we have minimal data)
+                // We need at least a timestamp for room_summary, so check if we can get it from roomState
+                val roomStateDao = database.roomStateDao()
+                val roomState = roomStateDao.get(roomId)
+                if (roomState != null) {
+                    // We have room state, create summary with cleared unread counts
+                    val newSummary = net.vrkknn.andromuks.database.entities.RoomSummaryEntity(
+                        roomId = roomId,
+                        lastEventId = null,
+                        lastTimestamp = System.currentTimeMillis(), // Use current time as fallback
+                        unreadCount = 0,
+                        highlightCount = 0,
+                        messageSender = null,
+                        messagePreview = null
+                    )
+                    roomSummaryDao.upsert(newSummary)
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Created database room_summary for $roomId with cleared unread counts")
+                } else {
+                    // No room state - can't create room_summary (requires timestamp)
+                    // This is OK, room_list_summary is the primary source anyway
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping room_summary creation for $roomId - no room state available")
+                }
             }
         } catch (e: Exception) {
             android.util.Log.w("Andromuks", "AppViewModel: Failed to update database when clearing unread counts for $roomId: ${e.message}", e)

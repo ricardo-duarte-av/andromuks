@@ -165,10 +165,14 @@ fun RoomListScreen(
     var missingTimestampsHydrated by remember { mutableStateOf(false) }
 
     // Ensure cached data and pending items are applied after cold start/activity recreation.
+    // CRITICAL FIX: Don't call refreshUIFromCache() here - it rebuilds allRooms from roomMap
+    // which may have stale unread counts. Instead, we load from database via buildSectionSnapshot()
+    // in the LaunchedEffect below.
     LaunchedEffect(Unit) {
         coldStartRefreshing = true
         appViewModel.checkAndProcessPendingItemsOnStartup(context)
-        appViewModel.refreshUIFromCache()
+        // REMOVED: appViewModel.refreshUIFromCache() - this rebuilds allRooms from stale roomMap
+        // Instead, we load fresh data from database via buildSectionSnapshot() in LaunchedEffect below
         // Ensure a sort after cache restore/cold start so room order reflects latest DB data.
         appViewModel.forceRoomListSort()
         coldStartRefreshing = false
@@ -187,7 +191,11 @@ fun RoomListScreen(
     // Prepare room list data while the loading screen is visible so we avoid flicker
     val roomListUpdateCounter = uiState.roomListUpdateCounter
     // Seed from DB snapshot to avoid empty in-memory cache after clear_state/cold start
-    var stableSection by remember { mutableStateOf(appViewModel.getCurrentRoomSection()) }
+    // CRITICAL FIX: Initialize with empty section, then load from database in LaunchedEffect
+    // This ensures we always read fresh data from database, not stale in-memory cache
+    var stableSection by remember { 
+        mutableStateOf(RoomSection(RoomSectionType.HOME, emptyList()))
+    }
     var previousSectionType by remember { mutableStateOf(stableSection.type) }
     var sectionAnimationDirection by remember { mutableStateOf(0) }
     var roomsWithSummaries by remember { mutableStateOf<Map<String, Triple<String?, String?, Long?>>>(emptyMap()) } // roomId -> (messagePreview, messageSender, messageTimestamp)
@@ -197,6 +205,19 @@ fun RoomListScreen(
     val roomSummaryReadyCache = remember { mutableStateMapOf<String, Boolean>() }
     val roomSummaryCounterCache = remember { mutableStateMapOf<String, Int>() } // tracks which counter the cache corresponds to
 
+    // CRITICAL FIX: Initial load from database when composable first appears or when returning from a room
+    // This ensures we always read fresh data from database, not stale in-memory cache (allRooms/roomMap)
+    LaunchedEffect(Unit) {
+        // Initial load from database when composable first appears
+        val initialSnapshot = withContext(Dispatchers.IO) {
+            runCatching { appViewModel.buildSectionSnapshot() }.getOrNull()
+        }
+        if (initialSnapshot != null) {
+            stableSection = initialSnapshot
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Initial load from database - ${initialSnapshot.rooms.size} rooms, section=${initialSnapshot.type}")
+        }
+    }
+    
     // Refresh stableSection from DB-backed snapshot when counters or space selection change.
     LaunchedEffect(roomListUpdateCounter, uiState.roomSummaryUpdateCounter, uiState.currentSpaceId) {
         // If initial sync isn't complete yet and we already have data, keep current UI to avoid flicker.
@@ -508,6 +529,17 @@ fun RoomListScreen(
         // This ensures the list is properly sorted when the user navigates back
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Returning to room list - forcing immediate sort")
         appViewModel.forceRoomListSort()
+        
+        // CRITICAL FIX: Refresh section from database when returning to RoomListScreen
+        // This ensures we read fresh unread counts from database, not stale in-memory cache
+        // refreshUIFromCache() rebuilds allRooms from roomMap which may have stale data
+        val refreshedSnapshot = withContext(Dispatchers.IO) {
+            runCatching { appViewModel.buildSectionSnapshot() }.getOrNull()
+        }
+        if (refreshedSnapshot != null) {
+            stableSection = refreshedSnapshot
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Refreshed section from database on return - ${refreshedSnapshot.rooms.size} rooms")
+        }
     }
     
     // CRITICAL FIX #2: Wait for WebSocket connection and spacesLoaded before navigating from shortcuts/notifications

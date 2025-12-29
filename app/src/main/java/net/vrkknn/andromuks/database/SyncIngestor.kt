@@ -1317,12 +1317,35 @@ class SyncIngestor(private val context: Context) {
         val finalLastTimestamp: Long = lastTimestamp
 
         if (finalLastTimestamp > 0L) {
+            // CRITICAL FIX: Preserve optimistic unread count clear
+            // If database already has unreadCount=0 (we just cleared it), don't overwrite with server's stale value
+            // The server will eventually catch up and send the correct value
+            // Check BOTH tables (roomSummaryDao and roomListSummaryDao) since both are used by Flows
+            val existingSummary = roomSummaryDao.getRoomSummary(roomId)
+            val existingListSummaryForGuard = roomListSummaryDao.getRoomSummariesByIds(listOf(roomId)).firstOrNull()
+            val wasClearedInSummary = existingSummary != null && existingSummary.unreadCount == 0
+            val wasClearedInListSummary = existingListSummaryForGuard != null && existingListSummaryForGuard.unreadCount == 0
+            val finalUnreadCount = if ((wasClearedInSummary || wasClearedInListSummary) && unreadMessages > 0) {
+                // Database says 0 (we cleared it), but server says >0 (stale) - preserve our clear
+                0
+            } else {
+                // Use server's value (either server caught up, or we haven't cleared it yet)
+                unreadMessages
+            }
+            val finalHighlightCount = if ((wasClearedInSummary || wasClearedInListSummary) && unreadHighlights > 0) {
+                // Database says 0 (we cleared it), but server says >0 (stale) - preserve our clear
+                0
+            } else {
+                // Use server's value (either server caught up, or we haven't cleared it yet)
+                unreadHighlights
+            }
+            
             val summary = RoomSummaryEntity(
                 roomId = roomId,
                 lastEventId = finalLastEventId,
                 lastTimestamp = finalLastTimestamp,
-                unreadCount = unreadMessages,
-                highlightCount = unreadHighlights,
+                unreadCount = finalUnreadCount,
+                highlightCount = finalHighlightCount,
                 messageSender = messageSender,
                 messagePreview = messagePreview
             )
@@ -1371,6 +1394,28 @@ class SyncIngestor(private val context: Context) {
                 isTextMessage -> messageSender ?: existingListSummary?.lastMessageSenderUserId
                 else -> existingListSummary?.lastMessageSenderUserId
             }
+            // CRITICAL FIX: Preserve optimistic unread count clear
+            // If database already has unreadCount=0 (we just cleared it), don't overwrite with server's stale value
+            // The server will eventually catch up and send the correct value
+            // Check BOTH tables (roomListSummaryDao and roomSummaryDao) since both are used by Flows
+            val existingSummaryForGuard = roomSummaryDao.getRoomSummary(roomId)
+            val wasClearedInListSummary = existingListSummary != null && existingListSummary.unreadCount == 0
+            val wasClearedInSummary = existingSummaryForGuard != null && existingSummaryForGuard.unreadCount == 0
+            val finalListUnreadCount = if ((wasClearedInListSummary || wasClearedInSummary) && unreadMessages > 0) {
+                // Database says 0 (we cleared it), but server says >0 (stale) - preserve our clear
+                0
+            } else {
+                // Use server's value (either server caught up, or we haven't cleared it yet)
+                unreadMessages
+            }
+            val finalListHighlightCount = if ((wasClearedInListSummary || wasClearedInSummary) && unreadHighlights > 0) {
+                // Database says 0 (we cleared it), but server says >0 (stale) - preserve our clear
+                0
+            } else {
+                // Use server's value (either server caught up, or we haven't cleared it yet)
+                unreadHighlights
+            }
+            
             val listSummary = RoomListSummaryEntity(
                 roomId = roomId,
                 displayName = displayName,
@@ -1379,8 +1424,8 @@ class SyncIngestor(private val context: Context) {
                 lastMessageSenderUserId = senderToUse,
                 lastMessagePreview = previewToUse,
                 lastMessageTimestamp = finalLastTimestamp,
-                unreadCount = unreadMessages,
-                highlightCount = unreadHighlights,
+                unreadCount = finalListUnreadCount,
+                highlightCount = finalListHighlightCount,
                 isLowPriority = isLowPriorityFlag
             )
             roomListSummaryDao.upsert(listSummary)
