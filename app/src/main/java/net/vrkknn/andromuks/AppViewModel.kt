@@ -6363,6 +6363,35 @@ class AppViewModel : ViewModel() {
             
             if (trulyNewEvents.isEmpty()) return true
             
+            // CRITICAL FIX: Also add events to eventChainMap if this is the currently open room
+            // This ensures events aren't lost when handlePaginationMerge rebuilds from eventChainMap
+            if (currentRoomId == roomId) {
+                for (event in trulyNewEvents) {
+                    val isEdit = isEditEvent(event)
+                    if (isEdit) {
+                        editEventsMap[event.eventId] = event
+                    } else {
+                        val existingEntry = eventChainMap[event.eventId]
+                        if (existingEntry == null) {
+                            eventChainMap[event.eventId] = EventChainEntry(
+                                eventId = event.eventId,
+                                ourBubble = event,
+                                replacedBy = null,
+                                originalTimestamp = event.timestamp
+                            )
+                        } else if (event.timestamp > existingEntry.originalTimestamp) {
+                            // Update with newer version
+                            eventChainMap[event.eventId] = existingEntry.copy(
+                                ourBubble = event,
+                                originalTimestamp = event.timestamp
+                            )
+                        }
+                    }
+                }
+                // Process edit relationships for newly added events
+                processEditRelationships()
+            }
+            
             val updatedEvents = (cached.events + trulyNewEvents).sortedBy { it.timestamp }
             timelineLruCache[roomId] = cached.copy(
                 events = updatedEvents,
@@ -6370,8 +6399,10 @@ class AppViewModel : ViewModel() {
             )
             
             // If this is the currently open room, also update live state
+            // But rebuild from eventChainMap to ensure consistency
             if (currentRoomId == roomId) {
-                timelineEvents = updatedEvents
+                // Rebuild timeline from eventChainMap to ensure all events are included
+                buildTimelineFromChain()
             }
             
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Appended ${trulyNewEvents.size} events to cached room $roomId (total: ${updatedEvents.size})")
@@ -12535,6 +12566,13 @@ class AppViewModel : ViewModel() {
         val isBackgroundPrefetchRequest = backgroundPrefetchRequests.containsKey(requestId)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling timeline response for room: $roomId, requestId: $requestId, isPaginate: $isPaginateRequest, isBackgroundPrefetch: $isBackgroundPrefetchRequest, data type: ${data::class.java.simpleName}")
 
+        // CRITICAL FIX: Parse has_more field BEFORE processing events, so we have it even if events array is empty
+        var hasMoreFromResponse: Boolean? = null
+        if (data is JSONObject && isPaginateRequest) {
+            hasMoreFromResponse = data.optBoolean("has_more", true) // Default to true if not present
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsed has_more=$hasMoreFromResponse from response BEFORE processing events")
+        }
+
         var totalReactionsProcessed = 0
         
         // Process events array - main event processing logic
@@ -12612,42 +12650,34 @@ class AppViewModel : ViewModel() {
             // Only mark as "no more messages" if backend actually returned 0 events OR fewer events than requested
             // Don't mark as empty if events were filtered out (e.g., all reactions/state events)
             val totalEventsReturned = eventsArray.length()
-            // If we got a full page (100 events) but 0 timeline events, there might still be more messages
-            // Only mark as empty if we got fewer than requested AND 0 timeline events
-            val shouldMarkAsEmpty = timelineList.isEmpty() && totalEventsReturned < 100
-            
-            if ((paginateRequests.containsKey(requestId) || backgroundPrefetchRequests.containsKey(requestId)) && shouldMarkAsEmpty) {
+            // CRITICAL FIX: When timelineList is empty, use has_more field to determine if more messages available
+            // Don't set hasMoreMessages = false unless backend explicitly says has_more = false
+            if (timelineList.isEmpty()) {
                 android.util.Log.w("Andromuks", "AppViewModel: ========================================")
                 android.util.Log.w("Andromuks", "AppViewModel: ⚠️ EMPTY PAGINATION RESPONSE (requestId: $requestId)")
                 android.util.Log.w("Andromuks", "AppViewModel: Backend returned $totalEventsReturned events, timeline events: ${timelineList.size} (filtered: rowId=$filteredByRowId, type=$filteredByType)")
                 
-                // Mark as no more messages and show toast for user-initiated pagination
-                if (paginateRequests.containsKey(requestId)) {
-                    android.util.Log.w("Andromuks", "AppViewModel: Setting hasMoreMessages to FALSE")
-                    hasMoreMessages = false
-                    // Show toast on main thread to avoid crashes
-                    appContext?.let { context ->
-                        try {
-                            // Ensure we're on main thread for Toast
-                            viewModelScope.launch(Dispatchers.Main) {
-                                android.widget.Toast.makeText(context, "No more messages available", android.widget.Toast.LENGTH_SHORT).show()
-                            }
-                        } catch (e: Exception) {
-                            android.util.Log.e("Andromuks", "AppViewModel: Error showing toast", e)
+                // Use has_more field if available, otherwise keep current state
+                if (hasMoreFromResponse != null) {
+                    hasMoreMessages = hasMoreFromResponse
+                    android.util.Log.w("Andromuks", "AppViewModel: Setting hasMoreMessages=${hasMoreFromResponse} based on has_more field from response")
+                    if (!hasMoreFromResponse) {
+                        android.util.Log.w("Andromuks", "AppViewModel: 🏁 REACHED END OF MESSAGE HISTORY (has_more=false, empty response)")
+                        appContext?.let { context ->
+                            android.widget.Toast.makeText(context, "No more messages available", android.widget.Toast.LENGTH_SHORT).show()
                         }
                     }
+                } else {
+                    android.util.Log.w("Andromuks", "AppViewModel: No has_more field in response, keeping current hasMoreMessages state")
                 }
                 
+                android.util.Log.w("Andromuks", "AppViewModel: ========================================")
+                
+                // Clean up request tracking
                 paginateRequests.remove(requestId)
                 backgroundPrefetchRequests.remove(requestId)
                 isPaginating = false
-                
-                android.util.Log.w("Andromuks", "AppViewModel: isPaginating set to FALSE")
-                android.util.Log.w("Andromuks", "AppViewModel: ========================================")
                 return reactionProcessedCount
-            } else if (timelineList.isEmpty() && totalEventsReturned >= 100) {
-                // Got a full page but all filtered out - log warning but don't mark as empty
-                android.util.Log.w("Andromuks", "AppViewModel: Got $totalEventsReturned events but 0 timeline events (filtered: rowId=$filteredByRowId, type=$filteredByType) - continuing pagination")
             }
             
             if (timelineList.isNotEmpty()) {
@@ -12746,8 +12776,10 @@ class AppViewModel : ViewModel() {
                 }
                 
                 // Parse has_more field for pagination (but not for background prefetch)
+                // NOTE: has_more is already parsed above for empty responses, but parse it here too
+                // for non-empty responses to ensure consistency
                 if (paginateRequests.containsKey(requestId)) {
-                    val hasMore = data.optBoolean("has_more", true) // Default to true if not present
+                    val hasMore = hasMoreFromResponse ?: data.optBoolean("has_more", true) // Use pre-parsed value if available, otherwise parse
                     val fromServer = data.optBoolean("from_server", false)
                     
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ========================================")
@@ -12762,9 +12794,11 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Full pagination response data keys: ${data.keys().asSequence().toList()}")
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ========================================")
                     
-                    // Show toast when reaching the end
+                    // Show toast when reaching the end (empty responses already handled in processEventsArray)
                     if (!hasMore) {
                         android.util.Log.w("Andromuks", "AppViewModel: 🏁 REACHED END OF MESSAGE HISTORY (has_more=false)")
+                        // Toast for empty responses is already shown in processEventsArray, so only show for non-empty responses here
+                        // We can't easily check if response was empty here, so we'll show toast regardless (it's idempotent)
                         appContext?.let { context ->
                             android.widget.Toast.makeText(context, "No more messages available", android.widget.Toast.LENGTH_SHORT).show()
                         }
@@ -14723,16 +14757,25 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        // CACHE-ONLY APPROACH: Use only cache to determine oldest event (no DB lookup)
+        // CACHE-ONLY APPROACH: Use cache to determine oldest event (fallback to tracked value)
         isPaginating = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Use the tracked oldest timelineRowId from the last pagination response
-                // If we don't have one yet (first time opening room), we can't paginate
+                // CRITICAL FIX: Use cache to get oldest rowId, with fallback to tracked value
+                // This ensures we always use the most up-to-date oldest event, even if events
+                // were added via sync_complete between paginations
+                val oldestCachedRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
                 val oldestTrackedRowId = oldestRowIdPerRoom[roomId]
                 
-                if (oldestTrackedRowId == null) {
-                    android.util.Log.w("Andromuks", "AppViewModel: No tracked oldest timelineRowId for room $roomId. Room may not have been paginated yet.")
+                // Use cached value if available and valid, otherwise use tracked value
+                val oldestRowId = when {
+                    oldestCachedRowId > 0 -> oldestCachedRowId
+                    oldestTrackedRowId != null && oldestTrackedRowId > 0 -> oldestTrackedRowId
+                    else -> null
+                }
+                
+                if (oldestRowId == null) {
+                    android.util.Log.w("Andromuks", "AppViewModel: No valid oldest timelineRowId for room $roomId (cached=$oldestCachedRowId, tracked=$oldestTrackedRowId). Room may not have been paginated yet.")
                     withContext(Dispatchers.Main) {
                         isPaginating = false
                         hasMoreMessages = false
@@ -14741,29 +14784,16 @@ class AppViewModel : ViewModel() {
                     return@launch
                 }
                 
-                // Validate the tracked rowId
-                if (oldestTrackedRowId <= 0) {
-                    android.util.Log.e("Andromuks", "AppViewModel: ⚠️ BUG: Tracked oldest timelineRowId=$oldestTrackedRowId for room $roomId. TimelineRowId should always be positive!")
-                    withContext(Dispatchers.Main) {
-                        isPaginating = false
-                        hasMoreMessages = false
-                        android.widget.Toast.makeText(context, "Cannot load older messages (invalid state)", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                    return@launch
-                }
-                
-                // Use the tracked oldest rowId directly
-                // The oldest event has the lowest (smallest) timelineRowId
-                // We request events older than this (with lower timelineRowId)
-                val maxTimelineId = oldestTrackedRowId
+                // Use the oldest rowId to request events older than this
+                val maxTimelineId = oldestRowId
                 
                 if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "AppViewModel: Using tracked oldest timelineRowId=$oldestTrackedRowId as max_timeline_id=$maxTimelineId for room $roomId")
+                    android.util.Log.d("Andromuks", "AppViewModel: Using oldest timelineRowId=$oldestRowId (cached=$oldestCachedRowId, tracked=$oldestTrackedRowId) as max_timeline_id=$maxTimelineId for room $roomId")
                 }
                 
                 if (BuildConfig.DEBUG) android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: Requesting pagination for $roomId with tracked oldest timelineRowId=$oldestTrackedRowId, max_timeline_id=$maxTimelineId, limit=$limit"
+                    "AppViewModel: Requesting pagination for $roomId with oldest timelineRowId=$oldestRowId, max_timeline_id=$maxTimelineId, limit=$limit"
                 )
                 
                 val paginateRequestId = requestIdCounter++
