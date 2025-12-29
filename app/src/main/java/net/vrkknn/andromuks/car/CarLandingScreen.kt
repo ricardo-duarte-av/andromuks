@@ -124,6 +124,7 @@ class CarLandingScreen(carContext: CarContext) : Screen(carContext) {
             RoomSectionType.DIRECT_CHATS -> "👤"
             RoomSectionType.UNREAD -> "🔔"
             RoomSectionType.FAVOURITES -> "⭐"
+            RoomSectionType.MENTIONS -> "🏷️"
         }
         
         return try {

@@ -44,6 +44,8 @@ import kotlinx.coroutines.flow.firstOrNull
 import org.json.JSONObject
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import android.content.Context
 import android.media.MediaPlayer
 import android.media.AudioManager
@@ -78,6 +80,19 @@ data class UserProfile(
     val userId: String,
     val displayName: String?,
     val avatarUrl: String?
+)
+
+data class MentionEntry(
+    val roomId: String,
+    val eventId: String
+)
+
+data class MentionEvent(
+    val mentionEntry: MentionEntry,
+    val event: TimelineEvent,
+    val roomName: String? = null,
+    val roomAvatarUrl: String? = null,
+    val replyToEvent: TimelineEvent? = null
 )
 
 /**
@@ -386,6 +401,10 @@ class AppViewModel : ViewModel() {
                     val rooms = spaceChildRoomsFlow(currentSpaceId!!).firstOrNull().orEmpty()
                     RoomSection(RoomSectionType.SPACES, rooms = rooms, spaces = emptyList())
                 }
+            }
+            RoomSectionType.MENTIONS -> {
+                // Mentions section doesn't show rooms in the list - it navigates to MentionsScreen
+                RoomSection(RoomSectionType.MENTIONS, rooms = emptyList())
             }
         }
     }
@@ -1058,6 +1077,12 @@ class AppViewModel : ViewModel() {
     
     // Internal storage for emoji frequencies: list of [emoji, count] pairs
     private var recentEmojiFrequencies = mutableListOf<Pair<String, Int>>()
+    
+    // Mentions state - list of mention events with room info
+    var mentionEvents by mutableStateOf<List<MentionEvent>>(emptyList())
+        private set
+    var isMentionsLoading by mutableStateOf(false)
+        private set
     
     // Custom emoji packs from im.ponies.emote_rooms
     data class CustomEmoji(
@@ -1902,6 +1927,10 @@ class AppViewModel : ViewModel() {
                     rooms = cachedUnreadRooms,
                     unreadCount = cachedUnreadRooms.size
                 )
+            }
+            RoomSectionType.MENTIONS -> {
+                // Mentions section doesn't show rooms in the list - it navigates to MentionsScreen
+                RoomSection(RoomSectionType.MENTIONS, rooms = emptyList())
             }
             RoomSectionType.FAVOURITES -> {
                 // PERFORMANCE: Use cached favourite rooms instead of filtering every time
@@ -6551,6 +6580,8 @@ class AppViewModel : ViewModel() {
     private val joinRoomCallbacks = mutableMapOf<Int, (Pair<String?, String?>?) -> Unit>() // requestId -> callback
     private val roomSpecificStateRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_specific_room_state requests)
     private val fullMemberListRequests = mutableMapOf<Int, String>() // requestId -> roomId (for get_room_state with include_members requests)
+    private val mentionsRequests = mutableMapOf<Int, Unit>() // requestId -> Unit (for get_mentions requests)
+    private val mentionEventRequests = mutableMapOf<Int, Pair<String, String>>() // requestId -> (roomId, eventId) for fetching reply targets
     
     // PERFORMANCE: Track pending full member list requests to prevent duplicate WebSocket commands
     private val pendingFullMemberListRequests = mutableSetOf<String>() // roomId that have pending full member list requests
@@ -11753,6 +11784,8 @@ class AppViewModel : ViewModel() {
             handleFullMemberListResponse(requestId, data)
         } else if (outgoingRequests.containsKey(requestId)) {
             handleOutgoingRequestResponse(requestId, data)
+        } else if (mentionsRequests.containsKey(requestId)) {
+            handleMentionsListResponse(requestId, data)
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Unknown response requestId=$requestId")
         }
@@ -11808,6 +11841,11 @@ class AppViewModel : ViewModel() {
             android.util.Log.w("Andromuks", "AppViewModel: Event request error for requestId=$requestId: $errorMessage")
             val (_, callback) = eventRequests.remove(requestId) ?: return
             callback(null)
+        } else if (mentionsRequests.containsKey(requestId)) {
+            android.util.Log.w("Andromuks", "AppViewModel: Mentions request error for requestId=$requestId: $errorMessage")
+            mentionsRequests.remove(requestId)
+            isMentionsLoading = false
+            mentionEvents = emptyList()
         } else if (mutualRoomsRequests.containsKey(requestId)) {
             android.util.Log.w("Andromuks", "AppViewModel: Mutual rooms error for requestId=$requestId: $errorMessage")
             val callback = mutualRoomsRequests.remove(requestId) ?: return
@@ -15876,6 +15914,169 @@ class AppViewModel : ViewModel() {
                         callback(null)
                     }
                 }
+            }
+        }
+    }
+    
+    /**
+     * Request mentions list from backend
+     * @param maxTimestamp Timestamp to get mentions before this time (defaults to current time)
+     * @param limit Maximum number of mentions to return (default 50)
+     */
+    fun requestMentionsList(maxTimestamp: Long? = null, limit: Int = 50) {
+        val actualMaxTimestamp = maxTimestamp ?: System.currentTimeMillis()
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: requestMentionsList called with maxTimestamp=$actualMaxTimestamp, limit=$limit")
+        
+        val ws = webSocket ?: run {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected - cannot request mentions list")
+            return
+        }
+        
+        val mentionsRequestId = requestIdCounter++
+        mentionsRequests[mentionsRequestId] = Unit
+        
+        isMentionsLoading = true
+        
+        val commandData = mapOf<String, Any>(
+            "type" to 4, // Mention type (from backend)
+            "limit" to limit,
+            "max_timestamp" to actualMaxTimestamp
+        )
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sending get_mentions command with request_id=$mentionsRequestId, data=$commandData")
+        sendWebSocketCommand("get_mentions", mentionsRequestId, commandData)
+        
+        // Add timeout mechanism
+        viewModelScope.launch(Dispatchers.IO) {
+            val timeoutMs = 15000L // 15 second timeout
+            delay(timeoutMs)
+            
+            if (mentionsRequests.containsKey(mentionsRequestId)) {
+                android.util.Log.w("Andromuks", "AppViewModel: get_mentions timeout after ${timeoutMs}ms for requestId=$mentionsRequestId")
+                withContext(Dispatchers.Main) {
+                    mentionsRequests.remove(mentionsRequestId)
+                    isMentionsLoading = false
+                }
+            }
+        }
+    }
+    
+    /**
+     * Handle mentions list response from backend
+     */
+    private fun handleMentionsListResponse(requestId: Int, data: Any) {
+        mentionsRequests.remove(requestId)
+        isMentionsLoading = false
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Handling mentions list response for requestId: $requestId")
+        
+        when (data) {
+            is org.json.JSONArray -> {
+                // Parse array of event JSON objects
+                val events = mutableListOf<TimelineEvent>()
+                for (i in 0 until data.length()) {
+                    val eventJson = data.optJSONObject(i) ?: continue
+                    try {
+                        val event = TimelineEvent.fromJson(eventJson)
+                        events.add(event)
+                    } catch (e: Exception) {
+                        android.util.Log.e("Andromuks", "AppViewModel: Error parsing mention event at index $i: ${e.message}", e)
+                    }
+                }
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsed ${events.size} mention events from response")
+                
+                // Process events and fetch reply targets if needed
+                processMentionEvents(events)
+            }
+            else -> {
+                android.util.Log.w("Andromuks", "AppViewModel: Unexpected data type in mentions list response: ${data::class.java.simpleName}")
+                mentionEvents = emptyList()
+            }
+        }
+    }
+    
+    /**
+     * Process mention events: convert to MentionEvent objects and fetch reply targets
+     */
+    private fun processMentionEvents(events: List<TimelineEvent>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val mentionEventList = mutableListOf<MentionEvent>()
+            val replyTargetsToFetch = mutableListOf<Pair<String, String>>() // (roomId, eventId)
+            
+            // First pass: create MentionEvent objects and collect reply targets
+            for (event in events) {
+                val roomId = event.roomId
+                val room = getRoomById(roomId)
+                val roomName = room?.name
+                val roomAvatarUrl = room?.avatarUrl
+                
+                // Check if this event is a reply
+                val replyToEventId = event.content?.optJSONObject("m.relates_to")?.optJSONObject("m.in_reply_to")?.optString("event_id")
+                    ?: event.decrypted?.optJSONObject("m.relates_to")?.optJSONObject("m.in_reply_to")?.optString("event_id")
+                
+                if (replyToEventId != null) {
+                    replyTargetsToFetch.add(Pair(roomId, replyToEventId))
+                }
+                
+                mentionEventList.add(
+                    MentionEvent(
+                        mentionEntry = MentionEntry(roomId, event.eventId),
+                        event = event,
+                        roomName = roomName,
+                        roomAvatarUrl = roomAvatarUrl
+                    )
+                )
+            }
+            
+            // Fetch reply targets in parallel
+            val replyEventsMap = mutableMapOf<String, TimelineEvent?>() // "roomId:eventId" -> event
+            if (replyTargetsToFetch.isNotEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Fetching ${replyTargetsToFetch.size} reply target events")
+                
+                // Helper function to convert callback-based getEvent to suspend function
+                suspend fun fetchEvent(roomId: String, eventId: String): TimelineEvent? {
+                    val deferred = CompletableDeferred<TimelineEvent?>()
+                    getEvent(roomId, eventId) { event ->
+                        deferred.complete(event)
+                    }
+                    return deferred.await()
+                }
+                
+                val deferredResults = replyTargetsToFetch.map { (roomId, eventId) ->
+                    async {
+                        val key = "$roomId:$eventId"
+                        val replyEvent = withTimeoutOrNull(5000L) {
+                            fetchEvent(roomId, eventId)
+                        }
+                        key to replyEvent
+                    }
+                }
+                
+                // Wait for all requests to complete
+                deferredResults.awaitAll().forEach { (key, event) ->
+                    replyEventsMap[key] = event
+                }
+            }
+            
+            // Update mention events with reply targets
+            val finalMentionEvents = mentionEventList.map { mentionEvent ->
+                val replyToEventId = mentionEvent.event.content?.optJSONObject("m.relates_to")?.optJSONObject("m.in_reply_to")?.optString("event_id")
+                    ?: mentionEvent.event.decrypted?.optJSONObject("m.relates_to")?.optJSONObject("m.in_reply_to")?.optString("event_id")
+                
+                if (replyToEventId != null) {
+                    val key = "${mentionEvent.event.roomId}:$replyToEventId"
+                    val replyEvent = replyEventsMap[key]
+                    mentionEvent.copy(replyToEvent = replyEvent)
+                } else {
+                    mentionEvent
+                }
+            }
+            
+            // Update mentionEvents on main thread
+            withContext(Dispatchers.Main) {
+                mentionEvents = finalMentionEvents
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated mentionEvents with ${finalMentionEvents.size} events")
             }
         }
     }

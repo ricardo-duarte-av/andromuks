@@ -48,7 +48,8 @@ enum class RoomSectionType {
     SPACES,
     DIRECT_CHATS,
     UNREAD,
-    FAVOURITES
+    FAVOURITES,
+    MENTIONS
 }
 
 @Immutable

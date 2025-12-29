@@ -115,6 +115,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Tag
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
@@ -823,6 +824,20 @@ fun RoomListScreen(
                     }
                 }
                 
+                // Mentions button (Bell icon)
+                IconButton(
+                    onClick = { 
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        navController.navigate("mentions") 
+                    }
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Notifications,
+                        contentDescription = "Mentions",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                
                 // Settings button
                 IconButton(
                     onClick = { 
@@ -1059,6 +1074,20 @@ fun RoomListScreen(
                                     // Invites are now handled in RoomListScreen, not here
                                 }
                             )
+                        }
+                        RoomSectionType.MENTIONS -> {
+                            // Mentions are accessed via the header button, not through tabs
+                            // Show empty state (should not normally be reached)
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Use the bell icon in the header to view mentions",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }

@@ -830,6 +830,13 @@ fun AppNavigation(
                 navController = navController
             )
         }
+        composable("mentions") {
+            MentionsScreen(
+                appViewModel = appViewModel,
+                navController = navController,
+                modifier = modifier
+            )
+        }
         composable("room_disk_stats") {
             RoomDiskStatsScreen(
                 appViewModel = appViewModel,

@@ -213,6 +213,10 @@ class CarRoomListScreen(
                             // DIRECT: only direct messages
                             if (roomState?.isDirect != true) return@mapNotNull null
                         }
+                        RoomSectionType.MENTIONS -> {
+                            // MENTIONS: exclude from car screen (handled by main app)
+                            return@mapNotNull null
+                        }
                         RoomSectionType.UNREAD -> {
                             // UNREAD: only rooms with unread or highlights
                             if ((summary.unreadCount ?: 0) == 0 && (summary.highlightCount ?: 0) == 0) {
@@ -391,6 +395,7 @@ class CarRoomListScreen(
                 RoomSectionType.UNREAD -> "Unread"
                 RoomSectionType.FAVOURITES -> "Favourites"
                 RoomSectionType.SPACES -> "Spaces" // Should not appear, handled by CarSpacesListScreen
+                RoomSectionType.MENTIONS -> "Mentions"
             }
         }
         
