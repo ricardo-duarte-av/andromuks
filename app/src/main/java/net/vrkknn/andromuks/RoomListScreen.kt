@@ -164,6 +164,15 @@ fun RoomListScreen(
     var initialLoadComplete by remember { mutableStateOf(false) }
     val listStates = remember { mutableMapOf<RoomSectionType, LazyListState>() }
     var missingTimestampsHydrated by remember { mutableStateOf(false) }
+    
+    // PERFORMANCE FIX: Smart timestamp updates - only update when displayed unit changes
+    // New format: Today shows hh:mm, Yesterday shows "Yesterday", older shows "2d ago", "1w ago", "1y ago"
+    // Update intervals:
+    //   - Every 1 minute for today's messages (hh:mm format changes every minute)
+    //   - Every 1 day for yesterday and older messages (transitions happen daily)
+    // This dramatically reduces recompositions while keeping timestamps reasonably fresh.
+    // Declared early so it can be used in LaunchedEffect blocks below
+    var smartTimestampUpdateCounter by remember { mutableStateOf(0) }
 
     // Ensure cached data and pending items are applied after cold start/activity recreation.
     // CRITICAL FIX: Don't call refreshUIFromCache() here - it rebuilds allRooms from roomMap
@@ -541,6 +550,10 @@ fun RoomListScreen(
             stableSection = refreshedSnapshot
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Refreshed section from database on return - ${refreshedSnapshot.rooms.size} rooms")
         }
+        
+        // Force timestamp update when returning to room list or starting app
+        // This ensures timestamps are immediately up-to-date when user views the list
+        smartTimestampUpdateCounter++
     }
     
     // CRITICAL FIX #2: Wait for WebSocket connection and spacesLoaded before navigating from shortcuts/notifications
@@ -667,8 +680,51 @@ fun RoomListScreen(
         }
     }
     
-    // Get timestamp update counter from AppViewModel
-    val timestampUpdateTrigger = uiState.timestampUpdateCounter
+    // Determine update interval based on the newest message in the current section
+    val updateInterval = remember(displayedSection.rooms) {
+        val now = System.currentTimeMillis()
+        val today = java.util.Date(now)
+        val todayCalendar = java.util.Calendar.getInstance()
+        todayCalendar.time = today
+        
+        val newestTimestamp = displayedSection.rooms
+            .mapNotNull { it.sortingTimestamp }
+            .filter { it > 0 }
+            .maxOrNull() ?: 0L
+        
+        if (newestTimestamp == 0L) {
+            86_400_000L // Default to daily if no timestamps
+        } else {
+            val eventDate = java.util.Date(newestTimestamp)
+            val eventCalendar = java.util.Calendar.getInstance()
+            eventCalendar.time = eventDate
+            
+            // Check if newest message is from today
+            val isToday = eventCalendar.get(java.util.Calendar.YEAR) == todayCalendar.get(java.util.Calendar.YEAR) &&
+                          eventCalendar.get(java.util.Calendar.DAY_OF_YEAR) == todayCalendar.get(java.util.Calendar.DAY_OF_YEAR)
+            
+            if (isToday) {
+                60_000L // Update every minute for today's messages (hh:mm format)
+            } else {
+                86_400_000L // Update daily for yesterday and older messages
+            }
+        }
+    }
+    
+    // Single shared timer that updates at the appropriate interval
+    // When rooms change, the interval recalculates and timer restarts
+    LaunchedEffect(displayedSection.rooms, updateInterval) {
+        while (true) {
+            delay(updateInterval)
+            smartTimestampUpdateCounter++
+        }
+    }
+    
+    // Force timestamp update when section type changes (tab switch)
+    // This ensures timestamps are immediately refreshed when switching between Home/Spaces/Direct/etc.
+    LaunchedEffect(displayedSection.type) {
+        smartTimestampUpdateCounter++
+    }
     
     // Pull-to-refresh state
     var refreshing by remember { mutableStateOf(false) }
@@ -995,7 +1051,7 @@ fun RoomListScreen(
                                 appViewModel = appViewModel,
                                 authToken = authToken,
                                 navController = navController,
-                                timestampUpdateTrigger = timestampUpdateTrigger,
+                                timestampUpdateTrigger = smartTimestampUpdateCounter,
                                 hapticFeedback = hapticFeedback,
                                 listState = currentListState,
                                 onInviteClick = { 
@@ -1011,7 +1067,7 @@ fun RoomListScreen(
                                     appViewModel = appViewModel,
                                     authToken = authToken,
                                     navController = navController,
-                                    timestampUpdateTrigger = timestampUpdateTrigger,
+                                    timestampUpdateTrigger = smartTimestampUpdateCounter,
                                     hapticFeedback = hapticFeedback,
                                     listState = currentListState,
                                     onInviteClick = { invite ->
@@ -1037,7 +1093,7 @@ fun RoomListScreen(
                                 appViewModel = appViewModel,
                                 authToken = authToken,
                                 navController = navController,
-                                timestampUpdateTrigger = timestampUpdateTrigger,
+                                timestampUpdateTrigger = smartTimestampUpdateCounter,
                                 hapticFeedback = hapticFeedback,
                                 listState = currentListState,
                                 onInviteClick = { 
@@ -1052,7 +1108,7 @@ fun RoomListScreen(
                                 appViewModel = appViewModel,
                                 authToken = authToken,
                                 navController = navController,
-                                timestampUpdateTrigger = timestampUpdateTrigger,
+                                timestampUpdateTrigger = smartTimestampUpdateCounter,
                                 hapticFeedback = hapticFeedback,
                                 listState = currentListState,
                                 onInviteClick = { 
@@ -1067,7 +1123,7 @@ fun RoomListScreen(
                                 appViewModel = appViewModel,
                                 authToken = authToken,
                                 navController = navController,
-                                timestampUpdateTrigger = timestampUpdateTrigger,
+                                timestampUpdateTrigger = smartTimestampUpdateCounter,
                                 hapticFeedback = hapticFeedback,
                                 listState = currentListState,
                                 onInviteClick = { 
@@ -1099,6 +1155,9 @@ fun RoomListScreen(
                 onSectionSelected = { section ->
                     hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
                     appViewModel.changeSelectedSection(section)
+                    // Force timestamp update when switching tabs
+                    // This ensures timestamps are immediately up-to-date when user switches sections
+                    smartTimestampUpdateCounter++
                 },
                 appViewModel = appViewModel
             )
@@ -1270,6 +1329,8 @@ fun RoomListItem(
     var showContextMenu by remember { mutableStateOf(false) }
     
     // PERFORMANCE: Remember computed timestamp to avoid recalculation unless it actually changes
+    // The timestampUpdateTrigger now updates at smart intervals (1s for recent, 1m for older, etc.)
+    // This prevents expensive recompositions every second for all rooms
     val timeAgo = remember(room.sortingTimestamp, timestampUpdateTrigger) {
         formatTimeAgo(room.sortingTimestamp)
     }
@@ -1638,14 +1699,46 @@ fun formatTimeAgo(timestamp: Long?): String {
     if (timestamp == null || timestamp <= 0L) return ""
     
     val now = System.currentTimeMillis()
-    val diff = now - timestamp
+    val eventDate = java.util.Date(timestamp)
+    val today = java.util.Date(now)
+    
+    val eventCalendar = java.util.Calendar.getInstance()
+    val todayCalendar = java.util.Calendar.getInstance()
+    val yesterdayCalendar = java.util.Calendar.getInstance()
+    
+    eventCalendar.time = eventDate
+    todayCalendar.time = today
+    yesterdayCalendar.time = today
+    yesterdayCalendar.add(java.util.Calendar.DAY_OF_YEAR, -1)
+    
+    // Check if it's today
+    val isToday = eventCalendar.get(java.util.Calendar.YEAR) == todayCalendar.get(java.util.Calendar.YEAR) &&
+                  eventCalendar.get(java.util.Calendar.DAY_OF_YEAR) == todayCalendar.get(java.util.Calendar.DAY_OF_YEAR)
+    
+    // Check if it's yesterday
+    val isYesterday = eventCalendar.get(java.util.Calendar.YEAR) == yesterdayCalendar.get(java.util.Calendar.YEAR) &&
+                      eventCalendar.get(java.util.Calendar.DAY_OF_YEAR) == yesterdayCalendar.get(java.util.Calendar.DAY_OF_YEAR)
     
     return when {
-        diff < 60_000 -> "${diff / 1000}s" // Less than 1 minute: show seconds
-        diff < 3_600_000 -> "${diff / 60_000}m" // Less than 1 hour: show minutes
-        diff < 86_400_000 -> "${diff / 3_600_000}h" // Less than 1 day: show hours
-        diff < 604_800_000 -> "${diff / 86_400_000}d" // Less than 1 week: show days
-        else -> "${diff / 604_800_000}w" // More than 1 week: show weeks
+        isToday -> {
+            // Show time in hh:mm format for today
+            val timeFormatter = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            timeFormatter.format(eventDate)
+        }
+        isYesterday -> "Yesterday"
+        else -> {
+            // Calculate days, weeks, or years ago
+            val diff = now - timestamp
+            val daysAgo = (diff / 86_400_000).toInt()
+            val weeksAgo = daysAgo / 7
+            val yearsAgo = daysAgo / 365
+            
+            when {
+                yearsAgo > 0 -> "${yearsAgo}y ago"
+                weeksAgo > 0 -> "${weeksAgo}w ago"
+                else -> "${daysAgo}d ago"
+            }
+        }
     }
 }
 
