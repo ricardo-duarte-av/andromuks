@@ -14,10 +14,10 @@ android {
         applicationId = "pt.aguiarvieira.andromuks"
         minSdk = 24
         targetSdk = 36
-        //versionCode = 1
-        //versionName = "1.0"
-        versionCode = (System.getenv("BUILD_NUMBER")?.toIntOrNull() ?: 1)
-        versionName = "1.0"
+        // Increment versionCode for each release (must be higher than previous version)
+        versionCode = (System.getenv("BUILD_NUMBER")?.toIntOrNull() ?: 2)
+        // Update versionName for each release (e.g., 1.0, 1.1, 1.2, 2.0)
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
