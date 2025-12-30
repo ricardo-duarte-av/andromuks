@@ -47,7 +47,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.calculateTopPadding
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavController
 import java.text.SimpleDateFormat
