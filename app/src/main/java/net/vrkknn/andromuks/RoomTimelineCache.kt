@@ -9,25 +9,27 @@ import net.vrkknn.andromuks.BuildConfig
  * RoomTimelineCache - Singleton cache for timeline events from sync_complete messages
  * 
  * This singleton stores timeline events received via sync_complete for all rooms.
- * When opening a room, if we have enough cached events (>= target count),
- * we can render immediately without waiting for a paginate request.
+ * All rooms have unlimited events (no per-room limits) and LRU eviction removes
+ * entire rooms when RAM usage exceeds MAX_CACHE_MEMORY_MB.
+ * 
+ * Cache Management:
+ * - Currently opened rooms: unlimited events, exempt from eviction
+ * - All other rooms: unlimited events, subject to LRU eviction when RAM threshold exceeded
+ * - When a room is evicted, all its events are cleared (we can paginate again if needed)
  * 
  * Benefits:
- * - Instant room opening if events are already in cache
- * - Reduces unnecessary paginate requests
+ * - No artificial event limits - cache as much as RAM allows
+ * - LRU-based eviction prevents OOM while preserving active rooms
  * - Better UX with always-on WebSocket
  * - Persistent across AppViewModel instances (crucial for shortcut navigation)
  */
 object RoomTimelineCache {
     private const val TAG = "RoomTimelineCache"
-    // Adaptive per-room event limits to prevent OOM
-    private const val BASE_EVENT_LIMIT = 200 // Base limit for most rooms
-    private const val INACTIVE_ROOM_EVENT_LIMIT = 100 // Limit for rooms not accessed recently
-    // Currently opened room: unlimited (no limit) - allows full pagination
-    private const val RECENT_ACCESS_THRESHOLD_MS = 5 * 60 * 1000L // 5 minutes - considered "recently accessed"
     
-    private const val TARGET_EVENTS_FOR_INSTANT_RENDER = 50 // Minimum events to skip paginate
-    private const val MAX_ROOMS_IN_CACHE = 30 // Limit number of rooms kept in RAM at once
+    // RAM-based cache management: Maximum memory usage for timeline cache (in MB)
+    // LRU eviction will purge entire rooms when this threshold is exceeded
+    // Default: 100MB (conservative to prevent OOM, can be adjusted)
+    private var MAX_CACHE_MEMORY_MB = 100L // Configurable variable
     
     // Track currently opened rooms (unlimited events allowed, exempt from cache clearing on reconnect)
     // Supports multiple rooms (e.g., RoomTimelineScreen + BubbleTimelineScreen)
@@ -41,17 +43,40 @@ object RoomTimelineCache {
     )
 
     // Per-room cache: roomId -> RoomCache
+    // Uses LRU eviction based on RAM usage instead of room count
     private val roomEventsCache = object : LinkedHashMap<String, RoomCache>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, RoomCache>?): Boolean {
-            val shouldRemove = size > MAX_ROOMS_IN_CACHE
-            if (shouldRemove && eldest != null) {
-                if (BuildConfig.DEBUG) Log.d(TAG, "Evicting room ${eldest.key} from timeline cache (max rooms $MAX_ROOMS_IN_CACHE)")
+            if (eldest == null) return false
+            
+            // Don't evict currently opened rooms (exempt from eviction)
+            if (isRoomOpened(eldest.key)) {
+                return false
+            }
+            
+            // Check if cache memory usage exceeds threshold
+            val currentMemoryUsageMB = estimateCacheMemoryUsageMB()
+            if (currentMemoryUsageMB > MAX_CACHE_MEMORY_MB) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Evicting room ${eldest.key} from timeline cache (RAM usage: ${currentMemoryUsageMB}MB > ${MAX_CACHE_MEMORY_MB}MB limit)")
+                }
                 roomsInitialized.remove(eldest.key)
                 eldest.value.events.clear()
                 eldest.value.eventIds.clear()
+                return true
             }
-            return shouldRemove
+            
+            return false
         }
+    }
+    
+    /**
+     * Estimate current cache memory usage in MB
+     * Rough estimate: ~1.5KB per TimelineEvent
+     */
+    private fun estimateCacheMemoryUsageMB(): Long {
+        val totalEvents = roomEventsCache.values.sumOf { it.events.size }
+        val estimatedBytes = (totalEvents * 1.5 * 1024).toLong() // 1.5KB per event, convert to Long
+        return estimatedBytes / (1024 * 1024) // Convert to MB (result is Long)
     }
     
     // Track which rooms have received their initial paginate (to avoid duplicate caching)
@@ -119,51 +144,6 @@ object RoomTimelineCache {
         }
     }
 
-    /**
-     * Get the event limit for a specific room based on its status
-     */
-    private fun getEventLimitForRoom(roomId: String): Int? {
-        return when {
-            // Currently opened room: unlimited
-            isRoomOpened(roomId) -> null
-            // Recently accessed room: base limit
-            isRecentlyAccessed(roomId) -> BASE_EVENT_LIMIT
-            // Not accessed recently: reduced limit
-            else -> INACTIVE_ROOM_EVENT_LIMIT
-        }
-    }
-
-    /**
-     * Check if a room was accessed recently (within threshold)
-     */
-    private fun isRecentlyAccessed(roomId: String): Boolean {
-        val cache = roomEventsCache[roomId] ?: return false
-        val timeSinceAccess = System.currentTimeMillis() - cache.lastAccessedAt
-        return timeSinceAccess < RECENT_ACCESS_THRESHOLD_MS
-    }
-
-    /**
-     * Evict oldest events from cache to enforce limit (keeps newest events)
-     */
-    private fun evictOldestEvents(cache: RoomCache, limit: Int) {
-        if (cache.events.size <= limit) return
-
-        val eventsToRemove = cache.events.size - limit
-        if (BuildConfig.DEBUG) {
-            Log.d(TAG, "Evicting $eventsToRemove oldest events (limit=$limit, current=${cache.events.size})")
-        }
-
-        // Remove oldest events (first in sorted list) - keep newest events
-        val eventsToEvict = cache.events.take(eventsToRemove)
-        for (event in eventsToEvict) {
-            cache.eventIds.remove(event.eventId)
-        }
-        cache.events.removeAll(eventsToEvict)
-
-        if (BuildConfig.DEBUG) {
-            Log.d(TAG, "After eviction: ${cache.events.size} events remaining (limit=$limit)")
-        }
-    }
 
     /**
      * Adds events into the in-memory cache for a room. Performs deduplication, keeps events ordered
@@ -217,15 +197,10 @@ object RoomTimelineCache {
             }
         }
 
-        // ADAPTIVE LIMITS: Enforce per-room event limits based on room status
-        // - Currently opened room: unlimited (null = no limit)
-        // - Recently accessed: BASE_EVENT_LIMIT (200)
-        // - Not accessed recently: INACTIVE_ROOM_EVENT_LIMIT (100)
-        val eventLimit = getEventLimitForRoom(roomId)
-        if (eventLimit != null) {
-            evictOldestEvents(cache, eventLimit)
-        } else if (BuildConfig.DEBUG) {
-            Log.d(TAG, "Room $roomId is currently opened - no event limit enforced (${cache.events.size} events)")
+        // No per-room event limits - rely on LRU eviction based on RAM usage
+        // All rooms have unlimited events (LRU evicts entire rooms when RAM threshold exceeded)
+        if (BuildConfig.DEBUG && cache.events.size > 1000) {
+            Log.d(TAG, "Room $roomId cache now has ${cache.events.size} events (unlimited, LRU-based eviction)")
         }
 
         return addedCount
@@ -270,60 +245,57 @@ object RoomTimelineCache {
      */
     /**
      * Mark a room as accessed (updates lastAccessedAt for LRU eviction)
-     * Also enforces event limits if room is no longer current or recently accessed
+     * No event limits are enforced - all rooms have unlimited events
+     * LRU eviction removes entire rooms when RAM threshold is exceeded
      */
     fun markRoomAccessed(roomId: String) {
         val cache = roomEventsCache[roomId] ?: return
         cache.lastAccessedAt = System.currentTimeMillis()
         // Accessing the map also updates LinkedHashMap order for LRU
-        
-        // Enforce limits when room is accessed (may have changed status)
-        val eventLimit = getEventLimitForRoom(roomId)
-        if (eventLimit != null) {
-            evictOldestEvents(cache, eventLimit)
-        }
+        // No event limits - rely on RAM-based LRU eviction of entire rooms
     }
     
     fun getCachedEvents(roomId: String): List<TimelineEvent>? {
         val cache = roomEventsCache[roomId] ?: return null
         
+        // CRITICAL FIX: Ensure room is marked as opened BEFORE retrieving events
+        // This prevents event eviction if the room was just opened but wasn't in the opened set yet
+        // (e.g., due to race conditions or ordering issues)
+        if (!isRoomOpened(roomId)) {
+            addOpenedRoom(roomId)
+            if (BuildConfig.DEBUG) Log.d(TAG, "getCachedEvents: Room $roomId was not in opened set, added it to prevent event eviction")
+        }
+        
         // Mark room as accessed for LRU eviction
         cache.lastAccessedAt = System.currentTimeMillis()
         
-        return if (cache.events.size >= TARGET_EVENTS_FOR_INSTANT_RENDER) {
+        // Return a copy of cached events if available (no minimum threshold)
+        // If cache is empty, return null so caller can paginate
+        return if (cache.events.isNotEmpty()) {
+            val eventsCopy = cache.events.toList()
             if (BuildConfig.DEBUG) {
-                val firstEvent = cache.events.firstOrNull()
-                val lastEvent = cache.events.lastOrNull()
-                if (BuildConfig.DEBUG) Log.d(
+                val firstEvent = eventsCopy.firstOrNull()
+                val lastEvent = eventsCopy.lastOrNull()
+                Log.d(
                     TAG,
-                    "Cache hit for room $roomId: ${cache.events.size} events available (>= $TARGET_EVENTS_FOR_INSTANT_RENDER). " +
+                    "Cache hit for room $roomId: ${eventsCopy.size} events available. " +
                     "first=${firstEvent?.eventId}@${firstEvent?.timestamp}, last=${lastEvent?.eventId}@${lastEvent?.timestamp}"
                 )
-            } else {
-                if (BuildConfig.DEBUG) Log.d(TAG, "Cache hit for room $roomId: ${cache.events.size} events available (>= $TARGET_EVENTS_FOR_INSTANT_RENDER)")
             }
-            cache.events.toList() // Return a copy
+            eventsCopy
         } else {
-            if (BuildConfig.DEBUG) Log.d(TAG, "Cache miss for room $roomId: only ${cache.events.size} events (need >= $TARGET_EVENTS_FOR_INSTANT_RENDER)")
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cache miss for room $roomId: no events cached")
             null
         }
     }
     
     /**
      * Get cached events for a room with lower threshold for notification scenarios
-     * Returns cached events if there are at least 10 events, null otherwise
-     * This helps avoid loading spinners when opening rooms from notifications
+     * Returns cached events if available, null otherwise (same as getCachedEvents)
      */
     fun getCachedEventsForNotification(roomId: String): List<TimelineEvent>? {
-        val cache = roomEventsCache[roomId] ?: return null
-        
-        return if (cache.events.size >= 10) { // Lower threshold for notification scenarios
-            if (BuildConfig.DEBUG) Log.d(TAG, "Cache hit for notification room $roomId: ${cache.events.size} events available (>= 10)")
-            cache.events.toList() // Return a copy
-        } else {
-            if (BuildConfig.DEBUG) Log.d(TAG, "Cache miss for notification room $roomId: only ${cache.events.size} events (need >= 10)")
-            null
-        }
+        // Same behavior as getCachedEvents - no minimum threshold
+        return getCachedEvents(roomId)
     }
     
     data class CachedEventMetadata(
@@ -439,11 +411,13 @@ object RoomTimelineCache {
     }
     
     /**
-     * Check if we have some cached events but not enough for instant render
+     * Check if we have some cached events (deprecated - no longer used with unlimited cache)
+     * Always returns false since we no longer have partial cache concept
      */
+    @Deprecated("No longer used - all cached events are available, paginate if cache is empty")
     fun hasPartialCache(roomId: String): Boolean {
-        val count = getCachedEventCount(roomId)
-        return count in 10 until TARGET_EVENTS_FOR_INSTANT_RENDER
+        // No partial cache concept - either we have events or we don't
+        return false
     }
     
     /**
