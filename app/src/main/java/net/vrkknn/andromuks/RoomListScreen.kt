@@ -13,7 +13,11 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -24,6 +28,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -862,13 +867,52 @@ fun RoomListScreen(
                 )
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = me?.displayName ?: appViewModel.currentUserId.ifBlank { "Profile" },
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = me?.displayName ?: appViewModel.currentUserId.ifBlank { "Profile" },
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        // PHASE 1: Pulsing processing indicator - show when sync is processing OR when room list is updating
+                        var showSyncIndicator by remember { mutableStateOf(false) }
+                        LaunchedEffect(uiState.roomListUpdateCounter) {
+                            if (uiState.roomListUpdateCounter > 0) {
+                                showSyncIndicator = true
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Showing sync indicator (counter=${uiState.roomListUpdateCounter})")
+                                kotlinx.coroutines.delay(2000) // Show for 2 seconds to be more visible
+                                showSyncIndicator = false
+                            }
+                        }
+                        AnimatedVisibility(
+                            visible = uiState.isProcessingPendingItems || showSyncIndicator,
+                            enter = fadeIn(animationSpec = tween(200)) + scaleIn(initialScale = 0.5f, animationSpec = tween(200)),
+                            exit = fadeOut(animationSpec = tween(200)) + scaleOut(targetScale = 0.5f, animationSpec = tween(200))
+                        ) {
+                            val infiniteTransition = rememberInfiniteTransition(label = "sync_pulse")
+                            val alpha by infiniteTransition.animateFloat(
+                                initialValue = 0.3f,
+                                targetValue = 1f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(1000, easing = FastOutSlowInEasing),
+                                    repeatMode = RepeatMode.Reverse
+                                ),
+                                label = "sync_pulse_alpha"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp) // Made slightly larger for visibility
+                                    .background(
+                                        MaterialTheme.colorScheme.primary.copy(alpha = alpha),
+                                        CircleShape
+                                    )
+                            )
+                        }
+                    }
                     if (!me?.displayName.isNullOrBlank() && appViewModel.currentUserId.isNotBlank()) {
                         Text(
                             text = appViewModel.currentUserId,
@@ -1434,19 +1478,55 @@ fun RoomListItem(
                                 )
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
-                            // Only show text if there are unreads
+                            // PHASE 1: Animated badge count changes
                             if (room.highlightCount != null && room.highlightCount > 0) {
-                                Text(
-                                    text = room.highlightCount.toString(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onError
-                                )
+                                AnimatedContent(
+                                    targetState = room.highlightCount,
+                                    transitionSpec = {
+                                        if (targetState > initialState) {
+                                            // Count increased - slide up and fade in
+                                            slideInVertically { height -> height } + fadeIn() togetherWith
+                                            slideOutVertically { height -> -height } + fadeOut()
+                                        } else {
+                                            // Count decreased - slide down and fade out
+                                            slideInVertically { height -> -height } + fadeIn() togetherWith
+                                            slideOutVertically { height -> height } + fadeOut()
+                                        }.using(
+                                            SizeTransform(clip = false)
+                                        )
+                                    },
+                                    label = "badge_count_highlight"
+                                ) { count ->
+                                    Text(
+                                        text = count.toString(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onError
+                                    )
+                                }
                             } else if (room.unreadCount != null && room.unreadCount > 0) {
-                                Text(
-                                    text = room.unreadCount.toString(),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onPrimary
-                                )
+                                AnimatedContent(
+                                    targetState = room.unreadCount,
+                                    transitionSpec = {
+                                        if (targetState > initialState) {
+                                            // Count increased - slide up and fade in
+                                            slideInVertically { height -> height } + fadeIn() togetherWith
+                                            slideOutVertically { height -> -height } + fadeOut()
+                                        } else {
+                                            // Count decreased - slide down and fade out
+                                            slideInVertically { height -> -height } + fadeIn() togetherWith
+                                            slideOutVertically { height -> height } + fadeOut()
+                                        }.using(
+                                            SizeTransform(clip = false)
+                                        )
+                                    },
+                                    label = "badge_count_unread"
+                                ) { count ->
+                                    Text(
+                                        text = count.toString(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
                             } else {
                                 // Invisible placeholder to maintain consistent height
                                 Text(
@@ -1893,6 +1973,11 @@ fun RoomListContent(
 ) {
     val context = LocalContext.current
     
+    // PHASE 1: Track updated rooms for highlighting - track BEFORE debouncing
+    val roomListUpdateCounter = appViewModel.roomListUpdateCounter
+    val highlightedRooms = remember { mutableStateMapOf<String, Long>() } // roomId -> highlight start time
+    val previousRoomStates = remember { mutableStateMapOf<String, Triple<Int?, Int?, Long?>>() } // roomId -> (unreadCount, highlightCount, timestamp)
+    
     // Handle Android back key when inside a space
     androidx.activity.compose.BackHandler(enabled = appViewModel.currentSpaceId != null) {
         if (appViewModel.currentSpaceId != null) {
@@ -1910,6 +1995,41 @@ fun RoomListContent(
             }
         }
     }
+    
+    // PHASE 1: Track which rooms were updated when counter changes - use filteredRooms (before debounce) to catch changes immediately
+    LaunchedEffect(roomListUpdateCounter, filteredRooms.map { "${it.id}:${it.unreadCount}:${it.highlightCount}:${it.sortingTimestamp}" }.joinToString()) {
+        val now = System.currentTimeMillis()
+        val currentRoomStates = filteredRooms.associate { room ->
+            room.id to Triple(room.unreadCount, room.highlightCount, room.sortingTimestamp)
+        }
+        
+        // Find rooms that changed (unread count, highlight count, or timestamp changed)
+        val updatedRoomIds = currentRoomStates.keys.filter { roomId ->
+            val current = currentRoomStates[roomId]
+            val previous = previousRoomStates[roomId]
+            current != previous // Room state changed
+        }
+        
+        // Mark updated rooms as highlighted
+        if (updatedRoomIds.isNotEmpty()) {
+            updatedRoomIds.forEach { roomId ->
+                highlightedRooms[roomId] = now
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Highlighting ${updatedRoomIds.size} updated rooms: ${updatedRoomIds.take(5).joinToString()}")
+        } else if (BuildConfig.DEBUG && roomListUpdateCounter > 0) {
+            android.util.Log.d("Andromuks", "RoomListScreen: No rooms changed (counter=$roomListUpdateCounter, rooms=${filteredRooms.size})")
+        }
+        
+        // Update previous states
+        previousRoomStates.clear()
+        previousRoomStates.putAll(currentRoomStates)
+        
+        // Clean up old highlights (older than 2 seconds) - run periodically
+        kotlinx.coroutines.delay(500)
+        val cutoffTime = System.currentTimeMillis() - 2000
+        highlightedRooms.entries.removeAll { entry -> entry.value < cutoffTime }
+    }
+    
     // Debounced, meaningful-diff snapshot for the displayed rooms to reduce flicker.
     // We hash the fields that matter for rendering/sorting; unchanged hash => skip swap.
     var debouncedRooms by remember { mutableStateOf(filteredRooms) }
@@ -1981,6 +2101,27 @@ fun RoomListContent(
             val roomIdForNavigation = room.id
             
             Column {
+                // PHASE 1: Add highlight effect for updated rooms - make it more visible
+                val isHighlighted = highlightedRooms.containsKey(room.id)
+                val highlightKey = highlightedRooms[room.id] // Use timestamp as key to reset animation
+                // Animate highlight: fade from 0.6 to 0 over 2 seconds when room is highlighted
+                var highlightTarget by remember(highlightKey) { mutableStateOf(0f) }
+                LaunchedEffect(highlightKey) {
+                    if (highlightKey != null) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Starting highlight animation for room ${room.id}")
+                        highlightTarget = 0.6f // Start at 0.6 (more visible)
+                        kotlinx.coroutines.delay(50) // Small delay to ensure animation starts
+                        highlightTarget = 0f // Fade to 0
+                    } else {
+                        highlightTarget = 0f
+                    }
+                }
+                val highlightAlpha = androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = highlightTarget,
+                    animationSpec = tween(2000, easing = FastOutSlowInEasing),
+                    label = "room_highlight_fade"
+                ).value
+                
                 RoomListItem(
                     room = room,
                     homeserverUrl = appViewModel.homeserverUrl,
@@ -2024,7 +2165,18 @@ fun RoomListContent(
                     },
                     timestampUpdateTrigger = timestampUpdateTrigger,
                     appViewModel = appViewModel,
-                    modifier = Modifier.animateContentSize(),
+                    modifier = Modifier
+                        .animateContentSize()
+                        .then(
+                            if (isHighlighted && highlightAlpha > 0f) {
+                                Modifier.background(
+                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.3f * highlightAlpha), // More visible color and alpha
+                                    RoundedCornerShape(12.dp) // Larger radius for visibility
+                                )
+                            } else {
+                                Modifier
+                            }
+                        ),
                     isEnabled = roomOpenInProgress == null || roomOpenInProgress == roomIdForNavigation
                 )
                 
