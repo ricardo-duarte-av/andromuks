@@ -368,45 +368,12 @@ class AppViewModel : ViewModel() {
     }
 
     /**
-     * Build a one-shot snapshot of the current section from DB-backed flows.
-     * UI can call this to avoid using in-memory caches.
+     * Build a one-shot snapshot of the current section from in-memory data.
+     * Room summaries are no longer persisted to DB - they're built in-memory from sync_complete.
      */
     suspend fun buildSectionSnapshot(): RoomSection {
-        if (BuildConfig.DEBUG) {
-            logRoomDbCounts()
-        }
-        hydrateMissingSummariesFromEventsIfNeeded()
-        return when (selectedSection) {
-            RoomSectionType.HOME -> {
-                val rooms = homeRoomsFlow().firstOrNull().orEmpty()
-                RoomSection(RoomSectionType.HOME, rooms)
-            }
-            RoomSectionType.DIRECT_CHATS -> {
-                val rooms = directRoomsFlow().firstOrNull().orEmpty()
-                RoomSection(RoomSectionType.DIRECT_CHATS, rooms, unreadCount = rooms.count { (it.unreadCount ?: 0) > 0 })
-            }
-            RoomSectionType.UNREAD -> {
-                val rooms = unreadRoomsFlow().firstOrNull().orEmpty()
-                RoomSection(RoomSectionType.UNREAD, rooms, unreadCount = rooms.size)
-            }
-            RoomSectionType.FAVOURITES -> {
-                val rooms = favouriteRoomsFlow().firstOrNull().orEmpty()
-                RoomSection(RoomSectionType.FAVOURITES, rooms)
-            }
-            RoomSectionType.SPACES -> {
-                if (currentSpaceId == null) {
-                    val spaces = topLevelSpacesFlow().firstOrNull().orEmpty()
-                    RoomSection(RoomSectionType.SPACES, rooms = emptyList(), spaces = spaces)
-                } else {
-                    val rooms = spaceChildRoomsFlow(currentSpaceId!!).firstOrNull().orEmpty()
-                    RoomSection(RoomSectionType.SPACES, rooms = rooms, spaces = emptyList())
-                }
-            }
-            RoomSectionType.MENTIONS -> {
-                // Mentions section doesn't show rooms in the list - it navigates to MentionsScreen
-                RoomSection(RoomSectionType.MENTIONS, rooms = emptyList())
-            }
-        }
+        // Use in-memory data directly - no DB queries needed
+        return getCurrentRoomSection()
     }
 
     /**
@@ -8631,43 +8598,27 @@ class AppViewModel : ViewModel() {
             )
         }
 
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                db.renderableEventDao().upsert(renderables)
-                updateRoomListSummaryFromRenderables(db, roomId, renderables)
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to persist renderable events for $roomId", e)
-            }
+        // Renderable events are no longer persisted - timeline is rendered from in-memory cache
+        // The UI uses timelineEvents directly, not renderableEventDao
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping renderable event persistence (using in-memory cache)")
         }
     }
 
     /**
-     * Renderable timeline stream for UI: newest-first slice, reordered ascending for display.
+     * @deprecated Renderable events are no longer persisted - use timelineEvents directly
      */
+    @Deprecated("Use timelineEvents directly - renderable events are no longer persisted")
     fun renderableTimelineFlow(roomId: String, limit: Int = 200): Flow<List<RenderableEventEntity>> {
-        val context = appContext?.applicationContext ?: return emptyFlow()
-        return net.vrkknn.andromuks.database.AndromuksDatabase
-            .getInstance(context)
-            .renderableEventDao()
-            .streamLatestForRoomDesc(roomId, limit)
-            .map { list -> list.sortedBy { it.timelineRowId } }
+        return emptyFlow() // No longer using renderable events - use timelineEvents directly
     }
 
     /**
-     * Snapshot helper: latest renderable events (ascending) for initial bind or tests.
+     * @deprecated Renderable events are no longer persisted - use timelineEvents directly
      */
+    @Deprecated("Use timelineEvents directly - renderable events are no longer persisted")
     suspend fun getRenderableTimeline(roomId: String, limit: Int = 200): List<RenderableEventEntity> {
-        val context = appContext?.applicationContext ?: return emptyList()
-        return withContext(Dispatchers.IO) {
-            val desc = net.vrkknn.andromuks.database.AndromuksDatabase
-                .getInstance(context)
-                .renderableEventDao()
-                .streamLatestForRoomDesc(roomId, limit)
-                .firstOrNull()
-                ?: emptyList()
-            desc.sortedBy { it.timelineRowId }
-        }
+        return emptyList() // No longer using renderable events - use timelineEvents directly
     }
 
     /**
@@ -8762,13 +8713,16 @@ class AppViewModel : ViewModel() {
     }
 
     /**
-     * Update room list summary from renderable head for a room.
+     * @deprecated Room summaries are no longer persisted - all data is in-memory only
      */
+    @Deprecated("Room summaries are no longer persisted - all data is in-memory only")
     private suspend fun updateRoomListSummaryFromRenderables(
         db: net.vrkknn.andromuks.database.AndromuksDatabase,
         roomId: String,
         renderables: List<RenderableEventEntity>
     ) {
+        // No-op - room summaries are no longer persisted
+        return
         if (renderables.isEmpty()) return
 
         // Pick the latest text message renderable; ignore state/joins/reactions so we don't show "m.room.member".
@@ -15461,161 +15415,16 @@ class AppViewModel : ViewModel() {
         // Invalidate cache to force recalculation of sections and badge counts
         invalidateRoomSectionCache()
         
-        // Trigger UI update AFTER database update completes
-        // CRITICAL FIX: Add small delay to allow Room Flows to emit after database update
-        // Room Flows emit asynchronously when database changes, so we need to wait
-        // for the Flow to emit the new value before triggering UI refresh
-        appContext?.let { context ->
-            viewModelScope.launch(Dispatchers.IO) {
-                updateDatabaseUnreadCounts(context, roomId)
-                
-                // CRITICAL FIX: Small delay to ensure database transaction has committed
-                // Room database uses transactions, so we need to wait for commit to complete
-                kotlinx.coroutines.delay(50)
-                
-                // CRITICAL FIX: Verify database update completed by reading directly from database
-                // Don't rely on Flow emissions - read the actual database value to ensure update succeeded
-                val db = dbOrNull()
-                if (db != null) {
-                    try {
-                        // Read directly from database to verify update
-                        var retryCount = 0
-                        val maxRetries = 10
-                        val retryDelay = 50L // 50ms between retries
-                        
-                        while (retryCount < maxRetries) {
-                            val roomListSummaryDao = db.roomListSummaryDao()
-                            val updatedSummary = roomListSummaryDao.getRoomSummariesByIds(listOf(roomId)).firstOrNull()
-                            
-                            if (updatedSummary != null && updatedSummary.unreadCount == 0) {
-                                // Database update confirmed - room has unreadCount=0
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✅ Verified database update for $roomId - unreadCount=0 (retry $retryCount)")
-                                break
-                            } else if (updatedSummary == null) {
-                                // Room doesn't exist in room_list_summary - we created it, so it should exist now
-                                // Retry to see if it appears (database transaction might still be committing)
-                                if (BuildConfig.DEBUG && retryCount < 3) android.util.Log.d("Andromuks", "AppViewModel: Room $roomId not in room_list_summary yet (retry $retryCount) - waiting for transaction commit")
-                            } else {
-                                // Room exists but unreadCount is not 0 - update might not have completed yet
-                                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: ⚠️ Room $roomId still has unreadCount=${updatedSummary.unreadCount} (retry $retryCount) - update may not have committed yet")
-                            }
-                            
-                            if (retryCount < maxRetries - 1) {
-                                kotlinx.coroutines.delay(retryDelay)
-                                retryCount++
-                            } else {
-                                // Max retries reached - log warning but continue
-                                android.util.Log.w("Andromuks", "AppViewModel: ⚠️ Failed to verify database update for $roomId after $maxRetries retries - proceeding anyway")
-                                break
-                            }
-                        }
-                        
-                        // Also verify room_summary (fallback source) and fix if needed
-                        val roomSummaryDao = db.roomSummaryDao()
-                        val updatedRoomSummary = roomSummaryDao.getRoomSummary(roomId)
-                        if (updatedRoomSummary != null && updatedRoomSummary.unreadCount != 0) {
-                            // Fallback table still has unread - update it too
-                            val fixedSummary = updatedRoomSummary.copy(unreadCount = 0, highlightCount = 0)
-                            roomSummaryDao.upsert(fixedSummary)
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Fixed room_summary for $roomId - cleared unread counts (was ${updatedRoomSummary.unreadCount})")
-                        }
-                    } catch (e: Exception) {
-                        // Database read failed - use delay as fallback
-                        kotlinx.coroutines.delay(150)
-                        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Database verification failed for $roomId, using delay fallback: ${e.message}")
-                    }
-                } else {
-                    // No database - use delay as fallback
-                    kotlinx.coroutines.delay(150)
-                }
-                
-                // After DB update and Flow emission, increment counter on main thread to trigger UI refresh
-                withContext(Dispatchers.Main) {
-                    roomListUpdateCounter++
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Optimistically cleared unread counts for room $roomId")
-                }
-            }
-        } ?: run {
-            // Fallback: increment immediately if no context (shouldn't happen)
-            roomListUpdateCounter++
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Optimistically cleared unread counts for room $roomId (no context)")
-        }
+        // Trigger UI update - all data is in-memory only, no DB operations needed
+        roomListUpdateCounter++
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked room $roomId as read (in-memory only)")
     }
     
     private suspend fun updateDatabaseUnreadCounts(context: android.content.Context, roomId: String) {
-        try {
-            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-            
-            // Update roomListSummaryDao (primary source for Flows)
-            val roomListSummaryDao = database.roomListSummaryDao()
-            val existingListSummaries = roomListSummaryDao.getRoomSummariesByIds(listOf(roomId))
-            val existingListSummary = existingListSummaries.firstOrNull()
-            if (existingListSummary != null) {
-                val oldUnread = existingListSummary.unreadCount
-                val oldHighlight = existingListSummary.highlightCount
-                val updatedListSummary = existingListSummary.copy(
-                    unreadCount = 0,
-                    highlightCount = 0
-                )
-                roomListSummaryDao.upsert(updatedListSummary)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated database room_list_summary for $roomId - unreadCount: $oldUnread -> 0, highlightCount: $oldHighlight -> 0")
-            } else {
-                // CRITICAL FIX: Create entry if it doesn't exist
-                // This ensures the room has unreadCount=0 even if it hasn't been synced yet
-                val newListSummary = net.vrkknn.andromuks.database.entities.RoomListSummaryEntity(
-                    roomId = roomId,
-                    displayName = null,
-                    avatarMxc = null,
-                    lastMessageEventId = null,
-                    lastMessageSenderUserId = null,
-                    lastMessagePreview = null,
-                    lastMessageTimestamp = null,
-                    unreadCount = 0,
-                    highlightCount = 0,
-                    isLowPriority = false
-                )
-                roomListSummaryDao.upsert(newListSummary)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Created database room_list_summary for $roomId with cleared unread counts")
-            }
-            
-            // Update roomSummaryDao (fallback source for Flows)
-            val roomSummaryDao = database.roomSummaryDao()
-            val existingSummary = roomSummaryDao.getRoomSummary(roomId)
-            if (existingSummary != null) {
-                val oldUnread = existingSummary.unreadCount
-                val oldHighlight = existingSummary.highlightCount
-                val updatedSummary = existingSummary.copy(
-                    unreadCount = 0,
-                    highlightCount = 0
-                )
-                roomSummaryDao.upsert(updatedSummary)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated database room_summary for $roomId - unreadCount: $oldUnread -> 0, highlightCount: $oldHighlight -> 0")
-            } else {
-                // CRITICAL FIX: Create entry if it doesn't exist (but only if we have minimal data)
-                // We need at least a timestamp for room_summary, so check if we can get it from roomState
-                val roomStateDao = database.roomStateDao()
-                val roomState = roomStateDao.get(roomId)
-                if (roomState != null) {
-                    // We have room state, create summary with cleared unread counts
-                    val newSummary = net.vrkknn.andromuks.database.entities.RoomSummaryEntity(
-                        roomId = roomId,
-                        lastEventId = null,
-                        lastTimestamp = System.currentTimeMillis(), // Use current time as fallback
-                        unreadCount = 0,
-                        highlightCount = 0,
-                        messageSender = null,
-                        messagePreview = null
-                    )
-                    roomSummaryDao.upsert(newSummary)
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Created database room_summary for $roomId with cleared unread counts")
-                } else {
-                    // No room state - can't create room_summary (requires timestamp)
-                    // This is OK, room_list_summary is the primary source anyway
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping room_summary creation for $roomId - no room state available")
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("Andromuks", "AppViewModel: Failed to update database when clearing unread counts for $roomId: ${e.message}", e)
+        // All data is in-memory only - no DB persistence needed
+        // Unread counts are updated in-memory via markRoomAsRead() which updates roomMap
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: Marked room $roomId as read (in-memory only)")
         }
     }
     
@@ -17498,16 +17307,14 @@ data class SingleEventLoadResult(
 /**
  * Stream room list summaries for a given set of room IDs.
  */
+/**
+ * @deprecated Room summaries are no longer persisted to DB - they're built in-memory from sync_complete.
+ * This function returns an empty flow since there's no DB to query.
+ */
+@Deprecated("Room summaries are in-memory only, no DB persistence")
 fun AppViewModel.roomListSummariesFlow(roomIds: List<String>): kotlinx.coroutines.flow.Flow<List<RoomListSummaryEntity>> {
-    val context = this.getAppContext() ?: return kotlinx.coroutines.flow.emptyFlow()
-    if (roomIds.isEmpty()) return kotlinx.coroutines.flow.emptyFlow()
-    if (BuildConfig.DEBUG) {
-        android.util.Log.d("Andromuks", "roomListSummariesFlow: subscribing for ${roomIds.size} rooms")
-    }
-    return net.vrkknn.andromuks.database.AndromuksDatabase
-        .getInstance(context)
-        .roomListSummaryDao()
-        .getRoomSummariesByIdsFlow(roomIds)
+    // Room summaries are no longer persisted - return empty flow
+    return kotlinx.coroutines.flow.emptyFlow()
 }
 
 // Helper to safely access application context from extensions

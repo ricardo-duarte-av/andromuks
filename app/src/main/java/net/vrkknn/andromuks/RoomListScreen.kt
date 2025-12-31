@@ -213,27 +213,18 @@ fun RoomListScreen(
     }
     var previousSectionType by remember { mutableStateOf(stableSection.type) }
     var sectionAnimationDirection by remember { mutableStateOf(0) }
-    var roomsWithSummaries by remember { mutableStateOf<Map<String, Triple<String?, String?, Long?>>>(emptyMap()) } // roomId -> (messagePreview, messageSender, messageTimestamp)
-    var initialRoomSummariesReady by remember { mutableStateOf(false) }
+    // Room summaries are now in-memory only - no need for separate summary tracking
     var lastRoomSectionSignature by remember { mutableStateOf("") }
-    val roomSummaryCache = remember { mutableStateMapOf<String, Map<String, Triple<String?, String?, Long?>>>() }
-    val roomSummaryReadyCache = remember { mutableStateMapOf<String, Boolean>() }
-    val roomSummaryCounterCache = remember { mutableStateMapOf<String, Int>() } // tracks which counter the cache corresponds to
 
-    // CRITICAL FIX: Initial load from database when composable first appears or when returning from a room
-    // This ensures we always read fresh data from database, not stale in-memory cache (allRooms/roomMap)
+    // Initial load from in-memory data when composable first appears
+    // Room summaries are no longer persisted to DB - they're built in-memory from sync_complete
     LaunchedEffect(Unit) {
-        // Initial load from database when composable first appears
-        val initialSnapshot = withContext(Dispatchers.IO) {
-            runCatching { appViewModel.buildSectionSnapshot() }.getOrNull()
-        }
-        if (initialSnapshot != null) {
-            stableSection = initialSnapshot
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Initial load from database - ${initialSnapshot.rooms.size} rooms, section=${initialSnapshot.type}")
-        }
+        val initialSnapshot = appViewModel.getCurrentRoomSection()
+        stableSection = initialSnapshot
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Initial load from in-memory - ${initialSnapshot.rooms.size} rooms, section=${initialSnapshot.type}")
     }
     
-    // Refresh stableSection from DB-backed snapshot when counters or space selection change.
+    // Refresh stableSection from in-memory data when counters or space selection change
     LaunchedEffect(roomListUpdateCounter, uiState.roomSummaryUpdateCounter, uiState.currentSpaceId) {
         // If initial sync isn't complete yet and we already have data, keep current UI to avoid flicker.
         if (!uiState.initialSyncComplete) {
@@ -241,111 +232,53 @@ fun RoomListScreen(
             if (hadContent) return@LaunchedEffect
         }
 
-        val snapshot = withContext(Dispatchers.IO) {
-            runCatching { appViewModel.buildSectionSnapshot() }.getOrNull()
-        }
-        if (snapshot != null) {
-            // CRITICAL FIX: Always update if rooms are added or removed (by ID comparison)
-            // This ensures rooms don't vanish when they temporarily lose summaries/timestamps
-            val oldRoomIds = stableSection.rooms.map { it.id }.toSet()
-            val newRoomIds = snapshot.rooms.map { it.id }.toSet()
-            val roomsAdded = newRoomIds - oldRoomIds
-            val roomsRemoved = oldRoomIds - newRoomIds
-            
-            // If rooms were added or removed, always update (room still exists in DB, just lost summary data)
-            if (roomsAdded.isNotEmpty() || roomsRemoved.isNotEmpty()) {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "RoomListScreen: Rooms added/removed - added:${roomsAdded.size} removed:${roomsRemoved.size}, updating stableSection")
-                }
-                stableSection = snapshot
-                return@LaunchedEffect
+        val snapshot = appViewModel.getCurrentRoomSection()
+        // CRITICAL FIX: Always update if rooms are added or removed (by ID comparison)
+        // This ensures rooms don't vanish when they temporarily lose summaries/timestamps
+        val oldRoomIds = stableSection.rooms.map { it.id }.toSet()
+        val newRoomIds = snapshot.rooms.map { it.id }.toSet()
+        val roomsAdded = newRoomIds - oldRoomIds
+        val roomsRemoved = oldRoomIds - newRoomIds
+        
+        // If rooms were added or removed, always update
+        if (roomsAdded.isNotEmpty() || roomsRemoved.isNotEmpty()) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "RoomListScreen: Rooms added/removed - added:${roomsAdded.size} removed:${roomsRemoved.size}, updating stableSection")
             }
-            
-            // If we already have rooms and the new snapshot is empty, keep the old one to avoid flicker
-            // BUT only if we're not in initial sync (to allow empty state during startup)
-            if (stableSection.rooms.isNotEmpty() && snapshot.rooms.isEmpty() && uiState.initialSyncComplete) {
-                return@LaunchedEffect
-            }
-            
-            // For other cases, update if snapshot has any rooms or spaces
-            // Removed "meaningful rooms" check - rooms should be shown if they exist in DB, even without summaries
-            if (snapshot.rooms.isNotEmpty() || snapshot.spaces.isNotEmpty()) {
-                stableSection = snapshot
-            } else if (stableSection.rooms.isEmpty() && stableSection.spaces.isEmpty()) {
-                // Both old and new are empty - safe to update
-                stableSection = snapshot
-            }
-        }
-    }
-
-    // Batched last-message query with caching keyed by section and room IDs hash to avoid per-room queries.
-    val roomIdsHash = remember(stableSection.type, uiState.currentSpaceId, roomListUpdateCounter) {
-        stableSection.rooms.fold(1) { acc, room -> (31 * acc) + room.id.hashCode() }
-    }
-    val sectionCacheKey = remember(stableSection.type, uiState.currentSpaceId, roomIdsHash) {
-        "${stableSection.type}:${uiState.currentSpaceId ?: "none"}:$roomIdsHash"
-    }
-
-    // Observe room summaries via Flow backed by room_list_summary
-    LaunchedEffect(sectionCacheKey, roomListUpdateCounter, uiState.roomSummaryUpdateCounter) {
-        initialRoomSummariesReady = false
-
-        // Invalidate ready flag if the cached counter is stale
-        val cachedCounter = roomSummaryCounterCache[sectionCacheKey]
-        if (cachedCounter != null && cachedCounter != uiState.roomSummaryUpdateCounter) {
-            roomSummaryReadyCache[sectionCacheKey] = false
-        }
-
-        val cached = roomSummaryCache[sectionCacheKey]
-        val cachedReady = roomSummaryReadyCache[sectionCacheKey] == true
-        val countersMatch = cachedCounter == uiState.roomSummaryUpdateCounter
-        if (cached != null && cachedReady && countersMatch) {
-            roomsWithSummaries = cached
-            initialRoomSummariesReady = true
+            stableSection = snapshot
             return@LaunchedEffect
         }
-
-        val roomIds = stableSection.rooms.map { it.id }
-        if (roomIds.isEmpty()) {
-            roomsWithSummaries = emptyMap()
-            roomSummaryCache[sectionCacheKey] = emptyMap()
-            roomSummaryReadyCache[sectionCacheKey] = true
-            initialRoomSummariesReady = true
+        
+        // If we already have rooms and the new snapshot is empty, keep the old one to avoid flicker
+        // BUT only if we're not in initial sync (to allow empty state during startup)
+        if (stableSection.rooms.isNotEmpty() && snapshot.rooms.isEmpty() && uiState.initialSyncComplete) {
             return@LaunchedEffect
         }
-
-        val summariesFlow = appViewModel.roomListSummariesFlow(roomIds)
-        summariesFlow.collect { summaries ->
-            val summaryMap = summaries.associate { summary ->
-                val ts = summary.lastMessageTimestamp
-                summary.roomId to Triple(summary.lastMessagePreview, summary.lastMessageSenderUserId, ts)
-            }
-            roomsWithSummaries = summaryMap
-            roomSummaryCache[sectionCacheKey] = summaryMap
-            roomSummaryReadyCache[sectionCacheKey] = true
-            roomSummaryCounterCache[sectionCacheKey] = uiState.roomSummaryUpdateCounter
-            initialRoomSummariesReady = true
-            if (ROOM_LIST_VERBOSE_LOGGING && BuildConfig.DEBUG) {
-                val missingTs = summaries.count { (it.lastMessageTimestamp ?: 0L) <= 0L }
-                val withTs = summaries.count { (it.lastMessageTimestamp ?: 0L) > 0L }
-                android.util.Log.d("Andromuks", "RoomListScreen: summaries flow emit rooms=${summaries.size}/${roomIds.size} with_ts=$withTs missing_ts=$missingTs")
-            }
+        
+        // For other cases, update if snapshot has any rooms or spaces
+        if (snapshot.rooms.isNotEmpty() || snapshot.spaces.isNotEmpty()) {
+            stableSection = snapshot
+        } else if (stableSection.rooms.isEmpty() && stableSection.spaces.isEmpty()) {
+            // Both old and new are empty - safe to update
+            stableSection = snapshot
         }
     }
+
+    // Room summaries are now in-memory only - data is already in stableSection.rooms
+    // No need for separate summary tracking
 
     // Consider the room list "settled" once we receive two identical signatures in a row.
     // This prevents showing the list until sorting/unread counts stop bouncing.
     // Keep previous signature for potential future analytics; no gating on it to unblock UI.
-    LaunchedEffect(stableSection.rooms, roomsWithSummaries) {
+    LaunchedEffect(stableSection.rooms) {
         lastRoomSectionSignature = stableSection.rooms.joinToString("|") { room ->
-            val summary = roomsWithSummaries[room.id]
-            "${room.id}:${room.unreadCount}:${room.highlightCount}:${summary?.first ?: room.messagePreview}:${summary?.third ?: room.sortingTimestamp}"
+            "${room.id}:${room.unreadCount}:${room.highlightCount}:${room.messagePreview}:${room.sortingTimestamp}"
         }
     }
 
     // Track when initial load is complete for optimization purposes
-    LaunchedEffect(effectiveProfileLoaded, shouldBlockForPending, effectiveSpacesLoaded, effectiveInitialSyncComplete, initialRoomSummariesReady, coldStartRefreshing) {
-        if (effectiveProfileLoaded && !shouldBlockForPending && effectiveSpacesLoaded && effectiveInitialSyncComplete && initialRoomSummariesReady && !coldStartRefreshing) {
+    LaunchedEffect(effectiveProfileLoaded, shouldBlockForPending, effectiveSpacesLoaded, effectiveInitialSyncComplete, coldStartRefreshing) {
+        if (effectiveProfileLoaded && !shouldBlockForPending && effectiveSpacesLoaded && effectiveInitialSyncComplete && !coldStartRefreshing) {
             if (!initialLoadComplete) {
                 initialLoadComplete = true
             }
@@ -358,8 +291,7 @@ fun RoomListScreen(
         !effectiveProfileLoaded || 
         shouldBlockForPending || 
         !effectiveSpacesLoaded || 
-        !effectiveInitialSyncComplete ||
-        !initialRoomSummariesReady
+        !effectiveInitialSyncComplete
     
     val inlineSyncMessage = when {
         !effectiveProfileLoaded -> "Loading profile..."
@@ -374,53 +306,15 @@ fun RoomListScreen(
             }
         }
         coldStartRefreshing -> "Refreshing rooms..."
-        !initialRoomSummariesReady -> "Loading room summaries..."
         else -> "Refreshing rooms..."
     }
     val showNotificationActionIndicator = uiState.notificationActionInProgress
     
-    // Enrich stableSection with database summaries without re-sorting (sorting handled in AppViewModel)
-    val enrichedSection = remember(stableSection, roomsWithSummaries) {
-        val enrichedRooms = stableSection.rooms.map { room ->
-            val summary = roomsWithSummaries[room.id]
-            val messagePreview = summary?.first
-            val messageSender = summary?.second
-            val messageTimestamp = summary?.third
-
-            val currentPreview = messagePreview ?: room.messagePreview
-            val currentSender = messageSender ?: room.messageSender
-            val currentTimestamp = messageTimestamp ?: room.sortingTimestamp
-
-            if (currentPreview != room.messagePreview || currentSender != room.messageSender || currentTimestamp != room.sortingTimestamp) {
-                room.copy(
-                    messagePreview = currentPreview,
-                    messageSender = currentSender,
-                    sortingTimestamp = currentTimestamp
-                )
-            } else {
-                room
-            }
-        }
-
-        val oldById = stableSection.rooms.associateBy { it.id }
-        val contentChanged = enrichedRooms.any { room ->
-            val old = oldById[room.id]
-            old == null || old.messagePreview != room.messagePreview ||
-                    old.messageSender != room.messageSender ||
-                    old.sortingTimestamp != room.sortingTimestamp
-        }
-
-        if (!contentChanged && enrichedRooms.size == stableSection.rooms.size) {
-            stableSection
-        } else {
-            stableSection.copy(rooms = enrichedRooms)
-        }
-    }
-
-    // Always sort by latest message timestamp (newest first), using enriched timestamps when available.
-    val displayedSection = remember(enrichedSection) {
-        val sortedRooms = enrichedSection.rooms.sortedByDescending { it.sortingTimestamp ?: 0L }
-        if (sortedRooms === enrichedSection.rooms) enrichedSection else enrichedSection.copy(rooms = sortedRooms)
+    // Room summaries are already in stableSection.rooms - no enrichment needed
+    // Always sort by latest message timestamp (newest first)
+    val displayedSection = remember(stableSection) {
+        val sortedRooms = stableSection.rooms.sortedByDescending { it.sortingTimestamp ?: 0L }
+        if (sortedRooms === stableSection.rooms) stableSection else stableSection.copy(rooms = sortedRooms)
     }
 
     // One-time hydration: if any rooms lack timestamps, prefetch a small batch from server for all of them.
@@ -447,8 +341,8 @@ fun RoomListScreen(
     // PERFORMANCE: Only update section if data actually changed
     // ANTI-FLICKER FIX: Preserve room instances when only order changes
     LaunchedEffect(roomListUpdateCounter) {
-        // Use DB snapshot to avoid empty in-memory sections on tab switches
-        val newSection = withContext(Dispatchers.IO) { runCatching { appViewModel.buildSectionSnapshot() }.getOrNull() } ?: return@LaunchedEffect
+        // Use in-memory snapshot (no DB queries needed)
+        val newSection = appViewModel.getCurrentRoomSection()
         
         // CRITICAL FIX: Check if rooms were added or removed first (by ID comparison)
         // This ensures rooms don't vanish when they temporarily lose summaries/timestamps
@@ -545,16 +439,11 @@ fun RoomListScreen(
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Returning to room list - forcing immediate sort")
         appViewModel.forceRoomListSort()
         
-        // CRITICAL FIX: Refresh section from database when returning to RoomListScreen
-        // This ensures we read fresh unread counts from database, not stale in-memory cache
-        // refreshUIFromCache() rebuilds allRooms from roomMap which may have stale data
-        val refreshedSnapshot = withContext(Dispatchers.IO) {
-            runCatching { appViewModel.buildSectionSnapshot() }.getOrNull()
-        }
-        if (refreshedSnapshot != null) {
-            stableSection = refreshedSnapshot
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Refreshed section from database on return - ${refreshedSnapshot.rooms.size} rooms")
-        }
+        // Refresh section from in-memory data when returning to RoomListScreen
+        // Room summaries are no longer persisted to DB - they're in-memory only
+        val refreshedSnapshot = appViewModel.getCurrentRoomSection()
+        stableSection = refreshedSnapshot
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Refreshed section from in-memory on return - ${refreshedSnapshot.rooms.size} rooms")
         
         // Force timestamp update when returning to room list or starting app
         // This ensures timestamps are immediately up-to-date when user views the list

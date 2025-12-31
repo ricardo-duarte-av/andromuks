@@ -54,20 +54,12 @@ import java.util.zip.GZIPOutputStream
 class SyncIngestor(private val context: Context) {
     private val database = AndromuksDatabase.getInstance(context)
     private val eventDao = database.eventDao()
-    private val roomStateDao = database.roomStateDao()
-    private val receiptDao = database.receiptDao()
-    private val reactionDao = database.reactionDao()
-    private val roomListSummaryDao = database.roomListSummaryDao()
-    private val roomSummaryDao = database.roomSummaryDao()
-    private val syncMetaDao = database.syncMetaDao()
-    private val spaceDao = database.spaceDao()
-    private val spaceRoomDao = database.spaceRoomDao()
-    private val accountDataDao = database.accountDataDao()
-    private val inviteDao = database.inviteDao()
-    private val pendingRoomDao = database.pendingRoomDao()
-    private val unprocessedEventDao: UnprocessedEventDao = database.unprocessedEventDao()
-    
+    // All room/space/invite/account data persistence removed - data is in-memory only
+    // Only media and user profiles are persisted (not touched here)
     private val TAG = "SyncIngestor"
+    
+    // SharedPreferences for run_id and since token (replacing syncMetaDao)
+    private val sharedPrefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
     
     companion object {
         
@@ -196,19 +188,10 @@ class SyncIngestor(private val context: Context) {
         } catch (e: Exception) {
             "{\"error\":\"${e.message}\"}"
         }
+        // No longer persisting unprocessed events - they'll be received again in future sync_complete
         val detailedReason = if (exception != null) "$reason: ${exception.message}" else reason
-        try {
-            unprocessedEventDao.insert(
-                UnprocessedEventEntity(
-                    eventId = eventId,
-                    roomId = roomId,
-                    rawJson = rawJson,
-                    reason = detailedReason,
-                    source = source
-                )
-            )
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to record unprocessed event $eventId: ${e.message}", e)
+        if (BuildConfig.DEBUG) {
+            Log.w(TAG, "Unprocessed event: roomId=$roomId, eventId=$eventId, source=$source, reason=$detailedReason")
         }
     }
 
@@ -330,21 +313,11 @@ class SyncIngestor(private val context: Context) {
     }
     
     /**
-     * Safely load pending rooms. If a legacy oversized row trips CursorWindow limits,
-     * clear the table to keep the app running.
+     * @deprecated No longer using pending rooms - all data is in-memory only
      */
-    private suspend fun loadPendingRoomsSafely(): List<PendingRoomEntity> {
-        return try {
-            pendingRoomDao.getAllPendingRooms()
-        } catch (e: SQLiteBlobTooBigException) {
-            Log.e(TAG, "Pending rooms contained oversized rows; clearing pending_rooms to recover", e)
-            pendingRoomDao.deleteAll()
-            emptyList()
-        } catch (e: SQLiteException) {
-            Log.e(TAG, "Failed to load pending rooms, clearing to recover", e)
-            pendingRoomDao.deleteAll()
-            emptyList()
-        }
+    @Deprecated("All data is in-memory only, no pending rooms to load")
+    private suspend fun loadPendingRoomsSafely(): List<Any> {
+        return emptyList() // No pending rooms - all data is in-memory only
     }
     
     private data class EventPersistCandidate(
@@ -371,22 +344,20 @@ class SyncIngestor(private val context: Context) {
      * CRITICAL: We do NOT clear any data when run_id changes because:
      * 1. Logout is not supported in this app - user data should always persist
      * 2. run_id change just means backend restarted or connection reset
-     * 3. All user data (events, rooms, account_data, etc.) should persist across connection resets
+     * 3. All user data is in-memory only now
      * 
      * Returns true if run_id changed, false otherwise
      */
     suspend fun checkAndHandleRunIdChange(newRunId: String): Boolean = withContext(Dispatchers.IO) {
-        val storedRunId = syncMetaDao.get("run_id") ?: ""
+        val storedRunId = sharedPrefs.getString("ws_run_id", "") ?: ""
         
         if (storedRunId.isNotEmpty() && storedRunId != newRunId) {
-            Log.w(TAG, "Run ID changed from '$storedRunId' to '$newRunId' - updating run_id (preserving all user data)")
-            // Just update the run_id - do NOT clear any data
-            // All user data (events, rooms, account_data, etc.) should persist
-            syncMetaDao.upsert(SyncMetaEntity("run_id", newRunId))
+            Log.w(TAG, "Run ID changed from '$storedRunId' to '$newRunId' - updating run_id")
+            sharedPrefs.edit().putString("ws_run_id", newRunId).apply()
             return@withContext true
         } else if (storedRunId.isEmpty()) {
             // First time - store run_id
-            syncMetaDao.upsert(SyncMetaEntity("run_id", newRunId))
+            sharedPrefs.edit().putString("ws_run_id", newRunId).apply()
         }
         
         return@withContext false
@@ -394,21 +365,11 @@ class SyncIngestor(private val context: Context) {
     
     /**
      * Clear all derived room/space state when server sends clear_state=true.
-     * Keeps events and media/profile data intact.
+     * All data is now in-memory only, so nothing to clear from DB.
      */
     suspend fun handleClearStateSignal() = withContext(Dispatchers.IO) {
-        if (BuildConfig.DEBUG) Log.w(TAG, "SyncIngestor: clear_state=true received - clearing room/state/summaries and spaces (events preserved)")
-        
-        database.withTransaction {
-            roomSummaryDao.deleteAll()
-            roomListSummaryDao.deleteAll()
-            roomStateDao.deleteAll()
-            spaceDao.deleteAllSpaces()
-            spaceRoomDao.deleteAllSpaceRooms()
-            pendingRoomDao.deleteAll()
-            inviteDao.deleteAllInvites()
-            // No longer persisting receipts or reactions - they're in cache only
-        }
+        if (BuildConfig.DEBUG) Log.w(TAG, "SyncIngestor: clear_state=true received - all data is in-memory only, nothing to clear from DB")
+        // All room/space/invite/account data is in-memory only - no DB cleanup needed
     }
     
     /**
@@ -443,162 +404,22 @@ class SyncIngestor(private val context: Context) {
             return@withContext emptySet<String>()
         }
         
-        // If server instructs us to clear state, drop all derived room/space state before processing.
+        // If server instructs us to clear state, all data is in-memory only - nothing to clear
         val clearState = data.optBoolean("clear_state", false)
         if (clearState) {
             handleClearStateSignal()
-            // Authoritative reset: drop any previously stored account_data so the upcoming
-            // initial sync payload (which the server treats as canonical) replaces it.
-            database.withTransaction {
-                accountDataDao.deleteAll()
-            }
-            if (BuildConfig.DEBUG) Log.w(TAG, "SyncIngestor: clear_state=true -> cleared stored account_data (will replace with incoming payload)")
         }
         
-        // Extract "since" token (sync token from server)
+        // Extract "since" token (sync token from server) - store in SharedPreferences
         val since = data.optString("since", "")
-        
-        // Process account_data if present (must be done before other processing)
-        // IMPORTANT: Partial updates - only replace keys present in incoming sync, merge with existing
-        // Rules:
-        // 1. Keys present in incoming account_data replace/update our local copy
-        // 2. Keys missing from incoming account_data are preserved (not touched)
-        // 3. Keys present but empty/null in incoming account_data are removed from our local copy
-        // 4. If account_data is null/empty in sync, we preserve our local copy (don't process)
-        // 5. If clear_state=true, we clear everything and replace with incoming (if present)
-        // BATTERY OPTIMIZATION: account_data can be large (50KB+), so we:
-        // 1. Use efficient JSON copying (manual key copy instead of toString/parse)
-        // 2. Skip DB write if nothing changed (detect during merge)
-        // NOTE: account_data is only sent when changed (not on every sync), so this optimization
-        // is most useful when account_data appears frequently or when the JSON is very large
-        val incomingAccountData = data.optJSONObject("account_data")
-        if (incomingAccountData != null) {
-            try {
-                // If clear_state=true was received earlier in this sync batch, treat incoming
-                // account_data as authoritative and REPLACE the stored copy instead of merging.
-                if (clearState) {
-                    val accountDataStr = incomingAccountData.toString()
-                    accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Account data: clear_state=true -> replaced stored account_data (${accountDataStr.length} chars, ${incomingAccountData.length()} keys)")
-                } else {
-                    // Normal path: merge existing + incoming with proper handling of empty/null values
-                    val existingAccountDataStr = accountDataDao.getAccountData()
-                    if (existingAccountDataStr != null) {
-                        val existingAccountData = JSONObject(existingAccountDataStr)
-                        
-                        // BATTERY OPTIMIZATION: Manual key copy is more efficient than toString() + parse
-                        val merged = JSONObject()
-                        
-                        // Step 1: Copy all existing keys (preserve keys not in incoming sync)
-                        val existingKeys = existingAccountData.keys()
-                        while (existingKeys.hasNext()) {
-                            val key = existingKeys.next()
-                            merged.put(key, existingAccountData.get(key))
-                        }
-                        
-                        // Step 2: Process incoming keys
-                        // - If key is present and has value: replace/update
-                        // - If key is present but empty/null: remove from merged (clear it)
-                        var hasChanges = false
-                        val incomingKeys = incomingAccountData.keys()
-                        while (incomingKeys.hasNext()) {
-                            val key = incomingKeys.next()
-                            val incomingValue = incomingAccountData.get(key)
-                            
-                            // Check if value is empty/null (should clear the key)
-                            val isEmpty = when {
-                                incomingValue == null -> true
-                                incomingValue == JSONObject.NULL -> true
-                                incomingValue is JSONObject && incomingValue.length() == 0 -> true
-                                incomingValue is org.json.JSONArray && incomingValue.length() == 0 -> true
-                                incomingValue is String && incomingValue.isBlank() -> true
-                                else -> false
-                            }
-                            
-                            if (isEmpty) {
-                                // Key is present but empty/null - remove it from merged data (clear local copy)
-                                if (merged.has(key)) {
-                                    merged.remove(key)
-                                    hasChanges = true
-                                    if (BuildConfig.DEBUG) Log.d(TAG, "Account data: Removed key '$key' (empty/null in incoming sync)")
-                                }
-                            } else {
-                                // Key has value - update/replace
-                                val existingValue = merged.opt(key)
-                                val valueChanged = when {
-                                    existingValue == null || existingValue == JSONObject.NULL -> true
-                                    else -> incomingValue.toString() != existingValue.toString()
-                                }
-                                
-                                if (valueChanged) {
-                                    merged.put(key, incomingValue)
-                                    hasChanges = true
-                                    if (BuildConfig.DEBUG) Log.d(TAG, "Account data: Updated key '$key' from incoming sync")
-                                }
-                            }
-                        }
-                        
-                        if (hasChanges) {
-                            val mergedAccountDataStr = merged.toString()
-                            accountDataDao.upsert(AccountDataEntity("account_data", mergedAccountDataStr))
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Persisted merged account_data to database (${mergedAccountDataStr.length} chars, ${merged.length()} keys)")
-                        } else {
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No changes detected, skipping DB write")
-                        }
-                    } else {
-                        // No existing data, use incoming as-is (but still filter out empty keys)
-                        val filtered = JSONObject()
-                        val incomingKeys = incomingAccountData.keys()
-                        while (incomingKeys.hasNext()) {
-                            val key = incomingKeys.next()
-                            val value = incomingAccountData.get(key)
-                            // Only add non-empty values
-                            val isEmpty = when {
-                                value == null -> true
-                                value == JSONObject.NULL -> true
-                                value is JSONObject && value.length() == 0 -> true
-                                value is org.json.JSONArray && value.length() == 0 -> true
-                                value is String && value.isBlank() -> true
-                                else -> false
-                            }
-                            if (!isEmpty) {
-                                filtered.put(key, value)
-                            }
-                        }
-                        
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No existing data, using incoming as-is (filtered empty keys)")
-                        val accountDataStr = filtered.toString()
-                        accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Persisted initial account_data to database (${accountDataStr.length} chars, ${filtered.length()} keys)")
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error merging account_data: ${e.message}", e)
-                // Fallback: store incoming as-is if merge fails
-                val accountDataStr = incomingAccountData.toString()
-                accountDataDao.upsert(AccountDataEntity("account_data", accountDataStr))
-                Log.w(TAG, "Stored incoming account_data as-is (merge failed)")
-            }
-        } else {
-            // account_data is null/empty in sync - preserve our local copy (don't process)
-            if (BuildConfig.DEBUG) Log.d(TAG, "Account data: No account_data in incoming sync, preserving local copy")
+        if (since.isNotEmpty()) {
+            sharedPrefs.edit().putString("ws_since_token", since).apply()
         }
         
-        // Store sync metadata (only since token, no longer storing last_received_id or raw sync_complete)
-        database.withTransaction {
-            // Store since token if present
-            if (since.isNotEmpty()) {
-                syncMetaDao.upsert(SyncMetaEntity("since", since))
-            }
-        }
+        // Account data, spaces, and invites are now in-memory only - processed by SpaceRoomParser
+        // No DB persistence needed - they're built from sync_complete in memory
         
-        // Process spaces (top_level_spaces and space_edges)
-        processSpaces(data)
-        
-        // Process invited_rooms - handle room invitations
-        processInvitedRooms(data)
-        
-        // Process left_rooms - delete all data for rooms we've left
+        // Process left_rooms - all data is in-memory only, no DB cleanup needed
         val leftRooms = data.optJSONArray("left_rooms")
         if (leftRooms != null && leftRooms.length() > 0) {
             val leftRoomIds = mutableListOf<String>()
@@ -608,69 +429,14 @@ class SyncIngestor(private val context: Context) {
                     leftRoomIds.add(roomId)
                 }
             }
-            
-            if (leftRoomIds.isNotEmpty()) {
-                // Delete all data for left rooms in a single transaction
-                database.withTransaction {
-                    for (roomId in leftRoomIds) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Deleting data for left room: $roomId (state, summaries)")
-                        // No longer persisting events, receipts, or reactions - they're in cache only
-                        roomStateDao.deleteForRoom(roomId)
-                        roomSummaryDao.deleteForRoom(roomId)
-                        // Also delete invite if it exists
-                        inviteDao.deleteInvite(roomId)
-                        // Also delete pending room if it exists
-                        pendingRoomDao.deletePendingRoom(roomId)
-                    }
-                }
-                if (BuildConfig.DEBUG) Log.d(TAG, "Deleted all data for ${leftRoomIds.size} left rooms: ${leftRoomIds.joinToString(", ")}")
+            if (leftRoomIds.isNotEmpty() && BuildConfig.DEBUG) {
+                Log.d(TAG, "Left rooms (in-memory only, no DB cleanup): ${leftRoomIds.joinToString(", ")}")
             }
         }
         
-        // BATTERY OPTIMIZATION: Process any pending rooms from previous syncs (if app was killed)
-        // This ensures rooms are not lost even if app is killed while backgrounded
-        val pendingRooms = loadPendingRoomsSafely()
-        if (pendingRooms.isNotEmpty()) {
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "SyncIngestor: Found ${pendingRooms.size} pending rooms from previous syncs, processing them now")
-            }
-
-            database.withTransaction {
-                val existingStatesMap = if (pendingRooms.isNotEmpty()) {
-                    roomStateDao.getRoomStatesByIds(pendingRooms.map { it.roomId }).associateBy { it.roomId }
-                } else {
-                    emptyMap()
-                }
-
-                for (pendingRoom in pendingRooms) {
-                    try {
-                        val roomObj = JSONObject(decompressPendingRoomJson(pendingRoom.roomJson))
-                        val hadEvents = processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
-                        if (hadEvents) {
-                            roomsWithEvents.add(pendingRoom.roomId)
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "SyncIngestor: Error processing pending room ${pendingRoom.roomId}: ${e.message}", e)
-                        logUnprocessedEvent(
-                            roomId = pendingRoom.roomId,
-                            eventJson = null,
-                            source = "pending_room",
-                            reason = "pending_room_process_failed: ${e.message}",
-                            exception = e
-                        )
-                    }
-                }
-
-                // Delete processed pending rooms
-                pendingRoomDao.deletePendingRooms(pendingRooms.map { it.roomId })
-            }
-
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "SyncIngestor: Processed ${pendingRooms.size} pending rooms")
-            }
-        }
+        // All data is in-memory only - no pending room processing needed
         
-        // Process rooms
+        // Process rooms - all data is in-memory only, no DB operations
         val roomsJson = data.optJSONObject("rooms")
         if (roomsJson != null) {
             val roomKeys = roomsJson.keys()
@@ -680,170 +446,26 @@ class SyncIngestor(private val context: Context) {
                 roomsToProcess.add(roomKeys.next())
             }
             
-            // BATTERY OPTIMIZATION: Adaptive deferred processing when backgrounded
-            // When backgrounded: Check pending count, if threshold reached, process all (pending + current)
-            // Otherwise: Defer all to pending DB for later processing
-            var thresholdReached = false
-            val roomsToProcessNow = if (isAppVisible) {
-                // Foreground: Process all rooms immediately
-                roomsToProcess
-            } else {
-                // Background: Check pending count threshold
-                val currentPendingCount = pendingRoomDao.getPendingCount()
+            // Process all rooms immediately - no deferral or DB operations
+            for ((index, roomId) in roomsToProcess.withIndex()) {
+                val roomObj = roomsJson.optJSONObject(roomId) ?: continue
                 
-                if (currentPendingCount >= pendingRoomThreshold) {
-                    // Threshold reached - process all pending rooms + current sync rooms
-                    thresholdReached = true
-                    if (BuildConfig.DEBUG) {
-                        Log.d(TAG, "SyncIngestor: Pending room threshold reached ($currentPendingCount >= $pendingRoomThreshold) - processing all pending + current sync rooms")
-                    }
-                    
-                    // Load all pending rooms to process
-                    val pendingRooms = loadPendingRoomsSafely()
-                    val pendingRoomIds = pendingRooms.map { it.roomId }.toSet()
-                    
-                    // Combine pending rooms + current sync rooms (avoid duplicates)
-                    val allRoomIds = (pendingRoomIds + roomsToProcess.toSet()).toList()
-                    
-                    // Process all in a single transaction with time tracking
-                    val processingStartTime = System.currentTimeMillis()
-                    database.withTransaction {
-                        val existingStatesMap = if (allRoomIds.isNotEmpty()) {
-                            roomStateDao.getRoomStatesByIds(allRoomIds).associateBy { it.roomId }
-                        } else {
-                            emptyMap()
-                        }
-                        
-                        // Process pending rooms first
-                        for (pendingRoom in pendingRooms) {
-                            try {
-                                val roomObj = JSONObject(decompressPendingRoomJson(pendingRoom.roomJson))
-                                val hadEvents = processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible)
-                                if (hadEvents) {
-                                    roomsWithEvents.add(pendingRoom.roomId)
-                                }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "SyncIngestor: Error processing pending room ${pendingRoom.roomId}: ${e.message}", e)
-                            }
-                        }
-                        
-                        // Process current sync rooms
-                        for (roomId in roomsToProcess) {
-                            if (roomId !in pendingRoomIds) { // Skip if already processed as pending
-                                val roomObj = roomsJson.optJSONObject(roomId) ?: continue
-                                val hadEvents = processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible)
-                                if (hadEvents) {
-                                    roomsWithEvents.add(roomId)
-                                }
-                            }
-                        }
-                        
-                        // Delete all processed pending rooms
-                        pendingRoomDao.deleteAll()
-                    }
-                    
-                    val processingTime = System.currentTimeMillis() - processingStartTime
-                    
-                    // Adaptive threshold adjustment: If processing took too long, reduce threshold (like GC)
-                    if (processingTime > PROCESSING_TIME_THRESHOLD_MS) {
-                        val oldThreshold = pendingRoomThreshold
-                        pendingRoomThreshold = (pendingRoomThreshold * THRESHOLD_REDUCTION_FACTOR).toInt().coerceAtLeast(MIN_THRESHOLD)
-                        if (BuildConfig.DEBUG) {
-                            Log.d(TAG, "SyncIngestor: Processing took ${processingTime}ms (threshold: ${PROCESSING_TIME_THRESHOLD_MS}ms) - reducing pending room threshold from $oldThreshold to $pendingRoomThreshold")
-                        }
-                    }
-                    
-                    if (BuildConfig.DEBUG) {
-                        Log.d(TAG, "SyncIngestor: Processed ${pendingRooms.size} pending + ${roomsToProcess.size} current rooms in ${processingTime}ms (threshold: ${pendingRoomThreshold})")
-                    }
-                    
-                    // All processed - return empty list since we already processed everything
-                    emptyList()
-                } else {
-                    // Under threshold - defer all rooms to pending DB
-                    emptyList()
-                }
-            }
-            
-            // If rooms are being deferred, store them to pending DB
-            val roomsToDefer = if (isAppVisible || thresholdReached) {
-                emptyList() // No deferral when foregrounded or when threshold was reached (already processed)
-            } else {
-                roomsToProcess // Defer all when backgrounded and under threshold
-            }
-            
-            if (roomsToDefer.isNotEmpty()) {
-                // BATTERY OPTIMIZATION: Persist all rooms to database for processing later
-                // This ensures rooms are not lost if app is killed. If a pending row already exists,
-                // merge arrays to avoid overwriting earlier deferred events.
-                val pendingRooms = mutableListOf<PendingRoomEntity>()
-                for (roomId in roomsToDefer) {
-                    val roomObj = roomsJson.optJSONObject(roomId) ?: continue
-                    val existing = pendingRoomDao.getPendingRoom(roomId)
-                    val compressedJson = if (existing != null) {
-                        mergePendingRoomJson(existing.roomJson, roomObj)
-                    } else {
-                        compressPendingRoomJson(roomObj.toString())
-                    }
-                    pendingRooms.add(
-                        PendingRoomEntity(
-                            roomId = roomId,
-                            roomJson = compressedJson,
-                            timestamp = System.currentTimeMillis()
-                        )
-                    )
+                // Log room contents for debugging
+                val roomContents = analyzeRoomContents(roomId, roomObj)
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "SyncIngestor: Processing room $roomId - $roomContents")
                 }
                 
-                if (pendingRooms.isNotEmpty()) {
-                    database.withTransaction {
-                        pendingRoomDao.upsertAll(pendingRooms)
-                    }
-                    val pendingCount = pendingRoomDao.getPendingCount()
-                    if (BuildConfig.DEBUG) {
-                        Log.d(TAG, "SyncIngestor: Background deferred ${pendingRooms.size} rooms to pending DB (total pending: $pendingCount / threshold: $pendingRoomThreshold)")
-                    }
+                val hadEvents = processRoom(roomId, roomObj, null, isAppVisible)
+                if (hadEvents) {
+                    roomsWithEvents.add(roomId)
+                } else if (BuildConfig.DEBUG) {
+                    // Log when room had no events added to cache (room not cached or no events)
+                    Log.d(TAG, "SyncIngestor: Room $roomId had no events added to cache (contents: $roomContents)")
                 }
-            }
-            
-            // Process rooms that should be processed now (foreground, or threshold processing already handled above)
-            if (roomsToProcessNow.isNotEmpty()) {
-                // Process rooms in a single transaction for consistency
-                // BATTERY OPTIMIZATION: Only load room states for rooms actually in sync_complete (not all 588 rooms)
-                // getRoomStatesByIds() queries only the rooms being processed (typically 2-3 rooms per sync)
-                // This is much more efficient than getAllRoomStates() which would load all 588 rooms
-                database.withTransaction {
-                    // Load existing room states only for rooms being processed in this batch
-                    // roomsToProcessNow contains only rooms in sync_complete JSON, not all known rooms
-                    val existingStatesMap = if (roomsToProcessNow.isNotEmpty()) {
-                        roomStateDao.getRoomStatesByIds(roomsToProcessNow).associateBy { it.roomId }
-                    } else {
-                        emptyMap()
-                    }
-                    
-                    // BATTERY OPTIMIZATION: processRoom() is only called for rooms in sync_complete JSON (typically 2-3 rooms)
-                    // It does NOT process all 588 rooms - only incremental changes from sync_complete
-                    // PERFORMANCE FIX: Yield every 20 rooms to prevent CPU hogging during large reconnect syncs
-                    for ((index, roomId) in roomsToProcessNow.withIndex()) {
-                        val roomObj = roomsJson.optJSONObject(roomId) ?: continue
-                        
-                        // Log room contents for debugging (especially when no events are persisted)
-                        val roomContents = analyzeRoomContents(roomId, roomObj)
-                        if (BuildConfig.DEBUG) {
-                            Log.d(TAG, "SyncIngestor: Processing room $roomId - $roomContents")
-                        }
-                        
-                        val hadEvents = processRoom(roomId, roomObj, existingStatesMap[roomId], isAppVisible)
-                        if (hadEvents) {
-                            roomsWithEvents.add(roomId)
-                        } else if (BuildConfig.DEBUG) {
-                            // Log when room had no events added to cache (room not cached or no events)
-                            Log.d(TAG, "SyncIngestor: Room $roomId had no events added to cache (contents: $roomContents)")
-                        }
-                        // Yield every 20 rooms to allow other coroutines to run (prevents ANR on reconnect)
-                        if ((index + 1) % 20 == 0) {
-                            kotlinx.coroutines.yield()
-                        }
-                    }
+                // Yield every 20 rooms to allow other coroutines to run (prevents ANR on reconnect)
+                if ((index + 1) % 20 == 0) {
+                    kotlinx.coroutines.yield()
                 }
             }
             
@@ -903,102 +525,11 @@ class SyncIngestor(private val context: Context) {
         // 1. Process room state (meta)
         val meta = roomObj.optJSONObject("meta")
         if (meta != null) {
-            // Detect if this room is a space (creation_content.type == "m.space") and persist as a space entity
-            meta.optJSONObject("creation_content")
-                ?.optString("type")
-                ?.takeIf { it == "m.space" }
-                ?.let {
-                    // CRITICAL: Check if space already exists - if it does, preserve its order (from top_level_spaces)
-                    // Only set order=Int.MAX_VALUE if this is a new space not in top_level_spaces
-                    val existingSpace = try {
-                        spaceDao.getSpace(roomId)
-                    } catch (e: Exception) {
-                        if (BuildConfig.DEBUG) {
-                            Log.d(TAG, "processRoom: Space $roomId not found in DB (new space or error: ${e.message})")
-                        }
-                        null
-                    }
-                    
-                    // If space exists and has a valid order (not Int.MAX_VALUE), NEVER overwrite it
-                    // This ensures spaces from top_level_spaces keep their correct order
-                    if (existingSpace != null && existingSpace.order != Int.MAX_VALUE) {
-                        if (BuildConfig.DEBUG) {
-                            Log.d(TAG, "processRoom: Space $roomId already has valid order=${existingSpace.order} from top_level_spaces, skipping creation_content detection")
-                        }
-                        // Don't overwrite - space already has correct order from top_level_spaces
-                        return@let
-                    }
-                    
-                    val orderToUse = existingSpace?.order ?: Int.MAX_VALUE // Use existing order or MAX_VALUE for new spaces
-                    
-                    val space = SpaceEntity(
-                        spaceId = roomId,
-                        name = meta.optString("name").takeIf { n -> n.isNotBlank() },
-                        avatarUrl = meta.optString("avatar").takeIf { a -> a.isNotBlank() },
-                        order = orderToUse, // Preserve order from top_level_spaces if space already exists
-                        updatedAt = System.currentTimeMillis()
-                    )
-                    try {
-                        spaceDao.upsert(space)
-                        if (BuildConfig.DEBUG) {
-                            Log.d(TAG, "processRoom: Upserted space $roomId with order=${space.order}")
-                        }
-                    } catch (e: Exception) {
-                        Log.w(TAG, "Failed to persist space entity for $roomId: ${e.message}")
-                    }
-                }
+            // Spaces are handled by SpaceRoomParser.parseSyncUpdate() which builds in-memory Space objects
+            // No DB persistence needed - all data is in-memory only
 
-            // Detect if this is a direct message room
-            // Primary method: dm_user_id field in meta (most reliable)
-            val dmUserId = meta.optString("dm_user_id")?.takeIf { it.isNotBlank() }
-            val isDirect = dmUserId != null
-            
-            // BATTERY OPTIMIZATION: Use pre-loaded existing state (passed as parameter) to preserve values when not present in sync
-            // This preserves name, topic, avatarUrl, canonicalAlias, isFavourite, isLowPriority from existing state
-            // existingState is pre-loaded via getRoomStatesByIds() which only queries rooms in sync_complete (not all 588 rooms)
-            // Fallback to roomStateDao.get(roomId) only if pre-loading failed (rare case)
-            val currentExistingState = existingState ?: roomStateDao.get(roomId)
-            var isFavourite = currentExistingState?.isFavourite ?: false
-            var isLowPriority = currentExistingState?.isLowPriority ?: false
-            
-            // Extract tags from account_data.m.tag (isFavourite, isLowPriority)
-            // Only update if account_data.m.tag is actually present in the sync message
-            val accountData = roomObj.optJSONObject("account_data")
-            if (accountData != null) {
-                val tagData = accountData.optJSONObject("m.tag")
-                if (tagData != null) {
-                    val content = tagData.optJSONObject("content")
-                    if (content != null) {
-                        val tags = content.optJSONObject("tags")
-                        if (tags != null) {
-                            // Only update tags if m.tag is present (explicit tag update)
-                            isFavourite = tags.has("m.favourite")
-                            isLowPriority = tags.has("m.lowpriority")
-                            if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId: Updated tags from account_data - isFavourite=$isFavourite, isLowPriority=$isLowPriority")
-                        }
-                    }
-                }
-                // If account_data exists but m.tag is not present, preserve existing tags
-            } else {
-                // If account_data is not present at all, preserve existing tags
-                if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId: No account_data in sync, preserving existing tags - isFavourite=$isFavourite, isLowPriority=$isLowPriority")
-            }
-            
-            // Preserve existing values if not present in meta (for nullable fields)
-            val roomState = RoomStateEntity(
-                roomId = roomId,
-                name = meta.optString("name").takeIf { it.isNotBlank() } ?: currentExistingState?.name,
-                topic = meta.optString("topic").takeIf { it.isNotBlank() } ?: currentExistingState?.topic,
-                avatarUrl = meta.optString("avatar").takeIf { it.isNotBlank() } ?: currentExistingState?.avatarUrl,
-                canonicalAlias = meta.optString("canonical_alias").takeIf { it.isNotBlank() } ?: currentExistingState?.canonicalAlias,
-                isDirect = isDirect,
-                isFavourite = isFavourite,
-                isLowPriority = isLowPriority,
-                bridgeInfoJson = null, // Bridge info not used - kept for schema compatibility
-                updatedAt = System.currentTimeMillis()
-            )
-            roomStateDao.upsert(roomState)
-            
+            // Room metadata is handled by SpaceRoomParser.parseSyncUpdate() which builds in-memory RoomItem objects
+            // No DB persistence needed - all data is in-memory only
         }
         
         // 2. Process timeline events - only update cache if room is cached, no DB persistence
@@ -1129,236 +660,9 @@ class SyncIngestor(private val context: Context) {
         // No longer persisting receipts - they're received from paginate and sync_complete
         // Receipts are available in the sync_complete response when needed
         
-        // 4. Update room summary (last message, unread counts, etc.)
-        val unreadMessages = meta?.optInt("unread_messages", 0) ?: 0
-        val unreadHighlights = meta?.optInt("unread_highlights", 0) ?: 0
-        // Always extract previews/senders for summary persistence (room list relies on DB on cold start).
-        val shouldExtractPreview = true
-        val existingSummaryForPreview: RoomSummaryEntity? = null
-        
-        // Extract last message from sync JSON since events are no longer persisted to DB
-        var lastEventId: String? = null
-        var lastTimestamp: Long = 0L
-        var lastMessageMsgType: String? = null
-        var messageSender: String? = existingSummaryForPreview?.messageSender
-        var messagePreview: String? = existingSummaryForPreview?.messagePreview
-        val existingListSummary = roomListSummaryDao.getRoomSummariesByIds(listOf(roomId)).firstOrNull()
-        
-        // Scan timeline array for the most recent message event (newest at end)
-        if (timeline != null && timeline.length() > 0) {
-            for (i in timeline.length() - 1 downTo 0) {
-                val timelineEntry = timeline.optJSONObject(i) ?: continue
-                val eventJson = timelineEntry.optJSONObject("event") ?: continue
-                
-                val eventType = eventJson.optString("type")
-                if (eventType == "m.room.message" || eventType == "m.room.encrypted") {
-                    lastEventId = eventJson.optString("event_id")
-                    lastTimestamp = eventJson.optLong("origin_server_ts", 0L)
-                    messageSender = eventJson.optString("sender")?.takeIf { it.isNotBlank() } ?: messageSender
-                    
-                    val content = eventJson.optJSONObject("content")
-                    val decrypted = eventJson.optJSONObject("decrypted")
-                    lastMessageMsgType = decrypted?.optString("msgtype")?.takeIf { it.isNotBlank() }
-                        ?: content?.optString("msgtype")?.takeIf { it.isNotBlank() }
-                    messagePreview = decrypted?.optString("body") ?: content?.optString("body")
-                    break
-                }
-            }
-        }
-        
-        // Fallback to events array if no message in timeline
-        if (lastEventId == null && eventsArray != null) {
-            for (i in eventsArray.length() - 1 downTo 0) {
-                val eventJson = eventsArray.optJSONObject(i) ?: continue
-                val eventType = eventJson.optString("type")
-                if (eventType == "m.room.message" || eventType == "m.room.encrypted") {
-                    lastEventId = eventJson.optString("event_id")
-                    lastTimestamp = eventJson.optLong("origin_server_ts", 0L)
-                    messageSender = eventJson.optString("sender")?.takeIf { it.isNotBlank() } ?: messageSender
-                    
-                    val content = eventJson.optJSONObject("content")
-                    val decrypted = eventJson.optJSONObject("decrypted")
-                    lastMessageMsgType = decrypted?.optString("msgtype")?.takeIf { it.isNotBlank() }
-                        ?: content?.optString("msgtype")?.takeIf { it.isNotBlank() }
-                    messagePreview = decrypted?.optString("body") ?: content?.optString("body")
-                    break
-                }
-            }
-        }
-
-        // If DB-based preview failed (encrypted without decrypted payload in rawJson), re-scan current sync JSON to refresh preview/sender/msgtype
-        if (lastEventId != null && (messagePreview.isNullOrBlank() || messageSender.isNullOrBlank() || lastMessageMsgType.isNullOrBlank())) {
-            fun scanForEventDetails(): Triple<String?, String?, String?> {
-                // Prefer timeline (newest at end) then eventsArray
-                val sources = listOfNotNull(timeline, eventsArray)
-                for (src in sources) {
-                    for (i in src.length() - 1 downTo 0) {
-                        val obj = src.optJSONObject(i) ?: continue
-                        val evt = obj.optJSONObject("event") ?: obj // timeline has nested "event"
-                        if (evt == null) continue
-                        if (evt.optString("event_id") != lastEventId) continue
-                        val sender = evt.optString("sender").takeIf { it.isNotBlank() }
-                        val body = evt.optJSONObject("content")?.optString("body")
-                            ?: evt.optJSONObject("decrypted")?.optString("body")
-                        val msgType = evt.optJSONObject("decrypted")?.optString("msgtype")
-                            ?: evt.optJSONObject("content")?.optString("msgtype")
-                        return Triple(sender, body, msgType)
-                    }
-                }
-                return Triple(null, null, null)
-            }
-            val (scannedSender, scannedBody, scannedMsgType) = scanForEventDetails()
-            if (!scannedSender.isNullOrBlank()) {
-                messageSender = scannedSender
-            }
-            if (!scannedBody.isNullOrBlank()) {
-                messagePreview = scannedBody
-            }
-            if (!scannedMsgType.isNullOrBlank()) {
-                lastMessageMsgType = scannedMsgType
-            }
-        }
-        
-        // Fallback to existing summary values if we failed to extract (keeps older preview/sender instead of null)
-        if (messagePreview.isNullOrBlank()) {
-            messagePreview = existingSummaryForPreview?.messagePreview ?: existingListSummary?.lastMessagePreview
-        }
-        if (messageSender.isNullOrBlank()) {
-            messageSender = existingSummaryForPreview?.messageSender ?: existingListSummary?.lastMessageSenderUserId
-        }
-        // Require a valid timestamp for the last message; for messages this should always be present.
-        if (lastTimestamp <= 0L) {
-            // Fallback to sorting_timestamp from meta if available
-            val fallbackTs = meta?.optLong("sorting_timestamp", 0L) ?: 0L
-            if (BuildConfig.DEBUG) {
-                Log.w(TAG, "processRoom($roomId): lastTimestamp<=0, fallbackTs=$fallbackTs")
-            }
-            if (fallbackTs > 0L) {
-                lastTimestamp = fallbackTs
-            } else {
-                // do not write summaries with zero ts
-                return hasPersistedEvents
-            }
-        }
-        val finalLastEventId = lastEventId ?: existingListSummary?.lastMessageEventId
-        val finalLastTimestamp: Long = lastTimestamp
-
-        if (finalLastTimestamp > 0L) {
-            // CRITICAL FIX: Preserve optimistic unread count clear
-            // If database already has unreadCount=0 (we just cleared it), don't overwrite with server's stale value
-            // The server will eventually catch up and send the correct value
-            // Check BOTH tables (roomSummaryDao and roomListSummaryDao) since both are used by Flows
-            val existingSummary = roomSummaryDao.getRoomSummary(roomId)
-            val existingListSummaryForGuard = roomListSummaryDao.getRoomSummariesByIds(listOf(roomId)).firstOrNull()
-            val wasClearedInSummary = existingSummary != null && existingSummary.unreadCount == 0
-            val wasClearedInListSummary = existingListSummaryForGuard != null && existingListSummaryForGuard.unreadCount == 0
-            val finalUnreadCount = if ((wasClearedInSummary || wasClearedInListSummary) && unreadMessages > 0) {
-                // Database says 0 (we cleared it), but server says >0 (stale) - preserve our clear
-                0
-            } else {
-                // Use server's value (either server caught up, or we haven't cleared it yet)
-                unreadMessages
-            }
-            val finalHighlightCount = if ((wasClearedInSummary || wasClearedInListSummary) && unreadHighlights > 0) {
-                // Database says 0 (we cleared it), but server says >0 (stale) - preserve our clear
-                0
-            } else {
-                // Use server's value (either server caught up, or we haven't cleared it yet)
-                unreadHighlights
-            }
-            
-            val summary = RoomSummaryEntity(
-                roomId = roomId,
-                lastEventId = finalLastEventId,
-                lastTimestamp = finalLastTimestamp,
-                unreadCount = finalUnreadCount,
-                highlightCount = finalHighlightCount,
-                messageSender = messageSender,
-                messagePreview = messagePreview
-            )
-            roomSummaryDao.upsert(summary)
-        } else if (BuildConfig.DEBUG) {
-            Log.w(TAG, "processRoom($roomId): Skipping room_summary upsert due to non-positive ts=$finalLastTimestamp (event=$finalLastEventId)")
-        }
-
-        // ALSO feed the room_list_summary table that the room list UI reads.
-        // Limit to message-bearing events so joins/reactions do not overwrite previews.
-        // Extract message type from sync JSON
-        val lastMessageType = if (lastEventId != null) {
-            // Find the event type from timeline or events array
-            timeline?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    val entry = arr.optJSONObject(i) ?: continue
-                    val evt = entry.optJSONObject("event") ?: continue
-                    if (evt.optString("event_id") == lastEventId) {
-                        return@let evt.optString("type")
-                    }
-                }
-                null
-            } ?: eventsArray?.let { arr ->
-                for (i in 0 until arr.length()) {
-                    val evt = arr.optJSONObject(i) ?: continue
-                    if (evt.optString("event_id") == lastEventId) {
-                        return@let evt.optString("type")
-                    }
-                }
-                null
-            }
-        } else null
-        val isMessageType = lastMessageType == "m.room.message" || lastMessageType == "m.room.encrypted"
-        val isTextMessage = lastMessageMsgType?.equals("m.text", ignoreCase = true) == true
-
-        // Even for non-text messages, we should at least persist timestamp/unreads so sorting/time works.
-        if (isMessageType && finalLastEventId != null && finalLastTimestamp > 0L) {
-            val displayName = meta?.optString("name")?.takeIf { it.isNotBlank() } ?: existingState?.name
-            val avatarMxc = meta?.optString("avatar")?.takeIf { it.isNotBlank() } ?: existingState?.avatarUrl
-            val isLowPriorityFlag = meta?.optBoolean("is_low_priority") ?: existingState?.isLowPriority ?: false
-            val previewToUse = when {
-                isTextMessage && !messagePreview.isNullOrBlank() -> messagePreview
-                else -> existingListSummary?.lastMessagePreview
-            }
-            val senderToUse = when {
-                isTextMessage -> messageSender ?: existingListSummary?.lastMessageSenderUserId
-                else -> existingListSummary?.lastMessageSenderUserId
-            }
-            // CRITICAL FIX: Preserve optimistic unread count clear
-            // If database already has unreadCount=0 (we just cleared it), don't overwrite with server's stale value
-            // The server will eventually catch up and send the correct value
-            // Check BOTH tables (roomListSummaryDao and roomSummaryDao) since both are used by Flows
-            val existingSummaryForGuard = roomSummaryDao.getRoomSummary(roomId)
-            val wasClearedInListSummary = existingListSummary != null && existingListSummary.unreadCount == 0
-            val wasClearedInSummary = existingSummaryForGuard != null && existingSummaryForGuard.unreadCount == 0
-            val finalListUnreadCount = if ((wasClearedInListSummary || wasClearedInSummary) && unreadMessages > 0) {
-                // Database says 0 (we cleared it), but server says >0 (stale) - preserve our clear
-                0
-            } else {
-                // Use server's value (either server caught up, or we haven't cleared it yet)
-                unreadMessages
-            }
-            val finalListHighlightCount = if ((wasClearedInListSummary || wasClearedInSummary) && unreadHighlights > 0) {
-                // Database says 0 (we cleared it), but server says >0 (stale) - preserve our clear
-                0
-            } else {
-                // Use server's value (either server caught up, or we haven't cleared it yet)
-                unreadHighlights
-            }
-            
-            val listSummary = RoomListSummaryEntity(
-                roomId = roomId,
-                displayName = displayName,
-                avatarMxc = avatarMxc,
-                lastMessageEventId = finalLastEventId,
-                lastMessageSenderUserId = senderToUse,
-                lastMessagePreview = previewToUse,
-                lastMessageTimestamp = finalLastTimestamp,
-                unreadCount = finalListUnreadCount,
-                highlightCount = finalListHighlightCount,
-                isLowPriority = isLowPriorityFlag
-            )
-            roomListSummaryDao.upsert(listSummary)
-        } else if (isMessageType && finalLastEventId != null && finalLastTimestamp <= 0L && BuildConfig.DEBUG) {
-            Log.w(TAG, "processRoom($roomId): Skipping room_list_summary upsert due to non-positive ts=$finalLastTimestamp (event=$finalLastEventId)")
-        }
+        // 4. Room summaries are no longer persisted to DB - they're built in-memory from sync_complete
+        // via SpaceRoomParser.parseSyncUpdate() which creates RoomItem objects with all needed data.
+        // This eliminates DB I/O during sync and simplifies the architecture.
         
         // LRU CACHE: Notify listener if this room is cached and has new events
         if (hasPersistedEvents && eventsForCacheUpdate.isNotEmpty()) {
@@ -1728,10 +1032,10 @@ class SyncIngestor(private val context: Context) {
     
     
     /**
-     * Get stored since token
+     * Get stored since token from SharedPreferences
      */
     suspend fun getSinceToken(): String = withContext(Dispatchers.IO) {
-        syncMetaDao.get("since") ?: ""
+        sharedPrefs.getString("ws_since_token", "") ?: ""
     }
     
     /**
@@ -1904,128 +1208,23 @@ class SyncIngestor(private val context: Context) {
     
     /**
      * Process spaces from sync_complete (top_level_spaces and space_edges)
-     * 
-     * IMPORTANT: Both top_level_spaces and space_edges are complete replacements when present.
-     * - If top_level_spaces is present → Replace ALL spaces in DB with only those in the array
-     * - If space_edges is present → Replace ALL relationships for each space in the object
+     * All data is in-memory only - handled by SpaceRoomParser.parseSyncUpdate()
      */
     private suspend fun processSpaces(data: JSONObject) {
-        try {
-            // Process top_level_spaces (complete replacement)
+        // Spaces are handled by SpaceRoomParser.parseSyncUpdate() which builds in-memory Space objects
+        // No DB persistence needed - all data is in-memory only
+        if (BuildConfig.DEBUG) {
             val topLevelSpaces = data.optJSONArray("top_level_spaces")
-            // ALWAYS log (not just DEBUG) to diagnose the issue
-            if (topLevelSpaces != null) {
-                Log.i(TAG, "processSpaces: Found top_level_spaces array with ${topLevelSpaces.length()} spaces")
-            } else {
-                Log.i(TAG, "processSpaces: No top_level_spaces array in sync_complete")
-            }
-            if (topLevelSpaces != null && topLevelSpaces.length() > 0) {
-                val spaces = mutableListOf<SpaceEntity>()
-                val roomsJson = data.optJSONObject("rooms")
-                
-                for (i in 0 until topLevelSpaces.length()) {
-                    val spaceId = topLevelSpaces.optString(i)
-                    if (spaceId.isNotBlank()) {
-                        // Get space metadata from rooms data if available
-                        val spaceRoomObj = roomsJson?.optJSONObject(spaceId)
-                        val meta = spaceRoomObj?.optJSONObject("meta")
-                        
-                        val space = SpaceEntity(
-                            spaceId = spaceId,
-                            name = meta?.optString("name")?.takeIf { it.isNotBlank() },
-                            avatarUrl = meta?.optString("avatar")?.takeIf { it.isNotBlank() },
-                            order = i, // Preserve order from top_level_spaces array
-                            updatedAt = System.currentTimeMillis()
-                        )
-                        spaces.add(space)
-                    }
-                }
-                
-                // Complete replacement: Delete all existing spaces and insert new ones
-                database.withTransaction {
-                    spaceDao.deleteAllSpaces()
-                    if (spaces.isNotEmpty()) {
-                        spaceDao.upsertAll(spaces)
-                    }
-                    // Also clear all space-room relationships since spaces are being replaced
-                    spaceRoomDao.deleteAllSpaceRooms()
-                }
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "Replaced all spaces with ${spaces.size} spaces from top_level_spaces")
-                    // Debug: Log first few spaces with their order to verify ordering
-                    spaces.take(10).forEach { space ->
-                        Log.d(TAG, "SyncIngestor: Saved space order=${space.order} -> ${space.spaceId} (${space.name})")
-                    }
-                    // Also log the last few to see the full range
-                    if (spaces.size > 10) {
-                        Log.d(TAG, "... (${spaces.size - 10} more spaces) ...")
-                        spaces.takeLast(5).forEach { space ->
-                            Log.d(TAG, "SyncIngestor: Saved space order=${space.order} -> ${space.spaceId} (${space.name})")
-                        }
-                    }
-                }
-            }
-            
-            // Process space_edges (complete replacement per space)
             val spaceEdges = data.optJSONObject("space_edges")
-            if (spaceEdges != null) {
-                val spaceKeys = spaceEdges.keys()
-                val spacesToUpdate = mutableListOf<String>()
-                
-                while (spaceKeys.hasNext()) {
-                    spacesToUpdate.add(spaceKeys.next())
-                }
-                
-                // For each space in space_edges, replace all its relationships
-                database.withTransaction {
-                    for (spaceId in spacesToUpdate) {
-                        // Delete all existing relationships for this space
-                        spaceRoomDao.deleteRoomsForSpace(spaceId)
-                        
-                        // Insert new relationships for this space
-                        val childrenArray = spaceEdges.optJSONArray(spaceId) ?: continue
-                        val spaceRooms = mutableListOf<SpaceRoomEntity>()
-                        
-                        for (i in 0 until childrenArray.length()) {
-                            val childObj = childrenArray.optJSONObject(i) ?: continue
-                            val childId = childObj.optString("child_id") ?: continue
-                            
-                            if (childId.isNotBlank()) {
-                                val spaceRoom = SpaceRoomEntity(
-                                    spaceId = spaceId,
-                                    childId = childId,
-                                    parentEventRowId = childObj.optLong("parent_event_rowid").takeIf { it > 0 },
-                                    childEventRowId = childObj.optLong("child_event_rowid").takeIf { it > 0 },
-                                    canonical = childObj.optBoolean("canonical", false),
-                                    suggested = childObj.optBoolean("suggested", false),
-                                    order = childObj.optString("order")?.takeIf { it.isNotBlank() },
-                                    updatedAt = System.currentTimeMillis()
-                                )
-                                spaceRooms.add(spaceRoom)
-                            }
-                        }
-                        
-                        if (spaceRooms.isNotEmpty()) {
-                            spaceRoomDao.upsertAll(spaceRooms)
-                        }
-                    }
-                }
-                
-                val totalRelationships = spacesToUpdate.sumOf { spaceId ->
-                    spaceEdges.optJSONArray(spaceId)?.length() ?: 0
-                }
-                if (BuildConfig.DEBUG) Log.d(TAG, "Replaced space-room relationships for ${spacesToUpdate.size} spaces (${totalRelationships} total relationships)")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error processing spaces: ${e.message}", e)
+            Log.d(TAG, "processSpaces: Spaces handled in-memory (top_level_spaces=${topLevelSpaces?.length() ?: 0}, space_edges=${spaceEdges?.length() ?: 0})")
         }
     }
     
     /**
-     * Get stored run_id
+     * Get stored run_id from SharedPreferences
      */
     suspend fun getStoredRunId(): String = withContext(Dispatchers.IO) {
-        syncMetaDao.get("run_id") ?: ""
+        sharedPrefs.getString("ws_run_id", "") ?: ""
     }
     
     /**
@@ -2217,71 +1416,21 @@ class SyncIngestor(private val context: Context) {
         }
         
         // Persist all invites to database in a single transaction
-        if (invites.isNotEmpty()) {
-            database.withTransaction {
-                for (invite in invites) {
-                    inviteDao.upsert(invite)
-                }
-            }
-            if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Persisted ${invites.size} invites to database")
+        // Invites are handled by SpaceRoomParser.parseSyncUpdate() which builds in-memory invite objects
+        // No DB persistence needed - all data is in-memory only
+        if (invites.isNotEmpty() && BuildConfig.DEBUG) {
+            Log.d(TAG, "SyncIngestor: Processed ${invites.size} invites (in-memory only)")
         } else {
             if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: No invites to persist (invites list is empty)")
         }
     }
     
     /**
-     * BATTERY OPTIMIZATION: Process all pending receipts and rooms that were deferred when backgrounded
-     * Called when app becomes visible to catch up on deferred processing
+     * @deprecated No longer processing pending items - all data is in-memory only
      */
+    @Deprecated("All data is in-memory only, no pending items to process")
     suspend fun rushProcessPendingItems() = withContext(Dispatchers.IO) {
-        // Process pending rooms first
-        val pendingRooms = loadPendingRoomsSafely()
-        if (pendingRooms.isNotEmpty()) {
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "SyncIngestor: Rushing processing of ${pendingRooms.size} pending rooms")
-            }
-            
-            // Track processing time for adaptive threshold adjustment
-            val processingStartTime = System.currentTimeMillis()
-            
-            database.withTransaction {
-                val existingStatesMap = if (pendingRooms.isNotEmpty()) {
-                    roomStateDao.getRoomStatesByIds(pendingRooms.map { it.roomId }).associateBy { it.roomId }
-                } else {
-                    emptyMap()
-                }
-                
-                for (pendingRoom in pendingRooms) {
-                    try {
-                        val roomObj = JSONObject(decompressPendingRoomJson(pendingRoom.roomJson))
-                        // Process with isAppVisible = true since we're rushing (app is now visible)
-                        processRoom(pendingRoom.roomId, roomObj, existingStatesMap[pendingRoom.roomId], isAppVisible = true)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "SyncIngestor: Error rushing pending room ${pendingRoom.roomId}: ${e.message}", e)
-                    }
-                }
-                
-                // Delete processed pending rooms
-                pendingRoomDao.deleteAll()
-            }
-            
-            val processingTime = System.currentTimeMillis() - processingStartTime
-            
-            // Adaptive threshold adjustment: If processing took too long, reduce threshold (like GC)
-            if (processingTime > PROCESSING_TIME_THRESHOLD_MS) {
-                val oldThreshold = pendingRoomThreshold
-                pendingRoomThreshold = (pendingRoomThreshold * THRESHOLD_REDUCTION_FACTOR).toInt().coerceAtLeast(MIN_THRESHOLD)
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "SyncIngestor: Rush processing took ${processingTime}ms (threshold: ${PROCESSING_TIME_THRESHOLD_MS}ms) - reducing pending room threshold from $oldThreshold to $pendingRoomThreshold")
-                }
-            }
-            
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "SyncIngestor: Rushed processing ${pendingRooms.size} pending rooms in ${processingTime}ms (threshold: ${pendingRoomThreshold})")
-            }
-        }
-        
-        // No longer processing pending receipts - they're not persisted to database
+        // No-op - all data is in-memory only
     }
     
     /**
@@ -2298,15 +1447,11 @@ class SyncIngestor(private val context: Context) {
     
     /**
      * Check if there are any pending rooms to process
-     * This is used to determine if RoomListScreen should wait before displaying
+     * @deprecated All data is in-memory only, no pending items
      */
+    @Deprecated("All data is in-memory only, no pending items")
     suspend fun hasPendingItems(): Boolean = withContext(Dispatchers.IO) {
-        val pendingRoomCount = pendingRoomDao.getPendingCount()
-        val hasPending = pendingRoomCount > 0
-        if (BuildConfig.DEBUG && hasPending) {
-            Log.d(TAG, "SyncIngestor: hasPendingItems = true (rooms: $pendingRoomCount)")
-        }
-        hasPending
+        false // No pending items - all data is in-memory only
     }
     
 }
