@@ -419,8 +419,9 @@ fun RoomTimelineScreen(
     val isDirectMessage = roomItem?.isDirectMessage ?: false
 
     // For DM rooms, calculate the display name from member profiles
+    // Note: isDirectMessage can only be true if roomItem is not null, so roomItem != null check is redundant
     val displayRoomName =
-        if (isDirectMessage && roomItem != null) {
+        if (isDirectMessage) {
             val memberMap = appViewModel.getMemberMap(roomId)
             val otherParticipant = memberMap.keys.find { it != myUserId }
             val otherProfile = otherParticipant?.let { memberMap[it] }
@@ -432,8 +433,9 @@ fun RoomTimelineScreen(
     // For DM rooms, get the avatar from the other participant
     // CRITICAL FIX: Use roomItem.avatarUrl as fallback (like RoomListScreen does)
     // This ensures avatars show even if member map isn't populated yet
+    // Note: isDirectMessage can only be true if roomItem is not null, so roomItem != null check is redundant
     val displayAvatarUrl =
-        if (isDirectMessage && roomItem != null) {
+        if (isDirectMessage) {
             val memberMap = appViewModel.getMemberMap(roomId)
             val otherParticipant = memberMap.keys.find { it != myUserId }
             val otherProfile = otherParticipant?.let { memberMap[it] }
@@ -2179,7 +2181,8 @@ fun RoomTimelineScreen(
                                     is TimelineItem.Event -> {
                                         val event = item.event
                                         // PERFORMANCE: Removed logging from item rendering to improve scroll performance
-                                        val isMine = myUserId != null && event.sender == myUserId
+                                        // Note: myUserId is non-null String, so myUserId != null check is redundant
+                                        val isMine = event.sender == myUserId
 
                                         // PERFORMANCE: Use pre-computed consecutive flag instead of index-based lookup
                                         val isConsecutive = item.isConsecutive
@@ -2296,8 +2299,7 @@ fun RoomTimelineScreen(
                                                     val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
                                                     navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
                                                 }
-                                            },
-                                            onNewBubbleAnimationStart = { messageSoundPlayer.play() }
+                                            }
                                         )
                                     }
                                 }
@@ -2626,6 +2628,7 @@ fun RoomTimelineScreen(
                                                 onClick = { showStickerPickerForText = true },
                                                 modifier = Modifier.size(24.dp)
                                             ) {
+                                                @Suppress("DEPRECATION")
                                                 Icon(
                                                     imageVector = Icons.Outlined.StickyNote2,
                                                     contentDescription = "Stickers",
@@ -2648,7 +2651,7 @@ fun RoomTimelineScreen(
                                     keyboardOptions = KeyboardOptions(
                                         capitalization = KeyboardCapitalization.Sentences,
                                         keyboardType = KeyboardType.Text,
-                                        autoCorrect = true,
+                                        autoCorrectEnabled = true,
                                         imeAction = ImeAction.Default // Enter always creates newline, send button always sends
                                     ),
                                     keyboardActions = KeyboardActions(
@@ -2684,10 +2687,12 @@ fun RoomTimelineScreen(
                                                         appViewModel.sendReply(roomId, draft, replyingToEvent!!)
                                                     }
                                                     replyingToEvent = null // Clear reply state
+                                                    messageSoundPlayer.play() // Play sound when sending reply
                                                 }
                                                 // Otherwise send regular message
                                                 else {
                                                     appViewModel.sendMessage(roomId, draft)
+                                                    messageSoundPlayer.play() // Play sound when sending message
                                                 }
                                                 draft = "" // Clear the input after sending
                                             }
@@ -2735,10 +2740,12 @@ fun RoomTimelineScreen(
                                             appViewModel.sendReply(roomId, draft, replyingToEvent!!)
                                         }
                                         replyingToEvent = null // Clear reply state
+                                        messageSoundPlayer.play() // Play sound when sending reply
                                     }
                                     // Otherwise send regular message
                                     else {
                                         appViewModel.sendMessage(roomId, draft)
+                                        messageSoundPlayer.play() // Play sound when sending message
                                     }
                                     draft = "" // Clear the input after sending
                                 }
@@ -2769,6 +2776,7 @@ fun RoomTimelineScreen(
                                     contentPadding = 4.dp
                                 )
                             } else {
+                                @Suppress("DEPRECATION")
                                 Icon(
                                     imageVector = Icons.Filled.Send,
                                     contentDescription = "Send",

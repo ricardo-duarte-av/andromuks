@@ -438,8 +438,9 @@ fun BubbleTimelineScreen(
     val isDirectMessage = roomItem?.isDirectMessage ?: false
 
     // For DM rooms, calculate the display name from member profiles
+    // Note: isDirectMessage can only be true if roomItem is not null, so roomItem != null check is redundant
     val displayRoomName =
-        if (isDirectMessage && roomItem != null) {
+        if (isDirectMessage) {
             val memberMap = appViewModel.getMemberMap(roomId)
             val otherParticipant = memberMap.keys.find { it != myUserId }
             val otherProfile = otherParticipant?.let { memberMap[it] }
@@ -451,8 +452,9 @@ fun BubbleTimelineScreen(
     // For DM rooms, get the avatar from the other participant
     // CRITICAL FIX: Use roomItem.avatarUrl as fallback (like RoomListScreen does)
     // This ensures avatars show even if member map isn't populated yet
+    // Note: isDirectMessage can only be true if roomItem is not null, so roomItem != null check is redundant
     val displayAvatarUrl =
-        if (isDirectMessage && roomItem != null) {
+        if (isDirectMessage) {
             val memberMap = appViewModel.getMemberMap(roomId)
             val otherParticipant = memberMap.keys.find { it != myUserId }
             val otherProfile = otherParticipant?.let { memberMap[it] }
@@ -2097,8 +2099,7 @@ fun BubbleTimelineScreen(
                                                     val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
                                                     navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
                                                 }
-                                            },
-                                            onNewBubbleAnimationStart = { messageSoundPlayer.play() }
+                                            }
                                         )
                                     }
                                 }
@@ -2457,6 +2458,7 @@ fun BubbleTimelineScreen(
                                                 onClick = { showStickerPickerForText = true },
                                                 modifier = Modifier.size(24.dp)
                                             ) {
+                                                @Suppress("DEPRECATION")
                                                 Icon(
                                                     imageVector = Icons.Outlined.StickyNote2,
                                                     contentDescription = "Stickers",
@@ -2479,7 +2481,7 @@ fun BubbleTimelineScreen(
                                     keyboardOptions = KeyboardOptions(
                                         capitalization = KeyboardCapitalization.Sentences,
                                         keyboardType = KeyboardType.Text,
-                                        autoCorrect = true,
+                                        autoCorrectEnabled = true,
                                         imeAction = ImeAction.Default // Enter always creates newline, send button always sends
                                     ),
                                     keyboardActions = KeyboardActions(
@@ -2515,10 +2517,12 @@ fun BubbleTimelineScreen(
                                                         appViewModel.sendReply(roomId, draft, replyingToEvent!!)
                                                     }
                                                     replyingToEvent = null // Clear reply state
+                                                    messageSoundPlayer.play() // Play sound when sending reply
                                                 }
                                                 // Otherwise send regular message
                                                 else {
                                                     appViewModel.sendMessage(roomId, draft)
+                                                    messageSoundPlayer.play() // Play sound when sending message
                                                 }
                                                 draft = "" // Clear the input after sending
                                             }
@@ -2566,10 +2570,12 @@ fun BubbleTimelineScreen(
                                             appViewModel.sendReply(roomId, draft, replyingToEvent!!)
                                         }
                                         replyingToEvent = null // Clear reply state
+                                        messageSoundPlayer.play() // Play sound when sending reply
                                     }
                                     // Otherwise send regular message
                                     else {
                                         appViewModel.sendMessage(roomId, draft)
+                                        messageSoundPlayer.play() // Play sound when sending message
                                     }
                                     draft = "" // Clear the input after sending
                                 }
@@ -2600,6 +2606,7 @@ fun BubbleTimelineScreen(
                                     contentPadding = 4.dp
                                 )
                             } else {
+                                @Suppress("DEPRECATION")
                                 Icon(
                                     imageVector = Icons.Filled.Send,
                                     contentDescription = "Send",
