@@ -1397,10 +1397,18 @@ fun BubbleTimelineScreen(
         }
     }
 
+    // Track previous pagination state to detect when pagination finishes
+    var previousIsPaginating by remember { mutableStateOf(appViewModel.isPaginating) }
+    
     // Detect when pagination completes and trigger scroll restoration
-    LaunchedEffect(timelineItems.size, appViewModel.isPaginating) {
+    // CRITICAL FIX: Only depend on isPaginating, not timelineItems.size
+    // This prevents scroll restoration from triggering when new messages arrive
+    LaunchedEffect(appViewModel.isPaginating) {
+        val paginationJustFinished = previousIsPaginating && !appViewModel.isPaginating
+        previousIsPaginating = appViewModel.isPaginating
+        
         // When pagination finishes and we have scroll restoration pending
-        if (!appViewModel.isPaginating && pendingScrollRestoration) {
+        if (paginationJustFinished && pendingScrollRestoration) {
             if (anchorEventIdForRestore != null) {
                 // Restore to anchor event (preferred method - more accurate)
             if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Pagination completed, restoring scroll to anchor event: $anchorEventIdForRestore")
