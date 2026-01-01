@@ -4724,7 +4724,9 @@ class AppViewModel : ViewModel() {
         // instead of using incoming partial data, to preserve keys not in incoming sync
         val data = syncJson.optJSONObject("data")
         val incomingAccountData = data?.optJSONObject("account_data")
-        if (incomingAccountData != null) {
+        // CRITICAL FIX: Only process account_data if the incoming sync_complete actually has account_data keys
+        // Empty account_data object {} should not trigger processing (prevents re-requesting emoji packs on every sync)
+        if (incomingAccountData != null && incomingAccountData.length() > 0) {
             // Load merged account_data from database (SyncIngestor has already merged it)
             appContext?.let { context ->
                 viewModelScope.launch(Dispatchers.IO) {
@@ -4755,6 +4757,9 @@ class AppViewModel : ViewModel() {
                 // No context available, use incoming (shouldn't happen in normal flow)
                 processAccountData(incomingAccountData)
             }
+        } else if (incomingAccountData != null && incomingAccountData.length() == 0) {
+            // Incoming account_data is empty {} - don't process, preserve existing state
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Incoming account_data is empty, skipping processing (preserving existing state)")
         }
         
         // Auto-save state periodically (every 10 sync_complete messages) for crash recovery
@@ -4812,7 +4817,9 @@ class AppViewModel : ViewModel() {
         // IMPORTANT: Load merged account_data from database (after SyncIngestor has merged it)
         // instead of using incoming partial data, to preserve keys not in incoming sync
         val incomingAccountData = accountData
-        if (incomingAccountData != null) {
+        // CRITICAL FIX: Only process account_data if the incoming sync_complete actually has account_data keys
+        // Empty account_data object {} should not trigger processing (prevents re-requesting emoji packs on every sync)
+        if (incomingAccountData != null && incomingAccountData.length() > 0) {
             // Load merged account_data from database (SyncIngestor has already merged it)
             appContext?.let { context ->
                 viewModelScope.launch(Dispatchers.IO) {
@@ -4843,6 +4850,9 @@ class AppViewModel : ViewModel() {
                 // No context available, use incoming (shouldn't happen in normal flow)
                 processAccountData(incomingAccountData)
             }
+        } else if (incomingAccountData != null && incomingAccountData.length() == 0) {
+            // Incoming account_data is empty {} - don't process, preserve existing state
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Incoming account_data is empty, skipping processing (preserving existing state)")
         }
         
         // Auto-save state periodically (every 10 sync_complete messages) for crash recovery
@@ -11643,10 +11653,83 @@ class AppViewModel : ViewModel() {
         // PHASE 5.2/5.3: Acknowledge ALL commands with positive request_id when response arrives
         // Backend responds with same request_id, so we match by request_id and remove from queue
         // This ensures all commands are tracked and acknowledged properly
+        var hasPendingOperation = false
         if (requestId > 0) {
+            // Check if there's a pending operation for this request_id
+            // If not, this might be a stale response or request_id collision
+            val operation = synchronized(pendingOperationsLock) {
+                pendingWebSocketOperations.find { op ->
+                    (op.data["requestId"] as? Int) == requestId
+                }
+            }
+            hasPendingOperation = operation != null
             handleMessageAcknowledgmentByRequestId(requestId)
         } else if (requestId == 0) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - Received response with request_id=0 (no acknowledgment needed)")
+        }
+        
+        // CRITICAL FIX: If no pending operation was found and request_id > 0, this might be a stale response
+        // Don't route to handlers based on request maps to avoid processing stale responses
+        // Exception: request_id=0 is valid and should be processed normally
+        if (requestId > 0 && !hasPendingOperation) {
+            // Check if this request_id exists in any of our request maps - if so, it's stale and should be cleaned up
+            val isStale = profileRequests.containsKey(requestId) ||
+                    timelineRequests.containsKey(requestId) ||
+                    roomStateRequests.containsKey(requestId) ||
+                    messageRequests.containsKey(requestId) ||
+                    reactionRequests.containsKey(requestId) ||
+                    markReadRequests.containsKey(requestId) ||
+                    roomSummaryRequests.containsKey(requestId) ||
+                    joinRoomRequests.containsKey(requestId) ||
+                    leaveRoomRequests.containsKey(requestId) ||
+                    fcmRegistrationRequests.containsKey(requestId) ||
+                    eventRequests.containsKey(requestId) ||
+                    freshnessCheckRequests.containsKey(requestId) ||
+                    backgroundPrefetchRequests.containsKey(requestId) ||
+                    paginateRequests.containsKey(requestId) ||
+                    roomStateWithMembersRequests.containsKey(requestId) ||
+                    userEncryptionInfoRequests.containsKey(requestId) ||
+                    mutualRoomsRequests.containsKey(requestId) ||
+                    trackDevicesRequests.containsKey(requestId) ||
+                    resolveAliasRequests.containsKey(requestId) ||
+                    getRoomSummaryRequests.containsKey(requestId) ||
+                    joinRoomCallbacks.containsKey(requestId) ||
+                    roomSpecificStateRequests.containsKey(requestId) ||
+                    fullMemberListRequests.containsKey(requestId) ||
+                    outgoingRequests.containsKey(requestId) ||
+                    mentionsRequests.containsKey(requestId)
+            
+            if (isStale) {
+                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Ignoring stale response with requestId=$requestId (no pending operation, but found in request maps - likely a request_id collision or stale entry)")
+                // Clean up stale entries to prevent future collisions
+                profileRequests.remove(requestId)
+                timelineRequests.remove(requestId)
+                roomStateRequests.remove(requestId)
+                messageRequests.remove(requestId)
+                reactionRequests.remove(requestId)
+                markReadRequests.remove(requestId)
+                roomSummaryRequests.remove(requestId)
+                joinRoomRequests.remove(requestId)
+                leaveRoomRequests.remove(requestId)
+                fcmRegistrationRequests.remove(requestId)
+                eventRequests.remove(requestId)
+                freshnessCheckRequests.remove(requestId)
+                backgroundPrefetchRequests.remove(requestId)
+                paginateRequests.remove(requestId)
+                roomStateWithMembersRequests.remove(requestId)
+                userEncryptionInfoRequests.remove(requestId)
+                mutualRoomsRequests.remove(requestId)
+                trackDevicesRequests.remove(requestId)
+                resolveAliasRequests.remove(requestId)
+                getRoomSummaryRequests.remove(requestId)
+                joinRoomCallbacks.remove(requestId)
+                roomSpecificStateRequests.remove(requestId)
+                emojiPackRequests.remove(requestId)
+                fullMemberListRequests.remove(requestId)
+                outgoingRequests.remove(requestId)
+                mentionsRequests.remove(requestId)
+                return
+            }
         }
         
         if (profileRequests.containsKey(requestId)) {
