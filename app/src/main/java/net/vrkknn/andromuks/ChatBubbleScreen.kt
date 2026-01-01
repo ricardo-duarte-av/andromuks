@@ -54,7 +54,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.ui.platform.LocalContext
@@ -232,24 +232,20 @@ fun ChatBubbleLoadingScreen(
             // Prepare navigation callback to defer until initial sync completes
             appViewModel.setNavigationCallback {
                 val pendingBubbleId = appViewModel.getPendingBubbleNavigation() ?: roomId
-                if (pendingBubbleId != null) {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Navigation callback - opening bubble $pendingBubbleId")
-                    appViewModel.clearPendingBubbleNavigation()
-                    navController.navigate("chat_bubble/$pendingBubbleId") {
-                        popUpTo("chat_bubble_loading") { inclusive = true }
-                    }
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Navigation callback - opening bubble $pendingBubbleId")
+                appViewModel.clearPendingBubbleNavigation()
+                navController.navigate("chat_bubble/$pendingBubbleId") {
+                    popUpTo("chat_bubble_loading") { inclusive = true }
                 }
             }
             
             // If spaces already loaded (e.g., app already running), navigate immediately
             if (appViewModel.spacesLoaded) {
                 val pendingBubbleId = appViewModel.getPendingBubbleNavigation() ?: roomId
-                if (pendingBubbleId != null) {
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Spaces already loaded - opening bubble immediately for $pendingBubbleId")
-                    appViewModel.clearPendingBubbleNavigation()
-                    navController.navigate("chat_bubble/$pendingBubbleId") {
-                        popUpTo("chat_bubble_loading") { inclusive = true }
-                    }
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleLoadingScreen: Spaces already loaded - opening bubble immediately for $pendingBubbleId")
+                appViewModel.clearPendingBubbleNavigation()
+                navController.navigate("chat_bubble/$pendingBubbleId") {
+                    popUpTo("chat_bubble_loading") { inclusive = true }
                 }
             }
         } else {
@@ -345,7 +341,7 @@ fun ChatBubbleScreen(
     val isDirectMessage = roomItem?.isDirectMessage ?: false
     
     // For DM rooms, calculate the display name from member profiles
-    val displayRoomName = if (isDirectMessage && roomItem != null) {
+    val displayRoomName = if (isDirectMessage) {
         val memberMap = appViewModel.getMemberMap(roomId)
         val otherParticipant = memberMap.keys.find { it != myUserId }
         val otherProfile = otherParticipant?.let { memberMap[it] }
@@ -355,7 +351,7 @@ fun ChatBubbleScreen(
     }
     
     // For DM rooms, get the avatar from the other participant
-    val displayAvatarUrl = if (isDirectMessage && roomItem != null) {
+    val displayAvatarUrl = if (isDirectMessage) {
         val memberMap = appViewModel.getMemberMap(roomId)
         val otherParticipant = memberMap.keys.find { it != myUserId }
         val otherProfile = otherParticipant?.let { memberMap[it] }
@@ -680,7 +676,7 @@ fun ChatBubbleScreen(
                                 homeserverUrl = homeserverUrl,
                                 authToken = authToken,
                                 userProfileCache = memberMap,  // Use cached member map
-                                isMine = myUserId != null && event.sender == myUserId,
+                                isMine = event.sender == myUserId,
                                 myUserId = myUserId,
                                 isConsecutive = isConsecutive,
                                 appViewModel = appViewModel
@@ -886,7 +882,7 @@ fun ChatBubbleScreen(
                             contentPadding = PaddingValues(0.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Filled.Send,
+                                imageVector = Icons.AutoMirrored.Filled.Send,
                                 contentDescription = "Send",
                                 tint = if (draft.isNotBlank()) MaterialTheme.colorScheme.onPrimary 
                                       else MaterialTheme.colorScheme.onSurfaceVariant

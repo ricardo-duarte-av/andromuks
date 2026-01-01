@@ -2765,10 +2765,7 @@ fun TimelineEventItem(
         if (showEditHistoryDialog && appViewModel != null) {
             editHistoryLoading = true
             try {
-                var versioned = appViewModel.getMessageVersions(event.eventId)
-                if (versioned == null && event.roomId.isNotBlank()) {
-                    versioned = appViewModel.loadMessageVersionsFromDb(event.eventId, event.roomId)
-                }
+                val versioned = appViewModel.getMessageVersions(event.eventId)
                 editHistoryVersion = versioned
                 if (versioned == null) {
                     editHistoryError = "Edit history is not available"
