@@ -1224,15 +1224,11 @@ fun ThreadViewerScreen(
                                                 if (!isWaitingForFullMemberList && !showMentionList) {
                                                     val memberMapCurrent = appViewModel.getMemberMap(roomId)
                                                     if (memberMapCurrent.isEmpty() || memberMapCurrent.size < 10) {
-                                                        kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
-                                                            val cachedMembers = appViewModel.loadMembersFromDatabase(roomId)
-                                                            if (cachedMembers.isNotEmpty()) {
-                                                showMentionList = true
-                                                            }
-                                                            isWaitingForFullMemberList = true
-                                                            lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
-                                                            appViewModel.requestFullMemberList(roomId)
-                                                        }
+                                                        // Profiles are loaded opportunistically when rendering events
+                                                        // Request full member list to populate cache
+                                                        isWaitingForFullMemberList = true
+                                                        lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
+                                                        appViewModel.requestFullMemberList(roomId)
                                                     } else {
                                                         showMentionList = true
                                                     }

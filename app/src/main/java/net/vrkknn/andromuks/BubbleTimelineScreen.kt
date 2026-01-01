@@ -1808,12 +1808,7 @@ fun BubbleTimelineScreen(
                     "Andromuks",
                     "BubbleTimelineScreen: Saving ${profilesToSave.size} profiles to disk for users in timeline"
                 )
-                for (userId in profilesToSave) {
-                    val profile = memberMap[userId]
-                    if (profile != null) {
-                        appViewModel.saveProfileToDisk(context, userId, profile)
-                    }
-                }
+                // Profiles are cached in-memory only - no DB persistence needed
             }
         }
     }
@@ -2373,21 +2368,13 @@ fun BubbleTimelineScreen(
                                                 // Check if we already have members in memory cache
                                                 val memberMap = appViewModel.getMemberMap(roomId)
                                                 if (memberMap.isEmpty() || memberMap.size < 10) {
-                                                    // Load from database first (immediate display)
-                                                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
-                                                        val cachedMembers = appViewModel.loadMembersFromDatabase(roomId)
-                                                        if (cachedMembers.isNotEmpty()) {
-                                                            // Show cached members immediately
-                                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Showing ${cachedMembers.size} cached members from database")
-                                                            showMentionList = true
-                                                        }
-                                                        
-                                                        // Request fresh data from server (will update when it arrives)
-                                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: @ detected, requesting fresh member list for room $roomId")
-                                                        isWaitingForFullMemberList = true
-                                                        lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
-                                                        appViewModel.requestFullMemberList(roomId)
-                                                    }
+                                                    // Profiles are loaded opportunistically when rendering events
+                                                    // Request full member list to populate cache
+                                                    // Request fresh data from server (will update when it arrives)
+                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: @ detected, requesting fresh member list for room $roomId")
+                                                    isWaitingForFullMemberList = true
+                                                    lastMemberUpdateCounterBeforeMention = appViewModel.memberUpdateCounter
+                                                    appViewModel.requestFullMemberList(roomId)
                                                 } else {
                                                     // We already have members in memory, show list immediately
                                                     showMentionList = true

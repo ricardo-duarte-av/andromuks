@@ -346,13 +346,14 @@ class AppViewModel : ViewModel() {
     ): Boolean {
         return withTimeoutOrNull(timeoutMs) {
             while (true) {
-                val profileReady = currentUserProfile != null || currentUserId.isBlank()
+                // REMOVED: profileReady check - profiles load in background, events render with fallback immediately
+                // Events can render instantly with username/avatar fallback, profiles update when they arrive
                 val pendingReady = !isProcessingPendingItems
                 val spacesReady = spacesLoaded
                 val syncReady = initialSyncComplete
                 val initReady = !requireInitComplete || initializationComplete
                 
-                if (profileReady && pendingReady && spacesReady && syncReady && initReady) {
+                if (pendingReady && spacesReady && syncReady && initReady) {
                     break
                 }
                 delay(pollDelayMs)
@@ -2377,36 +2378,12 @@ class AppViewModel : ViewModel() {
     }
 
     /**
-     * Loads members from database and populates the cache for immediate display.
-     * This allows showing cached members immediately when @ is typed, even if data is slightly out-of-date.
+     * @deprecated Profiles are no longer persisted to database - use opportunistic loading via requestUserProfileOnDemand()
      */
-    suspend fun loadMembersFromDatabase(roomId: String): Map<String, MemberProfile> = kotlinx.coroutines.withContext(Dispatchers.IO) {
-        try {
-            val context = appContext ?: return@withContext emptyMap()
-            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-            val roomMemberDao = database.roomMemberDao()
-            
-            val memberEntities = roomMemberDao.getMembersForRoom(roomId)
-            if (memberEntities.isEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No cached members found in database for room $roomId")
-                return@withContext emptyMap()
-            }
-            
-            // Convert to MemberProfile map and populate cache
-            val memberMap = memberEntities.associate { entity ->
-                entity.userId to MemberProfile(entity.displayName, entity.avatarUrl)
-            }
-            
-            // Populate the in-memory cache
-            val cacheMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
-            cacheMap.putAll(memberMap)
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${memberMap.size} cached members from database for room $roomId")
-            memberMap
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Error loading members from database: ${e.message}", e)
-            emptyMap()
-        }
+    @Deprecated("Profiles are in-memory only, loaded opportunistically when rendering events")
+    suspend fun loadMembersFromDatabase(roomId: String): Map<String, MemberProfile> {
+        // No-op - profiles are loaded opportunistically from backend when rendering events
+        return emptyMap()
     }
     
     fun getMemberMap(roomId: String): Map<String, MemberProfile> {
@@ -2869,17 +2846,12 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Gets all profiles from disk cache (ProfileRepository).
-     * @return List of pairs (userId, MemberProfile) sorted by display name
+     * @deprecated Profiles are no longer persisted to database - they're cached in-memory per room
      */
-    suspend fun getAllDiskCachedProfiles(context: Context): List<Pair<String, MemberProfile>> = withContext(Dispatchers.IO) {
-        try {
-            val profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
-            profileRepository.getAllProfiles()
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to get disk cached profiles", e)
-            emptyList()
-        }
+    @Deprecated("Profiles are in-memory only, loaded opportunistically when rendering events")
+    suspend fun getAllDiskCachedProfiles(context: Context): List<Pair<String, MemberProfile>> {
+        // No-op - profiles are cached in-memory only
+        return emptyList()
     }
     
     /**
@@ -5379,28 +5351,9 @@ class AppViewModel : ViewModel() {
      */
     fun ensureCurrentUserProfileLoaded() {
         if (currentUserProfile == null && currentUserId.isNotBlank() && appContext != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current user profile missing on visibility, attempting to load - userId: $currentUserId")
-            // Try loading from cache first
-            val cachedProfile = try {
-                runBlocking(Dispatchers.IO) {
-                    loadProfileFromDatabase(currentUserId)
-                }
-            } catch (e: Exception) {
-                null
-            }
-            
-            if (cachedProfile != null) {
-                currentUserProfile = UserProfile(
-                    userId = currentUserId,
-                    displayName = cachedProfile.displayName,
-                    avatarUrl = cachedProfile.avatarUrl
-                )
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded current user profile from cache on visibility")
-            } else {
-                // Not in cache, request from server
-                requestUserProfile(currentUserId)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requested current user profile from server on visibility")
-            }
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current user profile missing, requesting from server - userId: $currentUserId")
+            // Profiles are in-memory only - request from server
+            requestUserProfile(currentUserId)
         }
     }
     
@@ -10833,12 +10786,12 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - Received response with request_id=0 (no acknowledgment needed)")
         }
         
-        // CRITICAL FIX: If no pending operation was found and request_id > 0, this might be a stale response
-        // Don't route to handlers based on request maps to avoid processing stale responses
-        // Exception: request_id=0 is valid and should be processed normally
+        // CRITICAL FIX: If no pending operation was found and request_id > 0, check if it's in request maps
+        // If it's in a request map, it's a valid response (operation might have been cleaned up already)
+        // Only treat as stale if it's NOT in any request map
         if (requestId > 0 && !hasPendingOperation) {
-            // Check if this request_id exists in any of our request maps - if so, it's stale and should be cleaned up
-            val isStale = profileRequests.containsKey(requestId) ||
+            // Check if this request_id exists in any of our request maps - if so, it's valid (not stale)
+            val isInRequestMap = profileRequests.containsKey(requestId) ||
                     timelineRequests.containsKey(requestId) ||
                     roomStateRequests.containsKey(requestId) ||
                     messageRequests.containsKey(requestId) ||
@@ -10864,40 +10817,20 @@ class AppViewModel : ViewModel() {
                     outgoingRequests.containsKey(requestId) ||
                     mentionsRequests.containsKey(requestId)
             
-            if (isStale) {
-                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Ignoring stale response with requestId=$requestId (no pending operation, but found in request maps - likely a request_id collision or stale entry)")
-                // Clean up stale entries to prevent future collisions
-                profileRequests.remove(requestId)
-                timelineRequests.remove(requestId)
-                roomStateRequests.remove(requestId)
-                messageRequests.remove(requestId)
-                reactionRequests.remove(requestId)
-                markReadRequests.remove(requestId)
-                roomSummaryRequests.remove(requestId)
-                joinRoomRequests.remove(requestId)
-                leaveRoomRequests.remove(requestId)
-                fcmRegistrationRequests.remove(requestId)
-                eventRequests.remove(requestId)
-                freshnessCheckRequests.remove(requestId)
-                backgroundPrefetchRequests.remove(requestId)
-                paginateRequests.remove(requestId)
-                roomStateWithMembersRequests.remove(requestId)
-                userEncryptionInfoRequests.remove(requestId)
-                mutualRoomsRequests.remove(requestId)
-                trackDevicesRequests.remove(requestId)
-                resolveAliasRequests.remove(requestId)
-                getRoomSummaryRequests.remove(requestId)
-                joinRoomCallbacks.remove(requestId)
-                roomSpecificStateRequests.remove(requestId)
-                emojiPackRequests.remove(requestId)
-                fullMemberListRequests.remove(requestId)
-                outgoingRequests.remove(requestId)
-                mentionsRequests.remove(requestId)
+            // If it's NOT in any request map, it's truly stale - ignore it
+            if (!isInRequestMap) {
+                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Ignoring stale response with requestId=$requestId (not in any request map and no pending operation)")
                 return
             }
+            // If it IS in a request map, it's valid - continue processing even though operation was cleaned up
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing response with requestId=$requestId (found in request map, operation may have been cleaned up)")
         }
         
         if (profileRequests.containsKey(requestId)) {
+            if (BuildConfig.DEBUG) {
+                val userId = profileRequests[requestId]
+                android.util.Log.d("Andromuks", "AppViewModel: Received profile response for requestId=$requestId, userId=$userId")
+            }
             handleProfileResponse(requestId, data)
         } else if (timelineRequests.containsKey(requestId)) {
             handleTimelineResponse(requestId, data)
@@ -11084,7 +11017,11 @@ class AppViewModel : ViewModel() {
     }
     
     private fun handleProfileResponse(requestId: Int, data: Any) {
-        val userId = profileRequests.remove(requestId) ?: return
+        val userId = profileRequests.remove(requestId)
+        if (userId == null) {
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: handleProfileResponse called for unknown requestId=$requestId")
+            return
+        }
         val requestingRoomId = profileRequestRooms.remove(requestId)
         
         // PERFORMANCE: Remove from pending requests set
@@ -11092,6 +11029,8 @@ class AppViewModel : ViewModel() {
         val obj = data as? JSONObject ?: return
         val avatar = obj.optString("avatar_url")?.takeIf { it.isNotBlank() }
         val display = obj.optString("displayname")?.takeIf { it.isNotBlank() }
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: handleProfileResponse processing - userId: $userId, displayName: $display, avatarUrl: $avatar")
         
         val memberProfile = MemberProfile(display, avatar)
         
@@ -11114,6 +11053,7 @@ class AppViewModel : ViewModel() {
         
         if (userId == currentUserId) {
             currentUserProfile = UserProfile(userId = userId, displayName = display, avatarUrl = avatar)
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated currentUserProfile - userId: $userId, displayName: $display, avatarUrl: $avatar")
         }
         
         // Save profile to disk cache for persistence
@@ -11135,33 +11075,16 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Saves a user profile to disk cache for persistence between app sessions.
-     * 
-     * Uses SQLite database (ProfileRepository) instead of SharedPreferences for better
-     * performance, scalability, and memory efficiency. This is especially important when
-     * storing thousands of user profiles.
-     * 
-     * @param context Android context for accessing database
-     * @param userId The Matrix user ID to save the profile for
-     * @param profile The MemberProfile object containing display name and avatar URL
+     * @deprecated Profiles are no longer persisted to database - they're cached in-memory per room
      */
+    @Deprecated("Profiles are in-memory only, loaded opportunistically when rendering events")
     fun saveProfileToDisk(context: android.content.Context, userId: String, profile: MemberProfile) {
-        // Use SQLite database instead of SharedPreferences for better performance
-        // Initialize repository if needed
-        if (profileRepository == null) {
-            profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
-        }
-        
-        // Save asynchronously to avoid blocking UI
-        viewModelScope.launch {
-            profileRepository?.saveProfile(userId, profile)
-        }
+        // No-op - profiles are cached in-memory only (flattenedMemberCache, globalProfileCache)
     }
     
-    // Database-based profile management
+    // Profile management - in-memory only, loaded opportunistically when rendering events
     private val pendingProfileSaves = mutableMapOf<String, MemberProfile>()
     private var profileSaveJob: kotlinx.coroutines.Job? = null
-    private var profileRepository: net.vrkknn.andromuks.database.ProfileRepository? = null
     private var syncIngestor: net.vrkknn.andromuks.database.SyncIngestor? = null
     private var bootstrapLoader: net.vrkknn.andromuks.database.BootstrapLoader? = null
 
@@ -11281,28 +11204,11 @@ class AppViewModel : ViewModel() {
         
         val startTime = System.currentTimeMillis()
         
-        try {
-            // Initialize repository if needed
-            if (profileRepository == null) {
-                appContext?.let { context ->
-                    profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
-                }
-            }
-            
-            // Save profiles to database
-            profileRepository?.saveProfiles(profilesToSave)
-            
+        // Profiles are cached in-memory only - no DB persistence needed
+        // Profiles are loaded opportunistically when rendering events via requestUserProfileOnDemand()
+        if (BuildConfig.DEBUG) {
             val duration = System.currentTimeMillis() - startTime
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Batch saved ${profilesToSave.size} profiles to database in ${duration}ms")
-            
-            // Aggressive cleanup after every save to prevent memory buildup
-            profileRepository?.cleanupOldProfiles()
-            
-            // Force garbage collection to free memory
-            System.gc()
-            
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to batch save profiles to database", e)
+            android.util.Log.d("Andromuks", "AppViewModel: Processed ${profilesToSave.size} profiles (in-memory only) in ${duration}ms")
         }
     }
     
@@ -11326,38 +11232,21 @@ class AppViewModel : ViewModel() {
      * Loads a user profile from disk cache
      */
     /**
-     * Loads a user profile from database cache
+     * @deprecated Profiles are no longer persisted to database - they're cached in-memory per room
      */
+    @Deprecated("Profiles are in-memory only, loaded opportunistically when rendering events")
     private suspend fun loadProfileFromDatabase(userId: String): MemberProfile? {
-        return try {
-            // Initialize repository if needed
-            if (profileRepository == null) {
-                appContext?.let { context ->
-                    profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
-                }
-            }
-            
-            profileRepository?.loadProfile(userId)
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to load profile from database for $userId", e)
-            null
-        }
+        // No-op - profiles are cached in-memory only
+        return null
     }
     
     /**
-     * Legacy function for backward compatibility - now uses database
+     * @deprecated Profiles are no longer persisted to database - they're cached in-memory per room
      */
+    @Deprecated("Profiles are in-memory only, loaded opportunistically when rendering events")
     private fun loadProfileFromDisk(context: android.content.Context, userId: String): MemberProfile? {
-        // This is now a blocking call to maintain compatibility
-        // In the future, this should be updated to use coroutines
-        return try {
-            runBlocking {
-                loadProfileFromDatabase(userId)
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to load profile for $userId", e)
-            null
-        }
+        // No-op - profiles are cached in-memory only
+        return null
     }
     
     /**
@@ -11379,47 +11268,12 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored currentUserId from SharedPreferences: $currentUserId")
             }
             
-            // CRITICAL FIX: Load profiles from database (ProfileRepository) instead of SharedPreferences
-            // Profiles are now stored in SQLite database for better performance
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    // Initialize ProfileRepository if not already initialized
-                    if (profileRepository == null) {
-                        profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
-                    }
-                    
-                    // Load all profiles from database
-                    val allProfiles = profileRepository?.getAllProfiles() ?: emptyList()
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${allProfiles.size} cached profiles from database")
-                    
-                    for ((userId, profile) in allProfiles) {
-                        // Add to all room member caches where this user might be present
-                        roomMemberCache.forEach { (roomId, memberMap) ->
-                            if (memberMap.containsKey(userId)) {
-                                memberMap[userId] = profile
-                            }
-                        }
-                        
-                        // CRITICAL FIX: If this is the current user's profile, set currentUserProfile
-                        // This ensures the header in RoomListScreen displays correctly regardless of startup path
-                        if (userId == currentUserId && currentUserProfile == null) {
-                            currentUserProfile = UserProfile(
-                                userId = userId,
-                                displayName = profile.displayName,
-                                avatarUrl = profile.avatarUrl
-                            )
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded current user profile from cache - userId: $userId, displayName: ${profile.displayName}")
-                        }
-                    }
-                    
-                    // If current user profile is still null but we have a currentUserId, request it
-                    if (currentUserProfile == null && currentUserId.isNotBlank()) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current user profile not in cache, requesting from server - userId: $currentUserId")
-                        requestUserProfile(currentUserId)
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Failed to load cached profiles from database", e)
-                }
+            // Profiles are cached in-memory only - no DB loading needed
+            // Profiles are loaded opportunistically when rendering events via requestUserProfileOnDemand()
+            // If current user profile is needed, request it from the backend
+            if (currentUserProfile == null && currentUserId.isNotBlank()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting current user profile from server - userId: $currentUserId")
+                requestUserProfile(currentUserId)
             }
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to load cached profiles", e)
@@ -12887,52 +12741,10 @@ class AppViewModel : ViewModel() {
             updateCounter++
             memberUpdateCounter++ // CRITICAL: Increment memberUpdateCounter so UI recomposes and shows mention list
             
-            // CRITICAL FIX: For large rooms, batch save all profiles at once instead of queuing individually
-            if (isLargeRoom && profilesToBatchSave.isNotEmpty()) {
-                appContext?.let { context ->
-                    viewModelScope.launch(Dispatchers.IO) {
-                        try {
-                            // Initialize repository if needed
-                            if (profileRepository == null) {
-                                profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
-                            }
-                            
-                            // Batch save all profiles at once
-                            profileRepository?.saveProfiles(profilesToBatchSave)
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Batch saved ${profilesToBatchSave.size} profiles for large room $roomId")
-                        } catch (e: Exception) {
-                            android.util.Log.e("Andromuks", "AppViewModel: Error batch saving profiles for large room: ${e.message}", e)
-                        }
-                    }
-                }
-            }
+            // Profiles are cached in-memory only - no DB persistence needed
             
-            // CRITICAL FIX: Store members in database for immediate display when @ is typed
-            appContext?.let { context ->
-                viewModelScope.launch(Dispatchers.IO) {
-                    try {
-                        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                        val roomMemberDao = database.roomMemberDao()
-                        
-                        // Convert memberMap to RoomMemberEntity list
-                        val memberEntities = memberMap.map { (userId, profile) ->
-                            net.vrkknn.andromuks.database.entities.RoomMemberEntity(
-                                roomId = roomId,
-                                userId = userId,
-                                displayName = profile.displayName,
-                                avatarUrl = profile.avatarUrl,
-                                lastUpdated = System.currentTimeMillis()
-                            )
-                        }
-                        
-                        // Replace all members for this room in database
-                        roomMemberDao.replaceRoomMembers(roomId, memberEntities)
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Stored ${memberEntities.size} members in database for room $roomId")
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Error storing members in database: ${e.message}", e)
-                    }
-                }
-            }
+            // Profiles are cached in-memory only - no DB persistence needed
+            // Profiles are loaded opportunistically when rendering events via requestUserProfileOnDemand()
         }
         
         // Also parse room state metadata (name, alias, topic, avatar) for header display
@@ -12986,28 +12798,26 @@ class AppViewModel : ViewModel() {
                             
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated profile for $stateKey - displayName: '$displayName', avatarUrl: '$avatarUrl'")
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Profile update completed for $stateKey, triggering memberUpdateCounter")
+                            
+                            // CRITICAL FIX: If this is the current user, also update currentUserProfile
+                            if (stateKey == currentUserId && currentUserProfile == null) {
+                                currentUserProfile = UserProfile(
+                                    userId = currentUserId,
+                                    displayName = displayName,
+                                    avatarUrl = avatarUrl
+                                )
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Set currentUserProfile from member event - displayName: '$displayName', avatarUrl: '$avatarUrl'")
+                            }
+                            
                             updatedProfiles++
                             
-                            // For large member lists, save immediately to prevent OOM
-                            if (updatedProfiles > 100) {
-                                // Immediate save for large lists to prevent memory buildup
-                                appContext?.let { context ->
-                                    if (profileRepository == null) {
-                                        profileRepository = net.vrkknn.andromuks.database.ProfileRepository(context)
-                                    }
-                                    viewModelScope.launch(Dispatchers.IO) {
-                                        profileRepository?.saveProfile(stateKey, newProfile)
-                                    }
-                                }
-                                
-                                // For very large lists, clear caches aggressively
-                                if (updatedProfiles > 500) {
-                                    // Clear all caches to prevent OOM
-                                    globalProfileCache.clear()
-                                    flattenedMemberCache.clear()
-                                    roomMemberIndex.clear() // OPTIMIZED: Clear index when clearing cache
-                                    android.util.Log.w("Andromuks", "AppViewModel: Cleared all caches due to large profile update ($updatedProfiles profiles)")
-                                }
+                            // For very large lists, clear caches aggressively to prevent OOM
+                            if (updatedProfiles > 500) {
+                                // Clear all caches to prevent OOM
+                                globalProfileCache.clear()
+                                flattenedMemberCache.clear()
+                                roomMemberIndex.clear() // OPTIMIZED: Clear index when clearing cache
+                                android.util.Log.w("Andromuks", "AppViewModel: Cleared all caches due to large profile update ($updatedProfiles profiles)")
                             } else {
                                 // Queue for batch saving for smaller lists
                                 queueProfileForBatchSave(stateKey, newProfile)
@@ -16343,6 +16153,8 @@ class AppViewModel : ViewModel() {
 
 @Composable
 fun AppViewModel.rememberRoomListUiState(): State<RoomListUiState> {
+    // derivedStateOf automatically tracks all state reads inside its lambda
+    // When currentUserProfile (or any other dependency) changes, derivedStateOf will recompute
     return remember {
         derivedStateOf {
             RoomListUiState(
