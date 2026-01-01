@@ -4414,26 +4414,8 @@ class AppViewModel : ViewModel() {
                     // Invoke completion callback after actual DB work is done (it's a suspend function)
                     onComplete?.invoke()
                     
-                    // CRITICAL: Refresh timeline from DB for current room if events were persisted
-                    // This ensures new events appear even if they weren't processed via processSyncEventsArray()
-                    // (which can happen if events are filtered during parsing or not in the sync JSON structure)
-                    // We only refresh for the current room to avoid unnecessary work
-                    if (currentRoomId.isNotEmpty() && currentRoomId in roomsWithEvents) {
-                        withContext(Dispatchers.Main) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current room $currentRoomId had events persisted - refreshing timeline from DB to ensure they appear")
-                            // CRITICAL FIX: Wait for DB write to complete before refreshing
-                            // ingestSyncComplete() runs on Dispatchers.IO and completes when DB write is done
-                            // So we can refresh immediately after it returns (no delay needed)
-                            // However, we still add a small delay to let processParsedSyncResult() complete first
-                            // to prevent race conditions where both try to update the timeline
-                            viewModelScope.launch {
-                                // Wait for processParsedSyncResult() to complete (it processes events in memory)
-                                kotlinx.coroutines.delay(100) // Increased delay to ensure DB write is complete
-                                // DB write from ingestSyncComplete() should be complete by now since it's async but awaited
-                                refreshTimelineFromDatabase(currentRoomId)
-                            }
-                        }
-                    }
+                    // Events are no longer persisted to database - they're processed in-memory via processSyncEventsArray()
+                    // No DB refresh needed - timeline is updated directly from sync_complete events
                     
                     // Deprecated: onSyncCompletePersisted no longer needed - we no longer track last_received_id
                 } catch (e: Exception) {
@@ -4637,26 +4619,8 @@ class AppViewModel : ViewModel() {
                         }
                     }
                     
-                    // CRITICAL: Refresh timeline from DB for current room if events were persisted
-                    // This ensures new events appear even if they weren't processed via processSyncEventsArray()
-                    // (which can happen if events are filtered during parsing or not in the sync JSON structure)
-                    // We only refresh for the current room to avoid unnecessary work
-                    if (currentRoomId.isNotEmpty() && currentRoomId in roomsWithEvents) {
-                        withContext(Dispatchers.Main) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current room $currentRoomId had events persisted - refreshing timeline from DB to ensure they appear")
-                            // CRITICAL FIX: Wait for DB write to complete before refreshing
-                            // ingestSyncComplete() runs on Dispatchers.IO and completes when DB write is done
-                            // So we can refresh immediately after it returns (no delay needed)
-                            // However, we still add a small delay to let processParsedSyncResult() complete first
-                            // to prevent race conditions where both try to update the timeline
-                            viewModelScope.launch {
-                                // Wait for processParsedSyncResult() to complete (it processes events in memory)
-                                kotlinx.coroutines.delay(100) // Increased delay to ensure DB write is complete
-                                // DB write from ingestSyncComplete() should be complete by now since it's async but awaited
-                                refreshTimelineFromDatabase(currentRoomId)
-                            }
-                        }
-                    }
+                    // Events are no longer persisted to database - they're processed in-memory via processSyncEventsArray()
+                    // No DB refresh needed - timeline is updated directly from sync_complete events
                     
                     // NOTE: We no longer track requestId for reconnection - all caches are cleared on connect/reconnect
                 } catch (e: Exception) {
@@ -5128,11 +5092,8 @@ class AppViewModel : ViewModel() {
             // SYNC OPTIMIZATION: Check if current room needs timeline update with diff-based detection
             checkAndUpdateCurrentRoomTimelineOptimized(syncJson)
             
-            // DISABLED: Timeline desync check removed - we now use DB as source of truth
-            // The cache is no longer updated from sync_complete (to save battery), so it's often stale.
-            // Rebuilding from stale cache was overwriting newer events that were just added.
-            // Instead, we rely on refreshTimelineFromDatabase() to load fresh events from DB when needed.
-            // This ensures we always show the latest events without conflicts from stale cache.
+            // Timeline is updated directly from sync_complete events via processSyncEventsArray()
+            // No DB persistence or refresh needed - all data is in-memory
             
             // SYNC OPTIMIZATION: Schedule member update if member cache actually changed
             if (memberStateChanged) {
@@ -9524,115 +9485,6 @@ class AppViewModel : ViewModel() {
             .distinctUntilChanged() // Only emit when timestamp actually changes
     }
     
-    /**
-     * Refresh timeline from database when new events arrive via sync_complete
-     * This ensures timeline screens see new events even when room is already open
-     * 
-     * @param roomId The room ID to refresh
-     */
-    private fun refreshTimelineFromDatabase(roomId: String) {
-        // Only refresh if this is the current room and we have bootstrap loader
-        if (currentRoomId != roomId || appContext == null || bootstrapLoader == null) {
-            return
-        }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshing timeline from database for open room: $roomId")
-        
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                // CRITICAL FIX: Retry mechanism to handle race conditions where DB write might not be complete yet
-                // Wait for DB to have the new events (with timeout)
-                var dbEvents = emptyList<TimelineEvent>()
-                var retryCount = 0
-                val maxRetries = 5
-                val retryDelay = 50L // 50ms between retries
-                
-                while (retryCount < maxRetries && dbEvents.isEmpty()) {
-                    // Load latest events from database (events were just persisted by SyncIngestor)
-                    // Load initial events when opening a room (200 events)
-                    dbEvents = bootstrapLoader!!.loadRoomEvents(roomId, INITIAL_ROOM_LOAD_EVENTS)
-                    
-                    if (dbEvents.isEmpty() && retryCount < maxRetries - 1) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in DB yet (retry ${retryCount + 1}/$maxRetries), waiting ${retryDelay}ms")
-                        kotlinx.coroutines.delay(retryDelay)
-                        retryCount++
-                    } else {
-                        break
-                    }
-                }
-                
-                if (dbEvents.isNotEmpty()) {
-                    val dbLatest = dbEvents.maxByOrNull { it.timestamp }
-                    val currentLatest = timelineEvents.maxByOrNull { it.timestamp }
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshing ${dbEvents.size} events from database for $roomId (DB latest: ${dbLatest?.eventId}@${dbLatest?.timestamp}, current latest: ${currentLatest?.eventId}@${currentLatest?.timestamp})")
-                    
-                    // CRITICAL FIX: Merge new events into existing eventChainMap instead of clearing
-                    // This prevents race conditions where background paginate responses overwrite newer events
-                    val eventsBeforeMerge = eventChainMap.size
-                    var newEventsAdded = 0
-                    var existingEventsUpdated = 0
-                    
-                    for (event in dbEvents) {
-                        val isEditEvent = isEditEvent(event)
-                        
-                        if (isEditEvent) {
-                            // Update edit events map (will overwrite if exists)
-                            editEventsMap[event.eventId] = event
-                        } else {
-                            // Merge into eventChainMap - only add if not already present or if newer
-                            val existingEntry = eventChainMap[event.eventId]
-                            if (existingEntry == null) {
-                                eventChainMap[event.eventId] = EventChainEntry(
-                                    eventId = event.eventId,
-                                    ourBubble = event,
-                                    replacedBy = null,
-                                    originalTimestamp = event.timestamp
-                                )
-                                newEventsAdded++
-                            } else {
-                                // Event already exists - check if this is a newer version
-                                if (event.timestamp > existingEntry.originalTimestamp) {
-                                    // Update with newer event data, preserving edit chain
-                                    eventChainMap[event.eventId] = EventChainEntry(
-                                        eventId = event.eventId,
-                                        ourBubble = event,
-                                        replacedBy = existingEntry.replacedBy, // Preserve edit chain
-                                        originalTimestamp = event.timestamp
-                                    )
-                                    existingEventsUpdated++
-                                }
-                            }
-                        }
-                    }
-                    
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Merged DB events - before: $eventsBeforeMerge, new: $newEventsAdded, updated: $existingEventsUpdated, after: ${eventChainMap.size}")
-                    
-                    // Only rebuild timeline if we actually added new events
-                    // This prevents unnecessary rebuilds that cause flickering
-                    if (newEventsAdded > 0 || existingEventsUpdated > 0) {
-                        // Process edit relationships to ensure chains are up to date
-                        processEditRelationships()
-                        
-                        // Process versioned messages
-                        processVersionedMessages(dbEvents)
-                        
-                        // Rebuild timeline from chain (includes all events, both existing and newly merged)
-                        val timelineSizeBefore = timelineEvents.size
-                        buildTimelineFromChain()
-                        val timelineSizeAfter = timelineEvents.size
-                        
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Timeline rebuilt after merge - before: $timelineSizeBefore, after: $timelineSizeAfter (latest: ${timelineEvents.maxByOrNull { it.timestamp }?.eventId}@${timelineEvents.maxByOrNull { it.timestamp }?.timestamp})")
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No new events to add, skipping timeline rebuild (all ${dbEvents.size} events already in timeline)")
-                    }
-                } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No events in database for $roomId during refresh")
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Error refreshing timeline from database for $roomId: ${e.message}", e)
-            }
-        }
-    }
     
     fun requestRoomTimeline(roomId: String, useLruCache: Boolean = true) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId (useLruCache=$useLruCache)")
@@ -13904,13 +13756,7 @@ class AppViewModel : ViewModel() {
                     updateTimelineFromSync(syncJson, currentRoomId)
                 } else if (currentRoomId.isNotEmpty()) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✗ Skipping sync_complete - current room $currentRoomId not in this sync batch")
-                    // CRITICAL FIX: Even if current room is not in sync batch, refresh from DB
-                    // This handles cases where events were persisted but not processed via processSyncEventsArray()
-                    // (e.g., if sync JSON structure was different or events were filtered)
-                    viewModelScope.launch {
-                        kotlinx.coroutines.delay(150) // Wait for DB write to complete
-                        refreshTimelineFromDatabase(currentRoomId)
-                    }
+                    // Events are no longer persisted to database - timeline is updated directly from sync_complete
                 } else {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✗ Skipping sync_complete - no room currently open (events will be cached only)")
                 }
@@ -14224,12 +14070,8 @@ class AppViewModel : ViewModel() {
             
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Rebuilt timeline after processing sync events for current room $roomId: before=$timelineCountBefore, after=$timelineCountAfter")
             
-            // DISABLED: Cache mismatch check removed - we now use DB as source of truth
-            // The cache is no longer updated from sync_complete (to save battery), so it's often stale.
-            // Rebuilding from stale cache was overwriting newer events that were just added via processSyncEventsArray().
-            // The cache mismatch check would incorrectly think the timeline is missing events and rebuild from stale cache,
-            // causing events to disappear. Instead, we rely on refreshTimelineFromDatabase() to load fresh events from DB.
-            // This ensures we always show the latest events without conflicts from stale cache.
+            // Timeline is updated directly from sync_complete events via processSyncEventsArray()
+            // No DB persistence or refresh needed - all data is in-memory
         } else {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping timeline rebuild for room $roomId (not currently open, currentRoomId=$currentRoomId)")
         }

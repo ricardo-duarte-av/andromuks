@@ -1355,6 +1355,9 @@ fun RoomTimelineScreen(
     
     // Track if we're refreshing (to scroll to bottom after refresh)
     var isRefreshing by remember { mutableStateOf(false) }
+    
+    // Use imePadding for keyboard handling (defined early so it's accessible to all LaunchedEffects)
+    val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
 
     var previousItemCount by remember { mutableStateOf(timelineItems.size) }
     var hasLoadedInitialBatch by remember { mutableStateOf(false) }
@@ -1409,18 +1412,42 @@ fun RoomTimelineScreen(
     
     // PERFORMANCE: Separate LaunchedEffect for auto-scroll when attached to bottom
     // This only triggers when timelineItems.size changes (new messages), not on every scroll
-    LaunchedEffect(timelineItems.size, isAttachedToBottom) {
+    // CRITICAL: Skip auto-scroll during keyboard transitions to prevent scroll position loss
+    LaunchedEffect(timelineItems.size, isAttachedToBottom, imeBottom) {
         if (!hasInitialSnapCompleted || !hasLoadedInitialBatch) {
             return@LaunchedEffect
         }
         
-        // CRITICAL FIX: If we're attached to bottom but new items appeared below viewport, auto-scroll
-        if (isAttachedToBottom && !isAtBottom && timelineItems.isNotEmpty()) {
+        // CRITICAL: When keyboard is open, DON'T check isAtBottom - it's unreliable due to compressed viewport
+        // If we're attached to bottom and keyboard is open, just scroll to bottom when new items arrive
+        val isKeyboardOpen = imeBottom > 0.dp
+        
+        if (isKeyboardOpen && isAttachedToBottom && timelineItems.isNotEmpty()) {
+            // Keyboard is open and we're attached - just scroll to bottom for new messages
+            // Don't check isAtBottom as it's unreliable with compressed viewport
             val lastTimelineItemIndex = timelineItems.lastIndex
             if (lastTimelineItemIndex >= 0) {
                 if (BuildConfig.DEBUG) Log.d(
                     "Andromuks",
-                    "RoomTimelineScreen: Attached to bottom but not at bottom (lastItem=$lastTimelineItemIndex). Auto-scrolling to show new items."
+                    "RoomTimelineScreen: Keyboard open, attached to bottom, new message arrived. Scrolling to bottom (lastItem=$lastTimelineItemIndex)"
+                )
+                coroutineScope.launch {
+                    // Small delay to let message render
+                    kotlinx.coroutines.delay(50)
+                    listState.scrollToItem(lastTimelineItemIndex)
+                }
+            }
+            return@LaunchedEffect // Skip the isAtBottom check below
+        }
+        
+        // CRITICAL: Only check isAtBottom when keyboard is CLOSED
+        // When keyboard is closed, we can reliably calculate scroll position
+        if (!isKeyboardOpen && isAttachedToBottom && !isAtBottom && timelineItems.isNotEmpty()) {
+            val lastTimelineItemIndex = timelineItems.lastIndex
+            if (lastTimelineItemIndex >= 0) {
+                if (BuildConfig.DEBUG) Log.d(
+                    "Andromuks",
+                    "RoomTimelineScreen: Keyboard closed, attached to bottom but not at bottom (lastItem=$lastTimelineItemIndex). Auto-scrolling to show new items."
                 )
                 coroutineScope.launch {
                     listState.scrollToItem(lastTimelineItemIndex)
@@ -1638,14 +1665,22 @@ fun RoomTimelineScreen(
             return@LaunchedEffect
         }
 
+        // CRITICAL FIX: Only auto-scroll for new messages if attached to bottom
+        // BUT skip this if keyboard is open - let the other LaunchedEffect handle it
+        // This prevents double-scrolling and incorrect scroll position calculations
         if (
             hasNewItems &&
                 isAttachedToBottom &&
                 lastEventId != null &&
-                lastEventId != lastKnownTimelineEventId
+                lastEventId != lastKnownTimelineEventId &&
+                imeBottom == 0.dp // ONLY handle when keyboard is CLOSED
         ) {
             coroutineScope.launch {
-                listState.scrollToItem(timelineItems.lastIndex)
+                val lastIndex = timelineItems.lastIndex
+                if (lastIndex >= 0) {
+                    listState.scrollToItem(lastIndex)
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: New message arrived (keyboard closed), scrolled to bottom (attached=$isAttachedToBottom)")
+                }
             }
             lastKnownTimelineEventId = lastEventId
         }
@@ -1979,14 +2014,15 @@ fun RoomTimelineScreen(
         }
     }
 
-    // Use imePadding for keyboard handling
-    val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
+    // Navigation bar padding (imeBottom already defined above)
     val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     // Choose IME if present, otherwise navigation bar padding
     val bottomInset = if (imeBottom > 0.dp) imeBottom else navBarBottom
     
-    // Track when keyboard opens to maintain scroll position at bottom
-    var wasAtBottomBeforeKeyboard by remember { mutableStateOf(true) }
+    // Track scroll position before keyboard opens to preserve it
+    var scrollPositionBeforeKeyboard by remember { mutableStateOf<Pair<Int, Int>?>(null) } // (firstVisibleIndex, scrollOffset)
+    var wasAttachedBeforeKeyboard by remember { mutableStateOf(false) }
+    var previousImeBottom by remember { mutableStateOf(0.dp) }
     
     LaunchedEffect(
         pendingNotificationJumpEventId,
@@ -2005,7 +2041,7 @@ fun RoomTimelineScreen(
         if (targetIndex >= 0) {
             listState.scrollToItem(targetIndex)
             isAttachedToBottom = targetIndex >= timelineItems.lastIndex - 1
-            wasAtBottomBeforeKeyboard = isAttachedToBottom
+            wasAttachedBeforeKeyboard = isAttachedToBottom
             hasInitialSnapCompleted = true
             hasLoadedInitialBatch = true
             pendingInitialScroll = false
@@ -2024,29 +2060,74 @@ fun RoomTimelineScreen(
         }
     }
     
-    // Smoothly animate scroll to bottom when keyboard opens
+    // CRITICAL FIX: Handle keyboard state changes without losing scroll position
     LaunchedEffect(imeBottom) {
-        // When IME (keyboard) height changes
-        if (timelineItems.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
-            val isKeyboardOpening = imeBottom > 0.dp
+        if (timelineItems.isEmpty() || listState.layoutInfo.totalItemsCount == 0) {
+            previousImeBottom = imeBottom
+            return@LaunchedEffect
+        }
+        
+        val keyboardWasOpen = previousImeBottom > 0.dp
+        val keyboardIsOpen = imeBottom > 0.dp
+        val keyboardJustOpened = !keyboardWasOpen && keyboardIsOpen
+        val keyboardJustClosed = keyboardWasOpen && !keyboardIsOpen
+        
+        // CRITICAL: Capture scroll position BEFORE keyboard opens
+        if (keyboardJustOpened) {
+            val firstVisibleIndex = listState.firstVisibleItemIndex
+            val scrollOffset = listState.firstVisibleItemScrollOffset
+            scrollPositionBeforeKeyboard = Pair(firstVisibleIndex, scrollOffset)
+            wasAttachedBeforeKeyboard = isAttachedToBottom
             
-            // If keyboard is opening and user was at bottom, maintain bottom position
-            if (isKeyboardOpening && wasAtBottomBeforeKeyboard) {
-                // Animate scroll to ensure last item is fully visible as keyboard opens
+            if (BuildConfig.DEBUG) Log.d(
+                "Andromuks",
+                "RoomTimelineScreen: Keyboard opening - captured scroll position: index=$firstVisibleIndex, offset=$scrollOffset, attached=$isAttachedToBottom"
+            )
+            
+            // ONLY scroll to bottom if we were attached to bottom
+            if (isAttachedToBottom) {
                 val lastIndex = timelineItems.lastIndex
-                
                 if (lastIndex >= 0) {
+                    // Small delay to let keyboard animation start
+                    kotlinx.coroutines.delay(50)
                     listState.scrollToItem(lastIndex, scrollOffset = 0)
-                    isAttachedToBottom = true // Re-attach to bottom
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: IME opened (${imeBottom}), animating to bottom")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Keyboard opened, scrolled to bottom (was attached)")
                 }
-            }
-            
-            // Update tracked state when keyboard closes
-            if (!isKeyboardOpening) {
-                wasAtBottomBeforeKeyboard = isAttachedToBottom
+            } else {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Keyboard opened, preserving scroll position (not attached to bottom)")
             }
         }
+        
+        // CRITICAL: Restore scroll position when keyboard closes
+        if (keyboardJustClosed) {
+            // Wait for layout to settle after keyboard closes
+            kotlinx.coroutines.delay(100)
+            
+            if (timelineItems.isNotEmpty() && listState.layoutInfo.totalItemsCount > 0) {
+                if (wasAttachedBeforeKeyboard) {
+                    // We were attached to bottom, scroll to show new messages
+                    val lastIndex = timelineItems.lastIndex
+                    if (lastIndex >= 0) {
+                        listState.scrollToItem(lastIndex)
+                        isAttachedToBottom = true
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Keyboard closed, scrolled to bottom (was attached before)")
+                    }
+                } else if (scrollPositionBeforeKeyboard != null) {
+                    // We were NOT attached to bottom, restore exact scroll position
+                    val (savedIndex, savedOffset) = scrollPositionBeforeKeyboard!!
+                    // Clamp index to valid range
+                    val validIndex = savedIndex.coerceIn(0, timelineItems.lastIndex.coerceAtLeast(0))
+                    if (validIndex >= 0) {
+                        listState.scrollToItem(validIndex, savedOffset)
+                        isAttachedToBottom = false // Keep detached state
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Keyboard closed, restored scroll position: index=$validIndex, offset=$savedOffset (was NOT attached)")
+                    }
+                    scrollPositionBeforeKeyboard = null
+                }
+            }
+        }
+        
+        previousImeBottom = imeBottom
     }
 
     CompositionLocalProvider(
