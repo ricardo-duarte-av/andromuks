@@ -3569,6 +3569,10 @@ class AppViewModel : ViewModel() {
      */
     private fun processAccountData(accountDataJson: JSONObject) {
         // Account data is already extracted, process it directly
+        if (BuildConfig.DEBUG) {
+            val allKeys = accountDataJson.keys().asSequence().toList()
+            android.util.Log.d("Andromuks", "AppViewModel: processAccountData - Processing account_data with ${allKeys.size} keys: ${allKeys.joinToString(", ")}")
+        }
         
         // Process recent emoji account data
         // Check if key is present (even if null/empty) - this indicates we should process it
@@ -3577,6 +3581,10 @@ class AppViewModel : ViewModel() {
             if (recentEmojiData != null) {
                 val content = recentEmojiData.optJSONObject("content")
                 val recentEmojiArray = content?.optJSONArray("recent_emoji")
+                
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: processAccountData - Found io.element.recent_emoji, content=${content != null}, array length=${recentEmojiArray?.length() ?: 0}")
+                }
                 
                 if (recentEmojiArray != null && recentEmojiArray.length() > 0) {
                     val frequencies = mutableListOf<Pair<String, Int>>()
@@ -3601,7 +3609,7 @@ class AppViewModel : ViewModel() {
                         // Store frequencies and update UI list
                         recentEmojiFrequencies = sortedFrequencies.toMutableList()
                         recentEmojis = sortedFrequencies.map { it.first }
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data with frequencies (sorted by count)")
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data: ${sortedFrequencies.take(5).joinToString(", ") { "${it.first}(${it.second})" }}${if (sortedFrequencies.size > 5) "..." else ""}")
                     } else {
                         // Key is present but array is empty - clear recent emojis
                         recentEmojiFrequencies.clear()
@@ -3620,6 +3628,8 @@ class AppViewModel : ViewModel() {
                 recentEmojis = emptyList()
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: io.element.recent_emoji is null, cleared recent emojis")
             }
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processAccountData - io.element.recent_emoji key not found in account_data")
         }
         // If key is missing, don't process it (preserve existing state)
         
@@ -3683,12 +3693,16 @@ class AppViewModel : ViewModel() {
             if (emoteRoomsData != null) {
                 val content = emoteRoomsData.optJSONObject("content")
                 val rooms = content?.optJSONObject("rooms")
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d("Andromuks", "AppViewModel: processAccountData - Found im.ponies.emote_rooms, content=${content != null}, rooms=${rooms != null}, rooms length=${rooms?.length() ?: 0}")
+                }
                 if (rooms != null && rooms.length() > 0) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found im.ponies.emote_rooms account data")
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found im.ponies.emote_rooms account data with ${rooms.length()} rooms")
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found rooms object in emote_rooms, requesting emoji pack data")
                     // Request emoji pack data for each room/pack combination
                     val keys = rooms.names()
                     if (keys != null) {
+                        var packCount = 0
                         for (i in 0 until keys.length()) {
                             val roomId = keys.optString(i)
                             val packsObj = rooms.optJSONObject(roomId)
@@ -3699,10 +3713,12 @@ class AppViewModel : ViewModel() {
                                         val packName = packNames.optString(j)
                                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting emoji pack data for pack $packName in room $roomId")
                                         requestEmojiPackData(roomId, packName)
+                                        packCount++
                                     }
                                 }
                             }
                         }
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requested emoji pack data for $packCount packs across ${keys.length()} rooms")
                     } else {
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No room keys found in emote_rooms")
                     }
@@ -4131,6 +4147,26 @@ class AppViewModel : ViewModel() {
             null
         }
         
+        // CRITICAL FIX: Process account_data directly from incoming sync (especially important for clear_state: true)
+        // Account data is fully populated on every websocket reconnect (clear_state: true), so process it immediately
+        val data = syncJson.optJSONObject("data")
+        val incomingAccountData = data?.optJSONObject("account_data")
+        val isClearState = data?.optBoolean("clear_state") == true
+        if (incomingAccountData != null && incomingAccountData.length() > 0) {
+            if (BuildConfig.DEBUG) {
+                val accountDataKeys = incomingAccountData.keys().asSequence().toList()
+                android.util.Log.d("Andromuks", "AppViewModel: processInitialSyncComplete - Processing account_data with keys: ${accountDataKeys.joinToString(", ")} (clear_state=$isClearState)")
+            }
+            // Process incoming account_data directly - no DB merging needed (account_data is in-memory only)
+            processAccountData(incomingAccountData)
+        } else if (incomingAccountData != null && incomingAccountData.length() == 0) {
+            // Incoming account_data is empty {} - don't process, preserve existing state
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processInitialSyncComplete - Incoming account_data is empty, skipping processing (preserving existing state)")
+        } else if (incomingAccountData == null && isClearState) {
+            // clear_state=true but no account_data - log warning
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: processInitialSyncComplete - clear_state=true but no account_data in sync_complete")
+        }
+        
         // PERFORMANCE: Move heavy JSON parsing to background thread
         viewModelScope.launch(Dispatchers.Default) {
             // Parse sync data on background thread (200-500ms for large accounts)
@@ -4452,45 +4488,25 @@ class AppViewModel : ViewModel() {
         }
         
         // Process account_data for recent emojis and m.direct
-        // IMPORTANT: Load merged account_data from database (after SyncIngestor has merged it)
-        // instead of using incoming partial data, to preserve keys not in incoming sync
+        // CRITICAL FIX: Account data is in-memory only (not stored in database anymore)
+        // When clear_state=true, always use incoming account_data directly
+        // For normal syncs, account_data was already processed in updateRoomsFromSyncJsonAsync/processInitialSyncComplete
+        // Only process here if it wasn't already processed (defensive check)
         val incomingAccountData = accountData
+        val isClearState = data?.optBoolean("clear_state") == true
         // CRITICAL FIX: Only process account_data if the incoming sync_complete actually has account_data keys
         // Empty account_data object {} should not trigger processing (prevents re-requesting emoji packs on every sync)
         if (incomingAccountData != null && incomingAccountData.length() > 0) {
-            // Load merged account_data from database (SyncIngestor has already merged it)
-            appContext?.let { context ->
-                viewModelScope.launch(Dispatchers.IO) {
-                    try {
-                        val database = AndromuksDatabase.getInstance(context)
-                        val accountDataDao = database.accountDataDao()
-                        val mergedAccountDataStr = accountDataDao.getAccountData()
-                        if (mergedAccountDataStr != null) {
-                            val mergedAccountData = JSONObject(mergedAccountDataStr)
-                            withContext(Dispatchers.Main) {
-                                processAccountData(mergedAccountData)
-                            }
-                        } else {
-                            // No merged data yet, use incoming (first sync or clear_state)
-                            withContext(Dispatchers.Main) {
-                                processAccountData(incomingAccountData)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Error loading merged account_data, using incoming: ${e.message}", e)
-                        // Fallback to incoming if database access fails
-                        withContext(Dispatchers.Main) {
-                            processAccountData(incomingAccountData)
-                        }
-                    }
-                }
-            } ?: run {
-                // No context available, use incoming (shouldn't happen in normal flow)
-                processAccountData(incomingAccountData)
+            // Account data is in-memory only - always use incoming directly
+            // When clear_state=true, this is the authoritative dataset
+            if (BuildConfig.DEBUG) {
+                val accountDataKeys = incomingAccountData.keys().asSequence().toList()
+                android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Processing account_data with keys: ${accountDataKeys.joinToString(", ")} (clear_state=$isClearState)")
             }
+            processAccountData(incomingAccountData)
         } else if (incomingAccountData != null && incomingAccountData.length() == 0) {
             // Incoming account_data is empty {} - don't process, preserve existing state
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Incoming account_data is empty, skipping processing (preserving existing state)")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Incoming account_data is empty, skipping processing (preserving existing state)")
         }
         
         // Auto-save state periodically (every 10 sync_complete messages) for crash recovery
