@@ -1254,6 +1254,7 @@ class AppViewModel : ViewModel() {
         
         companion object {
             // PHASE 5.1: Helper to create from JSON-serializable format
+            @Suppress("UNCHECKED_CAST")
             fun fromJsonMap(jsonMap: Map<String, Any>): PendingWebSocketOperation? {
                 return try {
                     PendingWebSocketOperation(
@@ -1622,6 +1623,7 @@ class AppViewModel : ViewModel() {
             val mediaPlayer = MediaPlayer.create(context, R.raw.popalert)
             if (mediaPlayer != null) {
                 // Set audio stream to notification channel
+                @Suppress("DEPRECATION")
                 mediaPlayer.setAudioStreamType(AudioManager.STREAM_NOTIFICATION)
                 
                 // Set completion listener to release resources
@@ -3374,29 +3376,29 @@ class AppViewModel : ViewModel() {
             val fieldsToCheck = listOf("url", "thumbnail_url", "avatar_url", "info", "file")
             
             for (field in fieldsToCheck) {
-                val value = jsonObj.optString(field, null)
-                if (value != null && value.startsWith("mxc://")) {
+                val value = if (jsonObj.has(field)) jsonObj.optString(field) else null
+                if (!value.isNullOrBlank() && value.startsWith("mxc://")) {
                     mxcUrls.add(value)
                 }
                 
                 // Check nested objects
                 val nestedObj = jsonObj.optJSONObject(field)
                 if (nestedObj != null) {
-                    val nestedUrl = nestedObj.optString("url", null)
-                    if (nestedUrl != null && nestedUrl.startsWith("mxc://")) {
+                    val nestedUrl = if (nestedObj.has("url")) nestedObj.optString("url") else null
+                    if (!nestedUrl.isNullOrBlank() && nestedUrl.startsWith("mxc://")) {
                         mxcUrls.add(nestedUrl)
                     }
                     
-                    val thumbnailUrl = nestedObj.optString("thumbnail_url", null)
-                    if (thumbnailUrl != null && thumbnailUrl.startsWith("mxc://")) {
+                    val thumbnailUrl = if (nestedObj.has("thumbnail_url")) nestedObj.optString("thumbnail_url") else null
+                    if (!thumbnailUrl.isNullOrBlank() && thumbnailUrl.startsWith("mxc://")) {
                         mxcUrls.add(thumbnailUrl)
                     }
                     
                     // Check info.url for media messages
                     val infoObj = nestedObj.optJSONObject("info")
                     if (infoObj != null) {
-                        val infoUrl = infoObj.optString("url", null)
-                        if (infoUrl != null && infoUrl.startsWith("mxc://")) {
+                        val infoUrl = if (infoObj.has("url")) infoObj.optString("url") else null
+                        if (!infoUrl.isNullOrBlank() && infoUrl.startsWith("mxc://")) {
                             mxcUrls.add(infoUrl)
                         }
                     }
@@ -4433,11 +4435,7 @@ class AppViewModel : ViewModel() {
                         }
                     }
                     
-                    if (requestId < 0) {
-                        withContext(Dispatchers.Main) {
-                            onSyncCompletePersisted(requestId)
-                        }
-                    }
+                    // Deprecated: onSyncCompletePersisted no longer needed - we no longer track last_received_id
                 } catch (e: Exception) {
                     android.util.Log.e("Andromuks", "AppViewModel: Error persisting sync_complete: ${e.message}", e)
                     // Don't block UI updates if persistence fails
@@ -5707,43 +5705,12 @@ class AppViewModel : ViewModel() {
         
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // CRITICAL: Check if there are pending items FIRST before setting flag
-                // This prevents blocking UI when there are no pending items
-                // Add timeout to prevent hanging
-                val hasPending = try {
-                    withTimeout(2000) { // 2 second timeout for the check itself
-                        syncIngestorInstance.hasPendingItems()
-                    }
-                } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
-                    android.util.Log.w("Andromuks", "AppViewModel: hasPendingItems check timed out after 2s - assuming no pending items")
-                    false
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error checking pending items: ${e.message}", e)
-                    false
-                }
-                
-                if (hasPending) {
-                    // Only set flag to true if there are actually pending items to process
-                    isProcessingPendingItems = true
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing pending items before showing RoomListScreen")
-                    
-                    try {
-                        syncIngestorInstance.rushProcessPendingItems()
-                        // CRITICAL: Notify RoomListScreen that summaries may have been updated
-                        // rushProcessPendingItems() processes rooms with isAppVisible=true, so summaries are updated
-                        roomSummaryUpdateCounter++
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Finished processing pending items - room summaries updated (roomSummaryUpdateCounter: $roomSummaryUpdateCounter)")
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Error processing pending items: ${e.message}", e)
-                    }
-                } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending items to process - not blocking UI")
-                    // Don't set flag to true if no pending items - UI can show immediately
-                    isProcessingPendingItems = false
-                    return@launch
-                }
+                // DEPRECATED: hasPendingItems and rushProcessPendingItems are deprecated - all data is in-memory only
+                // No pending items to process - UI can show immediately
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending items to process (deprecated - all data is in-memory only) - not blocking UI")
+                isProcessingPendingItems = false
             } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Error rushing pending items: ${e.message}", e)
+                android.util.Log.e("Andromuks", "AppViewModel: Error in pending items check: ${e.message}", e)
             } finally {
                 // Clear processing flag after completion (or error) - CRITICAL: Always clear!
                 isProcessingPendingItems = false
@@ -6179,9 +6146,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setCurrentRoomIdForTimeline called for room: $roomId (current: $currentRoomId)")
         if (currentRoomId != roomId) {
             updateCurrentRoomIdInPrefs(roomId)
-            // Set current room in cache (unlimited events allowed for currently opened room)
-            RoomTimelineCache.setCurrentRoom(roomId)
-            // Also add to opened rooms (exempt from cache clearing on reconnect)
+            // Add to opened rooms (exempt from cache clearing on reconnect)
             RoomTimelineCache.addOpenedRoom(roomId)
         }
     }
@@ -6205,10 +6170,8 @@ class AppViewModel : ViewModel() {
                 saveToLruCache(currentRoomId)
             }
             clearTimelineCache()
-            // Clear current room in cache (will enforce limits on previously opened room)
-            RoomTimelineCache.setCurrentRoom(null)
             // Remove from opened rooms (no longer exempt from cache clearing)
-            if (previousRoomId != null) {
+            if (previousRoomId.isNotEmpty()) {
                 RoomTimelineCache.removeOpenedRoom(previousRoomId)
             }
         }
@@ -9244,8 +9207,10 @@ class AppViewModel : ViewModel() {
         
         // Extract displayname and avatar_url - allow empty strings to handle removals
         // Empty string means the field was explicitly removed, null means it wasn't present
-        val displayName = content.optString("displayname", null)?.takeIf { it.isNotBlank() }
-        val avatarUrl = content.optString("avatar_url", null)?.takeIf { it.isNotBlank() }
+        val displayNameRaw = if (content.has("displayname")) content.optString("displayname") else null
+        val displayName = displayNameRaw?.takeIf { it.isNotBlank() }
+        val avatarUrlRaw = if (content.has("avatar_url")) content.optString("avatar_url") else null
+        val avatarUrl = avatarUrlRaw?.takeIf { it.isNotBlank() }
         
         // Always update profile, even if both are null (removal case)
         // This ensures the profile cache reflects the current state
@@ -10166,8 +10131,8 @@ class AppViewModel : ViewModel() {
     // OPTIMIZATION #4: Cache-first navigation method
     fun navigateToRoomWithCache(roomId: String, notificationTimestamp: Long? = null) {
         updateCurrentRoomIdInPrefs(roomId)
-        // Set current room in cache (unlimited events allowed for currently opened room)
-        RoomTimelineCache.setCurrentRoom(roomId)
+        // Add to opened rooms (exempt from cache clearing on reconnect)
+        RoomTimelineCache.addOpenedRoom(roomId)
         
         // CRITICAL FIX: Always load from DB and hydrate RAM cache BEFORE processing events
         // This ensures we always have the latest events from DB before rendering
@@ -13897,11 +13862,11 @@ class AppViewModel : ViewModel() {
         val data = syncJson.optJSONObject("data")
         if (data != null) {
             val rooms = data.optJSONObject("rooms")
-            if (rooms != null && currentRoomId != null && rooms.has(currentRoomId)) {
+            if (rooms != null && currentRoomId.isNotEmpty() && rooms.has(currentRoomId)) {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: SYNC OPTIMIZATION - Checking timeline diff for room: $currentRoomId")
                 
                 // Update timeline data first
-                updateTimelineFromSync(syncJson, currentRoomId!!)
+                updateTimelineFromSync(syncJson, currentRoomId)
                 
                 // Check if timeline actually changed using diff-based detection
                 val newTimelineStateHash = generateTimelineStateHash(timelineEvents)
@@ -13931,20 +13896,20 @@ class AppViewModel : ViewModel() {
                     roomsInSync.add(roomKeys.next())
                 }
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sync_complete contains events for ${roomsInSync.size} rooms: $roomsInSync")
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: currentRoomId = $currentRoomId (${if (currentRoomId != null) "ROOM OPEN" else "NO ROOM OPEN"})")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: currentRoomId = $currentRoomId (${if (currentRoomId.isNotEmpty()) "ROOM OPEN" else "NO ROOM OPEN"})")
                 
                 // Only update timeline if room is currently open
-                if (currentRoomId != null && rooms.has(currentRoomId)) {
+                if (currentRoomId.isNotEmpty() && rooms.has(currentRoomId)) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✓ Processing sync_complete events for OPEN room: $currentRoomId")
-                    updateTimelineFromSync(syncJson, currentRoomId!!)
-                } else if (currentRoomId != null) {
+                    updateTimelineFromSync(syncJson, currentRoomId)
+                } else if (currentRoomId.isNotEmpty()) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✗ Skipping sync_complete - current room $currentRoomId not in this sync batch")
                     // CRITICAL FIX: Even if current room is not in sync batch, refresh from DB
                     // This handles cases where events were persisted but not processed via processSyncEventsArray()
                     // (e.g., if sync JSON structure was different or events were filtered)
                     viewModelScope.launch {
                         kotlinx.coroutines.delay(150) // Wait for DB write to complete
-                        refreshTimelineFromDatabase(currentRoomId!!)
+                        refreshTimelineFromDatabase(currentRoomId)
                     }
                 } else {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✗ Skipping sync_complete - no room currently open (events will be cached only)")
@@ -14603,10 +14568,9 @@ class AppViewModel : ViewModel() {
                     android.util.Log.e("Andromuks", "AppViewModel: Error processing event ${eventId} in buildTimelineFromChain", e)
                     // Skip this event if there's an error (prevents crash from corrupt edit chain)
                     // Add the base event without following edit chain as fallback
-                    if (ourBubble != null) {
-                        timelineEvents.add(ourBubble)
-                        processedCount++
-                    }
+                    // ourBubble is guaranteed to be non-null here because we checked and continued if null above
+                    timelineEvents.add(ourBubble)
+                    processedCount++
                 }
             }
             
