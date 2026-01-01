@@ -219,152 +219,59 @@ class AppViewModel : ViewModel() {
         )
     }
 
+    /**
+     * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
+     */
+    @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
     fun homeRoomsFlow(): Flow<List<RoomItem>> {
-        val db = dbOrNull() ?: return flowOf(emptyList())
-        return combine(
-            db.roomStateDao().getAllRoomStatesFlow(),
-            db.roomListSummaryDao().getAllFlow(),
-            db.roomSummaryDao().getAllRoomsFlow(),
-            db.spaceDao().getAllSpacesFlow()
-        ) { states, summaries, roomSummaries, spaces ->
-            val summaryMap = summaries.associateBy { it.roomId }
-            val fallbackMap = roomSummaries.associateBy { it.roomId }
-            val spaceIds = spaces.map { it.spaceId }.toSet()
-            states
-                .filter { it.roomId !in spaceIds }
-                .map { it.toRoomItem(summaryMap[it.roomId], fallbackMap[it.roomId]) }
-                .sortedByDescending { it.sortingTimestamp ?: 0L }
-        }
+        // Return in-memory data as a flow
+        return flowOf(filterOutSpaces(allRooms))
     }
 
+    /**
+     * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
+     */
+    @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
     fun directRoomsFlow(): Flow<List<RoomItem>> {
-        val db = dbOrNull() ?: return flowOf(emptyList())
-        return combine(
-            db.roomStateDao().getAllRoomStatesFlow(),
-            db.roomListSummaryDao().getAllFlow(),
-            db.roomSummaryDao().getAllRoomsFlow()
-        ) { states, summaries, roomSummaries ->
-            val summaryMap = summaries.associateBy { it.roomId }
-            val fallbackMap = roomSummaries.associateBy { it.roomId }
-            states
-                .filter { it.isDirect }
-                .map { it.toRoomItem(summaryMap[it.roomId], fallbackMap[it.roomId]) }
-                .sortedByDescending { it.sortingTimestamp ?: 0L }
-        }
+        // Return in-memory data as a flow
+        return flowOf(cachedDirectChatRooms)
     }
 
+    /**
+     * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
+     */
+    @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
     fun unreadRoomsFlow(): Flow<List<RoomItem>> {
-        val db = dbOrNull() ?: return flowOf(emptyList())
-        return combine(
-            db.roomStateDao().getAllRoomStatesFlow(),
-            db.roomListSummaryDao().getAllFlow(),
-            db.roomSummaryDao().getAllRoomsFlow(),
-            db.spaceDao().getAllSpacesFlow()
-        ) { states, summaries, roomSummaries, spaces ->
-            val summaryMap = summaries.associateBy { it.roomId }
-            val fallbackMap = roomSummaries.associateBy { it.roomId }
-            val spaceIds = spaces.map { it.spaceId }.toSet()
-            states
-                .mapNotNull { state ->
-                    val summary = summaryMap[state.roomId]
-                    val fallback = fallbackMap[state.roomId]
-                    val unreadCount = (summary?.unreadCount ?: fallback?.unreadCount) ?: 0
-                    if (unreadCount <= 0) return@mapNotNull null
-                    if (state.roomId in spaceIds) return@mapNotNull null
-                    state.toRoomItem(summary, fallback)
-                }
-                .sortedByDescending { it.sortingTimestamp ?: 0L }
-        }
+        // Return in-memory data as a flow
+        return flowOf(cachedUnreadRooms)
     }
 
+    /**
+     * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
+     */
+    @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
     fun favouriteRoomsFlow(): Flow<List<RoomItem>> {
-        val db = dbOrNull() ?: return flowOf(emptyList())
-        return combine(
-            db.roomStateDao().getAllRoomStatesFlow(),
-            db.roomListSummaryDao().getAllFlow(),
-            db.roomSummaryDao().getAllRoomsFlow()
-        ) { states, summaries, roomSummaries ->
-            val summaryMap = summaries.associateBy { it.roomId }
-            val fallbackMap = roomSummaries.associateBy { it.roomId }
-            states
-                .filter { it.isFavourite }
-                .map { it.toRoomItem(summaryMap[it.roomId], fallbackMap[it.roomId]) }
-                .sortedByDescending { it.sortingTimestamp ?: 0L }
-        }
+        // Return in-memory data as a flow
+        return flowOf(cachedFavouriteRooms)
     }
 
+    /**
+     * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
+     */
+    @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
     fun topLevelSpacesFlow(): Flow<List<SpaceItem>> {
-        val db = dbOrNull() ?: return flowOf(emptyList())
-        return combine(
-            db.spaceDao().getAllSpacesFlow(),
-            db.spaceRoomDao().getAllRoomsForAllSpacesFlow()
-        ) { spaces, spaceRooms ->
-            // Get all space IDs that appear as children (these are subspaces)
-            val allSpaceIds = spaces.map { it.spaceId }.toSet()
-            val childSpaceIds = spaceRooms
-                .map { it.childId }
-                .filter { it in allSpaceIds } // Only consider children that are themselves spaces
-                .toSet()
-            
-            // Filter out subspaces - only show top-level spaces (spaces that are NOT children of other spaces)
-            // Sort by order field to preserve backend order from top_level_spaces array
-            val filteredSpaces = spaces.filter { it.spaceId !in childSpaceIds }
-            val sortedSpaces = filteredSpaces.sortedWith(compareBy({ it.order }, { it.spaceId })) // Primary: order, Secondary: spaceId for ties
-            
-            if (BuildConfig.DEBUG && sortedSpaces.isNotEmpty()) {
-                // Debug: Log first few spaces with their order to verify ordering
-                android.util.Log.d("Andromuks", "topLevelSpacesFlow: Displaying ${sortedSpaces.size} spaces (filtered from ${spaces.size} total)")
-                sortedSpaces.take(10).forEach { space ->
-                    android.util.Log.d("Andromuks", "topLevelSpacesFlow: order=${space.order} -> ${space.spaceId} (${space.name})")
-                }
-                // Also log the last few to see the full range
-                if (sortedSpaces.size > 10) {
-                    android.util.Log.d("Andromuks", "... (${sortedSpaces.size - 10} more spaces) ...")
-                    sortedSpaces.takeLast(5).forEach { space ->
-                        android.util.Log.d("Andromuks", "topLevelSpacesFlow: order=${space.order} -> ${space.spaceId} (${space.name})")
-                    }
-                }
-            }
-            
-            sortedSpaces.map { space ->
-                SpaceItem(
-                    id = space.spaceId,
-                    name = space.name ?: space.spaceId,
-                    avatarUrl = space.avatarUrl,
-                    rooms = emptyList()
-                )
-            }
-        }
+        // Return in-memory data as a flow
+        return flowOf(allSpaces)
     }
 
+    /**
+     * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
+     */
+    @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
     fun spaceChildRoomsFlow(spaceId: String): Flow<List<RoomItem>> {
-        val db = dbOrNull() ?: return flowOf(emptyList())
-        return combine(
-            db.spaceRoomDao().getRoomsForSpaceFlow(spaceId),
-            db.roomStateDao().getAllRoomStatesFlow(),
-            db.roomListSummaryDao().getAllFlow(),
-            db.roomSummaryDao().getAllRoomsFlow(),
-            db.spaceDao().getAllSpacesFlow()
-        ) { edges, states, summaries, roomSummaries, spaces ->
-            val summaryMap = summaries.associateBy { it.roomId }
-            val stateMap = states.associateBy { it.roomId }
-            val fallbackMap = roomSummaries.associateBy { it.roomId }
-            val spaceIds = spaces.map { it.spaceId }.toSet()
-
-            val comparator = compareBy<net.vrkknn.andromuks.database.entities.SpaceRoomEntity>(
-                { it.order ?: "" },
-                { it.childEventRowId ?: Long.MAX_VALUE },
-                { it.childId }
-            )
-
-            edges
-                .sortedWith(comparator)
-                .mapNotNull { edge ->
-                    if (edge.childId in spaceIds) return@mapNotNull null // omit child spaces
-                    val state = stateMap[edge.childId] ?: return@mapNotNull null
-                    state.toRoomItem(summaryMap[edge.childId], fallbackMap[edge.childId])
-                }
-        }
+        // Return in-memory data as a flow
+        val selectedSpace = allSpaces.find { it.id == spaceId }
+        return flowOf(selectedSpace?.rooms ?: emptyList())
     }
 
     /**
@@ -377,137 +284,20 @@ class AppViewModel : ViewModel() {
     }
 
     /**
-     * Debug helper: logs counts of room_state, room_list_summary, spaces, space_rooms.
+     * @deprecated Room data is no longer persisted to database - all data comes from sync_complete
      */
+    @Deprecated("Room data is in-memory only, no DB counts to log")
     private suspend fun logRoomDbCounts() {
-        val db = dbOrNull() ?: run {
-            android.util.Log.d("Andromuks", "AppViewModel: DB null in logRoomDbCounts")
-            return
-        }
-        val stateCount = runCatching { db.roomStateDao().getAllRoomStates().size }.getOrDefault(-1)
-        val listSummaryCount = runCatching { db.roomListSummaryDao().getAll().size }.getOrDefault(-1)
-        val summaryCount = runCatching { db.roomSummaryDao().getAllRooms().size }.getOrDefault(-1)
-        val spaceCount = runCatching { db.spaceDao().getAllSpaces().size }.getOrDefault(-1)
-        val spaceRoomCount = runCatching { db.spaceRoomDao().getAllRoomsForAllSpaces().size }.getOrDefault(-1)
-        android.util.Log.d(
-            "Andromuks",
-            "DB COUNTS - room_state=$stateCount, room_list_summary=$listSummaryCount, room_summary=$summaryCount, spaces=$spaceCount, space_rooms=$spaceRoomCount"
-        )
+        // No-op - room data is in-memory only
     }
 
     /**
-     * If room_list_summary / room_summary are empty/sparse, hydrate them from the last message events.
-     * Runs once per app lifetime (guarded by summariesHydrated).
+     * @deprecated Room summaries are no longer persisted to database - they're built in-memory from sync_complete
      */
+    @Deprecated("Room summaries are in-memory only, no DB hydration needed")
     private suspend fun hydrateMissingSummariesFromEventsIfNeeded() {
-        if (summariesHydrated) return
-        val db = dbOrNull() ?: return
-
-        val states = runCatching { db.roomStateDao().getAllRoomStates() }.getOrNull() ?: emptyList()
-        val listSummaries = runCatching { db.roomListSummaryDao().getAll() }.getOrNull() ?: emptyList()
-        val summaries = runCatching { db.roomSummaryDao().getAllRooms() }.getOrNull() ?: emptyList()
-        val listSummaryMap = listSummaries.associateBy { it.roomId }
-        val summaryMap = summaries.associateBy { it.roomId }
-
-        if (states.isEmpty()) return
-
-        if (BuildConfig.DEBUG) {
-            val missingTs = listSummaries.count { (it.lastMessageTimestamp ?: 0L) <= 0L }
-            android.util.Log.d(
-                "Andromuks",
-                "Hydrate summaries (global latest-per-room): states=${states.size} list_summary=${listSummaries.size} room_summary=${summaries.size} missing_ts=$missingTs"
-            )
-        }
-
-        // If we already have coverage, skip
-        val hasCoverage = listSummaries.size >= states.size && summaries.size >= states.size
-        if (hasCoverage) {
-            summariesHydrated = true
-            return
-        }
-
-        val missingCount = states.size - minOf(listSummaries.size, summaries.size)
-
-        val eventDao = db.eventDao()
-        val roomSummaryDao = db.roomSummaryDao()
-        val roomListSummaryDao = db.roomListSummaryDao()
-
-        val newSummaries = mutableListOf<RoomSummaryEntity>()
-        val newListSummaries = mutableListOf<RoomListSummaryEntity>()
-
-        val latestMessages = runCatching { eventDao.getLatestMessagesForAllRooms() }.getOrNull().orEmpty()
-        if (latestMessages.isEmpty()) {
-            summariesHydrated = true
-            return
-        }
-
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "Hydrate: latestMessages=${latestMessages.size}, states=${states.size}, list_summary=${listSummaries.size}, room_summary=${summaries.size}")
-        }
-
-        latestMessages.forEach { ev ->
-            // Only hydrate rooms we know about
-            if (states.none { it.roomId == ev.roomId }) return@forEach
-
-            if (BuildConfig.DEBUG && ev.timestamp <= 0L) {
-                android.util.Log.w("Andromuks", "Hydrate: Skipping room ${ev.roomId} because latest message timestamp is non-positive (ts=${ev.timestamp}, eventId=${ev.eventId})")
-                return@forEach
-            }
-
-            val contentBody = runCatching {
-                val json = org.json.JSONObject(ev.rawJson)
-                val content = json.optJSONObject("content")
-                val body = content?.optString("body")?.takeIf { it.isNotBlank() }
-                if (body != null) body else content?.optJSONObject("m.new_content")?.optString("body")?.takeIf { it.isNotBlank() }
-            }.getOrNull()
-
-            newSummaries.add(
-                RoomSummaryEntity(
-                    roomId = ev.roomId,
-                    lastEventId = ev.eventId,
-                    lastTimestamp = ev.timestamp,
-                    unreadCount = summaryMap[ev.roomId]?.unreadCount ?: 0,
-                    highlightCount = summaryMap[ev.roomId]?.highlightCount ?: 0,
-                    messageSender = ev.sender,
-                    messagePreview = contentBody
-                )
-            )
-
-            newListSummaries.add(
-                RoomListSummaryEntity(
-                    roomId = ev.roomId,
-                    displayName = null,
-                    avatarMxc = null,
-                    lastMessageEventId = ev.eventId,
-                    lastMessageSenderUserId = ev.sender,
-                    lastMessagePreview = contentBody,
-                    lastMessageTimestamp = ev.timestamp,
-                    unreadCount = listSummaryMap[ev.roomId]?.unreadCount ?: 0,
-                    highlightCount = listSummaryMap[ev.roomId]?.highlightCount ?: 0,
-                    isLowPriority = false
-                )
-            )
-        }
-
-        if (newSummaries.isNotEmpty() || newListSummaries.isNotEmpty()) {
-            runCatching {
-                db.withTransaction {
-                    if (newSummaries.isNotEmpty()) roomSummaryDao.upsertAll(newSummaries)
-                    if (newListSummaries.isNotEmpty()) roomListSummaryDao.upsertAll(newListSummaries)
-                }
-            }.onFailure {
-                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "Hydrate summaries failed: ${it.message}", it)
-            }.onSuccess {
-                if (BuildConfig.DEBUG) {
-                    android.util.Log.d("Andromuks", "Hydrated summaries from events: room_summary +${newSummaries.size}, room_list_summary +${newListSummaries.size}")
-                }
-            }
-            summariesHydrated = true
-        } else {
-            // Nothing to write yet; allow future calls to retry once events are present.
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "Hydrate summaries: no latest messages available yet; will retry on next snapshot")
-            return
-        }
+        summariesHydrated = true // Mark as hydrated to prevent retries
+        // No-op - room summaries are in-memory only
     }
     
     // PHASE 4: Unique ID for this ViewModel instance (for WebSocket callback registration)
@@ -1437,28 +1227,9 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: FORCE REFRESH - timeline caches cleared, will reconnect with run_id only (no last_received_id)")
         
         // Clear caches and wait for fresh sync payloads from websocket.
-        viewModelScope.launch(Dispatchers.IO) {
-            val ctx = appContext?.applicationContext ?: return@launch
-            runCatching {
-                val bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(ctx)
-                val bootstrap = bootstrapLoader.loadBootstrap()
-                if (bootstrap.isValid) {
-                    val rooms = bootstrap.rooms
-                    val spacesFromDb = bootstrapLoader.loadSpacesFromDb(rooms.associateBy { it.id })
-                    withContext(Dispatchers.Main) {
-                        roomMap.clear()
-                        rooms.forEach { roomMap[it.id] = it }
-                        allRooms = rooms
-                        invalidateRoomSectionCache()
-                        allSpaces = spacesFromDb
-                        spaceList = spacesFromDb
-                        spacesLoaded = true
-                    }
-                }
-            }.onFailure {
-                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Bootstrap reload after full refresh failed: ${it.message}", it)
-            }
-        }
+        // All room/space data comes from sync_complete on reconnect - no DB loading needed
+        // This function is called after a full refresh, which triggers a reconnect with clear_state: true
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Full refresh completed - room/space data will come from sync_complete on reconnect")
         
         // 5. Trigger reconnection (will use run_id but not last_received_id since it's 0)
         onRestartWebSocket?.invoke("Full refresh")
@@ -2512,31 +2283,9 @@ class AppViewModel : ViewModel() {
             val removalOccurred = previousPairs.contains(reactionEvent.emoji to reactionEvent.sender) &&
                 !updatedPairs.contains(reactionEvent.emoji to reactionEvent.sender)
 
-            val applicationContext = appContext?.applicationContext
-            if (applicationContext != null && (additionOccurred || removalOccurred)) {
-                viewModelScope.launch(Dispatchers.IO) {
-                    try {
-                        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(applicationContext)
-                        if (additionOccurred) {
-                            val reactionEntity = net.vrkknn.andromuks.database.entities.ReactionEntity(
-                                roomId = reactionEvent.roomId,
-                                targetEventId = reactionEvent.relatesToEventId,
-                                key = reactionEvent.emoji,
-                                sender = reactionEvent.sender,
-                                eventId = reactionEvent.eventId,
-                                timestamp = normalizeTimestamp(reactionEvent.timestamp)
-                            )
-                            database.reactionDao().upsertAll(listOf(reactionEntity))
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Persisted reaction to DB for event ${reactionEvent.relatesToEventId}")
-                        }
-                        if (removalOccurred) {
-                            database.reactionDao().deleteByEventIds(listOf(reactionEvent.eventId))
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed reaction from DB for reaction event ${reactionEvent.eventId}")
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Failed to persist reaction change for ${reactionEvent.eventId}", e)
-                    }
-                }
+            // Reactions are in-memory only - no DB persistence needed
+            if (BuildConfig.DEBUG && (additionOccurred || removalOccurred)) {
+                android.util.Log.d("Andromuks", "AppViewModel: Reaction change processed (in-memory only): addition=$additionOccurred, removal=$removalOccurred for event ${reactionEvent.relatesToEventId}")
             }
         }
 
@@ -4000,9 +3749,10 @@ class AppViewModel : ViewModel() {
         } else {
             // Key is missing from incoming account_data - preserve existing state
             // Only reload from database if we have no packs loaded (e.g., after clear_state)
+            // Account data is fully populated on every websocket reconnect (clear_state: true)
+            // No need to reload from database - if packs are missing, they'll come on next reconnect
             if (customEmojiPacks.isEmpty() && stickerPacks.isEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms in incoming sync and no packs loaded, reloading from database")
-                reloadEmojiPacksFromDatabase()
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms in incoming sync and no packs loaded - will be populated on next reconnect")
             } else {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms in incoming sync, preserving existing ${customEmojiPacks.size} emoji packs and ${stickerPacks.size} sticker packs")
             }
@@ -4010,53 +3760,11 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Reload emoji packs from the database if they're missing.
-     * This ensures custom emojis/stickers are preserved even when account_data sync doesn't include im.ponies.emote_rooms.
+     * @deprecated Account data is fully populated on every websocket reconnect (clear_state: true)
      */
+    @Deprecated("Account data comes from sync_complete on reconnect, no DB reload needed")
     private fun reloadEmojiPacksFromDatabase() {
-        appContext?.let { context ->
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
-                    val accountDataJson = bootstrapLoader.loadAccountData()
-                    if (accountDataJson != null) {
-                        val accountDataObj = org.json.JSONObject(accountDataJson)
-                        val emoteRoomsData = accountDataObj.optJSONObject("im.ponies.emote_rooms")
-                        if (emoteRoomsData != null) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reloading emoji packs from database")
-                            withContext(Dispatchers.Main) {
-                                // Process emote_rooms from database to request emoji pack data
-                                val content = emoteRoomsData.optJSONObject("content")
-                                val rooms = content?.optJSONObject("rooms")
-                                if (rooms != null) {
-                                    val keys = rooms.names()
-                                    if (keys != null) {
-                                        for (i in 0 until keys.length()) {
-                                            val roomId = keys.optString(i)
-                                            val packsObj = rooms.optJSONObject(roomId)
-                                            if (packsObj != null) {
-                                                val packNames = packsObj.names()
-                                                if (packNames != null) {
-                                                    for (j in 0 until packNames.length()) {
-                                                        val packName = packNames.optString(j)
-                                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reloading emoji pack data for pack $packName in room $roomId from database")
-                                                        requestEmojiPackData(roomId, packName)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms found in database either")
-                        }
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error reloading emoji packs from database: ${e.message}", e)
-                }
-            }
-        }
+        // No-op - account data comes from sync_complete on reconnect
     }
     
     /**
@@ -4707,43 +4415,14 @@ class AppViewModel : ViewModel() {
         val memberStateChanged = newMemberStateHash != oldMemberStateHash
 
         // Process account_data for recent emojis and m.direct
-        // IMPORTANT: Load merged account_data from database (after SyncIngestor has merged it)
-        // instead of using incoming partial data, to preserve keys not in incoming sync
+        // Account data is fully populated on every websocket reconnect (clear_state: true), so no DB merging needed
         val data = syncJson.optJSONObject("data")
         val incomingAccountData = data?.optJSONObject("account_data")
         // CRITICAL FIX: Only process account_data if the incoming sync_complete actually has account_data keys
         // Empty account_data object {} should not trigger processing (prevents re-requesting emoji packs on every sync)
         if (incomingAccountData != null && incomingAccountData.length() > 0) {
-            // Load merged account_data from database (SyncIngestor has already merged it)
-            appContext?.let { context ->
-                viewModelScope.launch(Dispatchers.IO) {
-                    try {
-                        val database = AndromuksDatabase.getInstance(context)
-                        val accountDataDao = database.accountDataDao()
-                        val mergedAccountDataStr = accountDataDao.getAccountData()
-                        if (mergedAccountDataStr != null) {
-                            val mergedAccountData = JSONObject(mergedAccountDataStr)
-                            withContext(Dispatchers.Main) {
-                                processAccountData(mergedAccountData)
-                            }
-                        } else {
-                            // No merged data yet, use incoming (first sync or clear_state)
-                            withContext(Dispatchers.Main) {
-                                processAccountData(incomingAccountData)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Error loading merged account_data, using incoming: ${e.message}", e)
-                        // Fallback to incoming if database access fails
-                        withContext(Dispatchers.Main) {
-                            processAccountData(incomingAccountData)
-                        }
-                    }
-                }
-            } ?: run {
-                // No context available, use incoming (shouldn't happen in normal flow)
-                processAccountData(incomingAccountData)
-            }
+            // Process incoming account_data directly - no DB merging needed
+            processAccountData(incomingAccountData)
         } else if (incomingAccountData != null && incomingAccountData.length() == 0) {
             // Incoming account_data is empty {} - don't process, preserve existing state
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Incoming account_data is empty, skipping processing (preserving existing state)")
@@ -7744,204 +7423,30 @@ class AppViewModel : ViewModel() {
      * Tries Room database first, then falls back to SharedPreferences.
      * Returns true if cached data was loaded, false otherwise.
      */
+    /**
+     * Load minimal state from SharedPreferences (run_id and vapid_key only).
+     * All room/space/account data comes from sync_complete on reconnect.
+     */
     fun loadStateFromStorage(context: android.content.Context): Boolean {
         try {
             // Load activity log from storage first
             loadActivityLogFromStorage(context)
             
-            // Initialize bootstrap loader
-            if (bootstrapLoader == null) {
-                bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
-            }
-            
-            // Try loading from Room database first (synchronous check for run_id)
-            try {
-                val storedRunId = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                    bootstrapLoader!!.getStoredRunId()
-                }
-                
-                if (storedRunId.isNotEmpty()) {
-                    // We have a valid run_id, load from database
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found run_id in database, loading bootstrap data")
-                    
-                    val loaded = kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                        val bootstrapResult = bootstrapLoader!!.loadBootstrap()
-                        
-                        if (bootstrapResult.isValid && bootstrapResult.rooms.isNotEmpty()) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${bootstrapResult.rooms.size} rooms from Room database")
-                            
-                            // Restore WebSocket state from DB
-                            if (bootstrapResult.runId.isNotEmpty()) {
-                                currentRunId = bootstrapResult.runId
-                                // NOTE: We no longer restore last_received_id - all caches are cleared on connect/reconnect
-                                
-                                // Get vapid key from SharedPreferences (not stored in DB yet)
-                                val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-                                vapidKey = prefs.getString("ws_vapid_key", "") ?: ""
-                                
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state from DB - run_id: ${bootstrapResult.runId} (no last_received_id)")
-                            }
-                            
-                            // Update room map with ALL rooms from database
-                            for (room in bootstrapResult.rooms) {
-                                roomMap[room.id] = room
-                            }
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored ${bootstrapResult.rooms.size} rooms from database into roomMap")
-                            
-                            // CRITICAL: Update allRooms so sections can filter properly
-                            // Convert roomMap to sorted list for allRooms
-                            allRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated allRooms with ${allRooms.size} rooms from database")
-                            // Load spaces from database
-                            kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                                val loadedSpaces = bootstrapLoader!!.loadSpacesFromDb(roomMap)
-                                allSpaces = loadedSpaces
-                                spaceList = loadedSpaces
-                                spacesLoaded = true
-                                if (BuildConfig.DEBUG) android.util.Log.d(
-                                    "Andromuks",
-                                    "AppViewModel: Loaded ${loadedSpaces.size} spaces from database (spacesLoaded=${spacesLoaded})"
-                                )
-                            }
-                            
-                            // Load account_data from database
-                            if (bootstrapResult.accountDataJson != null) {
-                                try {
-                                    val accountDataObj = org.json.JSONObject(bootstrapResult.accountDataJson)
-                                    processAccountData(accountDataObj)
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processed account_data from database (m.direct, recent_emoji, etc.)")
-                                } catch (e: Exception) {
-                                    android.util.Log.e("Andromuks", "AppViewModel: Error processing account_data from database: ${e.message}", e)
-                                }
-                            }
-                            
-                            // Invites are loaded from sync_complete on reconnect - no database loading needed
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Invites will be loaded from sync_complete on reconnect (in-memory only)")
-                            
-                            // BUG FIX #2: Force update cached room sections after all data is loaded
-                            // Reset cache to force recalculation since we're loading from DB
-                            invalidateRoomSectionCache()
-                            updateCachedRoomSections()
-                            updateBadgeCounts(allRooms)
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated cached room sections and badge counts (allRooms.size=${allRooms.size})")
-                            
-                            // CRITICAL FIX: Force room list sort to ensure proper sorting and UI update
-                            // This ensures rooms are properly sorted and the UI update mechanism is triggered
-                            forceRoomListSort()
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Triggered room list sort and UI update after loading from database")
-                            
-                            true
-                        } else {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Database bootstrap returned invalid/empty result, falling back to SharedPreferences")
-                            false
-                        }
-                    }
-                    
-                    if (loaded) {
-                        return true
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Error loading from database: ${e.message}", e)
-                // Fall through to SharedPreferences fallback
-            }
-            
-            // Fallback to SharedPreferences (legacy path)
+            // Load only run_id and vapid_key from SharedPreferences
+            // All room/space/account data comes from sync_complete on reconnect (clear_state: true)
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-            
-            // Check if we have cached data
-            val savedTimestamp = prefs.getLong("state_saved_timestamp", 0)
-            if (savedTimestamp == 0L) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No cached state found")
-                return false
-            }
-            
-            val currentTime = System.currentTimeMillis()
-            val timeSinceLastSave = currentTime - savedTimestamp
-            
-            // Check if data is stale (> 10 minutes old)
-            val staleThreshold = 10 * 60 * 1000L // 10 minutes in milliseconds
-            if (timeSinceLastSave > staleThreshold) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cached state is stale (${timeSinceLastSave / 60000} minutes old)")
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Performing full refresh instead of using stale cache")
-                
-                // Load run_id for reconnection, but don't load rooms or last_received_sync_id
-                val runId = prefs.getString("ws_run_id", "") ?: ""
-                val savedVapidKey = prefs.getString("ws_vapid_key", "") ?: ""
-                
-                if (runId.isNotEmpty()) {
-                    currentRunId = runId
-                    vapidKey = savedVapidKey
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Preserved run_id for reconnection: $runId")
-                }
-                
-                // Clear stale cache
-                clearCachedState(context)
-                
-                return false // Don't use stale cache
-            }
-            
-            // Check if cached data is not too old (e.g., max 7 days)
-            val maxCacheAge = 7 * 24 * 60 * 60 * 1000L // 7 days in milliseconds
-            if (timeSinceLastSave > maxCacheAge) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cached state is too old (${timeSinceLastSave / 86400000} days), ignoring")
-                return false
-            }
-            
-            // Restore WebSocket connection state
             val runId = prefs.getString("ws_run_id", "") ?: ""
             val savedVapidKey = prefs.getString("ws_vapid_key", "") ?: ""
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loading from SharedPreferences - runId='$runId', vapidKey='${savedVapidKey.take(20)}...'")
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: DEBUG - loaded runId type: ${runId.javaClass.simpleName}, length: ${runId.length}")
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: DEBUG - loaded runId starts with '{': ${runId.startsWith("{")}")
             
             if (runId.isNotEmpty()) {
                 currentRunId = runId
                 vapidKey = savedVapidKey
-                
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state - run_id: $runId (no last_received_id)")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored WebSocket state from SharedPreferences - run_id: $runId")
+                return true
             }
             
-            // Restore room data
-            val cachedRoomsJson = prefs.getString("cached_rooms", null)
-            if (cachedRoomsJson != null) {
-                val roomsArray = JSONArray(cachedRoomsJson)
-                val cachedRooms = mutableListOf<RoomItem>()
-                
-                for (i in 0 until roomsArray.length()) {
-                    val roomJson = roomsArray.getJSONObject(i)
-                    val room = RoomItem(
-                        id = roomJson.getString("id"),
-                        name = roomJson.getString("name"),
-                        avatarUrl = roomJson.getString("avatarUrl").takeIf { it.isNotBlank() },
-                        messagePreview = roomJson.getString("messagePreview").takeIf { it.isNotBlank() },
-                        messageSender = roomJson.getString("messageSender").takeIf { it.isNotBlank() },
-                        sortingTimestamp = roomJson.getLong("sortingTimestamp").takeIf { it > 0 },
-                        unreadCount = roomJson.getInt("unreadCount").takeIf { it > 0 },
-                        highlightCount = roomJson.getInt("highlightCount").takeIf { it > 0 },
-                        isDirectMessage = roomJson.getBoolean("isDirectMessage")
-                    )
-                    cachedRooms.add(room)
-                }
-                
-                // Update room map and UI
-                roomMap.clear()
-                cachedRooms.forEach { room ->
-                    roomMap[room.id] = room
-                }
-                
-                allRooms = cachedRooms
-                invalidateRoomSectionCache() // PERFORMANCE: Invalidate cached room sections
-                setSpaces(listOf(SpaceItem(id = "all", name = "All Rooms", avatarUrl = null, rooms = cachedRooms)))
-                
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored ${cachedRooms.size} rooms from cache")
-            }
-            
-            // Mark spaces as loaded so UI can show cached data
-            spacesLoaded = true
-            
-            return true
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No run_id found in SharedPreferences")
+            return false
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to load state from storage", e)
             return false
@@ -8401,8 +7906,7 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // Restore read receipts from database for cached events (only once per room)
-        loadReceiptsForCachedEvents(roomId, cachedEvents)
+        // Read receipts come from sync_complete - no DB loading needed
         loadReactionsForRoom(roomId, cachedEvents)
         applyAggregatedReactionsFromEvents(cachedEvents, "cache")
         
@@ -8825,172 +8329,23 @@ class AppViewModel : ViewModel() {
      * Load an original event (and minimal context) from on-disk DB for deleted-content preview.
      * Returns the event with redaction cleared so it renders as originally sent.
      */
+    /**
+     * @deprecated Events are no longer persisted to database - timeline is in-memory cache only
+     */
+    @Deprecated("Events are in-memory cache only, no DB loading needed")
     suspend fun loadOriginalEventWithContext(
         roomId: String,
         eventId: String
     ): SingleEventLoadResult {
-        val context = appContext?.applicationContext
-            ?: return SingleEventLoadResult(null, error = "Missing application context")
-
-        return withContext(Dispatchers.IO) {
-            try {
-                val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                val renderableDao = db.renderableEventDao()
-                val eventDao = db.eventDao()
-
-                var target: TimelineEvent? = null
-
-                // 1) Prefer renderable snapshot (has deletedContentJson/deleted* fields)
-                val renderable = renderableDao.getById(eventId)
-                if (renderable != null) {
-                    val contentJsonStr = renderable.deletedContentJson ?: renderable.contentJson
-                    val contentObj = contentJsonStr?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
-
-                    val localContent = JSONObject()
-                    renderable.deletedBody?.let { localContent.put("deleted_body", it) }
-                    renderable.deletedFormattedBody?.let { localContent.put("deleted_formatted_body", it) }
-                    renderable.deletedMsgType?.let { localContent.put("deleted_msgtype", it) }
-                    renderable.redactionReason?.let { localContent.put("redaction_reason", it) }
-
-                    target = TimelineEvent(
-                        rowid = renderable.timelineRowId,
-                        timelineRowid = renderable.timelineRowId,
-                        roomId = renderable.roomId,
-                        eventId = renderable.eventId,
-                        sender = renderable.sender,
-                        type = renderable.eventType,
-                        timestamp = renderable.timestamp,
-                        content = contentObj,
-                        stateKey = null,
-                        decrypted = null,
-                        decryptedType = renderable.decryptedType,
-                        unsigned = null,
-                        redactedBy = null, // clear redaction so it renders
-                        localContent = if (localContent.length() > 0) localContent else null,
-                        relationType = renderable.threadRootEventId?.let { "m.thread" },
-                        relatesTo = renderable.threadRootEventId,
-                        aggregatedReactions = renderable.aggregatedReactionsJson?.let { runCatching { JSONObject(it) }.getOrNull() }
-                    )
-                }
-
-                // 2) Fallback: raw event from DB
-                if (target == null) {
-                    val raw = eventDao.getEventById(roomId, eventId)
-                    if (raw != null) {
-                        target = eventEntityToTimelineEvent(raw)?.copy(redactedBy = null)
-                    }
-                }
-
-                if (target == null) {
-                    return@withContext SingleEventLoadResult(null, error = "Original event not found")
-                }
-
-                // 3) Minimal context: reply target and thread root if present
-                val contextEvents = mutableListOf<TimelineEvent>()
-                val contextIds = buildList {
-                    target?.getReplyInfo()?.eventId?.let { add(it) }
-                    target?.getThreadInfo()?.threadRootEventId?.let { add(it) }
-                }.distinct()
-
-                contextIds.forEach { id ->
-                    val raw = eventDao.getEventById(roomId, id)
-                    val te = raw?.let { eventEntityToTimelineEvent(it) }
-                    if (te != null) contextEvents.add(te)
-                }
-
-                SingleEventLoadResult(target, contextEvents)
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "loadOriginalEventWithContext: failed for $eventId in $roomId", e)
-                SingleEventLoadResult(null, error = e.message)
-            }
-        }
+        return SingleEventLoadResult(null, error = "Events are in-memory cache only")
     }
 
+    /**
+     * @deprecated Read receipts are no longer persisted to database - they come from sync_complete
+     */
+    @Deprecated("Read receipts are in-memory only, loaded from sync_complete")
     private fun loadReceiptsForCachedEvents(roomId: String, cachedEvents: List<TimelineEvent>) {
-        if (cachedEvents.isEmpty()) {
-            return
-        }
-
-        val context = appContext ?: run {
-            android.util.Log.w("Andromuks", "AppViewModel: Cannot restore receipts for $roomId - appContext is null")
-            return
-        }
-
-        if (!roomsWithLoadedReceiptsFromDb.add(roomId)) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Read receipts for room $roomId already restored from database, skipping")
-            return
-        }
-
-        val eventIds = cachedEvents.map { it.eventId }.toSet()
-        if (eventIds.isEmpty()) {
-            return
-        }
-
-        val applicationContext = context.applicationContext
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(applicationContext)
-                val receiptEntities = database.receiptDao().getReceiptsForRoom(roomId)
-
-                if (receiptEntities.isEmpty()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No stored receipts found in database for room $roomId")
-                    return@launch
-                }
-
-                // First, find the latest receipt per user (only one receipt per user should be shown)
-                val latestReceiptPerUser = receiptEntities
-                    .filter { eventIds.contains(it.eventId) }
-                    .groupBy { it.userId }
-                    .mapValues { (_, userReceipts) ->
-                        // Find the receipt with the latest timestamp for this user
-                        userReceipts.maxByOrNull { it.timestamp }
-                    }
-                    .values
-                    .filterNotNull()
-                
-                // Then group by eventId, keeping only the latest receipt per user
-                val receiptsByEvent = latestReceiptPerUser
-                    .groupBy { it.eventId }
-                    .mapValues { (_, entities) ->
-                        entities.map { entity ->
-                            ReadReceipt(
-                                userId = entity.userId,
-                                eventId = entity.eventId,
-                                timestamp = entity.timestamp,
-                                receiptType = entity.type
-                            )
-                        }
-                    }
-
-                if (receiptsByEvent.isEmpty()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Stored receipts did not match cached events for room $roomId")
-                    return@launch
-                }
-
-                var didChange = false
-                synchronized(readReceiptsLock) {
-                    for ((eventId, receipts) in receiptsByEvent) {
-                        val newList = receipts.toMutableList()
-                        val existing = readReceipts[eventId]
-                        if (existing == null || existing.size != newList.size || !existing.zip(newList).all { (a, b) -> a == b }) {
-                            readReceipts[eventId] = newList
-                            didChange = true
-                        }
-                    }
-                }
-
-                if (didChange) {
-                    withContext(Dispatchers.Main) {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored ${receiptsByEvent.size} read receipt groups from database for room $roomId")
-                        readReceiptsUpdateCounter++
-                    }
-                } else {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Database read receipts already match in-memory state for room $roomId")
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to restore read receipts from database for room $roomId", e)
-            }
-        }
+        // No-op - receipts come from sync_complete, not database
     }
 
     /**
@@ -9471,19 +8826,11 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Observe the latest event timestamp for a room using Room Flow.
-     * This automatically emits when new events are inserted into the database.
-     * 
-     * This is more efficient than polling because it only triggers on actual DB changes.
-     * 
-     * @param roomId The room ID to observe
-     * @return Flow that emits the latest timestamp (or null if no events)
+     * @deprecated Events are no longer persisted to database - timeline is in-memory cache only
      */
+    @Deprecated("Events are in-memory cache only, no DB observation needed")
     fun observeRoomLatestEventTimestamp(roomId: String): Flow<Long?> {
-        val context = appContext?.applicationContext ?: return kotlinx.coroutines.flow.flowOf(null)
-        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-        return database.eventDao().observeLastEventTimestamp(roomId)
-            .distinctUntilChanged() // Only emit when timestamp actually changes
+        return kotlinx.coroutines.flow.flowOf(null)
     }
     
     
@@ -16902,57 +16249,28 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Delete all data for a room from the database and clear in-memory caches
-     * This is a destructive operation that removes all events, state, receipts, reactions, etc.
+     * @deprecated Room data is no longer persisted to database - only in-memory caches need clearing
      */
-    suspend fun deleteAllRoomData(roomId: String) = withContext(Dispatchers.IO) {
-        val context = appContext ?: run {
-            android.util.Log.e("Andromuks", "AppViewModel: Cannot delete room data - appContext is null")
-            return@withContext
+    @Deprecated("Room data is in-memory only, use clearRoomCache instead")
+    suspend fun deleteAllRoomData(roomId: String) = withContext(Dispatchers.Main) {
+        // Clear in-memory caches only
+        RoomTimelineCache.clearRoomCache(roomId)
+        
+        // Remove from room map if present
+        roomMap.remove(roomId)
+        
+        // Remove from pending invites (in-memory only)
+        pendingInvites.remove(roomId)
+        
+        // Clear current room if it's the deleted room
+        if (currentRoomId == roomId) {
+            clearCurrentRoomId()
         }
         
-        try {
-            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-            val eventDao = database.eventDao()
-            val roomStateDao = database.roomStateDao()
-            val roomSummaryDao = database.roomSummaryDao()
-            val receiptDao = database.receiptDao()
-            val reactionDao = database.reactionDao()
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Deleting all data for room: $roomId")
-            
-            // Delete all data sequentially (all are suspend functions, so they execute in order)
-            eventDao.deleteAllForRoom(roomId)
-            roomStateDao.deleteForRoom(roomId)
-            roomSummaryDao.deleteForRoom(roomId)
-            receiptDao.deleteForRoom(roomId)
-            reactionDao.clearRoom(roomId)
-            // Invites are in-memory only - no database deletion needed
-            
-            // Clear in-memory caches
-            RoomTimelineCache.clearRoomCache(roomId)
-            
-            // Remove from room map if present
-            roomMap.remove(roomId)
-            
-            // Remove from pending invites (in-memory only)
-            pendingInvites.remove(roomId)
-            
-            // Clear current room if it's the deleted room
-            if (currentRoomId == roomId) {
-                clearCurrentRoomId()
-            }
-            
-            // Trigger room list update
-            withContext(Dispatchers.Main) {
-                roomListUpdateCounter++
-            }
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Successfully deleted all data for room: $roomId")
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Error deleting room data for $roomId", e)
-            throw e
-        }
+        // Trigger room list update
+        roomListUpdateCounter++
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared in-memory data for room: $roomId")
     }
     
     /**

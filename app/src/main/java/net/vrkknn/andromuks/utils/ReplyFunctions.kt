@@ -1098,21 +1098,12 @@ fun MessageBubbleWithMenu(
                                             showMenu = false
                                             deletedDialogText = deletedContentSummary
                                             deletedReason = redactionReason
-                                            deletedError = null
+                                            // Events are in-memory cache only - original event not available from DB
+                                            deletedError = "Events are in-memory cache only - original event not available"
                                             loadedDeletedEvent = null
                                             loadedDeletedContext = emptyList()
                                             showDeletedDialog = true
-                                            deletedLoading = true
-                                            coroutineScope.launch {
-                                                val result = appViewModel.loadOriginalEventWithContext(
-                                                    roomId = event.roomId,
-                                                    eventId = event.eventId
-                                                )
-                                                deletedLoading = false
-                                                loadedDeletedEvent = result.event
-                                                loadedDeletedContext = result.contextEvents
-                                                deletedError = result.error
-                                            }
+                                            deletedLoading = false
                                         },
                                         modifier = Modifier.size(40.dp)
                                     ) {

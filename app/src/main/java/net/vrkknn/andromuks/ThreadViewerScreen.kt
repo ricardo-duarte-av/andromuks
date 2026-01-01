@@ -231,16 +231,8 @@ fun ThreadViewerScreen(
         // Ensure timeline is fresh when opening the thread viewer
         appViewModel.requestRoomTimeline(roomId)
     }
-    // Observe DB latest timestamp to react to new events arriving while thread viewer is open
-    LaunchedEffect(roomId, threadRootEventId) {
-        appViewModel.observeRoomLatestEventTimestamp(roomId)
-            .filterNotNull()
-            .collectLatest {
-                // Refresh room timeline to ensure thread root and new events are loaded
-                appViewModel.requestRoomTimeline(roomId)
-                threadMessages = appViewModel.getThreadMessages(roomId, threadRootEventId)
-            }
-    }
+    // Events are in-memory cache only - no DB observation needed
+    // Timeline updates come from sync_complete and pagination
 
     // Attachment/media state
     var showAttachmentMenu by remember { mutableStateOf(false) }

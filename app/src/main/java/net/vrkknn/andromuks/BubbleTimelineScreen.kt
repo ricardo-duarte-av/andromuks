@@ -1842,33 +1842,8 @@ fun BubbleTimelineScreen(
             return@LaunchedEffect
         }
         
-        // Track the latest timestamp we've seen to detect new events
-        var lastKnownTimestamp = timelineItems.lastOrNull()?.let { 
-            (it as? BubbleTimelineItem.Event)?.event?.timestamp 
-        } ?: 0L
-        
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Starting DB timestamp observation for room $roomId (initial timestamp: $lastKnownTimestamp)")
-        
-        // Observe the latest event timestamp from database
-        // This Flow automatically emits when new events are inserted
-        appViewModel.observeRoomLatestEventTimestamp(roomId)
-            .filterNotNull() // Only process non-null timestamps
-            .collect { latestTimestamp ->
-                // Only refresh if we detect a newer timestamp
-                if (latestTimestamp > lastKnownTimestamp) {
-                    if (BuildConfig.DEBUG) Log.d(
-                        "Andromuks",
-                        "BubbleTimelineScreen: Detected new events in DB (timestamp: $latestTimestamp > $lastKnownTimestamp) - refreshing timeline"
-                    )
-                    
-                    // Update our tracked timestamp
-                    lastKnownTimestamp = latestTimestamp
-                    
-                    // Refresh timeline from database to show new events
-                    // This is safe to call multiple times - it only updates if there are actually new events
-                    appViewModel.refreshTimelineUI()
-                }
-            }
+        // Events are in-memory cache only - no DB observation needed
+        // Timeline updates come from sync_complete and pagination
     }
 
     // Handle Android back key
