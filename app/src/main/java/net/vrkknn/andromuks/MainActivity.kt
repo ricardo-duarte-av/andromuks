@@ -360,6 +360,16 @@ class MainActivity : ComponentActivity() {
                             Log.w("Andromuks", "MainActivity: MARK_READ broadcast missing roomId")
                         }
                     }
+                    "net.vrkknn.andromuks.PREEMPTIVE_PAGINATE" -> {
+                        val roomId = intent.getStringExtra("room_id")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: PREEMPTIVE_PAGINATE broadcast - roomId: $roomId")
+                        if (roomId != null) {
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Received preemptive pagination request for room $roomId")
+                            appViewModel.triggerPreemptivePagination(roomId)
+                        } else {
+                            Log.w("Andromuks", "MainActivity: PREEMPTIVE_PAGINATE broadcast missing roomId")
+                        }
+                    }
                     else -> {
                         Log.w("Andromuks", "MainActivity: Unknown broadcast action: ${intent?.action}")
                     }
@@ -370,6 +380,7 @@ class MainActivity : ComponentActivity() {
         val filter = IntentFilter().apply {
             addAction("net.vrkknn.andromuks.SEND_MESSAGE")
             addAction("net.vrkknn.andromuks.MARK_READ")
+            addAction("net.vrkknn.andromuks.PREEMPTIVE_PAGINATE")
         }
         registerReceiver(notificationBroadcastReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Notification broadcast receiver registered successfully")

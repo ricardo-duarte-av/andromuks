@@ -8776,6 +8776,30 @@ class AppViewModel : ViewModel() {
             }
         }
     }
+    
+    /**
+     * Trigger preemptive pagination for a room when a notification is generated.
+     * This ensures the room timeline is cached before the user taps the notification.
+     * Called from broadcast receiver when notification is generated.
+     */
+    fun triggerPreemptivePagination(roomId: String) {
+        viewModelScope.launch {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: triggerPreemptivePagination called for room: $roomId")
+            
+            // Check if room is already in cache
+            val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomId)
+            val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(roomId)
+            
+            if (cachedEventCount >= 10 && isActivelyCached) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room $roomId already in cache ($cachedEventCount events, actively cached), skipping preemptive pagination")
+                return@launch
+            }
+            
+            // Trigger pagination to fill cache
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Triggering preemptive pagination for room: $roomId (cached: $cachedEventCount events, actively cached: $isActivelyCached)")
+            ensureTimelineCacheIsFresh(roomId, limit = INITIAL_ROOM_PAGINATE_LIMIT)
+        }
+    }
 
     suspend fun getRoomEventsFromDb(roomId: String, limit: Int): List<EventEntity> {
         val context = appContext ?: return emptyList()
@@ -11846,24 +11870,33 @@ class AppViewModel : ViewModel() {
                 
                 // Mark room as read when timeline is successfully loaded - use most recent event by timestamp
                 // (But not for background prefetch requests since we're just silently updating cache)
+                // CRITICAL FIX: Only mark as read if the room is currently open (currentRoomId == roomId)
+                // This prevents notifications from being dismissed when preemptive pagination happens
+                // (preemptive pagination occurs when a notification is generated but user hasn't opened the room yet)
                 if (!backgroundPrefetchRequests.containsKey(requestId)) {
-                    // Mark as read only if room is actually visible (not just a minimized bubble)
-                    // Check if this is a bubble and if it's visible
-                    val shouldMarkAsRead = if (BubbleTracker.isBubbleOpen(roomId)) {
-                        // Bubble exists - only mark as read if it's visible/maximized
-                        BubbleTracker.isBubbleVisible(roomId)
+                    // First check if room is actually open - don't mark as read for preemptive pagination
+                    val isRoomOpen = currentRoomId == roomId
+                    if (!isRoomOpen) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (room not currently open - preemptive pagination)")
                     } else {
-                        // Not a bubble - mark as read (normal room view)
-                        true
-                    }
-                    
-                    if (shouldMarkAsRead) {
-                        val mostRecentEvent = timelineList.maxByOrNull { it.timestamp }
-                        if (mostRecentEvent != null) {
-                            markRoomAsRead(roomId, mostRecentEvent.eventId)
+                        // Mark as read only if room is actually visible (not just a minimized bubble)
+                        // Check if this is a bubble and if it's visible
+                        val shouldMarkAsRead = if (BubbleTracker.isBubbleOpen(roomId)) {
+                            // Bubble exists - only mark as read if it's visible/maximized
+                            BubbleTracker.isBubbleVisible(roomId)
+                        } else {
+                            // Not a bubble - mark as read (normal room view)
+                            true
                         }
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)")
+                        
+                        if (shouldMarkAsRead) {
+                            val mostRecentEvent = timelineList.maxByOrNull { it.timestamp }
+                            if (mostRecentEvent != null) {
+                                markRoomAsRead(roomId, mostRecentEvent.eventId)
+                            }
+                        } else {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)")
+                        }
                     }
                 }
             }

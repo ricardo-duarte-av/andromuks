@@ -251,6 +251,39 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 return
             }
             
+            // PREEMPTIVE CACHING: Check if room is already in cache, if not, trigger preemptive pagination
+            // This ensures the room timeline is cached before the user taps the notification
+            try {
+                val cachedEventCount = RoomTimelineCache.getCachedEventCount(notificationData.roomId)
+                val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(notificationData.roomId)
+                
+                if (BuildConfig.DEBUG) Log.d(TAG, "Preemptive caching check for room ${notificationData.roomId}: cachedEventCount=$cachedEventCount, isActivelyCached=$isActivelyCached")
+                
+                // If room is not in cache or not actively cached, mark it for preemptive pagination
+                if (cachedEventCount < 10 || !isActivelyCached) {
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Room ${notificationData.roomId} not in cache (< 10 events or not actively cached), marking for preemptive pagination")
+                    
+                    // Store room ID in SharedPreferences for AppViewModel to process
+                    val preemptivePaginateRooms = sharedPrefs.getStringSet("preemptive_paginate_rooms", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                    preemptivePaginateRooms.add(notificationData.roomId)
+                    sharedPrefs.edit().putStringSet("preemptive_paginate_rooms", preemptivePaginateRooms).apply()
+                    
+                    // Send broadcast to trigger immediate pagination if AppViewModel is available
+                    val intent = Intent("net.vrkknn.andromuks.PREEMPTIVE_PAGINATE").apply {
+                        putExtra("room_id", notificationData.roomId)
+                        setPackage(context.packageName)
+                    }
+                    context.sendBroadcast(intent)
+                    
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Sent preemptive pagination broadcast for room ${notificationData.roomId}")
+                } else {
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Room ${notificationData.roomId} already in cache ($cachedEventCount events, actively cached), skipping preemptive pagination")
+                }
+            } catch (e: Exception) {
+                // Don't fail notification display if preemptive caching check fails
+                Log.w(TAG, "Error checking cache for preemptive pagination", e)
+            }
+            
             val isGroupRoom = notificationData.roomName != notificationData.senderDisplayName
             val hasImage = !notificationData.image.isNullOrEmpty()
             if (BuildConfig.DEBUG) Log.d(TAG, "showEnhancedNotification - hasImage: $hasImage, image: ${notificationData.image}")
@@ -449,6 +482,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             // and be registered before the notification is posted to recognize it as a conversation
             // This ensures "Ranking is not conversation" errors don't occur
             // Must be done OUTSIDE synchronized block because it's a suspend function
+            if (BuildConfig.DEBUG) Log.d(TAG, "Updating conversation shortcuts before notification display - room: ${notificationData.roomId}")
             val roomItem = RoomItem(
                 id = notificationData.roomId,
                 name = notificationData.roomName ?: notificationData.roomId,
@@ -460,6 +494,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 sortingTimestamp = notificationData.timestamp ?: System.currentTimeMillis()
             )
             conversationsApi?.updateConversationShortcutsSync(listOf(roomItem))
+            if (BuildConfig.DEBUG) Log.d(TAG, "Conversation shortcuts updated - room: ${notificationData.roomId}")
             
             // CRITICAL: Get shortcut using ALL flags to ensure we get the active shortcut
             // Android's notification ranking system requires the shortcut to be "active"
@@ -494,8 +529,10 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             // SYNCHRONIZATION: Use per-room lock to prevent concurrent updates for the same room
             // This ensures only one notification update happens at a time per room, preventing flicker
+            if (BuildConfig.DEBUG) Log.d(TAG, "Entering synchronized block for notification display - room: ${notificationData.roomId}")
             val roomLock = getRoomLock(notificationData.roomId)
             synchronized(roomLock) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Inside synchronized block, building notification for room: ${notificationData.roomId}")
                 // Create messaging style - extract existing style if available
                 val systemNotificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
                 val notifID = notificationData.roomId.hashCode()
