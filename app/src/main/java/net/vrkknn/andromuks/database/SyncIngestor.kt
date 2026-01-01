@@ -54,7 +54,7 @@ import java.util.zip.GZIPOutputStream
 class SyncIngestor(private val context: Context) {
     private val database = AndromuksDatabase.getInstance(context)
     private val eventDao = database.eventDao()
-    // All room/space/invite/account data persistence removed - data is in-memory only
+    // All room/space/account/invite data persistence removed - data is in-memory only
     // Only media and user profiles are persisted (not touched here)
     private val TAG = "SyncIngestor"
     
@@ -365,12 +365,20 @@ class SyncIngestor(private val context: Context) {
     
     /**
      * Clear all derived room/space state when server sends clear_state=true.
-     * All data is now in-memory only, so nothing to clear from DB.
+     * All data is now in-memory only - nothing to clear from DB.
      */
     suspend fun handleClearStateSignal() = withContext(Dispatchers.IO) {
         if (BuildConfig.DEBUG) Log.w(TAG, "SyncIngestor: clear_state=true received - all data is in-memory only, nothing to clear from DB")
         // All room/space/invite/account data is in-memory only - no DB cleanup needed
     }
+    
+    /**
+     * Result of ingesting a sync_complete message
+     */
+    data class IngestResult(
+        val roomsWithEvents: Set<String>,
+        val invites: List<net.vrkknn.andromuks.RoomInvite>
+    )
     
     /**
      * Ingest a sync_complete message - updates cache for cached rooms only, no DB persistence
@@ -379,14 +387,14 @@ class SyncIngestor(private val context: Context) {
      * @param requestId The request_id from the sync_complete (no longer stored)
      * @param runId The current run_id (must match stored run_id or data will be cleared)
      * @param isAppVisible Whether the app is currently visible (affects processing optimizations)
-     * @return Set of room IDs that had events added to cache (for notifying timeline screens)
+     * @return IngestResult containing rooms with events and parsed invites
      */
     suspend fun ingestSyncComplete(
         syncJson: JSONObject,
         requestId: Int,
         runId: String,
         isAppVisible: Boolean = true
-    ): Set<String> = withContext(Dispatchers.IO) {
+    ): IngestResult = withContext(Dispatchers.IO) {
         // Track which rooms had events added to cache (for notifying timeline screens)
         val roomsWithEvents = mutableSetOf<String>()
         
@@ -401,7 +409,7 @@ class SyncIngestor(private val context: Context) {
         
         val data = syncJson.optJSONObject("data") ?: run {
             Log.w(TAG, "No 'data' field in sync_complete")
-            return@withContext emptySet<String>()
+            return@withContext IngestResult(emptySet(), emptyList())
         }
         
         // If server instructs us to clear state, all data is in-memory only - nothing to clear
@@ -416,8 +424,9 @@ class SyncIngestor(private val context: Context) {
             sharedPrefs.edit().putString("ws_since_token", since).apply()
         }
         
-        // Account data, spaces, and invites are now in-memory only - processed by SpaceRoomParser
-        // No DB persistence needed - they're built from sync_complete in memory
+        // Account data and spaces are now in-memory only - processed by SpaceRoomParser
+        // Invites are parsed and returned (in-memory only, no DB persistence)
+        val invites = processInvitedRooms(data)
         
         // Process left_rooms - all data is in-memory only, no DB cleanup needed
         val leftRooms = data.optJSONArray("left_rooms")
@@ -496,8 +505,8 @@ class SyncIngestor(private val context: Context) {
             if (BuildConfig.DEBUG) Log.d(TAG, "Ingested sync_complete: $requestId, 0 rooms (no rooms object)")
         }
         
-        // Return set of room IDs that had events persisted (for notifying timeline screens)
-        roomsWithEvents
+        // Return result with rooms that had events and parsed invites
+        IngestResult(roomsWithEvents, invites)
     }
     
     /**
@@ -1243,21 +1252,22 @@ class SyncIngestor(private val context: Context) {
     /**
      * Process invited_rooms from sync_complete
      * Extracts room metadata and inviter information from invite_state events
+     * Returns list of RoomInvite objects (in-memory only, no DB persistence)
      */
-    private suspend fun processInvitedRooms(data: JSONObject) = withContext(Dispatchers.IO) {
-        val invitedRooms = data.optJSONArray("invited_rooms") ?: return@withContext
+    private suspend fun processInvitedRooms(data: JSONObject): List<net.vrkknn.andromuks.RoomInvite> = withContext(Dispatchers.IO) {
+        val invitedRooms = data.optJSONArray("invited_rooms") ?: return@withContext emptyList()
         
-        if (invitedRooms.length() == 0) return@withContext
+        if (invitedRooms.length() == 0) return@withContext emptyList()
         
         val currentUserId = getCurrentUserId()
         if (currentUserId.isBlank()) {
             Log.w(TAG, "SyncIngestor: Cannot process invites - current user ID not available")
-            return@withContext
+            return@withContext emptyList()
         }
         
         if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Processing ${invitedRooms.length()} room invitations")
         
-        val invites = mutableListOf<net.vrkknn.andromuks.database.entities.InviteEntity>()
+        val invites = mutableListOf<net.vrkknn.andromuks.RoomInvite>()
         
         for (i in 0 until invitedRooms.length()) {
             val inviteJson = invitedRooms.optJSONObject(i) ?: continue
@@ -1376,7 +1386,7 @@ class SyncIngestor(private val context: Context) {
             
             // Only create invite if we have an inviter (required field)
             if (inviterUserId.isNotBlank()) {
-                val inviteEntity = net.vrkknn.andromuks.database.entities.InviteEntity(
+                val roomInvite = net.vrkknn.andromuks.RoomInvite(
                     roomId = roomId,
                     createdAt = createdAt,
                     inviterUserId = inviterUserId,
@@ -1388,7 +1398,7 @@ class SyncIngestor(private val context: Context) {
                     inviteReason = inviteReason,
                     isDirectMessage = isDirectMessage
                 )
-                invites.add(inviteEntity)
+                invites.add(roomInvite)
                 
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "SyncIngestor: Parsed invite for room $roomId: name=$roomName, inviter=$inviterUserId (displayName=$inviterDisplayName, DM: $isDirectMessage)")
@@ -1415,14 +1425,9 @@ class SyncIngestor(private val context: Context) {
             }
         }
         
-        // Persist all invites to database in a single transaction
-        // Invites are handled by SpaceRoomParser.parseSyncUpdate() which builds in-memory invite objects
-        // No DB persistence needed - all data is in-memory only
-        if (invites.isNotEmpty() && BuildConfig.DEBUG) {
-            Log.d(TAG, "SyncIngestor: Processed ${invites.size} invites (in-memory only)")
-        } else {
-            if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: No invites to persist (invites list is empty)")
-        }
+        // Return invites (in-memory only, no DB persistence)
+        if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Parsed ${invites.size} invites (in-memory only)")
+        invites
     }
     
     /**

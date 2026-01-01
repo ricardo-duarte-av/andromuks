@@ -4393,13 +4393,24 @@ class AppViewModel : ViewModel() {
 
                 try {
                     // Pass isAppVisible to SyncIngestor for battery optimizations
-                    // Returns set of room IDs that had events persisted (for notifying timeline screens)
-                    val roomsWithEvents = syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId, isAppVisible) ?: emptySet()
+                    // Returns IngestResult with rooms that had events and parsed invites
+                    val ingestResult = syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId, isAppVisible)
+                    val roomsWithEvents = ingestResult?.roomsWithEvents ?: emptySet()
+                    val invites = ingestResult?.invites ?: emptyList()
                     
-                    // CRITICAL: Reload invites from database immediately after ingestSyncComplete completes
-                    // This ensures invites are loaded into memory before processParsedSyncResult runs
-                    // and before RoomListScreen checks for invites
-                    reloadInvitesFromDatabaseSync()
+                    // CRITICAL: Update pendingInvites directly from parsed invites (in-memory only)
+                    if (invites.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            // Update in-memory pendingInvites map
+                            invites.forEach { invite ->
+                                pendingInvites[invite.roomId] = invite
+                            }
+                            // Trigger UI update to show invites
+                            needsRoomListUpdate = true
+                            roomListUpdateCounter++
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated ${invites.size} invites from sync_complete (in-memory only, total: ${pendingInvites.size})")
+                        }
+                    }
                     
                     // CRITICAL: Notify RoomListScreen that room summaries may have been updated
                     // SyncIngestor updates summaries when isAppVisible == true, so we need to refresh the summary display
@@ -4522,6 +4533,9 @@ class AppViewModel : ViewModel() {
         customEmojiPacks = emptyList()
         stickerPacks = emptyList()
         
+        // Clear pending invites - new invites will come from clear_state sync_complete
+        pendingInvites.clear()
+        
         // Force room list refresh to reflect cleared state until new data arrives
         needsRoomListUpdate = true
         scheduleUIUpdate("roomList")
@@ -4601,13 +4615,24 @@ class AppViewModel : ViewModel() {
 
                 try {
                     // Pass isAppVisible to SyncIngestor for battery optimizations
-                    // Returns set of room IDs that had events persisted (for notifying timeline screens)
-                    val roomsWithEvents = syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId, isAppVisible) ?: emptySet()
+                    // Returns IngestResult with rooms that had events and parsed invites
+                    val ingestResult = syncIngestor?.ingestSyncComplete(jsonForPersistence, requestId, currentRunId, isAppVisible)
+                    val roomsWithEvents = ingestResult?.roomsWithEvents ?: emptySet()
+                    val invites = ingestResult?.invites ?: emptyList()
                     
-                    // CRITICAL: Reload invites from database immediately after ingestSyncComplete completes
-                    // This ensures invites are loaded into memory before processParsedSyncResult runs
-                    // and before RoomListScreen checks for invites
-                    reloadInvitesFromDatabaseSync()
+                    // CRITICAL: Update pendingInvites directly from parsed invites (in-memory only)
+                    if (invites.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            // Update in-memory pendingInvites map
+                            invites.forEach { invite ->
+                                pendingInvites[invite.roomId] = invite
+                            }
+                            // Trigger UI update to show invites
+                            needsRoomListUpdate = true
+                            roomListUpdateCounter++
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated ${invites.size} invites from sync_complete (in-memory only, total: ${pendingInvites.size})")
+                        }
+                    }
                     
                     // CRITICAL: Notify RoomListScreen that room summaries may have been updated
                     // SyncIngestor updates summaries, so we need to refresh the summary display
@@ -4936,20 +4961,8 @@ class AppViewModel : ViewModel() {
                     pendingInvites.remove(roomId)
                 }
                 
-                // Remove from database asynchronously
-                appContext?.let { context ->
-                    viewModelScope.launch(Dispatchers.IO) {
-                        try {
-                            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                            acceptedInvites.forEach { roomId ->
-                                database.inviteDao().deleteInvite(roomId)
-                            }
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed ${acceptedInvites.size} invites from database (accepted elsewhere)")
-                        } catch (e: Exception) {
-                            android.util.Log.e("Andromuks", "AppViewModel: Error removing accepted invites from database", e)
-                        }
-                    }
-                }
+                // Invites are in-memory only - no database cleanup needed
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed ${acceptedInvites.size} invites from memory (accepted elsewhere)")
                 
                 // Trigger UI update to remove invites from RoomListScreen
                 needsRoomListUpdate = true
@@ -7802,20 +7815,8 @@ class AppViewModel : ViewModel() {
                                 }
                             }
                             
-                            // Load pending invites from database
-                            kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                                val loadedInvites = bootstrapLoader!!.loadInvitesFromDb()
-                                if (loadedInvites.isNotEmpty()) {
-                                    for (invite in loadedInvites) {
-                                        pendingInvites[invite.roomId] = invite
-                                    }
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${loadedInvites.size} pending invites from database")
-                                    // Trigger UI update to show invites
-                                    roomListUpdateCounter++
-                                } else {
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending invites found in database")
-                                }
-                            }
+                            // Invites are loaded from sync_complete on reconnect - no database loading needed
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Invites will be loaded from sync_complete on reconnect (in-memory only)")
                             
                             // BUG FIX #2: Force update cached room sections after all data is loaded
                             // Reset cache to force recalculation since we're loading from DB
@@ -15091,85 +15092,19 @@ class AppViewModel : ViewModel() {
     
     
     /**
-     * Reload invites from database synchronously (invites are now parsed and persisted by SyncIngestor)
-     * Updates in-memory pendingInvites map and triggers UI update if invites changed
-     * This is called from a coroutine context, so it can use suspend functions
+     * @deprecated Invites are no longer persisted to database - they're loaded from sync_complete on reconnect
      */
+    @Deprecated("Invites are in-memory only, loaded from sync_complete")
     private suspend fun reloadInvitesFromDatabaseSync() {
-        appContext?.let { context ->
-            withContext(Dispatchers.IO) {
-                try {
-                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                    val inviteEntities = database.inviteDao().getAllInvites()
-                    val loadedInvites = inviteEntities.map { entity ->
-                        RoomInvite(
-                            roomId = entity.roomId,
-                            createdAt = entity.createdAt,
-                            inviterUserId = entity.inviterUserId,
-                            inviterDisplayName = entity.inviterDisplayName,
-                            roomName = entity.roomName,
-                            roomAvatar = entity.roomAvatar,
-                            roomTopic = entity.roomTopic,
-                            roomCanonicalAlias = entity.roomCanonicalAlias,
-                            inviteReason = entity.inviteReason,
-                            isDirectMessage = entity.isDirectMessage
-                        )
-                    }
-                    
-                    // Check if invites changed (new invites added or existing invites updated)
-                    val oldSize = pendingInvites.size
-                    val newInviteRoomIds = loadedInvites.map { it.roomId }.toSet()
-                    val oldInviteRoomIds = pendingInvites.keys.toSet()
-                    val invitesChanged = newInviteRoomIds != oldInviteRoomIds || 
-                        loadedInvites.any { newInvite ->
-                            val oldInvite = pendingInvites[newInvite.roomId]
-                            oldInvite == null || oldInvite != newInvite
-                        }
-                    
-                    // Update pendingInvites map
-                    pendingInvites.clear()
-                    loadedInvites.forEach { invite ->
-                        pendingInvites[invite.roomId] = invite
-                    }
-                    
-                    // CRITICAL: Always trigger UI update when invites are loaded from database
-                    // This ensures invites appear immediately, even if they were already in memory
-                    // We always increment the counter to force UI recomposition
-                    withContext(Dispatchers.Main) {
-                        needsRoomListUpdate = true
-                        roomListUpdateCounter++
-                        val newInviteCount = loadedInvites.size - oldSize
-                        if (BuildConfig.DEBUG) {
-                            if (invitesChanged) {
-                                if (newInviteCount > 0) {
-                                    android.util.Log.d("Andromuks", "AppViewModel: Reloaded invites from database - found $newInviteCount new invites (total: ${pendingInvites.size}, was: $oldSize), triggering UI update (counter: $roomListUpdateCounter)")
-                                } else if (newInviteCount < 0) {
-                                    android.util.Log.d("Andromuks", "AppViewModel: Reloaded invites from database - removed ${-newInviteCount} invites (total: ${pendingInvites.size}, was: $oldSize), triggering UI update (counter: $roomListUpdateCounter)")
-                                } else {
-                                    android.util.Log.d("Andromuks", "AppViewModel: Reloaded invites from database - invites updated (total: ${pendingInvites.size}), triggering UI update (counter: $roomListUpdateCounter)")
-                                }
-                            } else {
-                                android.util.Log.d("Andromuks", "AppViewModel: Reloaded invites from database - no changes detected but incrementing counter anyway to ensure UI update (total: ${pendingInvites.size}, counter: $roomListUpdateCounter)")
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error reloading invites from database", e)
-                }
-            }
-        }
+        // No-op - invites are loaded from sync_complete
     }
     
     /**
-     * Reload invites from database asynchronously (for use from non-suspend contexts)
-     * Updates in-memory pendingInvites map and triggers UI update if invites changed
+     * @deprecated Invites are no longer persisted to database - they're loaded from sync_complete on reconnect
      */
+    @Deprecated("Invites are in-memory only, loaded from sync_complete")
     private fun reloadInvitesFromDatabase() {
-        appContext?.let { context ->
-            viewModelScope.launch(Dispatchers.IO) {
-                reloadInvitesFromDatabaseSync()
-            }
-        }
+        // No-op - invites are loaded from sync_complete
     }
     
     fun markRoomAsRead(roomId: String, eventId: String) {
@@ -15315,21 +15250,11 @@ class AppViewModel : ViewModel() {
             "via" to listOf(via)
         ))
         
-        // Remove from pending invites
+        // Remove from pending invites (in-memory only)
         pendingInvites.remove(roomId)
         
-        // Remove from database
-        appContext?.let { context ->
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                    database.inviteDao().deleteInvite(roomId)
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed invite from database: $roomId")
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error removing invite from database", e)
-                }
-            }
-        }
+        // Invites are in-memory only - no database cleanup needed
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed invite from memory: $roomId")
         
         roomListUpdateCounter++
         updateCounter++ // Keep for backward compatibility temporarily
@@ -15344,21 +15269,11 @@ class AppViewModel : ViewModel() {
             "room_id" to roomId
         ))
         
-        // Remove from pending invites
+        // Remove from pending invites (in-memory only)
         pendingInvites.remove(roomId)
         
-        // Remove from database
-        appContext?.let { context ->
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                    database.inviteDao().deleteInvite(roomId)
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed invite from database: $roomId")
-                } catch (e: Exception) {
-                    android.util.Log.e("Andromuks", "AppViewModel: Error removing invite from database", e)
-                }
-            }
-        }
+        // Invites are in-memory only - no database cleanup needed
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed invite from memory: $roomId")
         
         roomListUpdateCounter++
         updateCounter++ // Keep for backward compatibility temporarily
@@ -17003,7 +16918,6 @@ class AppViewModel : ViewModel() {
             val roomSummaryDao = database.roomSummaryDao()
             val receiptDao = database.receiptDao()
             val reactionDao = database.reactionDao()
-            val inviteDao = database.inviteDao()
             
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Deleting all data for room: $roomId")
             
@@ -17013,13 +16927,16 @@ class AppViewModel : ViewModel() {
             roomSummaryDao.deleteForRoom(roomId)
             receiptDao.deleteForRoom(roomId)
             reactionDao.clearRoom(roomId)
-            inviteDao.deleteInvite(roomId)
+            // Invites are in-memory only - no database deletion needed
             
             // Clear in-memory caches
             RoomTimelineCache.clearRoomCache(roomId)
             
             // Remove from room map if present
             roomMap.remove(roomId)
+            
+            // Remove from pending invites (in-memory only)
+            pendingInvites.remove(roomId)
             
             // Clear current room if it's the deleted room
             if (currentRoomId == roomId) {
