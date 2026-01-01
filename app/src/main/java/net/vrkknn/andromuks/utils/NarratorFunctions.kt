@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Reply
+import androidx.compose.material.icons.automirrored.filled.Reply
 import net.vrkknn.andromuks.BuildConfig
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -54,6 +54,8 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.MemberProfile
@@ -203,57 +205,96 @@ fun SystemEventNarrator(
                     appViewModel = appViewModel,
                     roomId = roomId,
                     homeserverUrl = homeserverUrl,
-                    authToken = authToken
+                    authToken = authToken,
+                    onUserClick = onUserClick
                 )
             }
             "m.room.name" -> {
                 val roomName = content?.optString("name", "")
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
+                val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+                    appViewModel?.getMemberMap(roomId) ?: emptyMap()
+                }
+                val userMentionColor = MaterialTheme.colorScheme.primary
+                val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                
+                if (senderProfile == null && appViewModel != null) {
+                    appViewModel.requestUserProfile(event.sender, roomId)
+                }
+                
+                val annotatedText = remember(displayName, event.sender, senderDisplayName, roomName, memberMap, userMentionColor) {
+                    buildAnnotatedString {
+                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" changed the room name to ")
                         withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(roomName)
+                            append(roomName ?: "")
                         }
                     }
-                )
+                }
+                
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
             "m.room.topic" -> {
-                val topic = content?.optString("topic", "")
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
+                val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+                    appViewModel?.getMemberMap(roomId) ?: emptyMap()
+                }
+                val userMentionColor = MaterialTheme.colorScheme.primary
+                val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                
+                if (senderProfile == null && appViewModel != null) {
+                    appViewModel.requestUserProfile(event.sender, roomId)
+                }
+                
+                val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+                    buildAnnotatedString {
+                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" changed the room topic")
                     }
-                )
+                }
+                
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
             "m.room.avatar" -> {
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
+                val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+                    appViewModel?.getMemberMap(roomId) ?: emptyMap()
+                }
+                val userMentionColor = MaterialTheme.colorScheme.primary
+                val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                
+                if (senderProfile == null && appViewModel != null) {
+                    appViewModel.requestUserProfile(event.sender, roomId)
+                }
+                
+                val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+                    buildAnnotatedString {
+                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" changed the room avatar")
                     }
-                )
+                }
+                
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
             "m.room.tombstone" -> {
                 TombstoneEventNarrator(
                     event = event,
                     displayName = displayName,
                     content = content,
-                    onRoomClick = onRoomClick
+                    onRoomClick = onRoomClick,
+                    appViewModel = appViewModel,
+                    roomId = roomId,
+                    onUserClick = onUserClick
                 )
             }
             "m.space.parent" -> {
                 SpaceParentEventNarrator(
                     event = event,
                     displayName = displayName,
-                    onRoomClick = onRoomClick
+                    onRoomClick = onRoomClick,
+                    appViewModel = appViewModel,
+                    roomId = roomId,
+                    onUserClick = onUserClick
                 )
             }
             "m.room.pinned_events" -> {
@@ -272,7 +313,10 @@ fun SystemEventNarrator(
                 ServerAclEventNarrator(
                     event = event,
                     displayName = displayName,
-                    content = content
+                    content = content,
+                    appViewModel = appViewModel,
+                    roomId = roomId,
+                    onUserClick = onUserClick
                 )
             }
             "m.room.power_levels" -> {
@@ -281,18 +325,30 @@ fun SystemEventNarrator(
                     displayName = displayName,
                     content = content,
                     appViewModel = appViewModel,
-                    roomId = roomId
+                    roomId = roomId,
+                    onUserClick = onUserClick
                 )
             }
             else -> {
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
+                val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+                    appViewModel?.getMemberMap(roomId) ?: emptyMap()
+                }
+                val userMentionColor = MaterialTheme.colorScheme.primary
+                val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                
+                if (senderProfile == null && appViewModel != null) {
+                    appViewModel.requestUserProfile(event.sender, roomId)
+                }
+                
+                val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+                    buildAnnotatedString {
+                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" performed an action")
                     }
-                )
+                }
+                
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
         }
@@ -404,7 +460,7 @@ fun SystemEventNarrator(
                                     modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Filled.Reply,
+                                        imageVector = Icons.AutoMirrored.Filled.Reply,
                                         contentDescription = "Reply",
                                         tint = MaterialTheme.colorScheme.primary
                                     )
@@ -439,6 +495,120 @@ fun NarratorText(
         fontStyle = FontStyle.Italic
     )
 }
+
+/**
+ * Clickable narrator text that supports user mentions.
+ * User mentions are rendered as clickable text with user display names.
+ */
+@Composable
+fun ClickableNarratorText(
+    text: AnnotatedString,
+    onUserClick: (String) -> Unit = {}
+) {
+    var textLayoutResult: TextLayoutResult? by remember { mutableStateOf(null) }
+    
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall.copy(
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontStyle = FontStyle.Italic
+        ),
+        modifier = Modifier.pointerInput(Unit) {
+            detectTapGestures { tapOffset ->
+                textLayoutResult?.let { layoutResult ->
+                    val offset = layoutResult.getOffsetForPosition(tapOffset)
+                    // Find annotation at this offset
+                    text.getStringAnnotations(
+                        tag = "USER_ID",
+                        start = offset,
+                        end = offset
+                    ).firstOrNull()?.let { annotation ->
+                        onUserClick(annotation.item)
+                    }
+                }
+            }
+        },
+        onTextLayout = { textLayoutResult = it }
+    )
+}
+
+/**
+ * Helper function to append a clickable user mention to an AnnotatedString builder.
+ */
+private fun AnnotatedString.Builder.appendClickableUser(
+    userId: String,
+    displayName: String,
+    userMentionColor: Color
+) {
+    pushStringAnnotation("USER_ID", userId)
+    pushStyle(
+        SpanStyle(
+            fontWeight = FontWeight.Bold,
+            color = userMentionColor
+        )
+    )
+    append(displayName)
+    pop()
+    pop()
+}
+
+/**
+ * Helper function to append text with clickable user mentions parsed from @username:servername.com patterns.
+ */
+private fun AnnotatedString.Builder.appendTextWithMentions(
+    text: String,
+    memberMap: Map<String, MemberProfile>,
+    appViewModel: AppViewModel?,
+    roomId: String,
+    userMentionColor: Color
+) {
+    // Regex to find Matrix user IDs (@user:server.com)
+    val matrixIdRegex = Regex("@([^:]+):([^\\s]+)")
+    val matches = matrixIdRegex.findAll(text)
+    
+    if (matches.none()) {
+        // No Matrix IDs found, just append the text
+        append(text)
+    } else {
+        var lastIndex = 0
+        
+        matches.forEach { match ->
+            val fullMatch = match.value
+            val userId = fullMatch
+            val startIndex = match.range.first
+            val endIndex = match.range.last + 1
+            
+            // Add text before the mention
+            if (startIndex > lastIndex) {
+                append(text.substring(lastIndex, startIndex))
+            }
+            
+            // Get profile for the mentioned user
+            val profile = memberMap[userId] ?: appViewModel?.getMemberMap(roomId)?.get(userId)
+            val displayName = profile?.displayName
+            
+            // Request profile if not found
+            if (profile == null && appViewModel != null) {
+                appViewModel.requestUserProfile(userId, roomId)
+            }
+            
+            // Create clickable user mention
+            appendClickableUser(
+                userId = userId,
+                displayName = displayName ?: userId.substringAfter("@").substringBefore(":"),
+                userMentionColor = userMentionColor
+            )
+            
+            lastIndex = endIndex
+        }
+        
+        // Add remaining text
+        if (lastIndex < text.length) {
+            append(text.substring(lastIndex))
+        }
+    }
+}
+
 
 
 
@@ -491,7 +661,9 @@ fun EmoteEventNarrator(
     onReact: () -> Unit = {},
     onEdit: () -> Unit = {},
     onDelete: () -> Unit = {},
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
+    appViewModel: AppViewModel? = null,
+    roomId: String? = null
 ) {
     // For encrypted messages, prioritize decrypted content, otherwise use regular content
     val content = if (event.type == "m.room.encrypted" && event.decrypted != null) {
@@ -502,6 +674,37 @@ fun EmoteEventNarrator(
     val body = content?.optString("body", "") ?: ""
     
     var showMenu by remember { mutableStateOf(false) }
+    
+    // Get member map and sender profile for clickable user mentions
+    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+        if (roomId != null) {
+            appViewModel?.getMemberMap(roomId) ?: emptyMap()
+        } else {
+            emptyMap()
+        }
+    }
+    val userMentionColor = MaterialTheme.colorScheme.primary
+    val senderProfile = if (roomId != null) appViewModel?.getUserProfile(event.sender, roomId) else null
+    val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+    
+    if (senderProfile == null && appViewModel != null && roomId != null) {
+        appViewModel.requestUserProfile(event.sender, roomId)
+    }
+    
+    val annotatedText = remember(
+        displayName,
+        event.sender,
+        senderDisplayName,
+        body,
+        memberMap,
+        userMentionColor
+    ) {
+        buildAnnotatedString {
+            appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+            append(" ")
+            appendTextWithMentions(body, memberMap, appViewModel, roomId ?: "", userMentionColor)
+        }
+    }
     
     Row(
         modifier = Modifier
@@ -532,15 +735,10 @@ fun EmoteEventNarrator(
                 modifier = Modifier.clickable { onUserClick(event.sender) }
             )
             
-            // Emote text
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" ")
-                    append(body)
-                }
+            // Emote text with clickable user mentions
+            ClickableNarratorText(
+                text = annotatedText,
+                onUserClick = onUserClick
             )
         }
         
@@ -616,6 +814,10 @@ private fun PinnedEventNarration(
     pinnedEventId: String,
     appViewModel: AppViewModel?,
     roomId: String,
+    senderId: String,
+    senderDisplayName: String,
+    memberMap: Map<String, MemberProfile>,
+    userMentionColor: Color,
     onUserClick: (String) -> Unit = {}
 ) {
     var showDialog by remember { mutableStateOf(false) }
@@ -623,21 +825,19 @@ private fun PinnedEventNarration(
     var event by remember { mutableStateOf<TimelineEvent?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Get member map that observes memberUpdateCounter for TimelineEventItem profile updates
-    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
-        appViewModel?.getMemberMap(roomId) ?: emptyMap()
-    }
-
     Column(
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        NarratorText(
-            text = buildAnnotatedString {
-                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                    append(displayName)
-                }
+        val annotatedText = remember(senderId, senderDisplayName, memberMap, userMentionColor) {
+            buildAnnotatedString {
+                appendClickableUser(senderId, senderDisplayName, userMentionColor)
                 append(" pinned an event: ")
             }
+        }
+        
+        ClickableNarratorText(
+            text = annotatedText,
+            onUserClick = onUserClick
         )
 
         Text(
@@ -718,6 +918,10 @@ private fun UnpinnedEventNarration(
     unpinnedEventId: String,
     appViewModel: AppViewModel?,
     roomId: String,
+    senderId: String,
+    senderDisplayName: String,
+    memberMap: Map<String, MemberProfile>,
+    userMentionColor: Color,
     onUserClick: (String) -> Unit = {}
 ) {
     var showDialog by remember { mutableStateOf(false) }
@@ -725,21 +929,19 @@ private fun UnpinnedEventNarration(
     var event by remember { mutableStateOf<TimelineEvent?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
-    // Get member map that observes memberUpdateCounter for TimelineEventItem profile updates
-    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
-        appViewModel?.getMemberMap(roomId) ?: emptyMap()
-    }
-
     Column(
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        NarratorText(
-            text = buildAnnotatedString {
-                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                    append(displayName)
-                }
+        val annotatedText = remember(senderId, senderDisplayName, memberMap, userMentionColor) {
+            buildAnnotatedString {
+                appendClickableUser(senderId, senderDisplayName, userMentionColor)
                 append(" unpinned an event: ")
             }
+        }
+        
+        ClickableNarratorText(
+            text = annotatedText,
+            onUserClick = onUserClick
         )
 
         Text(
@@ -821,7 +1023,8 @@ private fun MemberEventNarrator(
     appViewModel: AppViewModel?,
     roomId: String,
     homeserverUrl: String,
-    authToken: String
+    authToken: String,
+    onUserClick: (String) -> Unit = {}
 ) {
     val membership = content?.optString("membership", "")
     val reason = content?.optString("reason", "")
@@ -843,32 +1046,58 @@ private fun MemberEventNarrator(
                 val contentMatches = prevDisplayName == currentDisplayName && prevAvatar == currentAvatar
                 
                 if (contentMatches) {
-                    NarratorText(
-                        text = buildAnnotatedString {
-                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                append(displayName)
-                            }
+                    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+                        appViewModel?.getMemberMap(roomId) ?: emptyMap()
+                    }
+                    val userMentionColor = MaterialTheme.colorScheme.primary
+                    val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+                    val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                    
+                    if (senderProfile == null && appViewModel != null) {
+                        appViewModel.requestUserProfile(event.sender, roomId)
+                    }
+                    
+                    val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+                        buildAnnotatedString {
+                            appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                             append(" made no change")
                         }
-                    )
+                    }
+                    
+                    ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
                 } else {
                     ProfileChangeNarrator(
                         displayName = displayName,
                         prevDisplayName = prevDisplayName,
                         currentDisplayName = currentDisplayName,
                         prevAvatar = prevAvatar,
-                        currentAvatar = currentAvatar
+                        currentAvatar = currentAvatar,
+                        event = event,
+                        appViewModel = appViewModel,
+                        roomId = roomId,
+                        onUserClick = onUserClick
                     )
                 }
             } else {
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
+                val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+                    appViewModel?.getMemberMap(roomId) ?: emptyMap()
+                }
+                val userMentionColor = MaterialTheme.colorScheme.primary
+                val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                
+                if (senderProfile == null && appViewModel != null) {
+                    appViewModel.requestUserProfile(event.sender, roomId)
+                }
+                
+                val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+                    buildAnnotatedString {
+                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" joined the room")
                     }
-                )
+                }
+                
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
         "leave" -> {
@@ -876,69 +1105,229 @@ private fun MemberEventNarrator(
             val prevContent = unsigned?.optJSONObject("prev_content")
             val prevMembership = prevContent?.optString("membership", "")
             
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" left the room")
-                    if (!reason.isNullOrEmpty()) {
-                        append(": $reason")
+            // Check if sender is different from state_key
+            // If sender != state_key, it's a kick, not a leave
+            val leftUserId = event.stateKey
+            val isKick = leftUserId != null && event.sender != leftUserId
+            
+            if (isKick) {
+                // This is actually a kick (someone else kicked the user)
+                // Get sender profile for display name
+                val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                
+                // Get kicked user profile for display name
+                val kickedProfile = leftUserId?.let { userId ->
+                    appViewModel?.getUserProfile(userId, roomId)
+                }
+                val kickedDisplayName = kickedProfile?.displayName ?: leftUserId?.substringAfter("@")?.substringBefore(":") ?: "Unknown"
+                
+                // Request profiles if not found
+                if (senderProfile == null && appViewModel != null) {
+                    appViewModel.requestUserProfile(event.sender, roomId)
+                }
+                if (kickedProfile == null && appViewModel != null) {
+                    leftUserId?.let { appViewModel.requestUserProfile(it, roomId) }
+                }
+                
+                // Get member map for user mentions in reason
+                val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+                    appViewModel?.getMemberMap(roomId) ?: emptyMap()
+                }
+                
+                // Build text with clickable user mentions
+                val userMentionColor = MaterialTheme.colorScheme.primary
+                
+                val annotatedText = remember(
+                    senderDisplayName,
+                    event.sender,
+                    kickedDisplayName,
+                    leftUserId,
+                    reason,
+                    memberMap,
+                    userMentionColor
+                ) {
+                    buildAnnotatedString {
+                        // Sender name (clickable)
+                        pushStringAnnotation("USER_ID", event.sender)
+                        pushStyle(
+                            SpanStyle(
+                                fontWeight = FontWeight.Bold,
+                                color = userMentionColor
+                            )
+                        )
+                        append(senderDisplayName)
+                        pop()
+                        pop()
+                        
+                        append(" kicked ")
+                        
+                        // Kicked user name (clickable)
+                        // leftUserId is guaranteed to be non-null in kick branch
+                        leftUserId?.let { userId ->
+                            pushStringAnnotation("USER_ID", userId)
+                            pushStyle(
+                                SpanStyle(
+                                    fontWeight = FontWeight.Bold,
+                                    color = userMentionColor
+                                )
+                            )
+                            append(kickedDisplayName)
+                            pop()
+                            pop()
+                        } ?: run {
+                            // Fallback if leftUserId is somehow null
+                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                append(kickedDisplayName)
+                            }
+                        }
+                        
+                        // Reason with clickable user mentions
+                        if (!reason.isNullOrEmpty()) {
+                            append(": ")
+                            // Parse reason for @username:servername.com patterns
+                            val matrixIdRegex = Regex("@([^:]+):([^\\s]+)")
+                            val matches = matrixIdRegex.findAll(reason)
+                            
+                            if (matches.none()) {
+                                // No Matrix IDs found, just append the reason
+                                append(reason)
+                            } else {
+                                var lastIndex = 0
+                                
+                                matches.forEach { match ->
+                                    val fullMatch = match.value
+                                    val userId = fullMatch
+                                    val startIndex = match.range.first
+                                    val endIndex = match.range.last + 1
+                                    
+                                    // Add text before the mention
+                                    if (startIndex > lastIndex) {
+                                        append(reason.substring(lastIndex, startIndex))
+                                    }
+                                    
+                                    // Get profile for the mentioned user
+                                    val profile = memberMap[userId] ?: appViewModel?.getMemberMap(roomId)?.get(userId)
+                                    val displayName = profile?.displayName
+                                    
+                                    // Request profile if not found
+                                    if (profile == null && appViewModel != null) {
+                                        appViewModel.requestUserProfile(userId, roomId)
+                                    }
+                                    
+                                    // Create clickable user mention with bold styling
+                                    pushStringAnnotation("USER_ID", userId)
+                                    pushStyle(
+                                        SpanStyle(
+                                            fontWeight = FontWeight.Bold,
+                                            color = userMentionColor
+                                        )
+                                    )
+                                    // Use display name if available, otherwise extract username from Matrix ID
+                                    append(displayName ?: userId.substringAfter("@").substringBefore(":"))
+                                    pop()
+                                    pop()
+                                    
+                                    lastIndex = endIndex
+                                }
+                                
+                                // Add remaining text
+                                if (lastIndex < reason.length) {
+                                    append(reason.substring(lastIndex))
+                                }
+                            }
+                        }
                     }
                 }
-            )
+                
+                ClickableNarratorText(
+                    text = annotatedText,
+                    onUserClick = onUserClick
+                )
+            } else {
+                // This is a leave (user left themselves)
+                val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+                    appViewModel?.getMemberMap(roomId) ?: emptyMap()
+                }
+                val userMentionColor = MaterialTheme.colorScheme.primary
+                val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+                val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+                
+                if (senderProfile == null && appViewModel != null) {
+                    appViewModel.requestUserProfile(event.sender, roomId)
+                }
+                
+                val annotatedText = remember(displayName, event.sender, senderDisplayName, reason, memberMap, userMentionColor) {
+                    buildAnnotatedString {
+                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+                        append(" left the room")
+                        if (!reason.isNullOrEmpty()) {
+                            append(": ")
+                            appendTextWithMentions(reason, memberMap, appViewModel, roomId, userMentionColor)
+                        }
+                    }
+                }
+                
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
+            }
         }
         "invite" -> {
             val invitedUserId = event.stateKey
             val invitedProfile = invitedUserId?.let { userId ->
                 appViewModel?.getUserProfile(userId, roomId)
             }
-            val invitedDisplayName = invitedProfile?.displayName
+            val invitedDisplayName = invitedProfile?.displayName ?: invitedUserId?.substringAfter("@")?.substringBefore(":") ?: "Unknown"
             val invitedAvatarUrl = invitedProfile?.avatarUrl
             
-            if (invitedDisplayName == null && appViewModel != null && invitedUserId != null) {
+            if (invitedProfile == null && appViewModel != null && invitedUserId != null) {
                 appViewModel.requestUserProfile(invitedUserId, roomId)
+            }
+            
+            val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+                appViewModel?.getMemberMap(roomId) ?: emptyMap()
+            }
+            val userMentionColor = MaterialTheme.colorScheme.primary
+            val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+            val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+            
+            if (senderProfile == null && appViewModel != null) {
+                appViewModel.requestUserProfile(event.sender, roomId)
             }
             
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Text(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
+                val annotatedText = remember(
+                    displayName,
+                    event.sender,
+                    senderDisplayName,
+                    invitedDisplayName,
+                    invitedUserId,
+                    reason,
+                    memberMap,
+                    userMentionColor
+                ) {
+                    buildAnnotatedString {
+                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" invited ")
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontStyle = FontStyle.Italic
-                )
-                
-                AvatarImage(
-                    mxcUrl = invitedAvatarUrl,
-                    homeserverUrl = homeserverUrl,
-                    authToken = authToken,
-                    fallbackText = invitedDisplayName ?: invitedUserId ?: "?",
-                    size = 16.dp,
-                    userId = invitedUserId,
-                    displayName = invitedDisplayName
-                )
-                
-                Text(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(invitedDisplayName ?: invitedUserId ?: "Unknown")
+                        if (invitedUserId != null) {
+                            appendClickableUser(invitedUserId, invitedDisplayName, userMentionColor)
+                        } else {
+                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                                append(invitedDisplayName)
+                            }
                         }
                         if (!reason.isNullOrEmpty()) {
-                            append(" for $reason")
+                            append(" for ")
+                            appendTextWithMentions(reason, memberMap, appViewModel, roomId, userMentionColor)
                         }
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontStyle = FontStyle.Italic,
-                    maxLines = Int.MAX_VALUE
+                    }
+                }
+                
+                ClickableNarratorText(
+                    text = annotatedText,
+                    onUserClick = onUserClick
                 )
             }
         }
@@ -947,52 +1336,102 @@ private fun MemberEventNarrator(
             val bannedProfile = bannedUserId?.let { userId ->
                 appViewModel?.getUserProfile(userId, roomId)
             }
-            val bannedDisplayName = bannedProfile?.displayName
+            val bannedDisplayName = bannedProfile?.displayName ?: bannedUserId?.substringAfter("@")?.substringBefore(":") ?: "Unknown"
             
-            if (bannedDisplayName == null && appViewModel != null && bannedUserId != null) {
+            if (bannedProfile == null && appViewModel != null && bannedUserId != null) {
                 appViewModel.requestUserProfile(bannedUserId, roomId)
             }
             
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+                appViewModel?.getMemberMap(roomId) ?: emptyMap()
+            }
+            val userMentionColor = MaterialTheme.colorScheme.primary
+            val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+            val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+            
+            if (senderProfile == null && appViewModel != null) {
+                appViewModel.requestUserProfile(event.sender, roomId)
+            }
+            
+            val annotatedText = remember(
+                displayName,
+                event.sender,
+                senderDisplayName,
+                bannedDisplayName,
+                bannedUserId,
+                reason,
+                memberMap,
+                userMentionColor
+            ) {
+                buildAnnotatedString {
+                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                     append(" banned ")
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(bannedDisplayName ?: bannedUserId ?: "Unknown")
+                    if (bannedUserId != null) {
+                        appendClickableUser(bannedUserId, bannedDisplayName, userMentionColor)
+                    } else {
+                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                            append(bannedDisplayName)
+                        }
                     }
                     if (!reason.isNullOrEmpty()) {
-                        append(": $reason")
+                        append(": ")
+                        appendTextWithMentions(reason, memberMap, appViewModel, roomId, userMentionColor)
                     }
                 }
-            )
+            }
+            
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
         "kick" -> {
             val kickedUserId = event.stateKey
             val kickedProfile = kickedUserId?.let { userId ->
                 appViewModel?.getUserProfile(userId, roomId)
             }
-            val kickedDisplayName = kickedProfile?.displayName
+            val kickedDisplayName = kickedProfile?.displayName ?: kickedUserId?.substringAfter("@")?.substringBefore(":") ?: "Unknown"
             
-            if (kickedDisplayName == null && appViewModel != null && kickedUserId != null) {
+            if (kickedProfile == null && appViewModel != null && kickedUserId != null) {
                 appViewModel.requestUserProfile(kickedUserId, roomId)
             }
             
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+                appViewModel?.getMemberMap(roomId) ?: emptyMap()
+            }
+            val userMentionColor = MaterialTheme.colorScheme.primary
+            val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+            val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+            
+            if (senderProfile == null && appViewModel != null) {
+                appViewModel.requestUserProfile(event.sender, roomId)
+            }
+            
+            val annotatedText = remember(
+                displayName,
+                event.sender,
+                senderDisplayName,
+                kickedDisplayName,
+                kickedUserId,
+                reason,
+                memberMap,
+                userMentionColor
+            ) {
+                buildAnnotatedString {
+                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                     append(" kicked ")
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(kickedDisplayName ?: kickedUserId ?: "Unknown")
+                    if (kickedUserId != null) {
+                        appendClickableUser(kickedUserId, kickedDisplayName, userMentionColor)
+                    } else {
+                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
+                            append(kickedDisplayName)
+                        }
                     }
                     if (!reason.isNullOrEmpty()) {
-                        append(": $reason")
+                        append(": ")
+                        appendTextWithMentions(reason, memberMap, appViewModel, roomId, userMentionColor)
                     }
                 }
-            )
+            }
+            
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
     }
 }
@@ -1003,8 +1442,22 @@ private fun ProfileChangeNarrator(
     prevDisplayName: String,
     currentDisplayName: String,
     prevAvatar: String,
-    currentAvatar: String
+    currentAvatar: String,
+    event: TimelineEvent,
+    appViewModel: AppViewModel?,
+    roomId: String,
+    onUserClick: (String) -> Unit = {}
 ) {
+    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+        appViewModel?.getMemberMap(roomId) ?: emptyMap()
+    }
+    val userMentionColor = MaterialTheme.colorScheme.primary
+    val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+    val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+    
+    if (senderProfile == null && appViewModel != null) {
+        appViewModel.requestUserProfile(event.sender, roomId)
+    }
     val displayNameRemoved = !prevDisplayName.isNullOrEmpty() && currentDisplayName.isNullOrEmpty()
     val displayNameChanged = !prevDisplayName.isNullOrEmpty() && 
                              !currentDisplayName.isNullOrEmpty() && 
@@ -1017,168 +1470,48 @@ private fun ProfileChangeNarrator(
                         prevAvatar != currentAvatar
     val avatarAdded = prevAvatar.isNullOrEmpty() && !currentAvatar.isNullOrEmpty()
     
-    when {
-        displayNameRemoved && avatarRemoved -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" removed their display name and avatar")
-                }
-            )
-        }
-        displayNameRemoved && avatarChanged -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" removed their display name and changed their avatar")
-                }
-            )
-        }
-        displayNameRemoved && avatarAdded -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" removed their display name and set their avatar")
-                }
-            )
-        }
-        displayNameRemoved -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" removed their display name")
-                }
-            )
-        }
-        displayNameChanged && avatarRemoved -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" changed their display name and removed their avatar")
-                }
-            )
-        }
-        displayNameChanged && avatarChanged -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" changed their profile")
-                }
-            )
-        }
-        displayNameChanged && avatarAdded -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" changed their display name and set their avatar")
-                }
-            )
-        }
-        displayNameChanged -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" changed their display name")
-                }
-            )
-        }
-        displayNameAdded && avatarRemoved -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" set their display name and removed their avatar")
-                }
-            )
-        }
-        displayNameAdded && avatarChanged -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" set their display name and changed their avatar")
-                }
-            )
-        }
-        displayNameAdded && avatarAdded -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" set their display name and avatar")
-                }
-            )
-        }
-        displayNameAdded -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" set their display name")
-                }
-            )
-        }
-        avatarRemoved -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" removed their avatar")
-                }
-            )
-        }
-        avatarChanged -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" changed their avatar")
-                }
-            )
-        }
-        avatarAdded -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" set their avatar")
-                }
-            )
-        }
-        else -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" joined the room")
-                }
-            )
+    // Helper to build annotated text with clickable user
+    fun buildProfileChangeText(message: String): AnnotatedString {
+        return buildAnnotatedString {
+            appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+            append(" $message")
         }
     }
+    
+    val annotatedText = remember(
+        displayName,
+        event.sender,
+        senderDisplayName,
+        memberMap,
+        userMentionColor,
+        displayNameRemoved,
+        displayNameChanged,
+        displayNameAdded,
+        avatarRemoved,
+        avatarChanged,
+        avatarAdded
+    ) {
+        when {
+            displayNameRemoved && avatarRemoved -> buildProfileChangeText("removed their display name and avatar")
+            displayNameRemoved && avatarChanged -> buildProfileChangeText("removed their display name and changed their avatar")
+            displayNameRemoved && avatarAdded -> buildProfileChangeText("removed their display name and set their avatar")
+            displayNameRemoved -> buildProfileChangeText("removed their display name")
+            displayNameChanged && avatarRemoved -> buildProfileChangeText("changed their display name and removed their avatar")
+            displayNameChanged && avatarChanged -> buildProfileChangeText("changed their profile")
+            displayNameChanged && avatarAdded -> buildProfileChangeText("changed their display name and set their avatar")
+            displayNameChanged -> buildProfileChangeText("changed their display name")
+            displayNameAdded && avatarRemoved -> buildProfileChangeText("set their display name and removed their avatar")
+            displayNameAdded && avatarChanged -> buildProfileChangeText("set their display name and changed their avatar")
+            displayNameAdded && avatarAdded -> buildProfileChangeText("set their display name and avatar")
+            displayNameAdded -> buildProfileChangeText("set their display name")
+            avatarRemoved -> buildProfileChangeText("removed their avatar")
+            avatarChanged -> buildProfileChangeText("changed their avatar")
+            avatarAdded -> buildProfileChangeText("set their avatar")
+            else -> buildProfileChangeText("joined the room")
+        }
+    }
+    
+    ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
 }
 
 @Composable
@@ -1186,8 +1519,21 @@ private fun TombstoneEventNarrator(
     event: TimelineEvent,
     displayName: String,
     content: JSONObject?,
-    onRoomClick: (String) -> Unit
+    onRoomClick: (String) -> Unit,
+    appViewModel: AppViewModel?,
+    roomId: String,
+    onUserClick: (String) -> Unit = {}
 ) {
+    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+        appViewModel?.getMemberMap(roomId) ?: emptyMap()
+    }
+    val userMentionColor = MaterialTheme.colorScheme.primary
+    val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+    val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+    
+    if (senderProfile == null && appViewModel != null) {
+        appViewModel.requestUserProfile(event.sender, roomId)
+    }
     val reason = content?.optString("body", "")?.takeIf { it.isNotBlank() }
     val replacementRoom = content?.optString("replacement_room", "")?.takeIf { it.isNotBlank() }
     
@@ -1203,16 +1549,16 @@ private fun TombstoneEventNarrator(
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
+                val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
+                    buildAnnotatedString {
+                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" replaced this room with ")
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontStyle = FontStyle.Italic
+                    }
+                }
+                
+                ClickableNarratorText(
+                    text = annotatedText,
+                    onUserClick = onUserClick
                 )
                 
                 Text(
@@ -1225,23 +1571,26 @@ private fun TombstoneEventNarrator(
             }
             
             if (reason != null) {
-                Text(
-                    text = "for reason: $reason",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontStyle = FontStyle.Italic
+                val reasonText = remember(reason, memberMap, userMentionColor) {
+                    buildAnnotatedString {
+                        append("for reason: ")
+                        appendTextWithMentions(reason, memberMap, appViewModel, roomId, userMentionColor)
+                    }
+                }
+                ClickableNarratorText(
+                    text = reasonText,
+                    onUserClick = onUserClick
                 )
             }
         }
     } else {
-        NarratorText(
-            text = buildAnnotatedString {
-                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                    append(displayName)
-                }
+        val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
+            buildAnnotatedString {
+                appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                 append(" tombstoned this room")
             }
-        )
+        }
+        ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
     }
 }
 
@@ -1249,8 +1598,21 @@ private fun TombstoneEventNarrator(
 private fun SpaceParentEventNarrator(
     event: TimelineEvent,
     displayName: String,
-    onRoomClick: (String) -> Unit
+    onRoomClick: (String) -> Unit,
+    appViewModel: AppViewModel?,
+    roomId: String,
+    onUserClick: (String) -> Unit = {}
 ) {
+    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+        appViewModel?.getMemberMap(roomId) ?: emptyMap()
+    }
+    val userMentionColor = MaterialTheme.colorScheme.primary
+    val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+    val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+    
+    if (senderProfile == null && appViewModel != null) {
+        appViewModel.requestUserProfile(event.sender, roomId)
+    }
     val spaceParent = event.stateKey?.takeIf { it.isNotBlank() }
     
     if (spaceParent != null) {
@@ -1262,16 +1624,16 @@ private fun SpaceParentEventNarrator(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                     append(" defined the ")
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                fontStyle = FontStyle.Italic
+                }
+            }
+            
+            ClickableNarratorText(
+                text = annotatedText,
+                onUserClick = onUserClick
             )
             
             Text(
@@ -1290,14 +1652,13 @@ private fun SpaceParentEventNarrator(
             )
         }
     } else {
-        NarratorText(
-            text = buildAnnotatedString {
-                withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                    append(displayName)
-                }
+        val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
+            buildAnnotatedString {
+                appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                 append(" updated the space parent for this room")
             }
-        )
+        }
+        ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
     }
 }
 
@@ -1312,6 +1673,16 @@ private fun PinnedEventsNarrator(
     roomId: String,
     onUserClick: (String) -> Unit
 ) {
+    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+        appViewModel?.getMemberMap(roomId) ?: emptyMap()
+    }
+    val userMentionColor = MaterialTheme.colorScheme.primary
+    val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+    val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+    
+    if (senderProfile == null && appViewModel != null) {
+        appViewModel.requestUserProfile(event.sender, roomId)
+    }
     val pinnedArray = event.content?.optJSONArray("pinned")
     val unsigned = event.unsigned
     val prevContent = unsigned?.optJSONObject("prev_content")
@@ -1339,17 +1710,20 @@ private fun PinnedEventsNarrator(
                     pinnedEventId = newlyPinned.first(),
                     appViewModel = appViewModel,
                     roomId = roomId,
+                    senderId = event.sender,
+                    senderDisplayName = senderDisplayName,
+                    memberMap = memberMap,
+                    userMentionColor = userMentionColor,
                     onUserClick = onUserClick
                 )
             } else {
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
+                val annotatedText = remember(event.sender, senderDisplayName, newlyPinned.size, memberMap, userMentionColor) {
+                    buildAnnotatedString {
+                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" pinned ${newlyPinned.size} events")
                     }
-                )
+                }
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
         unpinned.isNotEmpty() && newlyPinned.isEmpty() -> {
@@ -1362,38 +1736,39 @@ private fun PinnedEventsNarrator(
                     unpinnedEventId = unpinned.first(),
                     appViewModel = appViewModel,
                     roomId = roomId,
+                    senderId = event.sender,
+                    senderDisplayName = senderDisplayName,
+                    memberMap = memberMap,
+                    userMentionColor = userMentionColor,
                     onUserClick = onUserClick
                 )
             } else {
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
+                val annotatedText = remember(event.sender, senderDisplayName, unpinned.size, memberMap, userMentionColor) {
+                    buildAnnotatedString {
+                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" unpinned ${unpinned.size} events")
                     }
-                )
+                }
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
         newlyPinned.isNotEmpty() && unpinned.isNotEmpty() -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                     append(" updated pinned events")
                 }
-            )
+            }
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
         else -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                     append(" updated pinned events")
                 }
-            )
+            }
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
     }
 }
@@ -1402,8 +1777,21 @@ private fun PinnedEventsNarrator(
 private fun ServerAclEventNarrator(
     event: TimelineEvent,
     displayName: String,
-    content: JSONObject?
+    content: JSONObject?,
+    appViewModel: AppViewModel?,
+    roomId: String,
+    onUserClick: (String) -> Unit = {}
 ) {
+    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+        appViewModel?.getMemberMap(roomId) ?: emptyMap()
+    }
+    val userMentionColor = MaterialTheme.colorScheme.primary
+    val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+    val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+    
+    if (senderProfile == null && appViewModel != null) {
+        appViewModel.requestUserProfile(event.sender, roomId)
+    }
     val denyArray = content?.optJSONArray("deny")
     val unsigned = event.unsigned
     val prevContent = unsigned?.optJSONObject("prev_content")
@@ -1421,120 +1809,97 @@ private fun ServerAclEventNarrator(
     val newlyAdded = currentDeny - previousDeny
     val removed = previousDeny - currentDeny
     
+    // Helper to build annotated text with clickable sender
+    fun buildAclText(message: String): AnnotatedString {
+        return buildAnnotatedString {
+            appendClickableUser(event.sender, senderDisplayName, userMentionColor)
+            append(" $message")
+        }
+    }
+    
     when {
         isInitialSetup -> {
             if (currentDeny.size == 1 && currentDeny.first() == "*") {
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
-                        append(" banned all servers from participating in the room")
-                    }
-                )
+                val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
+                    buildAclText("banned all servers from participating in the room")
+                }
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             } else if (currentDeny.isEmpty()) {
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
-                        append(" set ACL List (all servers allowed)")
-                    }
-                )
+                val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
+                    buildAclText("set ACL List (all servers allowed)")
+                }
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             } else {
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
-                        append(" added ${currentDeny.size} servers to the ACL list")
-                    }
-                )
+                val annotatedText = remember(event.sender, senderDisplayName, currentDeny.size, memberMap, userMentionColor) {
+                    buildAclText("added ${currentDeny.size} servers to the ACL list")
+                }
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
         newlyAdded.isNotEmpty() && removed.isEmpty() -> {
             if (newlyAdded.size == 1) {
                 val server = newlyAdded.first()
                 if (server == "*") {
-                    NarratorText(
-                        text = buildAnnotatedString {
-                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                append(displayName)
-                            }
-                            append(" banned all servers from participating in the room")
-                        }
-                    )
+                    val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
+                        buildAclText("banned all servers from participating in the room")
+                    }
+                    ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
                 } else {
-                    NarratorText(
-                        text = buildAnnotatedString {
-                            withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                                append(displayName)
-                            }
+                    val annotatedText = remember(event.sender, senderDisplayName, server, memberMap, userMentionColor) {
+                        buildAnnotatedString {
+                            appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                             append(" added server ")
                             withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                                 append(server)
                             }
                             append(" to the ACL List")
                         }
-                    )
+                    }
+                    ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
                 }
             } else {
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
-                        append(" added ${newlyAdded.size} servers to the ACL list")
-                    }
-                )
+                val annotatedText = remember(event.sender, senderDisplayName, newlyAdded.size, memberMap, userMentionColor) {
+                    buildAclText("added ${newlyAdded.size} servers to the ACL list")
+                }
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
         removed.isNotEmpty() && newlyAdded.isEmpty() -> {
             if (removed.size == 1) {
                 val server = removed.first()
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
+                val annotatedText = remember(event.sender, senderDisplayName, server, memberMap, userMentionColor) {
+                    buildAnnotatedString {
+                        appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                         append(" removed server ")
                         withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                             append(server)
                         }
                         append(" from the ACL List")
                     }
-                )
+                }
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             } else {
-                NarratorText(
-                    text = buildAnnotatedString {
-                        withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                            append(displayName)
-                        }
-                        append(" removed ${removed.size} servers from the ACL list")
-                    }
-                )
+                val annotatedText = remember(event.sender, senderDisplayName, removed.size, memberMap, userMentionColor) {
+                    buildAclText("removed ${removed.size} servers from the ACL list")
+                }
+                ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
             }
         }
         newlyAdded.isNotEmpty() && removed.isNotEmpty() -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(event.sender, senderDisplayName, newlyAdded.size, removed.size, memberMap, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                     append(" added ${newlyAdded.size} server${if (newlyAdded.size == 1) "" else "s"} to the ACL list")
                     append(", and removed ${removed.size} server${if (removed.size == 1) "" else "s"}")
                 }
-            )
+            }
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
         else -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
-                    append(" updated ACL List")
-                }
-            )
+            val annotatedText = remember(event.sender, senderDisplayName, memberMap, userMentionColor) {
+                buildAclText("updated ACL List")
+            }
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
     }
 }
@@ -1545,8 +1910,19 @@ private fun PowerLevelsEventNarrator(
     displayName: String,
     content: JSONObject?,
     appViewModel: AppViewModel?,
-    roomId: String
+    roomId: String,
+    onUserClick: (String) -> Unit = {}
 ) {
+    val memberMap = remember(roomId, appViewModel?.memberUpdateCounter) {
+        appViewModel?.getMemberMap(roomId) ?: emptyMap()
+    }
+    val userMentionColor = MaterialTheme.colorScheme.primary
+    val senderProfile = appViewModel?.getUserProfile(event.sender, roomId)
+    val senderDisplayName = senderProfile?.displayName ?: event.sender.substringAfter("@").substringBefore(":")
+    
+    if (senderProfile == null && appViewModel != null) {
+        appViewModel.requestUserProfile(event.sender, roomId)
+    }
     val unsigned = event.unsigned
     val prevContent = unsigned?.optJSONObject("prev_content")
     
@@ -1601,7 +1977,12 @@ private fun PowerLevelsEventNarrator(
                 addedUsers = addedUsers,
                 currentUsers = currentUsers,
                 appViewModel = appViewModel,
-                roomId = roomId
+                roomId = roomId,
+                senderId = event.sender,
+                senderDisplayName = senderDisplayName,
+                memberMap = memberMap,
+                userMentionColor = userMentionColor,
+                onUserClick = onUserClick
             )
         }
         hasRoomChanges && !hasUserChanges -> {
@@ -1610,38 +1991,39 @@ private fun PowerLevelsEventNarrator(
                 changedEventKeys = changedEventKeys,
                 changedRoomSettings = changedRoomSettings,
                 currentEvents = currentEvents,
-                content = content
+                content = content,
+                senderId = event.sender,
+                senderDisplayName = senderDisplayName,
+                userMentionColor = userMentionColor,
+                onUserClick = onUserClick
             )
         }
         hasUserChanges && hasRoomChanges -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                     append(" changed power levels")
                 }
-            )
+            }
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
         prevContent == null -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                     append(" set room power levels")
                 }
-            )
+            }
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
         else -> {
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(displayName, event.sender, senderDisplayName, memberMap, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(event.sender, senderDisplayName, userMentionColor)
                     append(" updated power levels")
                 }
-            )
+            }
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
     }
 }
@@ -1654,7 +2036,12 @@ private fun PowerLevelsUserChangesNarrator(
     addedUsers: Set<String>,
     currentUsers: org.json.JSONObject,
     appViewModel: AppViewModel?,
-    roomId: String
+    roomId: String,
+    senderId: String,
+    senderDisplayName: String,
+    memberMap: Map<String, MemberProfile>,
+    userMentionColor: Color,
+    onUserClick: (String) -> Unit = {}
 ) {
     when {
         changedUsers.size == 1 && addedUsers.isEmpty() && removedUsers.isEmpty() -> {
@@ -1665,20 +2052,19 @@ private fun PowerLevelsUserChangesNarrator(
                 appViewModel.requestUserProfile(userId, roomId)
             }
             
-            val userDisplayName = appViewModel?.getUserProfile(userId, roomId)?.displayName ?: userId
+            val userProfile = appViewModel?.getUserProfile(userId, roomId)
+            val userDisplayName = userProfile?.displayName ?: userId.substringAfter("@").substringBefore(":")
             
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(senderId, senderDisplayName, userId, userDisplayName, newLevel, memberMap, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(senderId, senderDisplayName, userMentionColor)
                     append(" set user ")
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(userDisplayName)
-                    }
+                    appendClickableUser(userId, userDisplayName, userMentionColor)
                     append(" power level to $newLevel")
                 }
-            )
+            }
+            
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
         removedUsers.size == 1 && addedUsers.isEmpty() && changedUsers.isEmpty() -> {
             val userId = removedUsers.first()
@@ -1687,20 +2073,19 @@ private fun PowerLevelsUserChangesNarrator(
                 appViewModel.requestUserProfile(userId, roomId)
             }
             
-            val userDisplayName = appViewModel?.getUserProfile(userId, roomId)?.displayName ?: userId
+            val userProfile = appViewModel?.getUserProfile(userId, roomId)
+            val userDisplayName = userProfile?.displayName ?: userId.substringAfter("@").substringBefore(":")
             
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(senderId, senderDisplayName, userId, userDisplayName, memberMap, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(senderId, senderDisplayName, userMentionColor)
                     append(" set user ")
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(userDisplayName)
-                    }
+                    appendClickableUser(userId, userDisplayName, userMentionColor)
                     append(" power level to the default")
                 }
-            )
+            }
+            
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
         addedUsers.size == 1 && removedUsers.isEmpty() && changedUsers.isEmpty() -> {
             val userId = addedUsers.first()
@@ -1710,31 +2095,29 @@ private fun PowerLevelsUserChangesNarrator(
                 appViewModel.requestUserProfile(userId, roomId)
             }
             
-            val userDisplayName = appViewModel?.getUserProfile(userId, roomId)?.displayName ?: userId
+            val userProfile = appViewModel?.getUserProfile(userId, roomId)
+            val userDisplayName = userProfile?.displayName ?: userId.substringAfter("@").substringBefore(":")
             
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(senderId, senderDisplayName, userId, userDisplayName, newLevel, memberMap, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(senderId, senderDisplayName, userMentionColor)
                     append(" set user ")
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(userDisplayName)
-                    }
+                    appendClickableUser(userId, userDisplayName, userMentionColor)
                     append(" power level to $newLevel")
                 }
-            )
+            }
+            
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
         else -> {
             val totalChanges = changedUsers.size + addedUsers.size + removedUsers.size
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(senderId, senderDisplayName, totalChanges, memberMap, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(senderId, senderDisplayName, userMentionColor)
                     append(" changed $totalChanges user power level${if (totalChanges == 1) "" else "s"}")
                 }
-            )
+            }
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
     }
 }
@@ -1745,53 +2128,62 @@ private fun PowerLevelsRoomChangesNarrator(
     changedEventKeys: List<String>,
     changedRoomSettings: List<String>,
     currentEvents: org.json.JSONObject,
-    content: JSONObject?
+    content: JSONObject?,
+    senderId: String,
+    senderDisplayName: String,
+    userMentionColor: Color,
+    onUserClick: (String) -> Unit = {}
 ) {
+    
     when {
         changedEventKeys.size == 1 && changedRoomSettings.isEmpty() -> {
             val eventKey = changedEventKeys.first()
             val newLevel = currentEvents.optInt(eventKey)
             
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(senderId, senderDisplayName, eventKey, newLevel, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(senderId, senderDisplayName, userMentionColor)
                     append(" set room ")
                     withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                         append(eventKey)
                     }
                     append(" powerlevel to $newLevel")
                 }
-            )
+            }
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
         changedRoomSettings.size == 1 && changedEventKeys.isEmpty() -> {
             val settingKey = changedRoomSettings.first()
             val newLevel = content?.optInt(settingKey) ?: 0
             
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(senderId, senderDisplayName, settingKey, newLevel, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(senderId, senderDisplayName, userMentionColor)
                     append(" set room ")
                     withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
                         append(settingKey)
                     }
                     append(" powerlevel to $newLevel")
                 }
-            )
+            }
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
         else -> {
             val totalChanges = changedRoomSettings.size + changedEventKeys.size
-            NarratorText(
-                text = buildAnnotatedString {
-                    withStyle(style = SpanStyle(fontWeight = FontWeight.Bold)) {
-                        append(displayName)
-                    }
+            val annotatedText = remember(senderId, senderDisplayName, totalChanges, userMentionColor) {
+                buildAnnotatedString {
+                    appendClickableUser(senderId, senderDisplayName, userMentionColor)
                     append(" changed room power levels")
                 }
-            )
+            }
+            ClickableNarratorText(text = annotatedText, onUserClick = onUserClick)
         }
     }
 }
+
+
+
+
+
+
+

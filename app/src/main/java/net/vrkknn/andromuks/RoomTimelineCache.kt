@@ -158,11 +158,6 @@ object RoomTimelineCache {
 
         var addedCount = 0
         for (event in incomingEvents) {
-            // CRASH FIX: Filter out null events before processing
-            if (event == null) {
-                Log.w(TAG, "Null event found in incomingEvents for room $roomId, skipping")
-                continue
-            }
             if (event.eventId.isBlank()) continue
             if (cache.eventIds.add(event.eventId)) {
                 cache.events.add(event)
@@ -632,30 +627,58 @@ object RoomTimelineCache {
             try {
                 val event = TimelineEvent.fromJson(eventJson)
                 
-                // Cache message events regardless of timelineRowid (to catch pending/failed sends)
-                // Only filter out reactions and state member events (timelineRowid = -1)
+                // Define allowed event types that should appear in timeline
+                // These match the allowedEventTypes in RoomTimelineScreen and BubbleTimelineScreen
+                val allowedEventTypes = setOf(
+                    "m.room.message",
+                    "m.room.encrypted",
+                    "m.room.member",
+                    "m.room.name",
+                    "m.room.topic",
+                    "m.room.avatar",
+                    "m.room.pinned_events",
+                    "m.sticker"
+                )
+                
+                // Check if this is a kick (leave event where sender != state_key)
+                // Kicks should appear in timeline even with negative timelineRowid
+                val isKick = event.type == "m.room.member" && 
+                            event.timelineRowid < 0 && 
+                            event.stateKey != null &&
+                            event.sender != event.stateKey &&
+                            event.content?.optString("membership") == "leave"
+                
+                // Filtering logic:
+                // 1. Always filter out reactions (they're aggregated, not shown as timeline events)
+                // 2. Filter out member state events (timelineRowid < 0) UNLESS they're kicks
+                // 3. Allow all other allowed event types regardless of timelineRowid
+                //    (timelineRowid can be negative for many valid timeline events, including messages)
                 val shouldCache = when {
                     event.type == "m.reaction" -> false
-                    event.type == "m.room.member" && event.timelineRowid < 0 -> false
-                    event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker" -> true
-                    event.timelineRowid >= 0 -> true  // Any other event with valid timelineRowid
+                    event.type == "m.room.member" && event.timelineRowid < 0 && !isKick -> false
+                    allowedEventTypes.contains(event.type) -> true  // Allow all allowed types regardless of timelineRowid
                     else -> false
                 }
                 
                 if (shouldCache) {
                     events.add(event)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Cached event: ${event.eventId} type=${event.type} sender=${event.sender} timelineRowid=${event.timelineRowid}")
+                    if (BuildConfig.DEBUG) {
+                        if (isKick) {
+                            Log.d(TAG, "Cached kick event: ${event.eventId} type=${event.type} sender=${event.sender} stateKey=${event.stateKey} timelineRowid=${event.timelineRowid}")
+                        } else {
+                            Log.d(TAG, "Cached event: ${event.eventId} type=${event.type} sender=${event.sender} timelineRowid=${event.timelineRowid}")
+                        }
+                    }
                 } else {
                     // Log why event was filtered
                     val reason = when {
                         event.type == "m.reaction" -> "type = m.reaction"
-                        event.type == "m.room.member" && event.timelineRowid < 0 -> "type = m.room.member (state event)"
-                        event.timelineRowid < 0 -> "timelineRowid < 0 AND not a message type"
-                        else -> "unknown"
+                        event.type == "m.room.member" && event.timelineRowid < 0 -> "type = m.room.member (state event, not a kick)"
+                        else -> "type not in allowed event types"
                     }
                     filteredCount++
                     filteredReasons[reason] = (filteredReasons[reason] ?: 0) + 1
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Filtered event: ${event.eventId} type=${event.type} sender=${event.sender} reason=[$reason]")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Filtered event: ${event.eventId} type=${event.type} sender=${event.sender} timelineRowid=${event.timelineRowid} reason=[$reason]")
                 }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to parse event from sync: ${e.message}")

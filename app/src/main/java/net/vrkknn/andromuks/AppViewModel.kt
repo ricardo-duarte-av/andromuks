@@ -1435,7 +1435,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: State reset complete - run_id preserved: $preservedRunId")
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: FORCE REFRESH - timeline caches cleared, will reconnect with run_id only (no last_received_id)")
         
-        // Rehydrate UI from DB immediately so room/space info is available while we wait for fresh sync payloads.
+        // Clear caches and wait for fresh sync payloads from websocket.
         viewModelScope.launch(Dispatchers.IO) {
             val ctx = appContext?.applicationContext ?: return@launch
             runCatching {
@@ -6437,8 +6437,6 @@ class AppViewModel : ViewModel() {
     
     private val eventChainMap = mutableMapOf<String, EventChainEntry>()
     private val editEventsMap = mutableMapOf<String, TimelineEvent>() // Store edit events separately
-    private val roomsPendingDbRehydrate = Collections.synchronizedSet(mutableSetOf<String>())
-    private val roomRehydrateJobs = Collections.synchronizedMap(mutableMapOf<String, Job>())
     private val roomsPaginatedOnce = Collections.synchronizedSet(mutableSetOf<String>())
 
     private fun hasInitialPaginate(roomId: String): Boolean = roomsPaginatedOnce.contains(roomId)
@@ -9908,7 +9906,6 @@ class AppViewModel : ViewModel() {
      * 3. Resets pagination flags
      * 4. Requests fresh room state
      * 5. Sends a paginate command for up to 200 events (ingest pipeline upserts the database)
-     * 6. Flags the room for a database-backed rehydrate once new data is persisted
      */
     fun fullRefreshRoomTimeline(roomId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Full refresh for room: $roomId (resetting caches and requesting fresh snapshot)")
@@ -9924,7 +9921,6 @@ class AppViewModel : ViewModel() {
         
         // 1. Mark room as current so sync handlers and pagination know which timeline is active
         updateCurrentRoomIdInPrefs(roomId)
-        roomsPendingDbRehydrate.add(roomId)
         
         // 2. Wipe in-memory cache/state for this room
         RoomTimelineCache.clearRoomCache(roomId)
@@ -9978,89 +9974,6 @@ class AppViewModel : ViewModel() {
                 "Andromuks",
                 "AppViewModel: Failed to send full refresh paginate for $roomId (result=$result)"
             )
-        }
-    }
-    
-    private fun scheduleRoomRehydrateFromDb(roomId: String) {
-        if (!roomsPendingDbRehydrate.contains(roomId)) {
-            return
-        }
-        
-        synchronized(roomRehydrateJobs) {
-            if (roomRehydrateJobs.containsKey(roomId)) {
-                return
-            }
-            
-            val job = viewModelScope.launch(Dispatchers.IO) {
-                val maxAttempts = 5
-                var attempt = 0
-                
-                while (roomsPendingDbRehydrate.contains(roomId) && attempt < maxAttempts && isActive) {
-                    val delayMs = 500L * (attempt + 1)
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Waiting ${delayMs}ms before DB rehydrate attempt ${attempt + 1} for room $roomId")
-                    delay(delayMs)
-                    
-                    val loader = ensureBootstrapLoader()
-                    if (loader == null) {
-                        android.util.Log.w("Andromuks", "AppViewModel: Cannot rehydrate $roomId from DB - bootstrapLoader unavailable")
-                        break
-                    }
-                    
-                    val dbEvents = try {
-                        loader.loadRoomEvents(roomId, 200)
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Error loading events from database for $roomId during rehydrate: ${e.message}", e)
-                        emptyList()
-                    }
-                    
-                    if (dbEvents.isNotEmpty()) {
-                        withContext(Dispatchers.Main) {
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Rehydrating $roomId from database with ${dbEvents.size} events")
-                            roomsPendingDbRehydrate.remove(roomId)
-                            RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, dbEvents)
-                            
-                            // Check if we already have events in eventChainMap (from pagination)
-                            // If so, merge instead of clearing to avoid losing paginated events
-                            val hasExistingEvents = currentRoomId == roomId && eventChainMap.isNotEmpty()
-                            if (hasExistingEvents) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: eventChainMap already has ${eventChainMap.size} events - merging rehydrated events instead of clearing")
-                                // loadRoomEvents already returns List<TimelineEvent>, so we can merge directly
-                                if (dbEvents.isNotEmpty()) {
-                                    mergePaginationEvents(dbEvents)
-                                    // Process edit relationships to link edits to originals
-                                    processEditRelationships()
-                                    // Rebuild timeline with merged events
-                                    buildTimelineFromChain()
-                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: After rehydrate merge, timeline has ${timelineEvents.size} events")
-                                }
-                            } else {
-                                // No existing events, safe to clear and rebuild
-                                processCachedEvents(
-                                    roomId = roomId,
-                                    cachedEvents = dbEvents,
-                                    openingFromNotification = false,
-                                    skipNetworkRequests = true
-                                )
-                            }
-                        }
-                        break
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Rehydrate attempt ${attempt + 1} for $roomId returned no events from DB")
-                        attempt++
-                    }
-                }
-                
-                if (roomsPendingDbRehydrate.contains(roomId)) {
-                    android.util.Log.w("Andromuks", "AppViewModel: Unable to rehydrate $roomId from database after $maxAttempts attempts")
-                    roomsPendingDbRehydrate.remove(roomId)
-                }
-                
-                synchronized(roomRehydrateJobs) {
-                    roomRehydrateJobs.remove(roomId)
-                }
-            }
-            
-            roomRehydrateJobs[roomId] = job
         }
     }
     
@@ -12656,11 +12569,46 @@ class AppViewModel : ViewModel() {
                             }
                             filteredByType++
                         } else {
-                            // Accept message events regardless of timelineRowid (to catch events with negative IDs)
-                            // Also accept any other event with valid timelineRowid >= 0
+                            // Define allowed event types that should appear in timeline
+                            // These match the allowedEventTypes in RoomTimelineScreen and BubbleTimelineScreen
+                            val allowedEventTypes = setOf(
+                                "m.room.message",
+                                "m.room.encrypted",
+                                "m.room.member",
+                                "m.room.name",
+                                "m.room.topic",
+                                "m.room.avatar",
+                                "m.room.pinned_events",
+                                "m.sticker"
+                            )
+                            
+                            // Check if this is a kick (leave event where sender != state_key)
+                            // Kicks should appear in timeline even with negative timelineRowid
+                            // Note: Member events with timelineRowid == -1 are processed separately above (line 12562)
+                            val isKick = event.type == "m.room.member" && 
+                                        event.timelineRowid < 0 && 
+                                        event.stateKey != null &&
+                                        event.sender != event.stateKey &&
+                                        event.content?.optString("membership") == "leave"
+                            
+                            // Filtering logic:
+                            // 1. Allow all allowed event types regardless of timelineRowid
+                            //    (timelineRowid can be negative for many valid timeline events, including messages)
+                            // 2. For member events with negative timelineRowid, only allow kicks
+                            //    (member events with timelineRowid >= 0 are always allowed)
+                            // 3. Messages, encrypted messages, stickers, and system events are always allowed
+                            //    regardless of timelineRowid (they can have timelineRowid == -1 in some cases)
                             val shouldAdd = when {
-                                event.type == "m.room.message" || event.type == "m.room.encrypted" || event.type == "m.sticker" -> true
-                                event.timelineRowid >= 0L -> true
+                                allowedEventTypes.contains(event.type) -> {
+                                    // For member events with negative timelineRowid, only allow kicks
+                                    // All other allowed event types (messages, system events, etc.) are allowed
+                                    // even with negative timelineRowid
+                                    if (event.type == "m.room.member" && event.timelineRowid < 0) {
+                                        isKick
+                                    } else {
+                                        true
+                                    }
+                                }
                                 else -> false
                             }
                             
@@ -17010,9 +16958,6 @@ class AppViewModel : ViewModel() {
         smallestRowId = newSmallestRowId
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ========================================")
-        if (roomsPendingDbRehydrate.contains(roomId)) {
-            scheduleRoomRehydrateFromDb(roomId)
-        }
         
     }
     
@@ -17046,9 +16991,6 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: timelineEvents set, isTimelineLoading set to false")
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Seeding cache with ${timelineList.size} paginated events for room $roomId")
         RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineList)
-        if (roomsPendingDbRehydrate.contains(roomId)) {
-            scheduleRoomRehydrateFromDb(roomId)
-        }
         
         // CRITICAL FIX: Restore reactions from database and apply aggregated reactions from events
         // This ensures reactions are visible when paginate response rebuilds the timeline
