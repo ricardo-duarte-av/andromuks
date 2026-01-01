@@ -186,6 +186,8 @@ fun RoomListScreen(
     LaunchedEffect(Unit) {
         coldStartRefreshing = true
         appViewModel.checkAndProcessPendingItemsOnStartup(context)
+        // CRITICAL FIX: Ensure profile is loaded on cold start to prevent "Loading profile..." stall
+        appViewModel.ensureCurrentUserProfileLoaded()
         // REMOVED: appViewModel.refreshUIFromCache() - this rebuilds allRooms from stale roomMap
         // Instead, we load fresh data from database via buildSectionSnapshot() in LaunchedEffect below
         // Ensure a sort after cache restore/cold start so room order reflects latest DB data.
@@ -193,12 +195,16 @@ fun RoomListScreen(
         coldStartRefreshing = false
     }
     
-    // CRITICAL FIX #1: Check if profile is loaded before showing UI
+    // CRITICAL FIX #1: Profile loading is non-blocking - UI can show with fallback (userId)
+    // The profile will load in the background and update when available
     val me = uiState.currentUserProfile
+    // Profile is considered "loaded" if we have it OR if userId is blank (not logged in)
+    // But we don't block UI if profile is missing - we show userId as fallback
     val profileLoaded = me != null || uiState.currentUserId.isBlank()
     
     // Simplified gating: rely on actual states, no timeout fallbacks.
-    val effectiveProfileLoaded = profileLoaded
+    // CRITICAL FIX: Don't block UI for profile - it can load in background
+    val effectiveProfileLoaded = true // Always true - profile loading is non-blocking
     val shouldBlockForPending = uiState.isProcessingPendingItems
     val effectiveSpacesLoaded = uiState.spacesLoaded
     val effectiveInitialSyncComplete = uiState.initialSyncComplete
@@ -287,14 +293,13 @@ fun RoomListScreen(
     
     // Use inline status row instead of full-screen loading overlay
     // Show inline status during initial load or ongoing sync operations
+    // CRITICAL FIX: Profile loading is non-blocking - don't show "Loading profile..." message
     val inlineSyncInProgress = coldStartRefreshing || 
-        !effectiveProfileLoaded || 
         shouldBlockForPending || 
         !effectiveSpacesLoaded || 
         !effectiveInitialSyncComplete
     
     val inlineSyncMessage = when {
-        !effectiveProfileLoaded -> "Loading profile..."
         shouldBlockForPending -> "Catching up on messages..."
         !effectiveSpacesLoaded -> "Loading spaces..."
         !effectiveInitialSyncComplete -> {
