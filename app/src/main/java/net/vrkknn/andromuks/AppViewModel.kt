@@ -348,12 +348,13 @@ class AppViewModel : ViewModel() {
             while (true) {
                 // REMOVED: profileReady check - profiles load in background, events render with fallback immediately
                 // Events can render instantly with username/avatar fallback, profiles update when they arrive
+                // REMOVED: spacesReady check - not needed, init_complete check suffices if websocket was not connected
+                // If websocket was already connected, we don't need to check for anything, just attach and proceed
                 val pendingReady = !isProcessingPendingItems
-                val spacesReady = spacesLoaded
                 val syncReady = initialSyncComplete
                 val initReady = !requireInitComplete || initializationComplete
                 
-                if (pendingReady && spacesReady && syncReady && initReady) {
+                if (pendingReady && syncReady && initReady) {
                     break
                 }
                 delay(pollDelayMs)
@@ -1750,7 +1751,7 @@ class AppViewModel : ViewModel() {
      * @param homeserverUrl The Gomuks backend URL (optional, can be empty at initialization)
      * @param authToken Authentication token for the backend (optional, can be empty at initialization)
      */
-    fun initializeFCM(context: Context, homeserverUrl: String = "", authToken: String = "") {
+    fun initializeFCM(context: Context, homeserverUrl: String = "", authToken: String = "", skipCacheClear: Boolean = false) {
         // STEP 2.1: Register this ViewModel with service (as secondary by default)
         // Will be updated to primary if markAsPrimaryInstance() is called later
         if (!WebSocketService.isViewModelRegistered(viewModelId)) {
@@ -1760,8 +1761,13 @@ class AppViewModel : ViewModel() {
         
         // Clear current room ID on app startup - ensures notifications aren't suppressed after crash/restart
         // The room ID will be set again when user actually opens a room
-        clearCurrentRoomId()
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared current room ID on app startup")
+        // OPTIMIZATION: Skip cache clearing when opening from notification to preserve preemptive pagination cache
+        if (!skipCacheClear) {
+            clearCurrentRoomId()
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared current room ID on app startup")
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping cache clear on app startup (opening from notification)")
+        }
         
         // PHASE 5.1: Load pending WebSocket operations from storage
         loadPendingOperationsFromStorage()
@@ -2323,6 +2329,38 @@ class AppViewModel : ViewModel() {
 
     fun updateImageAuthToken(token: String) {
         imageAuthToken = token
+    }
+    
+    /**
+     * Get the current number of rooms in roomMap (for debugging/diagnostics)
+     */
+    fun getRoomMapSize(): Int {
+        return roomMap.size
+    }
+    
+    /**
+     * Populate roomMap from singleton cache when it's suspiciously small (e.g., only 1 room after opening from notification)
+     * This ensures RoomListScreen has access to all rooms even when opening from notification bypassed normal initialization
+     */
+    fun populateRoomMapFromCache() {
+        try {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateRoomMapFromCache called - current roomMap size: ${roomMap.size}, cache size: ${RoomListCache.getRoomCount()}")
+            
+            val cachedRooms = RoomListCache.getAllRooms()
+            if (cachedRooms.isNotEmpty()) {
+                // Populate roomMap with rooms from singleton cache
+                roomMap.putAll(cachedRooms)
+                
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateRoomMapFromCache - populated roomMap with ${cachedRooms.size} rooms from cache (new size: ${roomMap.size})")
+                
+                // Update allRooms and invalidate cache
+                forceRoomListSort()
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: populateRoomMapFromCache - cache is empty")
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate roomMap from cache", e)
+        }
     }
 
     // Use a thread-safe Map to avoid ConcurrentModificationException when snapshots are taken
@@ -4549,8 +4587,12 @@ class AppViewModel : ViewModel() {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Preserved isFavourite=true for room ${room.id} (sync didn't include account_data.m.tag)")
                 }
                 roomMap[room.id] = updatedRoom
+                // Update singleton cache
+                RoomListCache.updateRoom(updatedRoom)
             } else {
                 roomMap[room.id] = room
+                // Update singleton cache
+                RoomListCache.updateRoom(room)
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added new room: ${room.name} (unread: ${room.unreadCount})")
             }
         }
@@ -4560,6 +4602,8 @@ class AppViewModel : ViewModel() {
         // Add new rooms
         syncResult.newRooms.forEach { room ->
             roomMap[room.id] = room
+            // Update singleton cache
+            RoomListCache.updateRoom(room)
             
             // CRITICAL FIX: Only mark as "newly joined" if initial sync is complete
             // During initial sync, all rooms are "new" because roomMap is empty, but they're not actually newly joined
@@ -4589,6 +4633,8 @@ class AppViewModel : ViewModel() {
         val removedRoomIdsSet = syncResult.removedRoomIds.toSet()
         syncResult.removedRoomIds.forEach { roomId ->
             val removedRoom = roomMap.remove(roomId)
+            // Remove from singleton cache
+            RoomListCache.removeRoom(roomId)
             if (removedRoom != null) {
                 roomsWereRemoved = true
                 // Remove from newly joined set if it was there
@@ -9632,32 +9678,10 @@ class AppViewModel : ViewModel() {
         ))
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent on-demand profile request with ID $requestId for $userId")
-    }
-    
-        val context = appContext
-        if (context != null) {
-            viewModelScope.launch(Dispatchers.IO) {
-                val diskProfile = loadProfileFromDatabase(userId)
-                if (diskProfile != null) {
-                    withContext(Dispatchers.Main) {
-                        storeMemberProfile(roomId, userId, diskProfile)
-                        updateGlobalProfile(userId, diskProfile)
-                        //logProfileCacheStats("disk-restore:$userId")
-                        needsMemberUpdate = true
-                        scheduleUIUpdate("member")
-                    }
-                    return@launch
-                }
-                
-                withContext(Dispatchers.Main) {
-                    enqueueNetworkRequest()
-                    //logProfileCacheStats("enqueue-network:$userId")
-                }
-            }
-        } else {
-            enqueueNetworkRequest()
-            //logProfileCacheStats("enqueue-network:$userId")
         }
+        
+        // Call the network request function
+        enqueueNetworkRequest()
     }
     /**
      * Request room-specific user profile from backend using get_specific_room_state.
@@ -11271,15 +11295,6 @@ class AppViewModel : ViewModel() {
     /**
      * Loads a user profile from disk cache
      */
-    /**
-     * @deprecated Profiles are no longer persisted to database - they're cached in-memory per room
-     */
-    @Deprecated("Profiles are in-memory only, loaded opportunistically when rendering events")
-    private suspend fun loadProfileFromDatabase(userId: String): MemberProfile? {
-        // No-op - profiles are cached in-memory only
-        return null
-    }
-    
     /**
      * @deprecated Profiles are no longer persisted to database - they're cached in-memory per room
      */

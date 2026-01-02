@@ -21,6 +21,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import net.vrkknn.andromuks.ui.theme.AndromuksTheme
 import net.vrkknn.andromuks.BuildConfig
+import androidx.activity.compose.BackHandler
 
 
 /**
@@ -236,6 +237,27 @@ fun ShortcutNavigation(roomId: String) {
         navController = navController,
         startDestination = "room_timeline/$roomId"
     ) {
+        composable("room_list") {
+            // CRITICAL: Always populate roomMap from singleton cache when RoomListScreen is created in ShortcutActivity
+            // This ensures shortcuts have access to all rooms even when AppViewModel is new
+            // We do this BEFORE RoomListScreen is composed so roomMap is populated when RoomListScreen's LaunchedEffect runs
+            LaunchedEffect(Unit) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: Populating roomMap from singleton cache before RoomListScreen initialization")
+                appViewModel.populateRoomMapFromCache()
+            }
+            
+            RoomListScreen(
+                navController = navController,
+                appViewModel = appViewModel
+            )
+            
+            // Override back handler for ShortcutActivity - finish activity instead of moving to background
+            // This BackHandler is composed AFTER RoomListScreen, so it takes precedence (BackHandlers are processed in reverse order)
+            BackHandler(enabled = true) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: Back button pressed from room_list, finishing activity")
+                (context as? androidx.activity.ComponentActivity)?.finish()
+            }
+        }
         composable("room_timeline/{roomId}") { backStackEntry ->
             val currentRoomId = backStackEntry.arguments?.getString("roomId") ?: roomId
             RoomTimelineScreen(

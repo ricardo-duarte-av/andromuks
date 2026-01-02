@@ -95,13 +95,38 @@ class MainActivity : ComponentActivity() {
                             appViewModel = viewModel
                             appViewModel.markAsPrimaryInstance()
                             
+                            // OPTIMIZATION: Check if opening from notification BEFORE initializing FCM
+                            // This allows us to skip cache clearing to preserve preemptive pagination cache
+                            val shortcutUserId = intent.getStringExtra(PersonsApi.EXTRA_USER_ID)
+                            val roomId = intent.getStringExtra("room_id")
+                            val directNavigation = intent.getBooleanExtra("direct_navigation", false)
+                            val fromNotification = intent.getBooleanExtra("from_notification", false)
+                            val matrixUri = intent.data
+                            val notificationEventId = intent.getStringExtra("event_id")
+                            
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
+                            
+                            val extractedRoomId = if (directNavigation && roomId != null) {
+                                // OPTIMIZATION #2: Fast path - room ID already extracted
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
+                                roomId
+                            } else {
+                                // Fallback to URI parsing for legacy intents
+                                val uriRoomId = extractRoomIdFromMatrixUri(matrixUri)
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - Fallback URI parsing: $uriRoomId")
+                                uriRoomId
+                            }
+                            
+                            // OPTIMIZATION: Skip cache clearing if opening from notification to preserve preemptive pagination cache
+                            val skipCacheClear = extractedRoomId != null && (fromNotification || directNavigation)
+                            
                             // CRITICAL: Initialize FCM first to set appContext before loading profiles
                             // Get homeserver URL and auth token from SharedPreferences
                             val sharedPrefs = getSharedPreferences("AndromuksAppPrefs", MODE_PRIVATE)
                             val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
                             val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
                             if (homeserverUrl.isNotEmpty() && authToken.isNotEmpty()) {
-                                appViewModel.initializeFCM(this, homeserverUrl, authToken)
+                                appViewModel.initializeFCM(this, homeserverUrl, authToken, skipCacheClear)
                             }
                             
                             // Load cached user profiles on app startup
@@ -127,27 +152,6 @@ class MainActivity : ComponentActivity() {
                             
                             // Schedule auto-restart worker (every 30 minutes)
                             AutoRestartWorker.schedule(this)
-                            
-                            // OPTIMIZATION #2: Optimized intent processing
-                            val shortcutUserId = intent.getStringExtra(PersonsApi.EXTRA_USER_ID)
-                            val roomId = intent.getStringExtra("room_id")
-                            val directNavigation = intent.getBooleanExtra("direct_navigation", false)
-                            val fromNotification = intent.getBooleanExtra("from_notification", false)
-                            val matrixUri = intent.data
-                            val notificationEventId = intent.getStringExtra("event_id")
-                            
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - roomId: $roomId, directNavigation: $directNavigation, fromNotification: $fromNotification, matrixUri: $matrixUri")
-                            
-                            val extractedRoomId = if (directNavigation && roomId != null) {
-                                // OPTIMIZATION #2: Fast path - room ID already extracted
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - OPTIMIZATION #2 - Using pre-extracted room ID: $roomId")
-                                roomId
-                            } else {
-                                // Fallback to URI parsing for legacy intents
-                                val uriRoomId = extractRoomIdFromMatrixUri(matrixUri)
-                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onCreate - Fallback URI parsing: $uriRoomId")
-                                uriRoomId
-                            }
                             
                             if (extractedRoomId != null) {
                                 // CRITICAL FIX #2: Store room navigation and wait for WebSocket connection

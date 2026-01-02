@@ -109,11 +109,33 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             
             // Set up navigation callback BEFORE connecting websocket
             appViewModel.setNavigationCallback {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Navigation callback triggered - navigating to room_list")
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Navigation callback - pendingRoomId: ${appViewModel.getPendingRoomNavigation()}")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Navigation callback triggered")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Navigation callback - directRoomId: ${appViewModel.getDirectRoomNavigation()}, pendingRoomId: ${appViewModel.getPendingRoomNavigation()}")
                 appViewModel.isLoading = false
                 // Register FCM notifications after successful auth
                 appViewModel.registerFCMNotifications()
+                
+                // Check for direct room navigation first (from notifications)
+                val directRoomId = appViewModel.getDirectRoomNavigation()
+                if (directRoomId != null) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheck: Direct room navigation detected (notification), navigating directly to room_timeline: $directRoomId")
+                    // Navigate directly to room timeline (like ShortcutActivity does)
+                    // This bypasses RoomListScreen to avoid delays and missing rooms
+                    val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
+                    appViewModel.clearDirectRoomNavigation()
+                    val encodedRoomId = java.net.URLEncoder.encode(directRoomId, "UTF-8")
+                    
+                    // Set current room ID and navigate to room with cache
+                    appViewModel.setCurrentRoomIdForTimeline(directRoomId)
+                    if (notificationTimestamp != null) {
+                        appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
+                    } else {
+                        appViewModel.navigateToRoomWithCache(directRoomId)
+                    }
+                    
+                    navController.navigate("room_timeline/$encodedRoomId")
+                    return@setNavigationCallback
+                }
                 
                 // Check if we need to navigate to a specific room (from shortcut or bubble)
                 val pendingRoomId = appViewModel.getPendingRoomNavigation()
@@ -170,6 +192,31 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 // WebSocket is already connected (from primary AppViewModel instance), just attach to it
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: WebSocket already connected, attaching to existing connection")
                 appViewModel.attachToExistingWebSocketIfAvailable()
+                
+                // If we have direct room navigation (from notification), navigate immediately
+                // The websocket is already connected, so we don't need to wait for navigation callback
+                val directRoomId = appViewModel.getDirectRoomNavigation()
+                if (directRoomId != null) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AuthCheckScreen: WebSocket already connected, navigating directly to room: $directRoomId")
+                    appViewModel.isLoading = false
+                    appViewModel.registerFCMNotifications()
+                    val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
+                    appViewModel.clearDirectRoomNavigation()
+                    val encodedRoomId = java.net.URLEncoder.encode(directRoomId, "UTF-8")
+                    
+                    // Set current room ID and navigate to room with cache
+                    appViewModel.setCurrentRoomIdForTimeline(directRoomId)
+                    if (notificationTimestamp != null) {
+                        appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
+                    } else {
+                        appViewModel.navigateToRoomWithCache(directRoomId)
+                    }
+                    
+                    navController.navigate("room_timeline/$encodedRoomId")
+                } else {
+                    // No direct navigation - navigate to room_list normally
+                    navigateToRoomListIfNeeded("websocket already connected")
+                }
                 // Don't call connectToWebsocket - we're already connected
             } else if (isPrimary) {
                 // This is the primary instance and no connection exists - create the connection

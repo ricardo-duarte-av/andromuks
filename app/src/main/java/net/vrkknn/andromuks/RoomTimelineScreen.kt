@@ -1973,7 +1973,25 @@ fun RoomTimelineScreen(
             if (appViewModel.currentRoomId == roomId) {
                 appViewModel.clearCurrentRoomId()
             }
-            navController.popBackStack()
+            
+            // CRITICAL FIX: Check if room_list is in the back stack
+            // If not (e.g., opened from notification), navigate to room_list properly
+            // This ensures room_list is properly initialized instead of just popping to auth_check
+            val popped = navController.popBackStack("room_list", inclusive = false)
+            if (!popped) {
+                // room_list is not in the back stack - navigate to it properly
+                // This will go through the normal flow (auth_check -> room_list) which ensures proper initialization
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: room_list not in back stack, navigating to room_list")
+                navController.navigate("room_list") {
+                    // Pop everything up to and including the current destination (room_timeline)
+                    popUpTo(navController.graph.startDestinationId) {
+                        inclusive = false
+                        saveState = false
+                    }
+                    // Restore state when navigating back to room_list
+                    restoreState = false
+                }
+            }
         }
     }
 

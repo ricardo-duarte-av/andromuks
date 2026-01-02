@@ -222,13 +222,7 @@ fun RoomListScreen(
     // Room summaries are now in-memory only - no need for separate summary tracking
     var lastRoomSectionSignature by remember { mutableStateOf("") }
 
-    // Initial load from in-memory data when composable first appears
-    // Room summaries are no longer persisted to DB - they're built in-memory from sync_complete
-    LaunchedEffect(Unit) {
-        val initialSnapshot = appViewModel.getCurrentRoomSection()
-        stableSection = initialSnapshot
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Initial load from in-memory - ${initialSnapshot.rooms.size} rooms, section=${initialSnapshot.type}")
-    }
+    // Initial load is now handled in the LaunchedEffect below that also handles cleanup and sorting
     
     // Refresh stableSection from in-memory data when counters or space selection change
     LaunchedEffect(roomListUpdateCounter, uiState.roomSummaryUpdateCounter, uiState.currentSpaceId) {
@@ -294,14 +288,19 @@ fun RoomListScreen(
     // Use inline status row instead of full-screen loading overlay
     // Show inline status during initial load or ongoing sync operations
     // CRITICAL FIX: Profile loading is non-blocking - don't show "Loading profile..." message
+    // CRITICAL FIX: If we have rooms in the section, don't show "Loading spaces..." even if spacesLoaded is false
+    // This handles the case where we navigate back from room_timeline (opened from notification)
+    // and rooms are already loaded but spacesLoaded hasn't been set yet
+    val hasRooms = stableSection.rooms.isNotEmpty()
+    val shouldShowSpacesLoading = !effectiveSpacesLoaded && !hasRooms // Only show if we have no rooms
     val inlineSyncInProgress = coldStartRefreshing || 
         shouldBlockForPending || 
-        !effectiveSpacesLoaded || 
+        shouldShowSpacesLoading || 
         !effectiveInitialSyncComplete
     
     val inlineSyncMessage = when {
         shouldBlockForPending -> "Catching up on messages..."
-        !effectiveSpacesLoaded -> "Loading spaces..."
+        shouldShowSpacesLoading -> "Loading spaces..."
         !effectiveInitialSyncComplete -> {
             // Show sync progress counter if available
             if (uiState.pendingSyncCompleteCount > 0) {
@@ -439,16 +438,27 @@ fun RoomListScreen(
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Clearing current room ID - user is viewing room list, not a specific room")
         appViewModel.clearCurrentRoomId()
         
-        // PERFORMANCE: Force immediate sort when returning to RoomListScreen
-        // This ensures the list is properly sorted when the user navigates back
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Returning to room list - forcing immediate sort")
-        appViewModel.forceRoomListSort()
+        // CRITICAL FIX: When RoomListScreen is created for the first time via back navigation from notification,
+        // roomMap might only have 1 room (because a new AppViewModel instance was created with empty roomMap).
+        // If roomMap only has 1 room, load rooms from singleton cache to populate it.
+        appViewModel.forceRoomListSort() // Update allRooms from roomMap first
+        val initialSnapshot = appViewModel.getCurrentRoomSection()
+        val initialRoomCount = initialSnapshot.rooms.size
         
-        // Refresh section from in-memory data when returning to RoomListScreen
-        // Room summaries are no longer persisted to DB - they're in-memory only
-        val refreshedSnapshot = appViewModel.getCurrentRoomSection()
-        stableSection = refreshedSnapshot
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Refreshed section from in-memory on return - ${refreshedSnapshot.rooms.size} rooms")
+        if (initialRoomCount == 1) {
+            // Suspicious - only 1 room, likely from notification navigation
+            // Load rooms from singleton cache to populate roomMap
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: RoomMap only has 1 room (likely from notification navigation), loading from singleton cache")
+            appViewModel.populateRoomMapFromCache()
+            appViewModel.forceRoomListSort() // Update allRooms after cache load
+            val loadedSnapshot = appViewModel.getCurrentRoomSection()
+            stableSection = loadedSnapshot
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Loaded ${loadedSnapshot.rooms.size} rooms from singleton cache")
+        } else {
+            // Normal case - use existing roomMap
+            stableSection = initialSnapshot
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Using existing roomMap with ${initialRoomCount} rooms")
+        }
         
         // Force timestamp update when returning to room list or starting app
         // This ensures timestamps are immediately up-to-date when user views the list
@@ -456,92 +466,146 @@ fun RoomListScreen(
     }
     
     // CRITICAL FIX #2: Wait for WebSocket connection and spacesLoaded before navigating from shortcuts/notifications
+    // OPTIMIZATION: If room is cached (from preemptive pagination), navigate immediately without waiting for spacesLoaded
     // This ensures proper state before showing room timeline (prevents "only last message" issue)
-    // Check on first render if spacesLoaded is already true
+    // Check on first render if spacesLoaded is already true OR if room is cached
     LaunchedEffect(Unit) {
         val directRoomId = appViewModel.getDirectRoomNavigation()
         val pendingRoomId = appViewModel.getPendingRoomNavigation()
         
-        if ((directRoomId != null || pendingRoomId != null) && uiState.spacesLoaded) {
-            // Poll WebSocket connection status (check every 100ms, max 100 times = 10 seconds)
-            var websocketConnected = appViewModel.isWebSocketConnected()
-            var pollCount = 0
-            while (!websocketConnected && pollCount < 100) {
-                kotlinx.coroutines.delay(100) // Check every 100ms
-                websocketConnected = appViewModel.isWebSocketConnected()
-                pollCount++
-            }
-            
-            if (websocketConnected || pollCount >= 100) {
-                // WebSocket connected OR timeout - proceed with navigation
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: CRITICAL FIX #2 - WebSocket connected=$websocketConnected (pollCount=$pollCount) and spaces loaded, navigating")
+        if (directRoomId != null || pendingRoomId != null) {
+            val roomIdToCheck = directRoomId ?: pendingRoomId
+            if (roomIdToCheck != null) {
+                // Check if room is cached (from preemptive pagination) - if so, navigate immediately after WebSocket connects
+                val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomIdToCheck)
+                val isRoomCached = cachedEventCount >= 10 || RoomTimelineCache.isRoomActivelyCached(roomIdToCheck)
                 
-                if (directRoomId != null) {
-                    // Get notification timestamp if available
-                    val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                    // CRITICAL FIX: Clear direct navigation state BEFORE navigating to prevent state confusion
-                    appViewModel.clearDirectRoomNavigation()
-                    // Navigate with cache (use notification timestamp if available)
-                    if (notificationTimestamp != null) {
-                        appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
-                    } else {
-                        appViewModel.navigateToRoomWithCache(directRoomId)
+                if (isRoomCached) {
+                    // Room is cached - wait for WebSocket connection, then navigate immediately (don't wait for spacesLoaded)
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Room $roomIdToCheck is cached ($cachedEventCount events), waiting for WebSocket connection then navigating immediately")
+                    
+                    var websocketConnected = appViewModel.isWebSocketConnected()
+                    var pollCount = 0
+                    while (!websocketConnected && pollCount < 50) { // Max 5 seconds for cached rooms
+                        kotlinx.coroutines.delay(100) // Check every 100ms
+                        websocketConnected = appViewModel.isWebSocketConnected()
+                        pollCount++
                     }
-                    // Navigate directly to the room
-                    navController.navigate("room_timeline/$directRoomId")
-                } else if (pendingRoomId != null) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: CRITICAL FIX #2 - WebSocket connected and spaces loaded, navigating to pending room: $pendingRoomId")
-                    // CRITICAL FIX: Clear pending navigation state BEFORE navigating to prevent state confusion
-                    appViewModel.clearPendingRoomNavigation()
-                    // OPTIMIZATION #4: Use cache-first navigation for pending navigation too
-                    appViewModel.navigateToRoomWithCache(pendingRoomId)
-                    // Navigate to the pending room
-                    navController.navigate("room_timeline/$pendingRoomId")
+                    
+                    if (websocketConnected || pollCount >= 50) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Room $roomIdToCheck is cached, WebSocket connected=$websocketConnected (pollCount=$pollCount), navigating immediately")
+                        
+                        if (directRoomId != null) {
+                            val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
+                            appViewModel.clearDirectRoomNavigation()
+                            if (notificationTimestamp != null) {
+                                appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
+                            } else {
+                                appViewModel.navigateToRoomWithCache(directRoomId)
+                            }
+                            navController.navigate("room_timeline/$directRoomId")
+                        } else if (pendingRoomId != null) {
+                            appViewModel.clearPendingRoomNavigation()
+                            appViewModel.navigateToRoomWithCache(pendingRoomId)
+                            navController.navigate("room_timeline/$pendingRoomId")
+                        }
+                    }
+                } else {
+                    // Room not cached - wait for spacesLoaded and WebSocket connection
+                    if (uiState.spacesLoaded) {
+                        var websocketConnected = appViewModel.isWebSocketConnected()
+                        var pollCount = 0
+                        while (!websocketConnected && pollCount < 100) {
+                            kotlinx.coroutines.delay(100) // Check every 100ms
+                            websocketConnected = appViewModel.isWebSocketConnected()
+                            pollCount++
+                        }
+                        
+                        if (websocketConnected || pollCount >= 100) {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: CRITICAL FIX #2 - WebSocket connected=$websocketConnected (pollCount=$pollCount) and spaces loaded, navigating")
+                            
+                            if (directRoomId != null) {
+                                val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
+                                appViewModel.clearDirectRoomNavigation()
+                                if (notificationTimestamp != null) {
+                                    appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
+                                } else {
+                                    appViewModel.navigateToRoomWithCache(directRoomId)
+                                }
+                                navController.navigate("room_timeline/$directRoomId")
+                            } else if (pendingRoomId != null) {
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: CRITICAL FIX #2 - WebSocket connected and spaces loaded, navigating to pending room: $pendingRoomId")
+                                appViewModel.clearPendingRoomNavigation()
+                                appViewModel.navigateToRoomWithCache(pendingRoomId)
+                                navController.navigate("room_timeline/$pendingRoomId")
+                            }
+                        }
+                    }
                 }
             }
         }
     }
     
-    // Also check when spacesLoaded changes to true
+    // Also check when spacesLoaded changes to true (fallback for when room is not cached)
     LaunchedEffect(uiState.spacesLoaded) {
         val directRoomId = appViewModel.getDirectRoomNavigation()
         val pendingRoomId = appViewModel.getPendingRoomNavigation()
         
         if ((directRoomId != null || pendingRoomId != null) && uiState.spacesLoaded) {
-            // Poll WebSocket connection status (check every 100ms, max 100 times = 10 seconds)
-            var websocketConnected = appViewModel.isWebSocketConnected()
-            var pollCount = 0
-            while (!websocketConnected && pollCount < 100) {
-                kotlinx.coroutines.delay(100) // Check every 100ms
-                websocketConnected = appViewModel.isWebSocketConnected()
-                pollCount++
-            }
-            
-            if (websocketConnected || pollCount >= 100) {
-                // WebSocket connected OR timeout - proceed with navigation
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: CRITICAL FIX #2 - WebSocket connected=$websocketConnected (pollCount=$pollCount) and spaces loaded, navigating")
+            val roomIdToCheck = directRoomId ?: pendingRoomId
+            if (roomIdToCheck != null) {
+                // Double-check: if room is cached, navigate immediately (handled by first LaunchedEffect, but check again in case it wasn't)
+                val cachedEventCount = RoomTimelineCache.getCachedEventCount(roomIdToCheck)
+                val isRoomCached = cachedEventCount >= 10 || RoomTimelineCache.isRoomActivelyCached(roomIdToCheck)
                 
-                if (directRoomId != null) {
-                    // Get notification timestamp if available
-                    val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
-                    // CRITICAL FIX: Clear direct navigation state BEFORE navigating to prevent state confusion
-                    appViewModel.clearDirectRoomNavigation()
-                    // Navigate with cache (use notification timestamp if available)
-                    if (notificationTimestamp != null) {
-                        appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
-                    } else {
-                        appViewModel.navigateToRoomWithCache(directRoomId)
+                if (isRoomCached && appViewModel.isWebSocketConnected()) {
+                    // Room is cached - navigate immediately (should have been handled by first LaunchedEffect, but handle it here too)
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Room $roomIdToCheck is cached ($cachedEventCount events) and spaces loaded, navigating immediately")
+                    
+                    if (directRoomId != null) {
+                        val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
+                        appViewModel.clearDirectRoomNavigation()
+                        if (notificationTimestamp != null) {
+                            appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
+                        } else {
+                            appViewModel.navigateToRoomWithCache(directRoomId)
+                        }
+                        navController.navigate("room_timeline/$directRoomId")
+                    } else if (pendingRoomId != null) {
+                        appViewModel.clearPendingRoomNavigation()
+                        appViewModel.navigateToRoomWithCache(pendingRoomId)
+                        navController.navigate("room_timeline/$pendingRoomId")
                     }
-                    // Navigate directly to the room
-                    navController.navigate("room_timeline/$directRoomId")
-                } else if (pendingRoomId != null) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: CRITICAL FIX #2 - WebSocket connected and spaces loaded, navigating to pending room: $pendingRoomId")
-                    // CRITICAL FIX: Clear pending navigation state BEFORE navigating to prevent state confusion
-                    appViewModel.clearPendingRoomNavigation()
-                    // OPTIMIZATION #4: Use cache-first navigation for pending navigation too
-                    appViewModel.navigateToRoomWithCache(pendingRoomId)
-                    // Navigate to the pending room
-                    navController.navigate("room_timeline/$pendingRoomId")
+                } else {
+                    // Room not cached - wait for WebSocket connection
+                    var websocketConnected = appViewModel.isWebSocketConnected()
+                    var pollCount = 0
+                    while (!websocketConnected && pollCount < 100) {
+                        kotlinx.coroutines.delay(100) // Check every 100ms
+                        websocketConnected = appViewModel.isWebSocketConnected()
+                        pollCount++
+                    }
+                    
+                    if (websocketConnected || pollCount >= 100) {
+                        // WebSocket connected OR timeout - proceed with navigation
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: CRITICAL FIX #2 - WebSocket connected=$websocketConnected (pollCount=$pollCount) and spaces loaded, navigating")
+                        
+                        if (directRoomId != null) {
+                            val notificationTimestamp = appViewModel.getDirectRoomNavigationTimestamp()
+                            appViewModel.clearDirectRoomNavigation()
+                            if (notificationTimestamp != null) {
+                                appViewModel.navigateToRoomWithCache(directRoomId, notificationTimestamp)
+                            } else {
+                                appViewModel.navigateToRoomWithCache(directRoomId)
+                            }
+                            navController.navigate("room_timeline/$directRoomId")
+                        } else if (pendingRoomId != null) {
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: CRITICAL FIX #2 - WebSocket connected and spaces loaded, navigating to pending room: $pendingRoomId")
+                            appViewModel.clearPendingRoomNavigation()
+                            appViewModel.navigateToRoomWithCache(pendingRoomId)
+                            navController.navigate("room_timeline/$pendingRoomId")
+                        }
+                    }
                 }
             }
         }
