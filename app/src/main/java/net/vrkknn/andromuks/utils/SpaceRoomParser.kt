@@ -144,15 +144,14 @@ object SpaceRoomParser {
      * 
      * @param syncJson The sync_complete JSON object
      * @param memberCache Cache of room member profiles
-     * @param appViewModel AppViewModel instance (for accessing existing rooms and visibility state)
+     * @param appViewModel AppViewModel instance (for accessing existing rooms)
      * @param existingRooms Map of existing room IDs to RoomItems (for change detection)
      */
     fun parseSyncUpdate(
         syncJson: JSONObject, 
         memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, 
         appViewModel: net.vrkknn.andromuks.AppViewModel? = null,
-        existingRooms: Map<String, net.vrkknn.andromuks.RoomItem>? = null,
-        isAppVisible: Boolean = true
+        existingRooms: Map<String, net.vrkknn.andromuks.RoomItem>? = null
     ): SyncUpdateResult {
         val data = syncJson.optJSONObject("data") ?: return SyncUpdateResult(emptyList(), emptyList(), emptyList())
         
@@ -195,65 +194,11 @@ object SpaceRoomParser {
         // Process updated/new rooms
         val roomsJson = data.optJSONObject("rooms")
         if (roomsJson != null) {
-            // BATTERY OPTIMIZATION: When backgrounded, track which rooms actually changed
-            // Only parse rooms with meaningful changes (not just receipt updates)
-            val roomsToParse = if (isAppVisible) {
-                // Foreground: Parse all rooms in sync_complete (for UI updates)
-                roomsJson.keys().asSequence().toList()
-            } else {
-                // Background: Filter to only rooms with meaningful changes
-                val changedRoomIds = mutableListOf<String>()
-                val roomKeys = roomsJson.keys()
-                
-                while (roomKeys.hasNext()) {
-                    val roomId = roomKeys.next()
-                    val roomObj = roomsJson.optJSONObject(roomId) ?: continue
-                    val meta = roomObj.optJSONObject("meta") ?: continue
-                    
-                    // Check if this is a space (skip spaces)
-                    val type = meta.optJSONObject("creation_content")?.optString("type")?.takeIf { it.isNotBlank() }
-                    if (type == "m.space") {
-                        continue
-                    }
-                    
-                    // Check if room actually changed (quick metadata check without full parsing)
-                    val existingRoom = existingRooms?.get(roomId)
-                    if (existingRoom != null) {
-                        // Quick check: Extract key metadata fields without full parsing
-                        val newUnreadCount = meta.optInt("unread_messages", 0)
-                        val newHighlightCount = meta.optInt("unread_highlights", 0)
-                        val newSortingTimestamp = meta.optLong("sorting_timestamp", 0L).takeIf { it != 0L }
-                        val newName = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
-                        
-                        // Check if there are new events (not just receipts)
-                        val events = roomObj.optJSONArray("events")
-                        val hasNewEvents = events != null && events.length() > 0
-                        
-                        // Compare key fields that matter for UI
-                        val unreadChanged = (existingRoom.unreadCount ?: 0) != newUnreadCount
-                        val highlightChanged = (existingRoom.highlightCount ?: 0) != newHighlightCount
-                        val timestampChanged = existingRoom.sortingTimestamp != newSortingTimestamp
-                        val nameChanged = existingRoom.name != newName
-                        
-                        // Only include if there are meaningful changes
-                        if (unreadChanged || highlightChanged || timestampChanged || nameChanged || hasNewEvents) {
-                            changedRoomIds.add(roomId)
-                        } else {
-                            // Room in sync_complete but no meaningful changes (only receipts) - skip parsing
-                            if (BuildConfig.DEBUG) {
-                                Log.d("Andromuks", "SpaceRoomParser: Skipping unchanged room $roomId (backgrounded, only receipt changes)")
-                            }
-                        }
-                    } else {
-                        // New room - always parse
-                        changedRoomIds.add(roomId)
-                    }
-                }
-                
-                changedRoomIds
-            }
+            // Always parse all rooms in sync_complete to keep data up-to-date
+            // Since we're not persisting to database, the only cost is JSON parsing (relatively cheap)
+            val roomsToParse = roomsJson.keys().asSequence().toList()
             
-            // Parse only the rooms that need parsing
+            // Parse all rooms
             for (roomId in roomsToParse) {
                 val roomObj = roomsJson.optJSONObject(roomId) ?: continue
                 val meta = roomObj.optJSONObject("meta") ?: continue
@@ -265,8 +210,8 @@ object SpaceRoomParser {
                     continue
                 }
                 
-                // Parse the room (pass isAppVisible for conditional event parsing)
-                val room = parseRoomFromJson(roomId, roomObj, meta, memberCache, appViewModel, isAppVisible)
+                // Parse the room (always parse message previews)
+                val room = parseRoomFromJson(roomId, roomObj, meta, memberCache, appViewModel)
                 if (room != null) {
                     // Determine if this is a new room or updated room
                     val existingRoom = existingRooms?.get(roomId)
@@ -278,13 +223,6 @@ object SpaceRoomParser {
                 }
             }
             
-            if (BuildConfig.DEBUG && !isAppVisible) {
-                val totalRoomsInSync = roomsJson.length()
-                val parsedCount = roomsToParse.size
-                if (totalRoomsInSync > parsedCount) {
-                    Log.d("Andromuks", "SpaceRoomParser: Background optimization - parsed $parsedCount of $totalRoomsInSync rooms (skipped ${totalRoomsInSync - parsedCount} unchanged rooms)")
-                }
-            }
         }
         
         // Record any newly discovered space IDs so UI filtering can remove them from Home.
@@ -329,7 +267,7 @@ object SpaceRoomParser {
         return SyncUpdateResult(updatedRooms, newRooms, removedRoomIds)
     }
     
-    private fun parseRoomFromJson(roomId: String, roomObj: JSONObject, meta: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, appViewModel: net.vrkknn.andromuks.AppViewModel? = null, isAppVisible: Boolean = true): RoomItem? {
+    private fun parseRoomFromJson(roomId: String, roomObj: JSONObject, meta: JSONObject, memberCache: Map<String, Map<String, net.vrkknn.andromuks.MemberProfile>>? = null, appViewModel: net.vrkknn.andromuks.AppViewModel? = null): RoomItem? {
         try {
             // This is a regular room
             val name = meta.optString("name")?.takeIf { it.isNotBlank() } ?: roomId
@@ -342,37 +280,76 @@ object SpaceRoomParser {
             // Detect if this is a Direct Message room
             val isDirectMessage = detectDirectMessage(roomId, roomObj, meta, appViewModel)
             
-            // Extract message preview and sender from events JSON (only when foregrounded for instant UI updates)
-            // When backgrounded, skip parsing to save battery - database query will populate later
+            // Extract message preview and sender from events JSON
+            // Always parse to keep summaries up-to-date (no database, so only JSON parsing cost)
             var messagePreview: String? = null
             var messageSender: String? = null
             
-            if (isAppVisible) {
-                // FOREGROUND: Parse events JSON for instant preview updates (same path as unread badges)
-                // This ensures room summaries update immediately like unread badges do
-                val events = roomObj.optJSONArray("events")
-                if (events != null && events.length() > 0) {
-                    // Look through all events to find the last actual message
-                    // Skip non-message events like typing, member changes, state events, etc.
-                    for (i in events.length() - 1 downTo 0) {
-                        val event = events.optJSONObject(i)
-                        if (event != null) {
-                            val eventType = event.optString("type")
-                            when (eventType) {
-                                "m.room.message" -> {
-                                    val content = event.optJSONObject("content")
+            val events = roomObj.optJSONArray("events")
+            if (events != null && events.length() > 0) {
+                // Look through all events to find the last actual message
+                // Skip non-message events like typing, member changes, state events, etc.
+                for (i in events.length() - 1 downTo 0) {
+                    val event = events.optJSONObject(i)
+                    if (event != null) {
+                        val eventType = event.optString("type")
+                        when (eventType) {
+                            "m.room.message" -> {
+                                val content = event.optJSONObject("content")
+                                
+                                // Check if this is an edit event (m.replace)
+                                val relatesTo = content?.optJSONObject("m.relates_to")
+                                val isEdit = relatesTo?.optString("rel_type") == "m.replace"
+                                
+                                val body = if (isEdit) {
+                                    // Edit event - get body from m.new_content
+                                    val newContent = content?.optJSONObject("m.new_content")
+                                    newContent?.optString("body")?.takeIf { it.isNotBlank() }
+                                } else {
+                                    // Regular message - get body from content
+                                    content?.optString("body")?.takeIf { it.isNotBlank() }
+                                }
+                                
+                                if (body != null) {
+                                    messagePreview = body
+                                    messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                    break // Found the last message, stop looking
+                                }
+                                
+                                // Handle non-text messages (images, files, etc.) if no body
+                                if (messagePreview == null && !isEdit) {
+                                    val msgtype = content?.optString("msgtype", "")
+                                    messagePreview = when {
+                                        msgtype == "m.image" -> "📷 Image"
+                                        msgtype == "m.video" -> "🎥 Video"
+                                        msgtype == "m.audio" -> "🎵 Audio"
+                                        msgtype == "m.file" -> "📎 File"
+                                        msgtype == "m.location" -> "📍 Location"
+                                        else -> null
+                                    }
+                                    if (messagePreview != null) {
+                                        messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
+                                        break
+                                    }
+                                }
+                            }
+                            "m.room.encrypted" -> {
+                                // Check if it's a decrypted message
+                                val decryptedType = event.optString("decrypted_type")
+                                if (decryptedType == "m.room.message" || decryptedType == "m.text") {
+                                    val decrypted = event.optJSONObject("decrypted")
                                     
-                                    // Check if this is an edit event (m.replace)
-                                    val relatesTo = content?.optJSONObject("m.relates_to")
+                                    // Check if this is an edit (show new content instead of original)
+                                    val relatesTo = decrypted?.optJSONObject("m.relates_to")
                                     val isEdit = relatesTo?.optString("rel_type") == "m.replace"
                                     
                                     val body = if (isEdit) {
                                         // Edit event - get body from m.new_content
-                                        val newContent = content?.optJSONObject("m.new_content")
+                                        val newContent = decrypted?.optJSONObject("m.new_content")
                                         newContent?.optString("body")?.takeIf { it.isNotBlank() }
                                     } else {
-                                        // Regular message - get body from content
-                                        content?.optString("body")?.takeIf { it.isNotBlank() }
+                                        // Regular encrypted message - get body from decrypted
+                                        decrypted?.optString("body")?.takeIf { it.isNotBlank() }
                                     }
                                     
                                     if (body != null) {
@@ -380,58 +357,12 @@ object SpaceRoomParser {
                                         messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
                                         break // Found the last message, stop looking
                                     }
-                                    
-                                    // Handle non-text messages (images, files, etc.) if no body
-                                    if (messagePreview == null && !isEdit) {
-                                        val msgtype = content?.optString("msgtype", "")
-                                        messagePreview = when {
-                                            msgtype == "m.image" -> "📷 Image"
-                                            msgtype == "m.video" -> "🎥 Video"
-                                            msgtype == "m.audio" -> "🎵 Audio"
-                                            msgtype == "m.file" -> "📎 File"
-                                            msgtype == "m.location" -> "📍 Location"
-                                            else -> null
-                                        }
-                                        if (messagePreview != null) {
-                                            messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
-                                            break
-                                        }
-                                    }
                                 }
-                                "m.room.encrypted" -> {
-                                    // Check if it's a decrypted message
-                                    val decryptedType = event.optString("decrypted_type")
-                                    if (decryptedType == "m.room.message" || decryptedType == "m.text") {
-                                        val decrypted = event.optJSONObject("decrypted")
-                                        
-                                        // Check if this is an edit (show new content instead of original)
-                                        val relatesTo = decrypted?.optJSONObject("m.relates_to")
-                                        val isEdit = relatesTo?.optString("rel_type") == "m.replace"
-                                        
-                                        val body = if (isEdit) {
-                                            // Edit event - get body from m.new_content
-                                            val newContent = decrypted?.optJSONObject("m.new_content")
-                                            newContent?.optString("body")?.takeIf { it.isNotBlank() }
-                                        } else {
-                                            // Regular encrypted message - get body from decrypted
-                                            decrypted?.optString("body")?.takeIf { it.isNotBlank() }
-                                        }
-                                        
-                                        if (body != null) {
-                                            messagePreview = body
-                                            messageSender = event.optString("sender")?.takeIf { it.isNotBlank() }
-                                            break // Found the last message, stop looking
-                                        }
-                                    }
-                                }
-                                // Skip other event types like typing, member changes, state events, etc.
                             }
+                            // Skip other event types like typing, member changes, state events, etc.
                         }
                     }
                 }
-            } else {
-                // BACKGROUND: Skip parsing events JSON to save battery
-                // Database query will populate previews when app is foregrounded
             }
             
             // Extract sorting_timestamp from meta

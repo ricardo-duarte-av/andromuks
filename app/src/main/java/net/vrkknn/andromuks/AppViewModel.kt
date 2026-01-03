@@ -2370,6 +2370,36 @@ class AppViewModel : ViewModel() {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to populate roomMap from cache", e)
         }
     }
+    
+    /**
+     * Populate readReceipts from singleton cache
+     * This ensures read receipts persist across AppViewModel instances
+     */
+    fun populateReadReceiptsFromCache() {
+        try {
+            synchronized(readReceiptsLock) {
+                val cachedReceipts = ReadReceiptCache.getAllReceipts()
+                if (cachedReceipts.isNotEmpty()) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache called - current receipts: ${readReceipts.size} events, cache: ${cachedReceipts.size} events")
+                    
+                    // Replace readReceipts with data from cache
+                    readReceipts.clear()
+                    cachedReceipts.forEach { (eventId, receipts) ->
+                        if (receipts.isNotEmpty()) {
+                            readReceipts[eventId] = receipts.toMutableList()
+                        }
+                    }
+                    
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - populated readReceipts with ${cachedReceipts.size} events from cache")
+                    readReceiptsUpdateCounter++
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateReadReceiptsFromCache - cache is empty, no receipts to populate")
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate readReceipts from cache", e)
+        }
+    }
 
     // Use a thread-safe Map to avoid ConcurrentModificationException when snapshots are taken
     private val roomMap = java.util.concurrent.ConcurrentHashMap<String, RoomItem>()
@@ -4155,7 +4185,6 @@ class AppViewModel : ViewModel() {
                     }
                     
                     // CRITICAL: Notify RoomListScreen that room summaries may have been updated
-                    // SyncIngestor updates summaries when isAppVisible == true, so we need to refresh the summary display
                     // This ensures room list shows new message previews/senders immediately
                     if (roomsWithEvents.isNotEmpty()) {
                         withContext(Dispatchers.Main) {
@@ -4216,20 +4245,16 @@ class AppViewModel : ViewModel() {
         // PERFORMANCE: Move heavy JSON parsing to background thread
         viewModelScope.launch(Dispatchers.Default) {
             // Parse sync data on background thread (200-500ms for large accounts)
-            // BATTERY OPTIMIZATION: Pass existing rooms for change detection (skip parsing unchanged rooms)
             // IMPORTANT: use snapshot to avoid ConcurrentModification when roomMap is cleared/reset concurrently.
             val existingRoomsSnapshot = synchronized(roomMap) { HashMap(roomMap) }
             val syncResult = SpaceRoomParser.parseSyncUpdate(
                 syncJson, 
                 roomMemberCache, 
                 this@AppViewModel,
-                existingRooms = existingRoomsSnapshot, // Pass snapshot to avoid concurrent modification
-                isAppVisible = isAppVisible // Pass visibility state
+                existingRooms = existingRoomsSnapshot // Pass snapshot to avoid concurrent modification
             )
             
-            // BATTERY OPTIMIZATION: SpaceRoomParser now only parses metadata (name, unread counts, tags)
-            // Last messages are queried directly in RoomListScreen from database (always fresh)
-            // No need to merge summaries here - RoomListScreen queries database directly when displayed
+            // SpaceRoomParser parses all room data including message previews and metadata
             
             // Switch back to main thread for UI updates only
             withContext(Dispatchers.Main) {
@@ -4297,6 +4322,11 @@ class AppViewModel : ViewModel() {
         
         // Clear pending invites - new invites will come from clear_state sync_complete
         pendingInvites.clear()
+        
+        // CRITICAL: Clear singleton RoomListCache when clear_state=true is received
+        // This ensures that when WebSocket reconnects after primary AppViewModel dies,
+        // all AppViewModel instances (including new ones) start with a clean cache
+        RoomListCache.clear()
         
         // Force room list refresh to reflect cleared state until new data arrives
         needsRoomListUpdate = true
@@ -4428,18 +4458,14 @@ class AppViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.Default) {
             syncCompleteProcessingMutex.withLock {
                 // Parse sync data on background thread (200-500ms for large accounts)
-                // BATTERY OPTIMIZATION: Pass existing rooms for change detection (skip parsing unchanged rooms)
                 val syncResult = SpaceRoomParser.parseSyncUpdate(
                     syncJson,
                     roomMemberCache,
                     this@AppViewModel,
-                    existingRooms = synchronized(roomMap) { HashMap(roomMap) }, // snapshot to avoid ConcurrentModification
-                    isAppVisible = isAppVisible // Pass visibility state
+                    existingRooms = synchronized(roomMap) { HashMap(roomMap) } // snapshot to avoid ConcurrentModification
                 )
                 
-                // BATTERY OPTIMIZATION: SpaceRoomParser now only parses metadata (name, unread counts, tags)
-                // Last messages are queried directly in RoomListScreen from database (always fresh)
-                // No need to merge summaries here - RoomListScreen queries database directly when displayed
+                // SpaceRoomParser parses all room data including message previews and metadata
                 
                 // Switch back to main thread for UI updates only
                 withContext(Dispatchers.Main) {
@@ -12010,6 +12036,9 @@ class AppViewModel : ViewModel() {
                                         processedMovements[userId] = Triple(previousEventId, newEventId, System.currentTimeMillis())
                                     }
                                 )
+                                
+                                // Update singleton cache after processing receipts
+                                ReadReceiptCache.setAll(readReceipts.mapValues { it.value.toList() })
                             }
                             
                             // Apply updates on main thread after processing (only if there were changes)
@@ -13092,6 +13121,9 @@ class AppViewModel : ViewModel() {
                                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Receipt movement detected: $userId from $previousEventId to $newEventId")
                                 }
                             )
+                            
+                            // Update singleton cache after processing receipts
+                            ReadReceiptCache.setAll(readReceipts.mapValues { it.value.toList() })
                         }
                     } else {
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No receipts found in sync for room: $roomId")
@@ -15655,6 +15687,10 @@ class AppViewModel : ViewModel() {
         // Log app start (will be persisted when appContext is available)
         // Note: Activity log will be loaded when loadStateFromStorage is called from AuthCheck
         logActivity("App Started")
+        
+        // Populate read receipts from singleton cache on initialization
+        // This ensures receipts are available even when AppViewModel is recreated
+        populateReadReceiptsFromCache()
         
         // Start periodic cleanup job
         viewModelScope.launch {
