@@ -4522,37 +4522,44 @@ class AppViewModel : ViewModel() {
                 syncResult.removedRoomIds.isNotEmpty()
         val data = syncJson.optJSONObject("data")
         val accountData = data?.optJSONObject("account_data")
-        val accountDataChanged = accountData?.length() ?: 0 > 0
+        // CRITICAL FIX: account_data is ALWAYS present in sync_complete (usually as {} for no updates)
+        // Empty {} means "no updates" - preserve existing state
+        // Non-empty means "update these keys" - process them
+        // null means "no account_data field" (shouldn't happen per protocol, but handle gracefully)
+        val accountDataChanged = accountData != null && accountData.length() > 0
+        
+        // CRITICAL FIX: Process account_data BEFORE early return check
+        // This ensures account_data is ALWAYS processed when present with keys, even if there are no room/member changes
+        // This is essential after clear_state=true when account_data arrives in subsequent sync_completes
+        val isClearState = data?.optBoolean("clear_state") == true
+        if (accountData != null) {
+            if (accountData.length() > 0) {
+                // Account_data has keys - process them (this updates recent emojis, m.direct, etc.)
+                if (BuildConfig.DEBUG) {
+                    val accountDataKeys = accountData.keys().asSequence().toList()
+                    android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Processing account_data with keys: ${accountDataKeys.joinToString(", ")} (clear_state=$isClearState)")
+                }
+                processAccountData(accountData)
+            } else {
+                // Account_data is empty {} - no updates, preserve existing state
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Incoming account_data is empty {}, preserving existing state")
+            }
+        } else {
+            // Account_data is null (special case: first clear_state message may have null)
+            // This means "no account_data updates" - preserve existing state
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - account_data is null (preserving existing state)")
+        }
+        
+        // Early return check AFTER processing account_data
+        // This ensures account_data is processed even when there are no room/member changes
         if (!hasRoomChanges && !accountDataChanged && !memberStateChanged) {
             if (BuildConfig.DEBUG) {
                 android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: processParsedSyncResult - no changes detected (rooms/account/member), skipping UI work"
+                    "AppViewModel: processParsedSyncResult - no changes detected (rooms/account/member), skipping UI work (account_data already processed above)"
                 )
             }
             return
-        }
-        
-        // Process account_data for recent emojis and m.direct
-        // CRITICAL FIX: Account data is in-memory only (not stored in database anymore)
-        // When clear_state=true, always use incoming account_data directly
-        // For normal syncs, account_data was already processed in updateRoomsFromSyncJsonAsync/processInitialSyncComplete
-        // Only process here if it wasn't already processed (defensive check)
-        val incomingAccountData = accountData
-        val isClearState = data?.optBoolean("clear_state") == true
-        // CRITICAL FIX: Only process account_data if the incoming sync_complete actually has account_data keys
-        // Empty account_data object {} should not trigger processing (prevents re-requesting emoji packs on every sync)
-        if (incomingAccountData != null && incomingAccountData.length() > 0) {
-            // Account data is in-memory only - always use incoming directly
-            // When clear_state=true, this is the authoritative dataset
-            if (BuildConfig.DEBUG) {
-                val accountDataKeys = incomingAccountData.keys().asSequence().toList()
-                android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Processing account_data with keys: ${accountDataKeys.joinToString(", ")} (clear_state=$isClearState)")
-            }
-            processAccountData(incomingAccountData)
-        } else if (incomingAccountData != null && incomingAccountData.length() == 0) {
-            // Incoming account_data is empty {} - don't process, preserve existing state
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processParsedSyncResult - Incoming account_data is empty, skipping processing (preserving existing state)")
         }
         
         // Auto-save state periodically (every 10 sync_complete messages) for crash recovery
