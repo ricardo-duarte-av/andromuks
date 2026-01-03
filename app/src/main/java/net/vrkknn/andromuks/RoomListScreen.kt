@@ -438,17 +438,18 @@ fun RoomListScreen(
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Clearing current room ID - user is viewing room list, not a specific room")
         appViewModel.clearCurrentRoomId()
         
-        // CRITICAL FIX: When RoomListScreen is created for the first time via back navigation from notification,
-        // roomMap might only have 1 room (because a new AppViewModel instance was created with empty roomMap).
-        // If roomMap only has 1 room, load rooms from singleton cache to populate it.
+        // CRITICAL FIX: When RoomListScreen is created for the first time via back navigation from notification/shortcut,
+        // roomMap might be empty or only have 1 room (because a new AppViewModel instance was created with empty roomMap).
+        // Check if singleton cache has more rooms than roomMap, and if so, populate from cache.
         appViewModel.forceRoomListSort() // Update allRooms from roomMap first
         val initialSnapshot = appViewModel.getCurrentRoomSection()
         val initialRoomCount = initialSnapshot.rooms.size
+        val cacheRoomCount = net.vrkknn.andromuks.RoomListCache.getRoomCount()
         
-        if (initialRoomCount == 1) {
-            // Suspicious - only 1 room, likely from notification navigation
+        if (initialRoomCount < cacheRoomCount && cacheRoomCount > 1) {
+            // Suspicious - roomMap has fewer rooms than cache, likely from notification/shortcut navigation
             // Load rooms from singleton cache to populate roomMap
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: RoomMap only has 1 room (likely from notification navigation), loading from singleton cache")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: RoomMap has $initialRoomCount rooms but cache has $cacheRoomCount rooms (likely from notification/shortcut navigation), loading from singleton cache")
             appViewModel.populateRoomMapFromCache()
             appViewModel.forceRoomListSort() // Update allRooms after cache load
             val loadedSnapshot = appViewModel.getCurrentRoomSection()
@@ -457,7 +458,7 @@ fun RoomListScreen(
         } else {
             // Normal case - use existing roomMap
             stableSection = initialSnapshot
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Using existing roomMap with ${initialRoomCount} rooms")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "RoomListScreen: Using existing roomMap with ${initialRoomCount} rooms (cache has $cacheRoomCount rooms)")
         }
         
         // Force timestamp update when returning to room list or starting app

@@ -2353,10 +2353,18 @@ class AppViewModel : ViewModel() {
                 
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateRoomMapFromCache - populated roomMap with ${cachedRooms.size} rooms from cache (new size: ${roomMap.size})")
                 
+                // CRITICAL: If we loaded rooms from cache, mark spaces as loaded
+                // This prevents "Loading spaces..." from showing when we have rooms but spacesLoaded is false
+                // The cache only contains rooms that have been processed by SpaceRoomParser, so spaces are effectively loaded
+                if (!spacesLoaded && cachedRooms.isNotEmpty()) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateRoomMapFromCache - marking spaces as loaded since cache has ${cachedRooms.size} rooms")
+                    spacesLoaded = true
+                }
+                
                 // Update allRooms and invalidate cache
                 forceRoomListSort()
             } else {
-                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: populateRoomMapFromCache - cache is empty")
+                if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: populateRoomMapFromCache - cache is empty, cannot populate roomMap")
             }
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to populate roomMap from cache", e)
