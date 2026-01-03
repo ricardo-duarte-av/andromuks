@@ -8782,7 +8782,7 @@ class AppViewModel : ViewModel() {
      * Ensure timeline cache is fresh (cache-only approach, no DB loading)
      * If cache is empty or room is not actively cached, triggers paginate request
      */
-    suspend fun ensureTimelineCacheIsFresh(roomId: String, limit: Int = 200) {
+    suspend fun ensureTimelineCacheIsFresh(roomId: String, limit: Int = 200, isBackground: Boolean = false) {
         val cachedEvents = RoomTimelineCache.getCachedEvents(roomId)
         val isActivelyCached = RoomTimelineCache.isRoomActivelyCached(roomId)
         
@@ -8798,7 +8798,7 @@ class AppViewModel : ViewModel() {
         // Cache is empty or room not actively cached - trigger paginate request
         if (BuildConfig.DEBUG) android.util.Log.d(
             "Andromuks",
-            "AppViewModel: ensureTimelineCacheIsFresh($roomId) - cache empty or not actively cached, triggering paginate"
+            "AppViewModel: ensureTimelineCacheIsFresh($roomId) - cache empty or not actively cached, triggering paginate (background=$isBackground)"
         )
         
         // Issue paginate request to fill cache
@@ -8810,7 +8810,17 @@ class AppViewModel : ViewModel() {
         
         withContext(Dispatchers.Main) {
             val paginateRequestId = requestIdCounter++
-            timelineRequests[paginateRequestId] = roomId
+            // CRITICAL FIX: Use backgroundPrefetchRequests for background pagination to prevent timeline rebuild
+            // Background pagination should only update cache, not rebuild the timeline for the currently open room
+            if (isBackground) {
+                backgroundPrefetchRequests[paginateRequestId] = roomId
+                if (BuildConfig.DEBUG) android.util.Log.d(
+                    "Andromuks",
+                    "AppViewModel: ensureTimelineCacheIsFresh($roomId) - using backgroundPrefetchRequests for silent cache update"
+                )
+            } else {
+                timelineRequests[paginateRequestId] = roomId
+            }
             val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
                 "room_id" to roomId,
                 "max_timeline_id" to 0, // Fetch latest events
@@ -8823,7 +8833,7 @@ class AppViewModel : ViewModel() {
                 RoomTimelineCache.markRoomAsCached(roomId)
                 if (BuildConfig.DEBUG) android.util.Log.d(
                     "Andromuks",
-                    "AppViewModel: ensureTimelineCacheIsFresh($roomId) - paginate request sent, room marked as actively cached"
+                    "AppViewModel: ensureTimelineCacheIsFresh($roomId) - paginate request sent, room marked as actively cached (background=$isBackground)"
                 )
             } else {
                 android.util.Log.w("Andromuks", "AppViewModel: ensureTimelineCacheIsFresh($roomId) - failed to send paginate request: $result")
@@ -8849,9 +8859,10 @@ class AppViewModel : ViewModel() {
                 return@launch
             }
             
-            // Trigger pagination to fill cache
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Triggering preemptive pagination for room: $roomId (cached: $cachedEventCount events, actively cached: $isActivelyCached)")
-            ensureTimelineCacheIsFresh(roomId, limit = INITIAL_ROOM_PAGINATE_LIMIT)
+            // CRITICAL FIX: Use background pagination to prevent timeline rebuild for currently open room
+            // Background pagination only updates cache, doesn't rebuild timeline
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Triggering preemptive pagination for room: $roomId (cached: $cachedEventCount events, actively cached: $isActivelyCached) - using background mode")
+            ensureTimelineCacheIsFresh(roomId, limit = INITIAL_ROOM_PAGINATE_LIMIT, isBackground = true)
         }
     }
 
@@ -15884,7 +15895,16 @@ class AppViewModel : ViewModel() {
         
         val newCacheCount = RoomTimelineCache.getCachedEventCount(roomId)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✅ Background prefetch completed - cache now has $newCacheCount events for room $roomId")
-        smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
+        
+        // CRITICAL FIX: Only update smallestRowId if this room is currently open
+        // smallestRowId is a global variable that affects the currently open room's pagination
+        // Updating it for a background prefetch of a different room would break pagination for the open room
+        if (currentRoomId == roomId) {
+            smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated smallestRowId for background prefetch (room is currently open)")
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipped updating smallestRowId for background prefetch (room $roomId is not currently open, currentRoomId=$currentRoomId)")
+        }
         return 0 // No reactions processed
     }
     
