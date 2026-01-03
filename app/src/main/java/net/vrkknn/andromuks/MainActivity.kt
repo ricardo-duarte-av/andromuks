@@ -129,6 +129,14 @@ class MainActivity : ComponentActivity() {
                                 appViewModel.initializeFCM(this, homeserverUrl, authToken, skipCacheClear)
                             }
                             
+                            // CRITICAL: Populate roomMap from singleton cache when opening from notification
+                            // This ensures rooms have summaries before sync_complete messages can overwrite them
+                            // Do this BEFORE loading profiles so roomMap is populated early
+                            if (fromNotification || directNavigation) {
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Opening from notification/shortcut - populating roomMap from singleton cache")
+                                appViewModel.populateRoomMapFromCache()
+                            }
+                            
                             // Load cached user profiles on app startup
                             // This restores previously saved user profile data from disk
                             appViewModel.loadCachedProfiles(this)
@@ -618,10 +626,6 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onStart called")
-    }
-    
-    override fun onBackPressed() {
-        super.onBackPressed()
     }
     
     /**
