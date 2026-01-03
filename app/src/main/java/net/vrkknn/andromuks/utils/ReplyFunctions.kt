@@ -303,7 +303,13 @@ fun formatEventForReplyPreview(
     roomId: String? = null
 ): String {
     val eventType = event.type
-    val content = event.content ?: event.decrypted
+    // CRITICAL FIX: For encrypted events, prioritize decrypted content over encrypted content
+    // For encrypted messages, event.content contains encrypted data, not the actual message body
+    val content = if (eventType == "m.room.encrypted" && event.decrypted != null) {
+        event.decrypted
+    } else {
+        event.content ?: event.decrypted
+    }
     
     return when (eventType) {
         "m.room.message", "m.room.encrypted" -> {
@@ -318,7 +324,15 @@ fun formatEventForReplyPreview(
             } else {
                 content?.optString("msgtype", "") ?: ""
             }
-            val body = content?.optString("body", "") ?: ""
+            // For encrypted messages, check if it's an edit (m.replace relationship)
+            val isEdit = eventType == "m.room.encrypted" && 
+                event.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace"
+            val body = if (isEdit) {
+                // For edits, get the body from m.new_content
+                event.decrypted?.optJSONObject("m.new_content")?.optString("body", "") ?: ""
+            } else {
+                content?.optString("body", "") ?: ""
+            }
             
             when (actualMsgType) {
                 "m.image" -> "📷 Image"
