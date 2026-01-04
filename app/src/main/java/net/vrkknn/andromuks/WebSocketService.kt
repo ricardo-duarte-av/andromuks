@@ -1109,7 +1109,7 @@ class WebSocketService : Service() {
             // Track connection start time for duration display
             serviceInstance.connectionStartTime = System.currentTimeMillis()
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Connection state set to CONNECTING (waiting for init_complete)")
-            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket reference set: ${webSocket != null}")
+            if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "WebSocket reference set")
             if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "Connection start time recorded: ${serviceInstance.connectionStartTime}")
             serviceInstance.lastPongTimestamp = SystemClock.elapsedRealtime()
             
@@ -1155,16 +1155,17 @@ class WebSocketService : Service() {
             
             serviceInstance.pingInFlight = false // Reset ping-in-flight flag
             
-            // Only log disconnection if we actually had a connection
-            val wasConnected = serviceInstance.connectionState == ConnectionState.CONNECTED || serviceInstance.webSocket != null
+            // Check if we're in a state that needs clearing (CONNECTED, RECONNECTING, CONNECTING)
+            // DISCONNECTED state means we're already cleared, so we can skip
+            val needsClearing = serviceInstance.connectionState != ConnectionState.DISCONNECTED || serviceInstance.webSocket != null
             
-            if (!wasConnected) {
-                // Already disconnected, don't log redundant disconnection
+            if (!needsClearing) {
+                // Already disconnected and no WebSocket, don't log redundant disconnection
                 if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "clearWebSocket() called but already disconnected - skipping")
                 return
             }
             
-            android.util.Log.w("WebSocketService", "clearWebSocket() called - setting connection state to DISCONNECTED")
+            android.util.Log.w("WebSocketService", "clearWebSocket() called - setting connection state to DISCONNECTED (was: ${serviceInstance.connectionState})")
             
             // Validate state before clearing
             detectAndRecoverStateCorruption()
@@ -1174,6 +1175,16 @@ class WebSocketService : Service() {
             serviceInstance.webSocket = null
             serviceInstance.connectionState = ConnectionState.DISCONNECTED
             serviceInstance.isCurrentlyConnected = false
+            
+            // CRITICAL FIX: Reset reconnection state when connection fails during reconnection
+            // This allows new reconnection attempts when network becomes available again
+            if (serviceInstance.isReconnecting) {
+                if (BuildConfig.DEBUG) android.util.Log.d("WebSocketService", "clearWebSocket() called during reconnection - resetting isReconnecting flag")
+                serviceInstance.isReconnecting = false
+                // Cancel any pending reconnection job
+                serviceInstance.reconnectionJob?.cancel()
+                serviceInstance.reconnectionJob = null
+            }
             
             // Reset connection start time
             serviceInstance.connectionStartTime = 0
@@ -2223,7 +2234,12 @@ class WebSocketService : Service() {
             isCurrentlyConnected = false
             
             // Stop foreground service immediately
-            stopForeground(true)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(Service.STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
             
             // Stop self immediately
             stopSelf()
@@ -2729,7 +2745,12 @@ class WebSocketService : Service() {
             isCurrentlyConnected = false
             
             // Stop foreground service
-            stopForeground(true)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                stopForeground(Service.STOP_FOREGROUND_REMOVE)
+            } else {
+                @Suppress("DEPRECATION")
+                stopForeground(true)
+            }
             
             // Release wake lock
             releaseWakeLock()
