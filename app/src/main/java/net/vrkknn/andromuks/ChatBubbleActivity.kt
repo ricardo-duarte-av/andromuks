@@ -243,6 +243,7 @@ class ChatBubbleActivity : ComponentActivity() {
     }
     
     
+    @Deprecated("Deprecated in ComponentActivity", ReplaceWith("OnBackPressedDispatcher"))
     override fun onBackPressed() {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: Back pressed - minimizing bubble")
         if (BuildConfig.DEBUG) Log.d("Andromuks", "ChatBubbleActivity: Back pressed - calling moveTaskToBack")

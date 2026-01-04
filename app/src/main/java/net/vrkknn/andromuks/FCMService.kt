@@ -338,21 +338,21 @@ class FCMService : FirebaseMessagingService() {
                 val eventId = message.optString("event_id", "")
                 val roomName = message.optString("room_name", roomId)
                 val text = message.optString("text", "New message")
-                val htmlText = message.optString("html", null)
+                val htmlText = message.optString("html").takeIf { it.isNotEmpty() }
                 val timestamp = message.optLong("timestamp", System.currentTimeMillis())
                 val sound = message.optBoolean("sound", true)
                 
                 // Extract sender information
                 val senderObject = message.optJSONObject("sender")
                 val sender = senderObject?.optString("id", "") ?: ""
-                val senderDisplayName = senderObject?.optString("name", sender) ?: sender
-                val senderAvatar = senderObject?.optString("avatar", null)
+                val senderDisplayName = senderObject?.optString("name")?.takeIf { it.isNotEmpty() } ?: sender
+                val senderAvatar = senderObject?.optString("avatar")?.takeIf { it.isNotEmpty() }
                 
                 // Extract room avatar
-                val roomAvatar = message.optString("room_avatar", null)
+                val roomAvatar = message.optString("room_avatar").takeIf { it.isNotEmpty() }
                 
                 // Extract image field for image notifications
-                val image = message.optString("image", null)
+                val image = message.optString("image").takeIf { it.isNotEmpty() }
                 if (BuildConfig.DEBUG) Log.d(TAG, "Extracted image field: $image")
                 
                 // Convert relative URLs to full URLs

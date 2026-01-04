@@ -395,7 +395,7 @@ fun RoomInfoScreen(
                         .weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Divider()
+                    HorizontalDivider()
                     
                     // Header with member count and search button
                     Row(

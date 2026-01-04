@@ -77,10 +77,10 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Reply
 import androidx.compose.material.icons.filled.TagFaces
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Info
@@ -560,7 +560,7 @@ fun ReplyPreviewInput(
         ) {
             // Reply icon
             Icon(
-                imageVector = Icons.Filled.Reply,
+                imageVector = Icons.AutoMirrored.Filled.Reply,
                 contentDescription = "Replying to",
                 tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(16.dp)
@@ -1062,7 +1062,7 @@ fun MessageBubbleWithMenu(
                                     modifier = Modifier.size(40.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Filled.Reply,
+                                        imageVector = Icons.AutoMirrored.Filled.Reply,
                                         contentDescription = "Reply",
                                         tint = MaterialTheme.colorScheme.primary
                                     )

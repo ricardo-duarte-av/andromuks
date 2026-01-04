@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package net.vrkknn.andromuks
 
 import android.app.Notification
@@ -389,7 +391,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .build()
             
             // Download image for image notifications
-            val imageUri = if (hasImage && notificationData.image != null) {
+            val imageUri = if (hasImage) {
                 try {
                     if (BuildConfig.DEBUG) Log.d(TAG, "Downloading image for notification: ${notificationData.image}")
                     
@@ -653,9 +655,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     // .setGroupSummary(false)
                     .apply {
                     // Set large icon (always set if available)
-                    if (largeIconBitmap != null) {
-                        setLargeIcon(largeIconBitmap)
-                    }
+                    setLargeIcon(largeIconBitmap)
                     
                     // CRITICAL: Link to shortcut - Android's notification ranking system requires
                     // a properly registered shortcut with conversation category to recognize notifications as conversations

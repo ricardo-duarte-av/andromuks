@@ -1424,6 +1424,7 @@ private fun FileDownload(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // File icon
+        @Suppress("DEPRECATION")
         Icon(
             imageVector = Icons.Filled.InsertDriveFile,
             contentDescription = "File",

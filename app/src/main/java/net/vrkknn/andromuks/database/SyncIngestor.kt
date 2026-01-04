@@ -1441,7 +1441,8 @@ class SyncIngestor(private val context: Context) {
     /**
      * @deprecated No longer processing receipts - they're not persisted to database
      */
-    @Deprecated("Receipts are no longer persisted to database")
+    @Deprecated("Receipts are no longer persisted to database", level = DeprecationLevel.HIDDEN)
+    @Suppress("DEPRECATION")
     suspend fun rushProcessPendingReceipts() = rushProcessPendingItems()
     
     /**

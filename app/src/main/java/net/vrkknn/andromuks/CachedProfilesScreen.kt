@@ -52,15 +52,9 @@ fun CachedProfilesScreen(
                 )
             }
         } else {
-            val diskProfiles = appViewModel.getAllDiskCachedProfiles(context)
-            profiles = diskProfiles.map { (userId, profile) ->
-                CachedProfileEntry(
-                    userId = userId,
-                    displayName = profile.displayName,
-                    avatarUrl = profile.avatarUrl,
-                    roomId = null // Disk cache doesn't store room-specific info
-                )
-            }
+            // Profiles are in-memory only, loaded opportunistically when rendering events
+            // Disk cache no longer exists, so show empty list
+            profiles = emptyList()
         }
         isLoading = false
     }

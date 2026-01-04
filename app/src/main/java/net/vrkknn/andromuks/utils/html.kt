@@ -928,7 +928,7 @@ fun supportsHtmlRendering(event: TimelineEvent): Boolean {
         "m.image", "m.file", "m.audio", "m.video"
     )
 
-    val hasFormattedBody = !content.optString("formatted_body", null).isNullOrBlank()
+    val hasFormattedBody = content.optString("formatted_body").takeIf { it.isNotEmpty() }?.isNotBlank() == true
 
     return msgType in supportedTypes && hasFormattedBody
 }

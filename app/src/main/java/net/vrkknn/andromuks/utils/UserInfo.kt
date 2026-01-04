@@ -421,7 +421,7 @@ fun UserInfoScreen(
                         .weight(1f),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Divider()
+                    HorizontalDivider()
                     
                     Text(
                         text = "Shared Rooms (${userProfileInfo!!.mutualRooms.size})",
@@ -640,7 +640,7 @@ fun DeviceListDialog(
                 
                 // Devices header
                 item {
-                    Divider()
+                    HorizontalDivider()
                     Text(
                         text = "Devices (${encryptionInfo.devices?.size ?: 0})",
                         style = MaterialTheme.typography.titleSmall,
@@ -709,7 +709,7 @@ fun DeviceInfoCard(device: DeviceInfo) {
                 )
             }
             
-            Divider(modifier = Modifier.padding(vertical = 4.dp))
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
             
             // Fingerprint
             Text(

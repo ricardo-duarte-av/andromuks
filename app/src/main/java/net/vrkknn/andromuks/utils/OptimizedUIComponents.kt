@@ -11,6 +11,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -67,7 +68,7 @@ fun OptimizedMessageBubbleWithMenu(
     val menuItems = remember(canEdit, canDelete, canReact, canViewHistory) {
         buildList {
             onReply?.let { 
-                add(OptimizedMenuItem("reply", "Reply", Icons.Filled.Reply, true, it))
+                add(OptimizedMenuItem("reply", "Reply", Icons.AutoMirrored.Filled.Reply, true, it))
             }
             if (canEdit) {
                 onEdit?.let { 

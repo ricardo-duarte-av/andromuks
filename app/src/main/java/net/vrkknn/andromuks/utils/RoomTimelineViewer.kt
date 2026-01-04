@@ -400,7 +400,7 @@ fun RoomTimelineViewerScreen(
                             Column {
                                 TableRow(row = row, columns = columns)
                                 Spacer(modifier = Modifier.height(4.dp))
-                                androidx.compose.material3.Divider()
+                                androidx.compose.material3.HorizontalDivider()
                             }
                         }
                     }

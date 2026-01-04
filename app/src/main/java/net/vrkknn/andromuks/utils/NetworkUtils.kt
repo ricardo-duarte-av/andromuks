@@ -450,7 +450,7 @@ fun connectToWebsocket(
             val jsonObject = try { JSONObject(text) } catch (e: Exception) { null }
             if (jsonObject != null) {
                 // Debug: Check if this message contains backend request ID
-                val backendRequestId = jsonObject.optString("backend_request_id", null)
+                val backendRequestId = jsonObject.optString("backend_request_id").takeIf { it.isNotEmpty() }
                 // Track last received request_id for ping purposes
                 val receivedReqId = jsonObject.optInt("request_id", 0)
                 if (receivedReqId != 0) {
@@ -592,23 +592,6 @@ fun connectToWebsocket(
                             }
                         }
                     }
-                    "error" -> {
-                        val requestId = jsonObject.optInt("request_id")
-                        val errorMessage = jsonObject.optString("data", "Unknown error")
-                        
-                        // PHASE 5.3: Log error receipt for acknowledgment tracking
-                        if (BuildConfig.DEBUG && requestId > 0) {
-                            Log.d("Andromuks", "NetworkUtils: PHASE 5.3 - Received error command with request_id=$requestId: $errorMessage")
-                        }
-                        
-                        // PHASE 4: Distribute to all registered ViewModels
-                        // PHASE 5.3: handleError() will acknowledge by request_id
-                        WebSocketService.getServiceScope().launch(Dispatchers.IO) {
-                            for (viewModel in WebSocketService.getRegisteredViewModels()) {
-                                viewModel.handleError(requestId, errorMessage)
-                            }
-                        }
-                    }
                     "typing" -> {
                         val data = jsonObject.optJSONObject("data")
                         val roomId = data?.optString("room_id")
@@ -645,7 +628,7 @@ fun connectToWebsocket(
                         
                         for (jsonObject in jsonObjects) {
                             // Debug: Check if this message contains backend request ID
-                            val backendRequestId = jsonObject.optString("backend_request_id", null)
+                            val backendRequestId = jsonObject.optString("backend_request_id").takeIf { it.isNotEmpty() }
                             
                             // Track last received request_id for ping purposes
                             val receivedReqId = jsonObject.optInt("request_id", 0)

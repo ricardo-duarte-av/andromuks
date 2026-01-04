@@ -197,12 +197,12 @@ object MediaUploadUtils {
         return try {
             val json = JSONObject(responseBody)
             // Try "url" field first (actual format from server)
-            val mxcUrl = json.optString("url", null)
+            val mxcUrl = json.optString("url").takeIf { it.isNotEmpty() }
             if (mxcUrl != null && mxcUrl.startsWith("mxc://")) {
                 mxcUrl
             } else {
                 // Fallback to "mxc" field if present
-                json.optString("mxc", null)
+                json.optString("mxc").takeIf { it.isNotEmpty() }
             }
         } catch (e: Exception) {
             Log.e("Andromuks", "MediaUploadUtils: Failed to parse response JSON", e)

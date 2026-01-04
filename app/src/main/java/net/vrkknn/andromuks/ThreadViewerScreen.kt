@@ -1292,6 +1292,7 @@ fun ThreadViewerScreen(
                                                     onClick = { if (isInputEnabled) showStickerPickerForText = true },
                                                     modifier = Modifier.size(24.dp)
                                                 ) {
+                                                    @Suppress("DEPRECATION")
                                                     Icon(
                                                         imageVector = Icons.Outlined.StickyNote2,
                                                         contentDescription = "Stickers",
@@ -1314,7 +1315,7 @@ fun ThreadViewerScreen(
                                         keyboardOptions = KeyboardOptions(
                                             capitalization = KeyboardCapitalization.Sentences,
                                             keyboardType = KeyboardType.Text,
-                                            autoCorrect = true,
+                                            autoCorrectEnabled = true,
                                             imeAction = ImeAction.Send
                                         ),
                                         keyboardActions = KeyboardActions(

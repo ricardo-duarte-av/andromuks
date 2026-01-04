@@ -243,12 +243,12 @@ object VideoUploadUtils {
             
             // Parse mxc URL from response
             val json = org.json.JSONObject(responseBody ?: "")
-            val mxcUrl = json.optString("url", null)
+            val mxcUrl = json.optString("url").takeIf { it.isNotEmpty() }
             
             if (mxcUrl != null && mxcUrl.startsWith("mxc://")) {
                 mxcUrl
             } else {
-                json.optString("mxc", null)
+                json.optString("mxc").takeIf { it.isNotEmpty() }
             }
             
         } catch (e: Exception) {

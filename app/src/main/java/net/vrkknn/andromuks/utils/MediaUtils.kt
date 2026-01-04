@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.coroutines.DelicateCoroutinesApi::class)
+
 package net.vrkknn.andromuks.utils
 
 

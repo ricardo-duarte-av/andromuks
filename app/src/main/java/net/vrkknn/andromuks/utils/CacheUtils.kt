@@ -5,6 +5,7 @@ package net.vrkknn.andromuks.utils
 import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import coil.ImageLoader
+import coil.annotation.ExperimentalCoilApi
 import coil.memory.MemoryCache
 import okhttp3.internal.http2.StreamResetException
 import java.io.IOException
@@ -103,6 +104,7 @@ object CacheUtils {
      * @param imageLoader The Coil ImageLoader instance
      * @param imageUrl The URL of the image to remove from cache
      */
+    @OptIn(ExperimentalCoilApi::class)
     fun invalidateImageCache(imageLoader: ImageLoader, imageUrl: String) {
         try {
             // Remove from memory cache

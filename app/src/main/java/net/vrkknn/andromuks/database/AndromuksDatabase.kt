@@ -87,7 +87,7 @@ abstract class AndromuksDatabase : RoomDatabase() {
                     AndromuksDatabase::class.java,
                     "andromuks.db"
                 )
-                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigrationOnDowngrade(dropAllTables = true)
                     .setJournalMode(RoomDatabase.JournalMode.TRUNCATE)
                     .build()
                     .also { instance = it }

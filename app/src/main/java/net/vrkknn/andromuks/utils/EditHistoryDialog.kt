@@ -18,7 +18,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -100,7 +100,7 @@ fun EditHistoryDialog(
                         // Divider between versions (except after last item)
                         if (index < versioned.versions.size - 1) {
                             Spacer(modifier = Modifier.height(12.dp))
-                            Divider(
+                            HorizontalDivider(
                                 color = MaterialTheme.colorScheme.outlineVariant,
                                 thickness = 1.dp
                             )

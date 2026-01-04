@@ -1,3 +1,5 @@
+@file:Suppress("DEPRECATION")
+
 package net.vrkknn.andromuks
 
 import net.vrkknn.andromuks.BuildConfig
