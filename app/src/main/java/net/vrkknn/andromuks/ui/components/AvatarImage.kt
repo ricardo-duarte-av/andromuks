@@ -71,22 +71,26 @@ fun AvatarImage(
         AvatarUtils.getAvatarUrl(context, mxcUrl, homeserverUrl)
     }
     
-    // Track if the image failed to load
-    var imageLoadFailed by remember(avatarUrl) { mutableStateOf(false) }
+    // CRITICAL FIX: Use a stable key (userId or fallbackText) instead of avatarUrl for state persistence
+    // This prevents state reset when avatarUrl is recalculated (even if it's the same value)
+    // The stable key ensures state persists across room list updates (sync_complete recompositions)
+    val stableKey = userId ?: fallbackText
     
-    // FIX: Persist shouldLoadImage state per avatarUrl to prevent reset on scroll
-    // Once we've loaded an avatar URL, keep it loaded even if composable is recreated
-    // This prevents fallback flash when scrolling (images are in Coil's memory cache)
-    // Key insight: remember(avatarUrl) ensures state persists per unique URL across recompositions
-    var shouldLoadImage by remember(avatarUrl) { mutableStateOf(false) }
+    // Track if the image failed to load - key by stableKey to persist across recompositions
+    var imageLoadFailed by remember(stableKey) { mutableStateOf(false) }
     
-    // AVATAR LOADING OPTIMIZATION: Initialize lazy loading with LaunchedEffect
-    // FIX: Removed 50ms delay - AsyncImage handles cache automatically and loads instantly from memory
-    // The delay was causing fallback flash even for cached images
+    // CRITICAL FIX: Initialize shouldLoadImage based on avatarUrl, but persist state per stableKey
+    // This prevents fallback flash: if avatarUrl exists, start with shouldLoadImage=true
+    // State persists across recompositions based on stableKey (room/user ID), not avatarUrl
+    var shouldLoadImage by remember(stableKey) { 
+        // Initialize to true if avatarUrl exists - AsyncImage handles cached images efficiently
+        mutableStateOf(avatarUrl != null && isVisible)
+    }
+    
+    // AVATAR LOADING OPTIMIZATION: Update shouldLoadImage when visibility or avatarUrl changes
+    // This ensures shouldLoadImage is true when avatarUrl becomes available
     LaunchedEffect(isVisible, avatarUrl) {
         if (isVisible && avatarUrl != null) {
-            // No delay needed - AsyncImage will load from Coil's memory cache instantly if available
-            // For non-cached images, AsyncImage handles loading efficiently without blocking UI
             shouldLoadImage = true
         }
         // Don't reset shouldLoadImage when item becomes invisible - keep it true
