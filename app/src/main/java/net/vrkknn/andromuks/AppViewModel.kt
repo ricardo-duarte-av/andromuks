@@ -893,11 +893,15 @@ class AppViewModel : ViewModel() {
         val stickers: List<Sticker>
     )
     
-    var customEmojiPacks by mutableStateOf(listOf<EmojiPack>())
-        private set
+    // Custom emoji packs - now using singleton EmojiPacksCache
+    var customEmojiPacks: List<EmojiPack>
+        get() = EmojiPacksCache.getAll()
+        private set(value) = EmojiPacksCache.setAll(value)
     
-    var stickerPacks by mutableStateOf(listOf<StickerPack>())
-        private set
+    // Sticker packs - now using singleton StickerPacksCache
+    var stickerPacks: List<StickerPack>
+        get() = StickerPacksCache.getAll()
+        private set(value) = StickerPacksCache.setAll(value)
     
     // Track pending emoji pack requests: requestId -> (roomId, packName)
     private val emojiPackRequests = mutableMapOf<Int, Pair<String, String>>()
@@ -2489,6 +2493,38 @@ class AppViewModel : ViewModel() {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to populate roomMemberCache from cache", e)
         }
     }
+    
+    /**
+     * Populate customEmojiPacks from singleton cache
+     * This ensures emoji packs persist across AppViewModel instances
+     */
+    fun populateEmojiPacksFromCache() {
+        try {
+            val cachedPacks = EmojiPacksCache.getAll()
+            if (cachedPacks.isNotEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateEmojiPacksFromCache - populated with ${cachedPacks.size} packs from cache")
+                // Emoji packs are accessed via customEmojiPacks which reads from cache
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate emoji packs from cache", e)
+        }
+    }
+    
+    /**
+     * Populate stickerPacks from singleton cache
+     * This ensures sticker packs persist across AppViewModel instances
+     */
+    fun populateStickerPacksFromCache() {
+        try {
+            val cachedPacks = StickerPacksCache.getAll()
+            if (cachedPacks.isNotEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateStickerPacksFromCache - populated with ${cachedPacks.size} packs from cache")
+                // Sticker packs are accessed via stickerPacks which reads from cache
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate sticker packs from cache", e)
+        }
+    }
 
     // Use a thread-safe Map to avoid ConcurrentModificationException when snapshots are taken
     private val roomMap = java.util.concurrent.ConcurrentHashMap<String, RoomItem>()
@@ -3918,14 +3954,14 @@ class AppViewModel : ViewModel() {
                     }
                 } else {
                     // Key is present but rooms is null or empty - clear emoji/sticker packs
-                    customEmojiPacks = emptyList()
-                    stickerPacks = emptyList()
+                    EmojiPacksCache.clear()
+                    StickerPacksCache.clear()
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: im.ponies.emote_rooms is present but empty/null, cleared emoji/sticker packs")
                 }
             } else {
                 // Key is present but value is null - clear emoji/sticker packs
-                customEmojiPacks = emptyList()
-                stickerPacks = emptyList()
+                EmojiPacksCache.clear()
+                StickerPacksCache.clear()
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: im.ponies.emote_rooms is null, cleared emoji/sticker packs")
             }
         } else {
@@ -4436,8 +4472,8 @@ class AppViewModel : ViewModel() {
         recentEmojis = emptyList()
         directMessageRoomIds = emptySet()
         directMessageUserMap = emptyMap()
-        customEmojiPacks = emptyList()
-        stickerPacks = emptyList()
+        EmojiPacksCache.clear()
+        StickerPacksCache.clear()
         
         // Clear pending invites - new invites will come from clear_state sync_complete
         PendingInvitesCache.clear()
@@ -12845,13 +12881,8 @@ class AppViewModel : ViewModel() {
                                     emojis = emojis
                                 )
                                 
-                                if (existingIndex >= 0) {
-                                    existingPacks[existingIndex] = newPack
-                                } else {
-                                    existingPacks.add(newPack)
-                                }
-                                
-                                customEmojiPacks = existingPacks
+                                // Update singleton cache
+                                EmojiPacksCache.updatePack(newPack)
                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated emoji pack $packName with ${emojis.size} emojis")
                             }
                             
@@ -12867,13 +12898,8 @@ class AppViewModel : ViewModel() {
                                     stickers = stickers
                                 )
                                 
-                                if (existingStickerIndex >= 0) {
-                                    existingStickerPacks[existingStickerIndex] = newStickerPack
-                                } else {
-                                    existingStickerPacks.add(newStickerPack)
-                                }
-                                
-                                stickerPacks = existingStickerPacks
+                                // Update singleton cache
+                                StickerPacksCache.updatePack(newStickerPack)
                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated sticker pack $packName with ${stickers.size} stickers")
                             }
                         }
@@ -15857,6 +15883,8 @@ class AppViewModel : ViewModel() {
         populateRecentEmojisFromCache()
         populatePendingInvitesFromCache()
         populateRoomMemberCacheFromCache()
+        populateEmojiPacksFromCache()
+        populateStickerPacksFromCache()
         
         // Start periodic cleanup job
         viewModelScope.launch {

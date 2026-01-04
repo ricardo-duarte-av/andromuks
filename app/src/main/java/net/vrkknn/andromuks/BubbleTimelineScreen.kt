@@ -3049,7 +3049,8 @@ fun BubbleTimelineScreen(
                         onDismiss = {
                             showEmojiPickerForText = false
                         },
-                        customEmojiPacks = appViewModel.customEmojiPacks
+                        customEmojiPacks = appViewModel.customEmojiPacks,
+                        allowCustomReactions = false
                     )
                 }
                 

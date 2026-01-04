@@ -107,6 +107,9 @@ fun ImageEmoji(
 
 /**
  * Emoji selection dialog with categories and recent emojis
+ * 
+ * @param allowCustomReactions If true, allows custom text reactions via search box (for reacting to messages).
+ *                             If false, search box is only for searching emojis (for inserting into message box).
  */
 @Composable
 fun EmojiSelectionDialog(
@@ -115,7 +118,8 @@ fun EmojiSelectionDialog(
     authToken: String,
     onEmojiSelected: (String) -> Unit,
     onDismiss: () -> Unit,
-    customEmojiPacks: List<net.vrkknn.andromuks.AppViewModel.EmojiPack> = emptyList()
+    customEmojiPacks: List<net.vrkknn.andromuks.AppViewModel.EmojiPack> = emptyList(),
+    allowCustomReactions: Boolean = true
 ) {
     // Calculate total categories: 1 (recent) + emojiCategories.size + customEmojiPacks.size
     val totalCategories = 1 + emojiCategories.size + customEmojiPacks.size
@@ -238,7 +242,7 @@ fun EmojiSelectionDialog(
                 OutlinedTextField(
                     value = searchText,
                     onValueChange = { searchText = it },
-                    placeholder = { Text("Search / Custom Reaction") },
+                    placeholder = { Text(if (allowCustomReactions) "Search / Custom Reaction" else "Search") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp),
@@ -350,25 +354,28 @@ fun EmojiSelectionDialog(
                     }
                     
                     // Custom reaction button if search text is not empty and not found in emojis
-                    val searchFound = baseEmojis.any { emoji ->
-                        when (emoji) {
-                            is String -> emoji.contains(searchText, ignoreCase = true)
-                            is net.vrkknn.andromuks.AppViewModel.CustomEmoji -> emoji.name.contains(searchText, ignoreCase = true)
-                            else -> false
+                    // Only show when allowCustomReactions is true (for reacting to messages)
+                    if (allowCustomReactions) {
+                        val searchFound = baseEmojis.any { emoji ->
+                            when (emoji) {
+                                is String -> emoji.contains(searchText, ignoreCase = true)
+                                is net.vrkknn.andromuks.AppViewModel.CustomEmoji -> emoji.name.contains(searchText, ignoreCase = true)
+                                else -> false
+                            }
                         }
-                    }
-                    if (searchText.isNotBlank() && !searchFound) {
-                        item(span = { GridItemSpan(8) }) {
-                            Button(
-                                onClick = { 
-                                    onEmojiSelected(searchText)
-                                    onDismiss()
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(8.dp)
-                            ) {
-                                Text("React with \"$searchText\"")
+                        if (searchText.isNotBlank() && !searchFound) {
+                            item(span = { GridItemSpan(8) }) {
+                                Button(
+                                    onClick = { 
+                                        onEmojiSelected(searchText)
+                                        onDismiss()
+                                    },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(8.dp)
+                                ) {
+                                    Text("React with \"$searchText\"")
+                                }
                             }
                         }
                     }
