@@ -811,7 +811,8 @@ class AppViewModel : ViewModel() {
     var currentRoomState by mutableStateOf<RoomState?>(null)
         private set
     
-    // Typing indicators for current room
+    // Typing indicators per room (roomId -> list of typing user IDs)
+    private val typingUsersMap = mutableMapOf<String, List<String>>()
     var typingUsers by mutableStateOf(listOf<String>())
         private set
     
@@ -2259,10 +2260,49 @@ class AppViewModel : ViewModel() {
     }
     
     fun updateTypingUsers(roomId: String, userIds: List<String>) {
-        // Only update if this is the current room
+        // Only update if room is in cache (opened or actively cached)
+        if (roomId.isBlank()) {
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Ignoring typing update with blank roomId")
+            return
+        }
+        
+        // Check if room is in cache - only update typing info for rooms we care about
+        val isRoomInCache = RoomTimelineCache.isRoomOpened(roomId) || RoomTimelineCache.isRoomActivelyCached(roomId)
+        
+        if (!isRoomInCache) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Ignoring typing update for room $roomId (not in cache)")
+            return
+        }
+        
+        // Store typing users per-room
+        typingUsersMap[roomId] = userIds
+        
+        // Update the current room's typing users if this is the current room
         if (currentRoomId == roomId) {
             typingUsers = userIds
         }
+        // Note: We don't clear typingUsers if this update is for a different room,
+        // as the current room's typing users should remain displayed
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated typing users for room $roomId: ${userIds.size} users typing (currentRoomId=$currentRoomId)")
+    }
+    
+    /**
+     * Get typing users for a specific room
+     */
+    fun getTypingUsersForRoom(roomId: String): List<String> {
+        return typingUsersMap[roomId] ?: emptyList()
+    }
+    
+    /**
+     * Clear typing users when switching rooms or when room is closed
+     */
+    fun clearTypingUsersForRoom(roomId: String) {
+        typingUsersMap.remove(roomId)
+        if (currentRoomId == roomId) {
+            typingUsers = emptyList()
+        }
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared typing users for room $roomId")
     }
     
     private fun normalizeTimestamp(primary: Long, vararg fallbacks: Long): Long {
@@ -2479,7 +2519,7 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Populate roomMemberCache from singleton cache
+     * Initialize member cache from singleton RoomMemberCache
      * This ensures member profiles persist across AppViewModel instances
      */
     fun populateRoomMemberCacheFromCache() {
@@ -2490,7 +2530,7 @@ class AppViewModel : ViewModel() {
                 // Member cache is accessed via getMemberProfile() which reads from cache
             }
         } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate roomMemberCache from cache", e)
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate member cache from RoomMemberCache", e)
         }
     }
     
@@ -2545,12 +2585,6 @@ class AppViewModel : ViewModel() {
     private data class CachedProfileEntry(var profile: MemberProfile, var lastAccess: Long)
     private val globalProfileCache = ConcurrentHashMap<String, CachedProfileEntry>()
     
-    // Legacy room member cache - now using singleton RoomMemberCache
-    // This is a computed property that reads from the singleton cache
-    @Deprecated("Use RoomMemberCache singleton directly instead")
-    private val roomMemberCache: Map<String, Map<String, MemberProfile>>
-        get() = RoomMemberCache.getAllMembers()
-    
     // OPTIMIZED EDIT/REDACTION SYSTEM - O(1) lookups for all operations
     // Now using singleton MessageVersionsCache
     // These are computed properties that read from the singleton cache
@@ -2600,7 +2634,7 @@ class AppViewModel : ViewModel() {
         }
         
         // Fallback to legacy cache (for compatibility during transition)
-        return roomMemberCache[roomId]?.get(userId)
+        return RoomMemberCache.getMember(roomId, userId)
     }
 
     /**
@@ -2636,10 +2670,9 @@ class AppViewModel : ViewModel() {
             }
         } else {
             // Fallback to legacy cache if index is empty
-            if (roomMemberCache.containsKey(roomId)) {
-                roomMemberCache[roomId]?.let { legacyMap ->
-                    memberMap.putAll(legacyMap)
-                }
+            val legacyMap = RoomMemberCache.getRoomMembers(roomId)
+            if (legacyMap.isNotEmpty()) {
+                memberMap.putAll(legacyMap)
             }
         }
         
@@ -2686,7 +2719,7 @@ class AppViewModel : ViewModel() {
         }
         
         // Fallback to legacy cache
-        return roomMemberCache[roomId]?.isEmpty() ?: true
+        return RoomMemberCache.getRoomMembers(roomId).isEmpty()
     }
     
     /**
@@ -3401,7 +3434,7 @@ class AppViewModel : ViewModel() {
             }
             
             // Fallback to legacy room member cache
-            val roomMember = roomMemberCache[roomId]?.get(userId)
+            val roomMember = RoomMemberCache.getMember(roomId, userId)
             if (roomMember != null) {
                 return roomMember
             }
@@ -4403,7 +4436,7 @@ class AppViewModel : ViewModel() {
             val existingRoomsSnapshot = synchronized(roomMap) { HashMap(roomMap) }
             val syncResult = SpaceRoomParser.parseSyncUpdate(
                 syncJson, 
-                roomMemberCache, 
+                RoomMemberCache.getAllMembers(), 
                 this@AppViewModel,
                 existingRooms = existingRoomsSnapshot // Pass snapshot to avoid concurrent modification
             )
@@ -4621,7 +4654,7 @@ class AppViewModel : ViewModel() {
                 // Parse sync data on background thread (200-500ms for large accounts)
                 val syncResult = SpaceRoomParser.parseSyncUpdate(
                     syncJson,
-                    roomMemberCache,
+                    RoomMemberCache.getAllMembers(),
                     this@AppViewModel,
                     existingRooms = synchronized(roomMap) { HashMap(roomMap) } // snapshot to avoid ConcurrentModification
                 )
@@ -4678,7 +4711,7 @@ class AppViewModel : ViewModel() {
         
         val syncResult = SpaceRoomParser.parseSyncUpdate(
             syncJson,
-            roomMemberCache,
+            RoomMemberCache.getAllMembers(),
             this,
             existingRooms = synchronized(roomMap) { HashMap(roomMap) } // snapshot to avoid ConcurrentModification
         )
@@ -5952,7 +5985,13 @@ class AppViewModel : ViewModel() {
         if (roomId.isNotEmpty()) {
             pendingRoomToRestore = null
         }
+        
+        // Update typing users for the new room when switching
+        val previousRoomId = currentRoomId
         currentRoomId = roomId
+        
+        // Update typingUsers to show typing users for the new room
+        typingUsers = getTypingUsersForRoom(roomId)
 
         val shouldPersistForNotifications = instanceRole != InstanceRole.BUBBLE
         if (!shouldPersistForNotifications) {
@@ -11294,7 +11333,7 @@ class AppViewModel : ViewModel() {
         }
         
         // Also update member cache for all rooms that already contain this user
-        roomMemberCache.forEach { (roomId, memberMap) ->
+        RoomMemberCache.getAllMembers().forEach { (roomId, memberMap) ->
             val existingMembers = RoomMemberCache.getRoomMembers(roomId)
             if (existingMembers.containsKey(userId)) {
                 storeMemberProfile(roomId, userId, memberProfile)
@@ -16325,7 +16364,7 @@ class AppViewModel : ViewModel() {
         
         // 3. User profiles memory cache size
         val flattenedCount = flattenedMemberCache.size
-        val roomMemberCount = roomMemberCache.values.sumOf { it.size }
+        val roomMemberCount = RoomMemberCache.getAllMembers().values.sumOf { it.size }
         val globalCount = globalProfileCache.size
         // Estimate: MemberProfile with strings is roughly 200-500 bytes
         val estimatedProfileMemory = (flattenedCount + roomMemberCount + globalCount) * 350L // 350 bytes per profile estimate

@@ -3,6 +3,7 @@ package net.vrkknn.andromuks.utils
 import net.vrkknn.andromuks.BuildConfig
 import android.util.Log
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -14,6 +15,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -229,6 +232,9 @@ fun StickerMessage(
     // Stickers are displayed without a caption bubble, just the image
     // Match image rendering pattern exactly
     if (event != null) {
+        // Track menu trigger counter (similar to MediaContent for images)
+        var triggerMenuFromSticker by remember { mutableStateOf(0) }
+        
         MessageBubbleWithMenu(
             event = event,
             bubbleColor = stickerBubbleColor,
@@ -249,7 +255,8 @@ fun StickerMessage(
             onEdit = onEdit,
             onDelete = onDelete,
             appViewModel = appViewModel,
-            onBubbleClick = onBubbleClick
+            onBubbleClick = onBubbleClick,
+            externalMenuTrigger = triggerMenuFromSticker
         ) {
             Column {
                 // Sticker content (similar to MediaContent for images)
@@ -258,7 +265,11 @@ fun StickerMessage(
                     homeserverUrl = homeserverUrl,
                     authToken = authToken,
                     isEncrypted = isEncrypted,
-                    onStickerClick = { showStickerViewer = true }
+                    onStickerClick = { showStickerViewer = true },
+                    onStickerLongPress = {
+                        // Trigger menu from sticker long press
+                        triggerMenuFromSticker++
+                    }
                 )
                 
                 // Timestamp (for consecutive messages) - matches MediaBubbleTimestamp pattern
@@ -294,14 +305,17 @@ fun stickerBubbleColorFor(
  * @param authToken Authentication token for accessing media
  * @param isEncrypted Whether this is encrypted media (adds ?encrypted=true to URL)
  * @param onStickerClick Callback when the sticker is clicked
+ * @param onStickerLongPress Callback when the sticker is long-pressed (optional)
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun StickerContent(
     stickerMessage: StickerMessage,
     homeserverUrl: String,
     authToken: String,
     isEncrypted: Boolean,
-    onStickerClick: () -> Unit = {}
+    onStickerClick: () -> Unit = {},
+    onStickerLongPress: (() -> Unit)? = null
 ) {
     // Use actual pixel dimensions from the sticker metadata
     // Display stickers at 100% zoom (1 pixel = 1 dp) for crisp rendering
@@ -408,12 +422,12 @@ private fun StickerContent(
                 contentDescription = stickerMessage.body,
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(Unit) {
-                        detectTapGestures(
-                            onTap = { onStickerClick() }
-                            // Don't handle onLongPress - let it bubble up to MessageBubbleWithMenu
-                        )
-                    },
+                    .combinedClickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { onStickerClick() },
+                        onLongClick = { onStickerLongPress?.invoke() }
+                    ),
                 placeholder = placeholderPainter,
                 error = placeholderPainter,
                 onSuccess = {

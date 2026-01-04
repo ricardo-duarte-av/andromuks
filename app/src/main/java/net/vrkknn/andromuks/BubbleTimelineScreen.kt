@@ -2096,7 +2096,7 @@ fun BubbleTimelineScreen(
                     
                     // 3. Typing notification area (stacks naturally above text box)
                     TypingNotificationArea(
-                        typingUsers = appViewModel.typingUsers,
+                        typingUsers = appViewModel.getTypingUsersForRoom(roomId),
                         roomId = roomId,
                         homeserverUrl = homeserverUrl,
                         authToken = authToken,
