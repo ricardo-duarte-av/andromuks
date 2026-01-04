@@ -1320,7 +1320,8 @@ private fun RoomTextMessageContent(
                 messageSender = event.sender,
                 eventId = event.eventId,
                 roomId = event.roomId,
-                onUserClick = onUserClick
+                onUserClick = onUserClick,
+                isMine = true
             )
             Spacer(modifier = Modifier.width(ReadReceiptGap))
         }
@@ -1535,7 +1536,8 @@ private fun RoomTextMessageContent(
                 messageSender = event.sender,
                 eventId = event.eventId,
                 roomId = event.roomId,
-                onUserClick = onUserClick
+                onUserClick = onUserClick,
+                isMine = false
             )
         }
     }
@@ -2126,7 +2128,8 @@ private fun EncryptedMessageContent(
                         messageSender = event.sender,
                         eventId = event.eventId,
                         roomId = event.roomId,
-                        onUserClick = onUserClick
+                        onUserClick = onUserClick,
+                        isMine = true
                     )
                     Spacer(modifier = Modifier.width(ReadReceiptGap))
                 }
@@ -2315,7 +2318,8 @@ private fun EncryptedMessageContent(
                             messageSender = event.sender,
                             eventId = event.eventId,
                             roomId = event.roomId,
-                            onUserClick = onUserClick
+                            onUserClick = onUserClick,
+                            isMine = false
                         )
                 }
             }
@@ -2459,7 +2463,8 @@ private fun StickerMessageContent(
                     messageSender = event.sender,
                     eventId = event.eventId,
                     roomId = event.roomId,
-                    onUserClick = onUserClick
+                    onUserClick = onUserClick,
+                    isMine = true
                 )
                 Spacer(modifier = Modifier.width(ReadReceiptGap))
             }
@@ -2526,8 +2531,9 @@ private fun StickerMessageContent(
                 if (actualIsMine) Arrangement.End else Arrangement.Start,
             verticalAlignment = Alignment.Top
         ) {
-            // For my messages, show read receipts on the left of the bubble
-            if (actualIsMine && readReceipts.isNotEmpty()) {
+            // For other users' messages, show read receipts on the right
+            if (!actualIsMine && readReceipts.isNotEmpty()) {
+                Spacer(modifier = Modifier.width(ReadReceiptGap))
                 AnimatedInlineReadReceiptAvatars(
                     receipts = readReceipts,
                     userProfileCache = userProfileCache,
@@ -2537,9 +2543,9 @@ private fun StickerMessageContent(
                     messageSender = event.sender,
                     eventId = event.eventId,
                     roomId = event.roomId,
-                    onUserClick = onUserClick
+                    onUserClick = onUserClick,
+                    isMine = false
                 )
-                Spacer(modifier = Modifier.width(ReadReceiptGap))
             }
 
             StickerMessage(
@@ -2577,7 +2583,8 @@ private fun StickerMessageContent(
                     messageSender = event.sender,
                     eventId = event.eventId,
                     roomId = event.roomId,
-                    onUserClick = onUserClick
+                    onUserClick = onUserClick,
+                    isMine = false
                 )
             }
         }

@@ -2,6 +2,7 @@ package net.vrkknn.andromuks.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
@@ -24,6 +25,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import android.os.Build
 import android.util.Log
 import coil.compose.AsyncImage
@@ -103,12 +107,40 @@ fun AvatarImage(
     }
     
     // Compute fallback info
-    val fallbackLetter = remember(displayName, userId, fallbackText) {
-        if (userId != null) {
+    val fallbackLetter = remember(displayName, userId, fallbackText, size) {
+        val letter = if (userId != null) {
             AvatarUtils.getFallbackCharacter(displayName, userId)
         } else {
             fallbackText.take(1).uppercase()
         }
+        
+        // For small avatars (read markers), use circled letter emoji for better visibility
+        // Circled letters: ⓐ-ⓩ (U+24B6-U+24CF) for lowercase, Ⓐ-Ⓩ (U+24B6-U+24CF) for uppercase
+        if (size.value <= 16) { // Small avatars (read markers are 14.dp)
+            val char = letter.firstOrNull() ?: '?'
+            if (char.isLetter()) {
+                val base = if (char.isUpperCase()) 0x24B6 else 0x24D0 // Ⓐ or ⓐ
+                val offset = char.code - (if (char.isUpperCase()) 'A'.code else 'a'.code)
+                if (offset in 0..25) {
+                    String(Character.toChars(base + offset))
+                } else {
+                    letter
+                }
+            } else {
+                letter
+            }
+        } else {
+            letter
+        }
+    }
+    
+    // Calculate proportional font size based on avatar size (approximately 55% of circle size)
+    // This ensures the letter/emoji is properly sized and centered for all circle sizes
+    val fallbackFontSize = remember(size, density) {
+        // Convert size to pixels, calculate 55% of it, then convert back to sp
+        val sizeInPx = with(density) { size.toPx() }
+        val fontSizeInPx = sizeInPx * 0.55f
+        with(density) { fontSizeInPx.toSp() }
     }
     
     val backgroundColor = remember(userId) {
@@ -149,11 +181,19 @@ fun AvatarImage(
             }
             // Show text fallback if no URL, failed to load, or not visible yet
             avatarUrl == null || imageLoadFailed || !shouldLoadImage -> {
-                Text(
-                    text = fallbackLetter,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = Color.White
-                )
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = fallbackLetter,
+                        fontSize = fallbackFontSize,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        lineHeight = fallbackFontSize
+                    )
+                }
             }
             // Load the actual avatar image with lazy loading optimization
             else -> {

@@ -359,6 +359,7 @@ fun SystemEventNarrator(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             // Read receipts (left of timestamp)
+            // System events are not "mine", so use isMine = false (others' style)
             if (readReceipts.isNotEmpty()) {
                 InlineReadReceiptAvatars(
                     receipts = readReceipts,
@@ -368,7 +369,8 @@ fun SystemEventNarrator(
                     appViewModel = appViewModel,
                     messageSender = event.sender,
                     roomId = roomId,
-                    onUserClick = onUserClick
+                    onUserClick = onUserClick,
+                    isMine = false
                 )
             }
             

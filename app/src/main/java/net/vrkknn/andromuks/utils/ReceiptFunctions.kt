@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -39,9 +40,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import net.vrkknn.andromuks.AppViewModel
@@ -271,7 +274,8 @@ fun InlineReadReceiptAvatars(
     appViewModel: AppViewModel?,
     messageSender: String,
     roomId: String? = null,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
+    isMine: Boolean = false
 ) {
     val context = LocalContext.current
     var showReceiptDialog by remember { mutableStateOf(false) }
@@ -329,67 +333,100 @@ fun InlineReadReceiptAvatars(
     
     if (filteredReceipts.isNotEmpty()) {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Rendering ${filteredReceipts.size} read receipt avatars")
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(1.dp),
-            verticalAlignment = Alignment.Top,
-            modifier = Modifier.padding(top = 4.dp) // Align with the top of message bubble (which also has top = 4.dp)
-        ) {
-            // Show up to 3 avatars, with a "+X" indicator if there are more
-            val maxAvatars = 3
-            val avatarsToShow = filteredReceipts.take(maxAvatars)
-            val remainingCount = filteredReceipts.size - maxAvatars
-            
-            avatarsToShow.forEach { receipt ->
-                // Get profile from AppViewModel directly to ensure we get the latest data
-                val userProfile = appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
-                val avatarUrl = userProfile?.avatarUrl
-                val displayName = userProfile?.displayName
-                
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Rendering avatar for user: ${receipt.userId}")
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile source - AppViewModel: ${appViewModel?.getUserProfile(receipt.userId, roomId) != null}, Cache: ${userProfileCache[receipt.userId] != null}")
-                if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Final profile - displayName: $displayName, avatarUrl: $avatarUrl")
-                
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clickable { 
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "Read receipt avatar clicked for user: ${receipt.userId}")
-                            showReceiptDialog = true
-                        }
-                ) {
-                    AvatarImage(
-                        mxcUrl = avatarUrl,
-                        homeserverUrl = homeserverUrl,
-                        authToken = authToken,
-                        fallbackText = (displayName ?: receipt.userId).take(1),
-                        size = 16.dp,
-                        userId = receipt.userId,
-                        displayName = displayName
-                    )
-                }
+        // Show up to 3 avatars, with a "+X" indicator if there are more
+        val maxAvatars = 3
+        val avatarsToShow = filteredReceipts.take(maxAvatars)
+        val remainingCount = filteredReceipts.size - maxAvatars
+        
+        // Build list of items to display (avatars + optional + indicator)
+        // IMPORTANT: + indicator must be last in the list so it's drawn on top
+        val itemsToDisplay = mutableListOf<Pair<ReadReceipt?, Int>>() // (receipt, index) or (null, index) for + indicator
+        if (isMine) {
+            // For "my messages": show + on the left (index 0), then avatars
+            // But draw + last so it appears on top
+            avatarsToShow.forEachIndexed { index, receipt ->
+                itemsToDisplay.add(Pair(receipt, index + 1)) // Avatars start at index 1
             }
-            
-            // Show "+" indicator if there are more than maxAvatars
             if (remainingCount > 0) {
-                Box(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .clickable {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "Read receipt + indicator clicked")
-                            showReceiptDialog = true
-                        }
-                        .background(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = CircleShape
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = "+",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold
-                    )
+                itemsToDisplay.add(Pair(null, 0)) // + at index 0, but added last to draw on top
+            }
+        } else {
+            // For "others' messages": show avatars first, then + on the right (last index)
+            // Draw + last so it appears on top
+            avatarsToShow.reversed().forEachIndexed { index, receipt ->
+                itemsToDisplay.add(Pair(receipt, index))
+            }
+            if (remainingCount > 0) {
+                itemsToDisplay.add(Pair(null, avatarsToShow.size)) // + at last index, added last to draw on top
+            }
+        }
+        
+        // Circle diameter and overlap calculation
+        val circleSize = 22.dp // Reduced from 24.dp to make fallback text fit better
+        val avatarSize = 14.dp // Reduced from 16.dp to make fallback text fit better
+        val plusCircleSize = 16.dp // Smaller circle for + indicator
+        val overlap = circleSize * 0.4f // More compact overlap (8.8.dp)
+        
+        Box(
+            modifier = Modifier.padding(top = 4.dp) // Align with the top of message bubble
+        ) {
+            itemsToDisplay.forEachIndexed { displayIndex, (receipt, originalIndex) ->
+                val offsetX = (originalIndex * overlap.value).dp
+                
+                if (receipt != null) {
+                    // Get profile from AppViewModel directly to ensure we get the latest data
+                    val userProfile = appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
+                    val avatarUrl = userProfile?.avatarUrl
+                    val displayName = userProfile?.displayName
+                    
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Rendering avatar for user: ${receipt.userId}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Profile source - AppViewModel: ${appViewModel?.getUserProfile(receipt.userId, roomId) != null}, Cache: ${userProfileCache[receipt.userId] != null}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineReadReceiptAvatars: Final profile - displayName: $displayName, avatarUrl: $avatarUrl")
+                    
+                    Box(
+                        modifier = Modifier
+                            .size(circleSize)
+                            .offset(x = offsetX, y = 0.dp)
+                            .clickable { 
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "Read receipt avatar clicked for user: ${receipt.userId}")
+                                showReceiptDialog = true
+                            }
+                    ) {
+                        AvatarImage(
+                            mxcUrl = avatarUrl,
+                            homeserverUrl = homeserverUrl,
+                            authToken = authToken,
+                            fallbackText = (displayName ?: receipt.userId).take(1),
+                            size = avatarSize,
+                            userId = receipt.userId,
+                            displayName = displayName
+                        )
+                    }
+                } else {
+                    // "+" indicator
+                    Box(
+                        modifier = Modifier
+                            .size(plusCircleSize)
+                            .offset(x = offsetX, y = 0.dp)
+                            .clickable {
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "Read receipt + indicator clicked")
+                                showReceiptDialog = true
+                            }
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "+",
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 12.sp
+                        )
+                    }
                 }
             }
         }
@@ -417,7 +454,8 @@ fun AnimatedInlineReadReceiptAvatars(
     messageSender: String,
     eventId: String,
     roomId: String? = null,
-    onUserClick: (String) -> Unit = {}
+    onUserClick: (String) -> Unit = {},
+    isMine: Boolean = false
 ) {
     val context = LocalContext.current
     var showReceiptDialog by remember { mutableStateOf(false) }
@@ -475,76 +513,109 @@ fun AnimatedInlineReadReceiptAvatars(
     }
     
     if (filteredReceipts.isNotEmpty()) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(1.dp),
-            verticalAlignment = Alignment.Top,
+        // Show up to 3 avatars, with a "+X" indicator if there are more
+        val maxAvatars = 3
+        val avatarsToShow = filteredReceipts.take(maxAvatars)
+        val remainingCount = filteredReceipts.size - maxAvatars
+        
+        // Build list of items to display (avatars + optional + indicator)
+        // IMPORTANT: + indicator must be last in the list so it's drawn on top
+        val itemsToDisplay = mutableListOf<Pair<ReadReceipt?, Int>>() // (receipt, index) or (null, index) for + indicator
+        if (isMine) {
+            // For "my messages": show + on the left (index 0), then avatars
+            // But draw + last so it appears on top
+            avatarsToShow.forEachIndexed { index, receipt ->
+                itemsToDisplay.add(Pair(receipt, index + 1)) // Avatars start at index 1
+            }
+            if (remainingCount > 0) {
+                itemsToDisplay.add(Pair(null, 0)) // + at index 0, but added last to draw on top
+            }
+        } else {
+            // For "others' messages": show avatars first, then + on the right (last index)
+            // Draw + last so it appears on top
+            avatarsToShow.reversed().forEachIndexed { index, receipt ->
+                itemsToDisplay.add(Pair(receipt, index))
+            }
+            if (remainingCount > 0) {
+                itemsToDisplay.add(Pair(null, avatarsToShow.size)) // + at last index, added last to draw on top
+            }
+        }
+        
+        // Circle diameter and overlap calculation
+        val circleSize = 22.dp // Reduced from 24.dp to make fallback text fit better
+        val avatarSize = 14.dp // Reduced from 16.dp to make fallback text fit better
+        val plusCircleSize = 16.dp // Smaller circle for + indicator
+        val overlap = circleSize * 0.4f // More compact overlap (8.8.dp)
+        
+        Box(
             modifier = Modifier.padding(top = 4.dp) // Align with the top of message bubble
         ) {
-            // Show up to 3 avatars, with a "+X" indicator if there are more
-            val maxAvatars = 3
-            val avatarsToShow = filteredReceipts.take(maxAvatars)
-            val remainingCount = filteredReceipts.size - maxAvatars
-            
-            avatarsToShow.forEach { receipt ->
-                // Get profile from AppViewModel directly to ensure we get the latest data
-                val userProfile = appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
-                val avatarUrl = userProfile?.avatarUrl
-                val displayName = userProfile?.displayName
+            itemsToDisplay.forEachIndexed { displayIndex, (receipt, originalIndex) ->
+                val offsetX = (originalIndex * overlap.value).dp
                 
-                // Check if this receipt is animating in from another message
-                val isAnimatingIn = receiptMovementsToNewEvent.containsKey(receipt.userId)
-                
-                // Use simple animated visibility with enhanced enter animation for moved receipts
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn(animationSpec = tween(durationMillis = if (isAnimatingIn) 500 else 200)),
-                    exit = fadeOut(animationSpec = tween(durationMillis = 200))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clickable { 
-                                showReceiptDialog = true
-                            }
+                if (receipt != null) {
+                    // Get profile from AppViewModel directly to ensure we get the latest data
+                    val userProfile = appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
+                    val avatarUrl = userProfile?.avatarUrl
+                    val displayName = userProfile?.displayName
+                    
+                    // Check if this receipt is animating in from another message
+                    val isAnimatingIn = receiptMovementsToNewEvent.containsKey(receipt.userId)
+                    
+                    // Use simple animated visibility with enhanced enter animation for moved receipts
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn(animationSpec = tween(durationMillis = if (isAnimatingIn) 500 else 200)),
+                        exit = fadeOut(animationSpec = tween(durationMillis = 200))
                     ) {
-                        AvatarImage(
-                            mxcUrl = avatarUrl,
-                            homeserverUrl = homeserverUrl,
-                            authToken = authToken,
-                            fallbackText = (displayName ?: receipt.userId).take(1),
-                            size = 16.dp,
-                            userId = receipt.userId,
-                            displayName = displayName
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(circleSize)
+                                .offset(x = offsetX, y = 0.dp)
+                                .clickable { 
+                                    showReceiptDialog = true
+                                }
+                        ) {
+                            AvatarImage(
+                                mxcUrl = avatarUrl,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                fallbackText = (displayName ?: receipt.userId).take(1),
+                                size = avatarSize,
+                                userId = receipt.userId,
+                                displayName = displayName
+                            )
+                        }
                     }
-                }
-            }
-            
-            // Show "+" indicator if there are more than maxAvatars
-            if (remainingCount > 0) {
-                AnimatedVisibility(
-                    visible = true,
-                    enter = fadeIn(animationSpec = tween(300)),
-                    exit = fadeOut(animationSpec = tween(200))
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(24.dp)
-                            .clickable {
-                                showReceiptDialog = true
-                            }
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant,
-                                shape = CircleShape
-                            ),
-                        contentAlignment = Alignment.Center
+                } else {
+                    // "+" indicator
+                    AnimatedVisibility(
+                        visible = true,
+                        enter = fadeIn(animationSpec = tween(300)),
+                        exit = fadeOut(animationSpec = tween(200))
                     ) {
-                        Text(
-                            text = "+$remainingCount",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(plusCircleSize)
+                                .offset(x = offsetX, y = 0.dp)
+                                .clickable {
+                                    showReceiptDialog = true
+                                }
+                                .background(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = CircleShape
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "+",
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                lineHeight = 12.sp
+                            )
+                        }
                     }
                 }
             }
