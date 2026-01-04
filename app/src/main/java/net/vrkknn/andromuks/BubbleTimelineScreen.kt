@@ -474,10 +474,22 @@ fun BubbleTimelineScreen(
         val required = pl.events["m.room.message"] ?: pl.eventsDefault
         myPl >= required
     }
+    
+    // Track websocket connection state
+    var websocketConnected by remember { mutableStateOf(appViewModel.isWebSocketConnected()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            websocketConnected = appViewModel.isWebSocketConnected()
+            kotlinx.coroutines.delay(500) // Poll every 500ms
+        }
+    }
+    
+    // Combined input enabled state (permission AND websocket connection)
+    val isInputEnabled = canSendMessage && websocketConnected
 
     if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
-        "BubbleTimelineScreen: Timeline events count: ${timelineEvents.size}, isLoading: $isLoading"
+        "BubbleTimelineScreen: Timeline events count: ${timelineEvents.size}, isLoading: $isLoading, websocketConnected: $websocketConnected"
     )
 
     // Reply state
@@ -2126,14 +2138,14 @@ fun BubbleTimelineScreen(
                             modifier = Modifier.width(48.dp).height(buttonHeight)
                         ) {
                             IconButton(
-                                enabled = canSendMessage,
-                                onClick = { if (canSendMessage) showAttachmentMenu = !showAttachmentMenu },
+                                enabled = isInputEnabled,
+                                onClick = { if (isInputEnabled) showAttachmentMenu = !showAttachmentMenu },
                                 modifier = Modifier.fillMaxSize()
                             ) {
                                 Icon(
                                     imageVector = Icons.Filled.AttachFile,
                                     contentDescription = "Attach",
-                                    tint = MaterialTheme.colorScheme.primary
+                                    tint = if (isInputEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                                 )
                             }
                         }
@@ -2343,8 +2355,9 @@ fun BubbleTimelineScreen(
                                 // Text input field with mention + emoji shortcode support
                                 CustomBubbleTextField(
                                     value = textFieldValue,
+                                    enabled = isInputEnabled,
                                     onValueChange = { newValue: TextFieldValue ->
-                                        if (!canSendMessage) return@CustomBubbleTextField
+                                        if (!isInputEnabled) return@CustomBubbleTextField
                                         // First, handle custom emoji deletion (backspace on :name:)
                                         val afterDeletion = handleCustomEmojiDeletion(textFieldValue, newValue)
                                         
@@ -2401,7 +2414,11 @@ fun BubbleTimelineScreen(
                                     },
                                     placeholder = {
                                         Text(
-                                            text = if (canSendMessage) "Type a message..." else "You don't have permission to send messages",
+                                            text = when {
+                                                !canSendMessage -> "You don't have permission to send messages"
+                                                !websocketConnected -> "Waiting for connection..."
+                                                else -> "Type a message..."
+                                            },
                                             style = MaterialTheme.typography.labelSmall,
                                             fontStyle = FontStyle.Italic,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -2425,25 +2442,27 @@ fun BubbleTimelineScreen(
                                         ) {
                                             // Sticker button
                                             IconButton(
-                                                onClick = { showStickerPickerForText = true },
+                                                enabled = isInputEnabled,
+                                                onClick = { if (isInputEnabled) showStickerPickerForText = true },
                                                 modifier = Modifier.size(24.dp)
                                             ) {
                                                 @Suppress("DEPRECATION")
                                                 Icon(
                                                     imageVector = Icons.Outlined.StickyNote2,
                                                     contentDescription = "Stickers",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    tint = if (isInputEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                                                 )
                                             }
                                             // Emoji button
                                             IconButton(
-                                                onClick = { showEmojiPickerForText = true },
+                                                enabled = isInputEnabled,
+                                                onClick = { if (isInputEnabled) showEmojiPickerForText = true },
                                                 modifier = Modifier.size(24.dp)
                                             ) {
                                                 Icon(
                                                     imageVector = Icons.Filled.Mood,
                                                     contentDescription = "Emoji",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    tint = if (isInputEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                                                 )
                                             }
                                         }
@@ -2456,10 +2475,10 @@ fun BubbleTimelineScreen(
                                     ),
                                     keyboardActions = KeyboardActions(
                                         onSend = {
-                                            if (!canSendMessage) {
+                                            if (!isInputEnabled) {
                                                 android.widget.Toast.makeText(
                                                     context,
-                                                    "You don't have permission to send messages",
+                                                    if (!websocketConnected) "Waiting for connection..." else "You don't have permission to send messages",
                                                     android.widget.Toast.LENGTH_SHORT
                                                 ).show()
                                                 return@KeyboardActions
@@ -2509,10 +2528,10 @@ fun BubbleTimelineScreen(
                         
                         Button(
                             onClick = {
-                                if (!canSendMessage) {
+                                if (!isInputEnabled) {
                                     android.widget.Toast.makeText(
                                         context,
-                                        "You don't have permission to send messages",
+                                        if (!websocketConnected) "Waiting for connection..." else "You don't have permission to send messages",
                                         android.widget.Toast.LENGTH_SHORT
                                     ).show()
                                     return@Button
@@ -2550,7 +2569,7 @@ fun BubbleTimelineScreen(
                                     draft = "" // Clear the input after sending
                                 }
                             },
-                            enabled = draft.isNotBlank() && canSendMessage,
+                            enabled = draft.isNotBlank() && isInputEnabled,
                             shape = CircleShape, // Perfect circle
                             colors =
                                 ButtonDefaults.buttonColors(

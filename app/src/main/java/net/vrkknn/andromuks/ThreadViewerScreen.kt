@@ -65,6 +65,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -368,6 +369,18 @@ fun ThreadViewerScreen(
     var emojiStartIndex by remember { mutableStateOf(-1) }
     var showEmojiPickerForText by remember { mutableStateOf(false) }
     var showStickerPickerForText by remember { mutableStateOf(false) }
+    
+    // Track websocket connection state
+    var websocketConnected by remember { mutableStateOf(appViewModel.isWebSocketConnected()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            websocketConnected = appViewModel.isWebSocketConnected()
+            kotlinx.coroutines.delay(500) // Poll every 500ms
+        }
+    }
+    
+    // Combined input enabled state (threads allow all members to reply, so only check websocket)
+    val isInputEnabled = websocketConnected
     
     // Text input state (moved here to be accessible by mention handler)
     var draft by remember { mutableStateOf("") }
@@ -930,13 +943,14 @@ fun ThreadViewerScreen(
                                 modifier = Modifier.width(48.dp).height(buttonHeight)
                             ) {
                                 IconButton(
-                                    onClick = { showAttachmentMenu = !showAttachmentMenu },
+                                    enabled = isInputEnabled,
+                                    onClick = { if (isInputEnabled) showAttachmentMenu = !showAttachmentMenu },
                                     modifier = Modifier.fillMaxSize()
                                 ) {
                                     Icon(
                                         imageVector = Icons.Filled.AttachFile,
                                         contentDescription = "Attach",
-                                        tint = MaterialTheme.colorScheme.primary
+                                        tint = if (isInputEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                                     )
                                 }
                             }
@@ -1207,6 +1221,7 @@ fun ThreadViewerScreen(
 
                                     CustomBubbleTextField(
                                         value = textFieldValue,
+                                        enabled = isInputEnabled,
                                         onValueChange = { newValue ->
                                             // Custom emoji backspace handling
                                             val afterDeletion = handleCustomEmojiDeletion(textFieldValue, newValue)
@@ -1249,7 +1264,14 @@ fun ThreadViewerScreen(
                                                 showEmojiSuggestionList = false
                                             }
                                         },
-                                        placeholder = { Text("Reply in thread...") },
+                                        placeholder = {
+                                            Text(
+                                                text = if (websocketConnected) "Reply in thread..." else "Waiting for connection...",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontStyle = FontStyle.Italic,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        },
                                         modifier = Modifier.fillMaxWidth(),
                                         minLines = 1,
                                         maxLines = 5,
@@ -1266,23 +1288,25 @@ fun ThreadViewerScreen(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 IconButton(
-                                                    onClick = { showStickerPickerForText = true },
+                                                    enabled = isInputEnabled,
+                                                    onClick = { if (isInputEnabled) showStickerPickerForText = true },
                                                     modifier = Modifier.size(24.dp)
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Outlined.StickyNote2,
                                                         contentDescription = "Stickers",
-                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        tint = if (isInputEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                                                     )
                                                 }
                                                 IconButton(
-                                                    onClick = { showEmojiPickerForText = true },
+                                                    enabled = isInputEnabled,
+                                                    onClick = { if (isInputEnabled) showEmojiPickerForText = true },
                                                     modifier = Modifier.size(24.dp)
                                                 ) {
                                                     Icon(
                                                         imageVector = Icons.Filled.Mood,
                                                         contentDescription = "Emoji",
-                                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        tint = if (isInputEnabled) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                                                     )
                                                 }
                                             }
@@ -1373,7 +1397,7 @@ fun ThreadViewerScreen(
                                         draft = ""
                                     }
                                 },
-                                enabled = draft.isNotBlank(),
+                                enabled = draft.isNotBlank() && isInputEnabled,
                                 shape = CircleShape,
                                 colors =
                                     ButtonDefaults.buttonColors(
