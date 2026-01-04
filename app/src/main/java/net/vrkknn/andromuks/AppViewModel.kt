@@ -820,8 +820,19 @@ class AppViewModel : ViewModel() {
     private val TYPING_SEND_INTERVAL = 3000L // 3 seconds instead of 1 second
     
     // Message reactions: eventId -> list of reactions
-    var messageReactions by mutableStateOf(mapOf<String, List<MessageReaction>>())
-        private set
+    // Now using singleton MessageReactionsCache - synced for UI reactivity
+    private var _messageReactions by mutableStateOf(mapOf<String, List<MessageReaction>>())
+    var messageReactions: Map<String, List<MessageReaction>>
+        get() = MessageReactionsCache.getAllReactions().also { 
+            // Sync state with cache for UI reactivity
+            if (_messageReactions != it) {
+                _messageReactions = it
+            }
+        }
+        private set(value) {
+            MessageReactionsCache.setAll(value)
+            _messageReactions = value
+        }
     
     // Track processed reaction events to prevent duplicate processing
     private val processedReactions = mutableSetOf<String>()
@@ -831,8 +842,19 @@ class AppViewModel : ViewModel() {
         private set
     
     // Recent emojis for reactions (stored as list of strings for UI)
-    var recentEmojis by mutableStateOf(listOf<String>())
-        private set
+    // Now using singleton RecentEmojisCache - synced for UI reactivity
+    private var _recentEmojis by mutableStateOf(listOf<String>())
+    var recentEmojis: List<String>
+        get() = RecentEmojisCache.getAll().also {
+            // Sync state with cache for UI reactivity
+            if (_recentEmojis != it) {
+                _recentEmojis = it
+            }
+        }
+        private set(value) {
+            RecentEmojisCache.set(value)
+            _recentEmojis = value
+        }
     
     // Internal storage for emoji frequencies: list of [emoji, count] pairs
     private var recentEmojiFrequencies = mutableListOf<Pair<String, Int>>()
@@ -1211,6 +1233,7 @@ class AppViewModel : ViewModel() {
         roomsWithLoadedReceiptsFromDb.clear()
         roomsWithLoadedReactionsFromDb.clear()
         lastKnownDbLatestEventId.clear()
+        MessageReactionsCache.clear()
         messageReactions = emptyMap()
         readReceiptsUpdateCounter++
         
@@ -2273,8 +2296,9 @@ class AppViewModel : ViewModel() {
         }
         
         val previousReactions = messageReactions[reactionEvent.relatesToEventId] ?: emptyList()
-        messageReactions = net.vrkknn.andromuks.utils.processReactionEvent(reactionEvent, currentRoomId, messageReactions)
-        val updatedReactions = messageReactions[reactionEvent.relatesToEventId] ?: emptyList()
+        val updatedReactionsMap = net.vrkknn.andromuks.utils.processReactionEvent(reactionEvent, currentRoomId, messageReactions)
+        messageReactions = updatedReactionsMap // This will update both cache and state
+        val updatedReactions = updatedReactionsMap[reactionEvent.relatesToEventId] ?: emptyList()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processReactionEvent - eventId: ${reactionEvent.eventId}, logicalKey: $reactionKey, previous=${previousReactions.size}, updated=${updatedReactions.size}, reactionUpdateCounter: $reactionUpdateCounter")
         
         if (!isHistorical) {
@@ -2400,6 +2424,71 @@ class AppViewModel : ViewModel() {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to populate readReceipts from cache", e)
         }
     }
+    
+    /**
+     * Populate messageReactions from singleton cache
+     * This ensures reactions persist across AppViewModel instances
+     */
+    fun populateMessageReactionsFromCache() {
+        try {
+            val cachedReactions = MessageReactionsCache.getAllReactions()
+            if (cachedReactions.isNotEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateMessageReactionsFromCache - populated with ${cachedReactions.size} events from cache")
+                messageReactions = cachedReactions
+                reactionUpdateCounter++
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate messageReactions from cache", e)
+        }
+    }
+    
+    /**
+     * Populate recentEmojis from singleton cache
+     * This ensures recent emojis persist across AppViewModel instances
+     */
+    fun populateRecentEmojisFromCache() {
+        try {
+            val cachedEmojis = RecentEmojisCache.getAll()
+            if (cachedEmojis.isNotEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateRecentEmojisFromCache - populated with ${cachedEmojis.size} emojis from cache")
+                recentEmojis = cachedEmojis
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate recentEmojis from cache", e)
+        }
+    }
+    
+    /**
+     * Populate pendingInvites from singleton cache
+     * This ensures invites persist across AppViewModel instances
+     */
+    fun populatePendingInvitesFromCache() {
+        try {
+            val cachedInvites = PendingInvitesCache.getAllInvites()
+            if (cachedInvites.isNotEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populatePendingInvitesFromCache - populated with ${cachedInvites.size} invites from cache")
+                // Invites are accessed via getPendingInvites() which reads from cache
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate pendingInvites from cache", e)
+        }
+    }
+    
+    /**
+     * Populate roomMemberCache from singleton cache
+     * This ensures member profiles persist across AppViewModel instances
+     */
+    fun populateRoomMemberCacheFromCache() {
+        try {
+            val cachedMembers = RoomMemberCache.getAllMembers()
+            if (cachedMembers.isNotEmpty()) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: populateRoomMemberCacheFromCache - populated with ${cachedMembers.size} rooms from cache")
+                // Member cache is accessed via getMemberProfile() which reads from cache
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to populate roomMemberCache from cache", e)
+        }
+    }
 
     // Use a thread-safe Map to avoid ConcurrentModificationException when snapshots are taken
     private val roomMap = java.util.concurrent.ConcurrentHashMap<String, RoomItem>()
@@ -2420,18 +2509,43 @@ class AppViewModel : ViewModel() {
     private data class CachedProfileEntry(var profile: MemberProfile, var lastAccess: Long)
     private val globalProfileCache = ConcurrentHashMap<String, CachedProfileEntry>()
     
-    // Legacy room member cache (deprecated, kept for compatibility)
-    private val roomMemberCache = ConcurrentHashMap<String, ConcurrentHashMap<String, MemberProfile>>()
+    // Legacy room member cache - now using singleton RoomMemberCache
+    // This is a computed property that reads from the singleton cache
+    @Deprecated("Use RoomMemberCache singleton directly instead")
+    private val roomMemberCache: Map<String, Map<String, MemberProfile>>
+        get() = RoomMemberCache.getAllMembers()
     
     // OPTIMIZED EDIT/REDACTION SYSTEM - O(1) lookups for all operations
-    // Maps original event ID to its complete version history
-    private val messageVersions = mutableMapOf<String, VersionedMessage>()
+    // Now using singleton MessageVersionsCache
+    // These are computed properties that read from the singleton cache
+    private val messageVersions: Map<String, VersionedMessage>
+        get() = MessageVersionsCache.getAllVersions()
     
-    // Maps edit event ID back to original event ID for quick lookup
-    private val editToOriginal = mutableMapOf<String, String>()
+    private val editToOriginal: Map<String, String>
+        get() = MessageVersionsCache.getAllVersions().flatMap { (originalId, versioned) ->
+            versioned.versions.filter { !it.isOriginal && it.eventId != originalId }
+                .map { it.eventId to originalId }
+        }.toMap()
     
-    // Maps redacted event ID to the redaction event for O(1) deletion message creation
-    private val redactionCache = mutableMapOf<String, TimelineEvent>()
+    private val redactionCache: Map<String, TimelineEvent>
+        get() = MessageVersionsCache.getAllVersions()
+            .filter { it.value.redactionEvent != null }
+            .mapNotNull { (eventId, versioned) ->
+                versioned.redactionEvent?.let { eventId to it }
+            }.toMap()
+    
+    // Helper methods to update MessageVersionsCache
+    private fun updateMessageVersion(originalEventId: String, versionedMessage: VersionedMessage) {
+        MessageVersionsCache.updateVersion(originalEventId, versionedMessage)
+    }
+    
+    private fun clearMessageVersions() {
+        MessageVersionsCache.clear()
+    }
+    
+    private fun clearMessageVersionsForRoom(roomId: String) {
+        MessageVersionsCache.clearForRoom(roomId)
+    }
 
     fun getMemberProfile(roomId: String, userId: String): MemberProfile? {
         // MEMORY MANAGEMENT: Try room-specific cache first (only exists if profile differs from global)
@@ -2587,8 +2701,8 @@ class AppViewModel : ViewModel() {
         }
         
         // Also maintain legacy cache for compatibility (but this will be deprecated)
-        val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
-        memberMap[userId] = profile
+        // Update singleton RoomMemberCache
+        RoomMemberCache.updateMember(roomId, userId, profile)
         
         // MEMORY MANAGEMENT: Cleanup if cache gets too large
         if (flattenedMemberCache.size > MAX_MEMBER_CACHE_SIZE) {
@@ -2729,8 +2843,7 @@ class AppViewModel : ViewModel() {
                     isOriginal = false
                 ))
                 
-                // Store reverse mapping for quick lookup
-                editToOriginal[editEvent.eventId] = eventId
+                // editToOriginal mapping is handled by MessageVersionsCache.updateVersion
             }
             
             // Sort by timestamp (newest first)
@@ -2743,7 +2856,7 @@ class AppViewModel : ViewModel() {
             )
             
             // Cache in memory for future lookups
-            messageVersions[eventId] = versioned
+            MessageVersionsCache.updateVersion(eventId, versioned)
             
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedVersions.size} versions from DB for event $eventId (${editEntities.size} edits)")
             
@@ -3348,16 +3461,13 @@ class AppViewModel : ViewModel() {
                     val redactsEventId = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
                     
                     if (redactsEventId != null) {
-                        // Store in redaction cache for O(1) lookup
-                        redactionCache[redactsEventId] = event
-                        
                         // Mark the original message as redacted
                         val versioned = messageVersions[redactsEventId]
                         if (versioned != null) {
-                            messageVersions[redactsEventId] = versioned.copy(
+                            MessageVersionsCache.updateVersion(redactsEventId, versioned.copy(
                                 redactedBy = event.eventId,
                                 redactionEvent = event
-                            )
+                            ))
                         } else {
                             // Redaction came before the original event - create placeholder
                             // This will be updated when the original event arrives
@@ -3377,8 +3487,8 @@ class AppViewModel : ViewModel() {
                     val originalEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
                     
                     if (originalEventId != null) {
-                        // Store reverse mapping for quick lookup
-                        editToOriginal[event.eventId] = originalEventId
+                        // Store reverse mapping for quick lookup (handled by MessageVersionsCache)
+                        // editToOriginal is computed from messageVersions
                         
                         val versioned = messageVersions[originalEventId]
                         if (versioned != null) {
@@ -3400,14 +3510,14 @@ class AppViewModel : ViewModel() {
                                 updatedVersions
                             }
                             
-                            messageVersions[originalEventId] = versioned.copy(
+                            val updatedVersioned = versioned.copy(
                                 versions = limitedVersions
                             )
                             
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added edit ${event.eventId} to original $originalEventId (total versions: ${updatedVersions.size})")
                         } else {
                             // Edit came before original - create placeholder with just the edit
-                            messageVersions[originalEventId] = VersionedMessage(
+                            MessageVersionsCache.updateVersion(originalEventId, VersionedMessage(
                                 originalEventId = originalEventId,
                                 originalEvent = event,  // Temporary, will be replaced when original arrives
                                 versions = listOf(MessageVersion(
@@ -3416,7 +3526,7 @@ class AppViewModel : ViewModel() {
                                     timestamp = event.timestamp,
                                     isOriginal = false
                                 ))
-                            )
+                            ))
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Edit ${event.eventId} received before original $originalEventId - created placeholder")
                         }
                     }
@@ -3441,15 +3551,15 @@ class AppViewModel : ViewModel() {
                             originalVersion
                         )
                         
-                        messageVersions[event.eventId] = existing.copy(
+                        MessageVersionsCache.updateVersion(event.eventId, existing.copy(
                             originalEvent = event,
                             versions = updatedVersions
-                        )
+                        ))
                         
                         //android.util.Log.d("Andromuks", "AppViewModel: Updated original event ${event.eventId} with ${updatedVersions.size} total versions")
                     } else {
                         // First time seeing this message - create new versioned message
-                        messageVersions[event.eventId] = VersionedMessage(
+                        MessageVersionsCache.updateVersion(event.eventId, VersionedMessage(
                             originalEventId = event.eventId,
                             originalEvent = event,
                             versions = listOf(MessageVersion(
@@ -3458,7 +3568,7 @@ class AppViewModel : ViewModel() {
                                 timestamp = event.timestamp,
                                 isOriginal = true
                             ))
-                        )
+                        ))
                     }
                 }
             }
@@ -3519,7 +3629,9 @@ class AppViewModel : ViewModel() {
         // Second pass: Process only rooms with member events
         for ((roomId, roomObj) in roomsWithMemberEvents) {
             val events = roomObj.optJSONArray("events") ?: continue
-            val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
+            // Get existing members from singleton cache or create empty map
+            val existingMembers = RoomMemberCache.getRoomMembers(roomId)
+            val memberMap = existingMembers.toMutableMap()
             
             // Process member events
             for (i in 0 until events.length()) {
@@ -3543,6 +3655,9 @@ class AppViewModel : ViewModel() {
                                 
                                 val profile = MemberProfile(displayName, avatarUrl)
                                 val previousProfile = memberMap[userId]
+                                
+                                // Update singleton cache
+                                RoomMemberCache.updateMember(roomId, userId, profile)
                                 
                                 // Check if this is actually a new join (not just a profile change)
                                 val isNewJoin = previousProfile == null
@@ -3684,11 +3799,14 @@ class AppViewModel : ViewModel() {
                     if (sortedFrequencies.isNotEmpty()) {
                         // Store frequencies and update UI list
                         recentEmojiFrequencies = sortedFrequencies.toMutableList()
-                        recentEmojis = sortedFrequencies.map { it.first }
+                        val emojisList = sortedFrequencies.map { it.first }
+                        RecentEmojisCache.set(emojisList)
+                        recentEmojis = emojisList
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedFrequencies.size} recent emojis from account_data: ${sortedFrequencies.take(5).joinToString(", ") { "${it.first}(${it.second})" }}${if (sortedFrequencies.size > 5) "..." else ""}")
                     } else {
                         // Key is present but array is empty - clear recent emojis
                         recentEmojiFrequencies.clear()
+                        RecentEmojisCache.clear()
                         recentEmojis = emptyList()
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: io.element.recent_emoji is present but empty, cleared recent emojis")
                     }
@@ -4175,7 +4293,7 @@ class AppViewModel : ViewModel() {
                         withContext(Dispatchers.Main) {
                             // Update in-memory pendingInvites map
                             invites.forEach { invite ->
-                                pendingInvites[invite.roomId] = invite
+                                PendingInvitesCache.updateInvite(invite)
                             }
                             // Trigger UI update to show invites
                             needsRoomListUpdate = true
@@ -4309,6 +4427,7 @@ class AppViewModel : ViewModel() {
         roomsWithLoadedReceiptsFromDb.clear()
         roomsWithLoadedReactionsFromDb.clear()
         lastKnownDbLatestEventId.clear()
+        MessageReactionsCache.clear()
         messageReactions = emptyMap()
         
         // Also clear derived account_data caches so the next full sync repopulates from the
@@ -4321,12 +4440,18 @@ class AppViewModel : ViewModel() {
         stickerPacks = emptyList()
         
         // Clear pending invites - new invites will come from clear_state sync_complete
-        pendingInvites.clear()
+        PendingInvitesCache.clear()
         
         // CRITICAL: Clear singleton RoomListCache when clear_state=true is received
         // This ensures that when WebSocket reconnects after primary AppViewModel dies,
         // all AppViewModel instances (including new ones) start with a clean cache
         RoomListCache.clear()
+        ReadReceiptCache.clear()
+        MessageReactionsCache.clear()
+        RecentEmojisCache.clear()
+        PendingInvitesCache.clear()
+        MessageVersionsCache.clear()
+        RoomMemberCache.clear()
         
         // Force room list refresh to reflect cleared state until new data arrives
         needsRoomListUpdate = true
@@ -4417,7 +4542,7 @@ class AppViewModel : ViewModel() {
                         withContext(Dispatchers.Main) {
                             // Update in-memory pendingInvites map
                             invites.forEach { invite ->
-                                pendingInvites[invite.roomId] = invite
+                                PendingInvitesCache.updateInvite(invite)
                             }
                             // Trigger UI update to show invites
                             needsRoomListUpdate = true
@@ -4712,7 +4837,7 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Detected ${acceptedInvites.size} invites already joined via sync - removing pending invites")
                 
                 acceptedInvites.forEach { roomId ->
-                    pendingInvites.remove(roomId)
+                    PendingInvitesCache.removeInvite(roomId)
                 }
                 
                 // Invites are in-memory only - no database cleanup needed
@@ -6213,7 +6338,22 @@ class AppViewModel : ViewModel() {
     // Only messages with timestamp NEWER than this will animate
     // This ensures paginated (old) messages don't animate, only truly new messages do
     private var roomOpenTimestamps = mutableMapOf<String, Long>() // roomId -> openTimestamp
-    private val pendingInvites = mutableMapOf<String, RoomInvite>() // roomId -> RoomInvite
+    // Now using singleton PendingInvitesCache
+    private val pendingInvites: Map<String, RoomInvite>
+        get() = PendingInvitesCache.getAllInvites()
+    
+    // Helper methods to update PendingInvitesCache
+    private fun updatePendingInvite(invite: RoomInvite) {
+        PendingInvitesCache.updateInvite(invite)
+    }
+    
+    private fun removePendingInvite(roomId: String) {
+        PendingInvitesCache.removeInvite(roomId)
+    }
+    
+    private fun clearPendingInvites() {
+        PendingInvitesCache.clear()
+    }
     private val roomSummaryRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val joinRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
     private val leaveRoomRequests = mutableMapOf<Int, String>() // requestId -> roomId
@@ -7825,9 +7965,10 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Clearing eventChainMap (had ${eventChainMap.size} entries) before processing ${cachedEvents.size} cached events")
         eventChainMap.clear()
         editEventsMap.clear()
-        messageVersions.clear()
-        editToOriginal.clear()
-        redactionCache.clear()
+        MessageVersionsCache.clear()
+        // editToOriginal is computed from messageVersions, no need to clear separately
+        // redactionCache is computed from messageVersions, no need to clear separately
+        MessageReactionsCache.clear()
         messageReactions = emptyMap()
         roomsWithLoadedReceiptsFromDb.remove(roomId)
         roomsWithLoadedReactionsFromDb.remove(roomId)
@@ -7838,10 +7979,7 @@ class AppViewModel : ViewModel() {
         isPaginating = false
         hasMoreMessages = true
         
-        // Ensure member cache exists for this room
-        if (roomMemberCache[roomId] == null) {
-            roomMemberCache[roomId] = ConcurrentHashMap()
-        }
+        // Ensure member cache exists for this room (singleton cache handles this automatically)
         
         // Populate edit chain mapping from cached events
         // Process synchronously to ensure all events are added before building timeline
@@ -8662,6 +8800,7 @@ class AppViewModel : ViewModel() {
                     }
 
                     if (changed) {
+                        MessageReactionsCache.setAll(updated)
                         messageReactions = updated
                         reactionUpdateCounter++
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored reactions for ${reactionsByEvent.size} events in room $roomId")
@@ -9119,20 +9258,18 @@ class AppViewModel : ViewModel() {
             editEventsMap.clear()
             
             // Clear optimized version cache when opening a new room
-            messageVersions.clear()
-            editToOriginal.clear()
-            redactionCache.clear()
+            MessageVersionsCache.clear()
+            // editToOriginal is computed from messageVersions, no need to clear separately
+            // redactionCache is computed from messageVersions, no need to clear separately
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared version cache for new room: $roomId")
             
             // Clear message reactions when switching rooms
-            messageReactions = emptyMap()
+            MessageReactionsCache.clear()
+        messageReactions = emptyMap()
             roomsWithLoadedReactionsFromDb.remove(roomId)
         }
         
-        // Ensure member cache exists for this room
-        if (roomMemberCache[roomId] == null) {
-            roomMemberCache[roomId] = ConcurrentHashMap()
-        }
+        // Ensure member cache exists for this room (singleton cache handles this automatically)
         
         // NAVIGATION PERFORMANCE: Partial loading - only request what's not already available
         val missNavigationState = getRoomNavigationState(roomId)
@@ -9203,9 +9340,10 @@ class AppViewModel : ViewModel() {
         
         eventChainMap.clear()
         editEventsMap.clear()
-        messageVersions.clear()
-        editToOriginal.clear()
-        redactionCache.clear()
+        MessageVersionsCache.clear()
+        // editToOriginal is computed from messageVersions, no need to clear separately
+        // redactionCache is computed from messageVersions, no need to clear separately
+        MessageReactionsCache.clear()
         messageReactions = emptyMap()
         
         // Clear new message tracking and room-open timestamp
@@ -9328,12 +9466,13 @@ class AppViewModel : ViewModel() {
         // 4. Clear edit chain mapping and version cache
         eventChainMap.clear()
         editEventsMap.clear()
-        messageVersions.clear()
-        editToOriginal.clear()
-        redactionCache.clear()
+        MessageVersionsCache.clear()
+        // editToOriginal is computed from messageVersions, no need to clear separately
+        // redactionCache is computed from messageVersions, no need to clear separately
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared version cache for room: $roomId")
         
         // 5. Clear message reactions
+        MessageReactionsCache.clear()
         messageReactions = emptyMap()
         roomsWithLoadedReceiptsFromDb.remove(roomId)
         roomsWithLoadedReactionsFromDb.remove(roomId)
@@ -9447,20 +9586,18 @@ class AppViewModel : ViewModel() {
                 // Clear and rebuild internal structures
                 eventChainMap.clear()
                 editEventsMap.clear()
-                messageVersions.clear()
-                editToOriginal.clear()
-                redactionCache.clear()
-                messageReactions = emptyMap()
+                MessageVersionsCache.clear()
+                // editToOriginal is computed from messageVersions, no need to clear separately
+                // redactionCache is computed from messageVersions, no need to clear separately
+                MessageReactionsCache.clear()
+        messageReactions = emptyMap()
                 
                 // Reset pagination state
                 smallestRowId = -1L
                 isPaginating = false
                 hasMoreMessages = true
                 
-                // Ensure member cache exists for this room
-                if (roomMemberCache[roomId] == null) {
-                    roomMemberCache[roomId] = ConcurrentHashMap()
-                }
+                // Ensure member cache exists for this room (singleton cache handles this automatically)
                 
                 // Populate edit chain mapping from cached events
                 for (event in cachedEvents) {
@@ -10297,7 +10434,9 @@ class AppViewModel : ViewModel() {
         
         // Update internal storage and UI list
         recentEmojiFrequencies = updatedFrequencies.toMutableList()
-        recentEmojis = updatedFrequencies.map { it.first }
+                        val emojisList = updatedFrequencies.map { it.first }
+                        RecentEmojisCache.set(emojisList)
+                        recentEmojis = emojisList
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated recent emojis, ${updatedFrequencies.size} total, emoji '$emoji' now has count ${updatedFrequencies.find { it.first == emoji }?.second ?: 1}")
         
@@ -11120,9 +11259,10 @@ class AppViewModel : ViewModel() {
         
         // Also update member cache for all rooms that already contain this user
         roomMemberCache.forEach { (roomId, memberMap) ->
-            if (memberMap.containsKey(userId)) {
+            val existingMembers = RoomMemberCache.getRoomMembers(roomId)
+            if (existingMembers.containsKey(userId)) {
                 storeMemberProfile(roomId, userId, memberProfile)
-                memberMap[userId] = memberProfile
+                RoomMemberCache.updateMember(roomId, userId, memberProfile)
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated member cache with username '$username' for $userId in room $roomId")
             }
         }
@@ -11154,16 +11294,16 @@ class AppViewModel : ViewModel() {
         // This will automatically clean up room-specific entries that now match global
         updateGlobalProfile(userId, memberProfile)
         
-        // Update legacy cache for compatibility (but this will be deprecated)
+        // Update singleton cache
         if (requestingRoomId != null) {
-            val memberMap = roomMemberCache.computeIfAbsent(requestingRoomId) { ConcurrentHashMap() }
-            memberMap[userId] = memberProfile
+            RoomMemberCache.updateMember(requestingRoomId, userId, memberProfile)
         }
         
-        // Also update legacy cache for all rooms that already contain this user
-        roomMemberCache.forEach { (roomId, memberMap) ->
+        // Also update singleton cache for all rooms that already contain this user
+        val allRooms = RoomMemberCache.getAllMembers()
+        allRooms.forEach { (roomId, memberMap) ->
             if (memberMap.containsKey(userId)) {
-                memberMap[userId] = memberProfile
+                RoomMemberCache.updateMember(roomId, userId, memberProfile)
             }
         }
         
@@ -11252,11 +11392,13 @@ class AppViewModel : ViewModel() {
      * Manages room member cache size to prevent memory issues.
      */
     private fun manageRoomMemberCacheSize(roomId: String) {
-        val memberMap = roomMemberCache[roomId]
-        if (memberMap != null && memberMap.size > 500) {
-            // Clear oldest entries to make room
+        val memberMap = RoomMemberCache.getRoomMembers(roomId)
+        if (memberMap.size > 500) {
+            // Clear oldest entries to make room (take first 250)
             val keysToRemove = memberMap.keys.take(250)
-            keysToRemove.forEach { memberMap.remove(it) }
+            keysToRemove.forEach { userId ->
+                RoomMemberCache.removeMember(roomId, userId)
+            }
             android.util.Log.w("Andromuks", "AppViewModel: Cleared ${keysToRemove.size} old entries from room $roomId cache")
         }
     }
@@ -11744,7 +11886,7 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processEventsArray called with ${eventsArray.length()} events from server")
             val timelineList = mutableListOf<TimelineEvent>()
             val allEvents = mutableListOf<TimelineEvent>()  // For version processing
-            val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
+            val memberMap = RoomMemberCache.getRoomMembers(roomId)
             
             var ownMessageCount = 0
             var reactionProcessedCount = 0
@@ -11769,7 +11911,12 @@ class AppViewModel : ViewModel() {
                     
                     // Process member events using helper function
                     if (event.type == "m.room.member" && event.timelineRowid == -1L) {
-                        processMemberEvent(event, memberMap)
+                        val mutableMemberMap = memberMap.toMutableMap()
+                        processMemberEvent(event, mutableMemberMap)
+                        // Update singleton cache with changes
+                        mutableMemberMap.forEach { (userId, profile) ->
+                            RoomMemberCache.updateMember(roomId, userId, profile)
+                        }
                     } else {
                         // Process reaction events using helper function
                         if (event.type == "m.reaction") {
@@ -12768,13 +12915,14 @@ class AppViewModel : ViewModel() {
         val startTime = System.currentTimeMillis()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsing full member list from ${events.length()} room state events for room: $roomId")
         
-        val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
-        
         // Clear existing cache to ensure we don't have stale invite members or other invalid entries
         // Since this is a full member list request, we want to start fresh
-        val previousSize = memberMap.size
-        memberMap.clear()
+        val previousSize = RoomMemberCache.getRoomMembers(roomId).size
+        RoomMemberCache.clearRoom(roomId)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared $previousSize existing members from cache for fresh member list")
+        
+        // Use a local mutable map to build up the new member list
+        val memberMap = mutableMapOf<String, MemberProfile>()
         
         var updatedMembers = 0
         val isLargeRoom = events.length() > 100
@@ -12799,6 +12947,9 @@ class AppViewModel : ViewModel() {
                             
                             val newProfile = MemberProfile(displayName, avatarUrl)
                             memberMap[stateKey] = newProfile
+                            
+                            // Update singleton cache
+                            RoomMemberCache.updateMember(roomId, stateKey, newProfile)
                             
                             // Use storeMemberProfile to ensure optimization (only store room-specific if differs from global)
                             storeMemberProfile(roomId, stateKey, newProfile)
@@ -12836,6 +12987,7 @@ class AppViewModel : ViewModel() {
                         "leave", "ban" -> {
                             // Remove members who left or were banned
                             val wasRemoved = memberMap.remove(stateKey) != null
+                            RoomMemberCache.removeMember(roomId, stateKey)
                             val flattenedKey = "$roomId:$stateKey"
                             val wasRemovedFromFlattened = flattenedMemberCache.remove(flattenedKey) != null
                             
@@ -12875,7 +13027,9 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsing ${events.length()} member events for profile update in room: $roomId")
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Member events data: ${events.toString()}")
         
-        val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
+        // Get existing members from singleton cache
+        val existingMembers = RoomMemberCache.getRoomMembers(roomId)
+        val memberMap = existingMembers.toMutableMap()
         var updatedProfiles = 0
         val processedUserIds = mutableSetOf<String>()
         
@@ -12906,6 +13060,7 @@ class AppViewModel : ViewModel() {
                             previousProfile.avatarUrl != avatarUrl) {
                             
                             memberMap[stateKey] = newProfile
+                            RoomMemberCache.updateMember(roomId, stateKey, newProfile)
                             
                             // Use storeMemberProfile to ensure optimization (only store room-specific if differs from global)
                             storeMemberProfile(roomId, stateKey, newProfile)
@@ -13059,7 +13214,7 @@ class AppViewModel : ViewModel() {
             val roomData = rooms.optJSONObject(roomId) ?: continue
             val events = roomData.optJSONArray("events") ?: continue
             
-            val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
+            val memberMap = RoomMemberCache.getRoomMembers(roomId)
             RoomTimelineCache.addEventsFromSync(roomId, events, memberMap)
         }
     }
@@ -13134,7 +13289,7 @@ class AppViewModel : ViewModel() {
     }
     private fun processSyncEventsArray(eventsArray: JSONArray, roomId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: processSyncEventsArray called with ${eventsArray.length()} events")
-        val memberMap = roomMemberCache.computeIfAbsent(roomId) { ConcurrentHashMap() }
+        val memberMap = RoomMemberCache.getRoomMembers(roomId)
         
         // Process events in timestamp order for clean edit handling
         val events = mutableListOf<TimelineEvent>()
@@ -13185,7 +13340,7 @@ class AppViewModel : ViewModel() {
                     val avatarUrl = content.optString("avatar_url")?.takeIf { it.isNotBlank() }
                     if (displayName != null || avatarUrl != null) {
                         val profile = MemberProfile(displayName, avatarUrl)
-                        memberMap[userId] = profile
+                        RoomMemberCache.updateMember(roomId, userId, profile)
                         // PERFORMANCE: Also add to global cache for O(1) lookups
                         globalProfileCache[userId] = CachedProfileEntry(profile, System.currentTimeMillis())
                     }
@@ -14125,7 +14280,14 @@ class AppViewModel : ViewModel() {
                     if (event.type == "m.room.redaction") {
                         val redactsEventId = event.content?.optString("redacts")?.takeIf { it.isNotBlank() }
                         if (redactsEventId != null) {
-                            redactionCache[redactsEventId] = event
+                            // redactionCache is computed from messageVersions, handled by MessageVersionsCache.updateVersion
+                            val versioned = messageVersions[redactsEventId]
+                            if (versioned != null) {
+                                MessageVersionsCache.updateVersion(redactsEventId, versioned.copy(
+                                    redactedBy = event.eventId,
+                                    redactionEvent = event
+                                ))
+                            }
                         }
                     }
                 }
@@ -14530,7 +14692,7 @@ class AppViewModel : ViewModel() {
         ))
         
         // Remove from pending invites (in-memory only)
-        pendingInvites.remove(roomId)
+        PendingInvitesCache.removeInvite(roomId)
         
         // Invites are in-memory only - no database cleanup needed
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed invite from memory: $roomId")
@@ -14549,7 +14711,7 @@ class AppViewModel : ViewModel() {
         ))
         
         // Remove from pending invites (in-memory only)
-        pendingInvites.remove(roomId)
+        PendingInvitesCache.removeInvite(roomId)
         
         // Invites are in-memory only - no database cleanup needed
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed invite from memory: $roomId")
@@ -15688,9 +15850,13 @@ class AppViewModel : ViewModel() {
         // Note: Activity log will be loaded when loadStateFromStorage is called from AuthCheck
         logActivity("App Started")
         
-        // Populate read receipts from singleton cache on initialization
-        // This ensures receipts are available even when AppViewModel is recreated
+        // Populate all singleton caches on initialization
+        // This ensures data is available even when AppViewModel is recreated
         populateReadReceiptsFromCache()
+        populateMessageReactionsFromCache()
+        populateRecentEmojisFromCache()
+        populatePendingInvitesFromCache()
+        populateRoomMemberCacheFromCache()
         
         // Start periodic cleanup job
         viewModelScope.launch {
@@ -15719,11 +15885,9 @@ class AppViewModel : ViewModel() {
             }.keys
             
             if (versionsToRemove.isNotEmpty()) {
-                versionsToRemove.forEach { eventId ->
-                    messageVersions.remove(eventId)
-                    editToOriginal.remove(eventId)
-                    redactionCache.remove(eventId)
-                }
+                // Note: MessageVersionsCache doesn't have per-event removal, so we clear all
+                // In practice, this cleanup happens rarely and clearing all is acceptable
+                MessageVersionsCache.clear()
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleaned up ${versionsToRemove.size} old message versions")
             }
             
@@ -16205,7 +16369,7 @@ class AppViewModel : ViewModel() {
         roomMap.remove(roomId)
         
         // Remove from pending invites (in-memory only)
-        pendingInvites.remove(roomId)
+        PendingInvitesCache.removeInvite(roomId)
         
         // Clear current room if it's the deleted room
         if (currentRoomId == roomId) {
