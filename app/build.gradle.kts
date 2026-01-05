@@ -15,7 +15,9 @@ android {
         minSdk = 24
         targetSdk = 36
         // Increment versionCode for each release (must be higher than previous version)
-        versionCode = (System.getenv("BUILD_NUMBER")?.toIntOrNull() ?: 2)
+        // Uses BUILD_NUMBER env var if set (for CI/CD), otherwise uses timestamp-based version
+        versionCode = System.getenv("BUILD_NUMBER")?.toIntOrNull() 
+            ?: ((System.currentTimeMillis() / 1000).toInt()) // Unix timestamp in seconds (fits in Int until 2038)
         // Update versionName for each release (e.g., 1.0, 1.1, 1.2, 2.0)
         versionName = "1.0.1"
 
