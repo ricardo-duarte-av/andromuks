@@ -2574,16 +2574,9 @@ class AppViewModel : ViewModel() {
     // These should be sorted to the top of the room list
     private val newlyJoinedRoomIds = mutableSetOf<String>()
 
-    // MEMORY MANAGEMENT: Flattened member cache for better memory usage and performance
-    // Using roomId:userId as key instead of nested maps to reduce memory fragmentation
-    private val flattenedMemberCache = ConcurrentHashMap<String, MemberProfile>() // Key: "roomId:userId"
-    
-    // OPTIMIZED: Indexed cache for fast room lookups (avoids string prefix checks)
-    private val roomMemberIndex = ConcurrentHashMap<String, MutableSet<String>>() // Key: roomId, Value: Set of userIds
-    
-    // Global user profile cache with access timestamps for LRU-style cleanup
-    private data class CachedProfileEntry(var profile: MemberProfile, var lastAccess: Long)
-    private val globalProfileCache = ConcurrentHashMap<String, CachedProfileEntry>()
+    // MEMORY MANAGEMENT: Profile caches are now singletons (ProfileCache)
+    // This ensures profiles are shared across all AppViewModel instances
+    // No instance variables needed - all access goes through ProfileCache singleton
     
     // OPTIMIZED EDIT/REDACTION SYSTEM - O(1) lookups for all operations
     // Now using singleton MessageVersionsCache
@@ -2619,17 +2612,15 @@ class AppViewModel : ViewModel() {
 
     fun getMemberProfile(roomId: String, userId: String): MemberProfile? {
         // MEMORY MANAGEMENT: Try room-specific cache first (only exists if profile differs from global)
-        val flattenedKey = "$roomId:$userId"
-        val flattenedProfile = flattenedMemberCache[flattenedKey]
+        val flattenedProfile = ProfileCache.getFlattenedProfile(roomId, userId)
         if (flattenedProfile != null) {
             return flattenedProfile
         }
         
         // If no room-specific profile, check global cache
-        val globalProfileEntry = globalProfileCache[userId]
-        val globalProfile = globalProfileEntry?.profile
+        val globalProfile = ProfileCache.getGlobalProfileProfile(userId)
         if (globalProfile != null) {
-            globalProfileEntry.lastAccess = System.currentTimeMillis()
+            ProfileCache.updateGlobalProfileAccess(userId)
             return globalProfile
         }
         
@@ -2651,19 +2642,17 @@ class AppViewModel : ViewModel() {
         val memberMap = mutableMapOf<String, MemberProfile>()
         
         // Try indexed lookup first - get room-specific profiles
-        val userIds = roomMemberIndex[roomId]
+        val userIds = ProfileCache.getRoomUserIds(roomId)
         if (userIds != null && userIds.isNotEmpty()) {
             for (userId in userIds) {
-                val flattenedKey = "$roomId:$userId"
-                val profile = flattenedMemberCache[flattenedKey]
+                val profile = ProfileCache.getFlattenedProfile(roomId, userId)
                 if (profile != null) {
                     memberMap[userId] = profile
                 } else {
                     // Room-specific profile doesn't exist, check global cache
-                    val globalProfileEntry = globalProfileCache[userId]
-                    val globalProfile = globalProfileEntry?.profile
+                    val globalProfile = ProfileCache.getGlobalProfileProfile(userId)
                     if (globalProfile != null) {
-                        globalProfileEntry.lastAccess = System.currentTimeMillis()
+                        ProfileCache.updateGlobalProfileAccess(userId)
                         memberMap[userId] = globalProfile
                     }
                 }
@@ -2673,6 +2662,32 @@ class AppViewModel : ViewModel() {
             val legacyMap = RoomMemberCache.getRoomMembers(roomId)
             if (legacyMap.isNotEmpty()) {
                 memberMap.putAll(legacyMap)
+            }
+        }
+        
+        // CRITICAL FIX: Also check global cache for users in this room's timeline events
+        // This ensures profiles are found even if they're not in the room index
+        // (e.g., when a user has a global profile but hasn't been indexed for this room)
+        // Check both current timelineEvents (for current room) and RoomTimelineCache (for any room)
+        val eventsToCheck = if (currentRoomId == roomId && timelineEvents.isNotEmpty()) {
+            timelineEvents
+        } else {
+            // For other rooms, check RoomTimelineCache
+            RoomTimelineCache.getCachedEvents(roomId) ?: emptyList()
+        }
+        
+        if (eventsToCheck.isNotEmpty()) {
+            for (event in eventsToCheck) {
+                val sender = event.sender
+                if (!memberMap.containsKey(sender)) {
+                    // Check global cache for this user
+                    val globalProfile = ProfileCache.getGlobalProfileProfile(sender)
+                    if (globalProfile != null) {
+                        ProfileCache.updateGlobalProfileAccess(sender)
+                        memberMap[sender] = globalProfile
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added global profile fallback for $sender in room $roomId via getMemberMap()")
+                    }
+                }
             }
         }
         
@@ -2691,10 +2706,9 @@ class AppViewModel : ViewModel() {
                 val sender = event.sender
                 if (!memberMap.containsKey(sender)) {
                     // Check global cache and add to member map if found
-                    val globalProfileEntry = globalProfileCache[sender]
-                    val globalProfile = globalProfileEntry?.profile
+                    val globalProfile = ProfileCache.getGlobalProfileProfile(sender)
                     if (globalProfile != null) {
-                        globalProfileEntry.lastAccess = System.currentTimeMillis()
+                        ProfileCache.updateGlobalProfileAccess(sender)
                         memberMap[sender] = globalProfile
                         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added global profile fallback for $sender in room $roomId")
                     }
@@ -2713,7 +2727,7 @@ class AppViewModel : ViewModel() {
     }
     fun isMemberCacheEmpty(roomId: String): Boolean {
         // MEMORY MANAGEMENT: Check if any flattened entries exist for this room
-        val hasFlattenedEntries = flattenedMemberCache.keys.any { it.startsWith("$roomId:") }
+        val hasFlattenedEntries = ProfileCache.hasFlattenedEntriesForRoom(roomId)
         if (hasFlattenedEntries) {
             return false
         }
@@ -2736,17 +2750,15 @@ class AppViewModel : ViewModel() {
      */
     private fun storeMemberProfile(roomId: String, userId: String, profile: MemberProfile) {
         // Check existing global profile BEFORE updating (to compare)
-        val existingGlobalProfileEntry = globalProfileCache[userId]
+        val existingGlobalProfileEntry = ProfileCache.getGlobalProfile(userId)
         val existingGlobalProfile = existingGlobalProfileEntry?.profile
-        
-        val flattenedKey = "$roomId:$userId"
         
         if (existingGlobalProfile == null) {
             // No global profile yet - set this as global, don't store room-specific
-            globalProfileCache[userId] = CachedProfileEntry(profile, System.currentTimeMillis())
+            ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
             // Remove any existing room-specific entry (cleanup)
-            flattenedMemberCache.remove(flattenedKey)
-            roomMemberIndex[roomId]?.remove(userId)
+            ProfileCache.removeFlattenedProfile(roomId, userId)
+            ProfileCache.removeFromRoomIndex(roomId, userId)
         } else {
             // Global profile exists - compare
             val profilesDiffer = existingGlobalProfile.displayName != profile.displayName ||
@@ -2754,18 +2766,18 @@ class AppViewModel : ViewModel() {
             
             if (profilesDiffer) {
                 // Profile differs from global - store room-specific entry
-                flattenedMemberCache[flattenedKey] = profile
+                ProfileCache.setFlattenedProfile(roomId, userId, profile)
                 
                 // OPTIMIZED: Update indexed cache for fast lookups
-                roomMemberIndex.getOrPut(roomId) { ConcurrentHashMap.newKeySet() }.add(userId)
+                ProfileCache.addToRoomIndex(roomId, userId)
                 
                 // DON'T update global here - it should come from explicit profile requests
                 // This prevents global from drifting and ensures consistency
             } else {
                 // Profile matches global - remove room-specific entry if it exists (cleanup)
-                flattenedMemberCache.remove(flattenedKey)
+                ProfileCache.removeFlattenedProfile(roomId, userId)
                 // Also remove from index if present
-                roomMemberIndex[roomId]?.remove(userId)
+                ProfileCache.removeFromRoomIndex(roomId, userId)
             }
         }
         
@@ -2774,7 +2786,7 @@ class AppViewModel : ViewModel() {
         RoomMemberCache.updateMember(roomId, userId, profile)
         
         // MEMORY MANAGEMENT: Cleanup if cache gets too large
-        if (flattenedMemberCache.size > MAX_MEMBER_CACHE_SIZE) {
+        if (ProfileCache.getFlattenedCacheSize() > MAX_MEMBER_CACHE_SIZE) {
             performMemberCacheCleanup()
         }
     }
@@ -2785,41 +2797,21 @@ class AppViewModel : ViewModel() {
      * When global profile is updated, we should re-evaluate room-specific entries.
      */
     fun updateGlobalProfile(userId: String, profile: MemberProfile) {
-        val existingGlobalProfileEntry = globalProfileCache[userId]
+        val existingGlobalProfileEntry = ProfileCache.getGlobalProfile(userId)
         val existingGlobalProfile = existingGlobalProfileEntry?.profile
         
         // Update global profile
-        globalProfileCache[userId] = CachedProfileEntry(profile, System.currentTimeMillis())
+        ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
         
         // If global profile changed, clean up room-specific entries that now match global
         if (existingGlobalProfile != null && 
             (existingGlobalProfile.displayName != profile.displayName ||
              existingGlobalProfile.avatarUrl != profile.avatarUrl)) {
             
-            // Find all room-specific entries for this user and remove those that now match global
-            val keysToRemove = mutableListOf<String>()
-            for ((key, roomProfile) in flattenedMemberCache) {
-                if (key.endsWith(":$userId")) {
-                    // Check if room profile now matches the new global profile
-                    if (roomProfile.displayName == profile.displayName &&
-                        roomProfile.avatarUrl == profile.avatarUrl) {
-                        keysToRemove.add(key)
-                        
-                        // Also remove from index
-                        val roomId = key.substringBefore(":")
-                        roomMemberIndex[roomId]?.remove(userId)
-                    }
-                }
-            }
+            // Use ProfileCache cleanup method
+            ProfileCache.cleanupMatchingRoomProfiles(userId, profile)
             
-            // Remove matching entries
-            for (key in keysToRemove) {
-                flattenedMemberCache.remove(key)
-            }
-            
-            if (keysToRemove.isNotEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleaned up ${keysToRemove.size} room-specific profile entries that now match global for $userId")
-            }
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated global profile for $userId and cleaned up matching room-specific entries")
         }
     }
     
@@ -2827,25 +2819,11 @@ class AppViewModel : ViewModel() {
      * MEMORY MANAGEMENT: Cleanup old member cache entries to prevent memory pressure
      */
     private fun performMemberCacheCleanup() {
-        val currentTime = System.currentTimeMillis()
-        val cutoffTime = currentTime - (24 * 60 * 60 * 1000) // 24 hours ago
+        // Use ProfileCache cleanup methods
+        ProfileCache.cleanupGlobalProfiles(MAX_MEMBER_CACHE_SIZE)
+        ProfileCache.cleanupFlattenedProfiles(MAX_MEMBER_CACHE_SIZE)
         
-        // Clean up stale global profile cache entries (LRU-style)
-        globalProfileCache.entries.removeIf { (_, entry) ->
-            currentTime - entry.lastAccess > cutoffTime
-        }
-
-        // Enforce cache size limit by evicting least recently accessed entries
-        if (globalProfileCache.size > MAX_MEMBER_CACHE_SIZE) {
-            val overflow = globalProfileCache.size - MAX_MEMBER_CACHE_SIZE
-            val oldestKeys = globalProfileCache.entries
-                .sortedBy { it.value.lastAccess }
-                .take(overflow)
-                .map { it.key }
-            oldestKeys.forEach { globalProfileCache.remove(it) }
-        }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Performed member cache cleanup - flattened: ${flattenedMemberCache.size}, global: ${globalProfileCache.size}")
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Performed member cache cleanup - flattened: ${ProfileCache.getFlattenedCacheSize()}, global: ${ProfileCache.getGlobalCacheSize()}")
     }
     
     /**
@@ -2988,7 +2966,7 @@ class AppViewModel : ViewModel() {
     )
     
     /**
-     * Gets all profiles from memory cache (flattenedMemberCache + globalProfileCache).
+     * Gets all profiles from memory cache (ProfileCache singleton).
      * For memory cache, we preserve room-specific profiles since Matrix allows different
      * display names/avatars per room.
      * @return List of RoomProfileEntry with roomId and profile info, sorted by display name
@@ -2998,7 +2976,7 @@ class AppViewModel : ViewModel() {
         
         // Collect from flattened member cache (room-specific profiles)
         // Keys are in format "roomId:userId" where roomId starts with '!' and userId starts with '@'
-        for ((key, profile) in flattenedMemberCache) {
+        for ((key, profile) in ProfileCache.getAllFlattenedProfiles()) {
             // Find the last colon (userId starts with '@' so we need to find the separator correctly)
             val lastColonIndex = key.lastIndexOf(':')
             if (lastColonIndex > 0 && lastColonIndex < key.length - 1) {
@@ -3024,7 +3002,7 @@ class AppViewModel : ViewModel() {
         
         // Collect from global profile cache (room-agnostic profiles)
         // These are global (not room-specific), so roomId is null
-        for ((userId, entry) in globalProfileCache) {
+        for ((userId, entry) in ProfileCache.getAllGlobalProfiles()) {
             val profile = entry.profile
                 // Validate userId format: must be @name:domain
                 if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
@@ -3056,7 +3034,7 @@ class AppViewModel : ViewModel() {
         val profiles = mutableMapOf<String, MemberProfile>()
         
         // Collect from flattened member cache (room-specific profiles)
-        for ((key, profile) in flattenedMemberCache) {
+        for ((key, profile) in ProfileCache.getAllFlattenedProfiles()) {
             val lastColonIndex = key.lastIndexOf(':')
             if (lastColonIndex > 0 && lastColonIndex < key.length - 1) {
                 val userId = key.substring(lastColonIndex + 1)
@@ -3079,7 +3057,7 @@ class AppViewModel : ViewModel() {
         }
         
         // Collect from global profile cache
-        for ((userId, entry) in globalProfileCache) {
+        for ((userId, entry) in ProfileCache.getAllGlobalProfiles()) {
             val profile = entry.profile
                 if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
                     val parts = userId.split(":", limit = 2)
@@ -3427,8 +3405,7 @@ class AppViewModel : ViewModel() {
         // IMPORTANT: Check room-specific cache FIRST when roomId is provided
         // Users can have different names in different rooms, so room-specific profiles take precedence
         if (roomId != null) {
-            val flattenedKey = "$roomId:$userId"
-            val flattenedProfile = flattenedMemberCache[flattenedKey]
+            val flattenedProfile = ProfileCache.getFlattenedProfile(roomId, userId)
             if (flattenedProfile != null) {
                 return flattenedProfile
             }
@@ -3449,19 +3426,17 @@ class AppViewModel : ViewModel() {
                 )
             }
             // Also check global cache for current user (in case profile was loaded but currentUserProfile not set yet)
-            val globalProfileEntry = globalProfileCache[userId]
-            val globalProfile = globalProfileEntry?.profile
+            val globalProfile = ProfileCache.getGlobalProfileProfile(userId)
             if (globalProfile != null) {
-                globalProfileEntry.lastAccess = System.currentTimeMillis()
+                ProfileCache.updateGlobalProfileAccess(userId)
                 return globalProfile
             }
         }
         
         // OPTIMIZED: Check global profile cache (fallback for when no roomId or room-specific not found)
-        val globalProfileEntry = globalProfileCache[userId]
-        val globalProfile = globalProfileEntry?.profile
+        val globalProfile = ProfileCache.getGlobalProfileProfile(userId)
         if (globalProfile != null) {
-            globalProfileEntry.lastAccess = System.currentTimeMillis()
+            ProfileCache.updateGlobalProfileAccess(userId)
             return globalProfile
         }
         
@@ -3768,17 +3743,16 @@ class AppViewModel : ViewModel() {
                                 val avatarUrl = content?.optString("avatar_url")?.takeIf { it.isNotBlank() }
                                 
                                 val profile = MemberProfile(displayName, avatarUrl)
-                                globalProfileCache[userId] = CachedProfileEntry(profile, System.currentTimeMillis())
+                                ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
                                 //android.util.Log.d("Andromuks", "AppViewModel: Cached invited member '$userId' profile in global cache only -> displayName: '$displayName'")
                             }
                             "leave", "ban" -> {
                                 // Remove members who left or were banned from room cache only
                                 memberMap.remove(userId)
-                                val flattenedKey = "$roomId:$userId"
-                                flattenedMemberCache.remove(flattenedKey)
+                                ProfileCache.removeFlattenedProfile(roomId, userId)
                                 
                                 // OPTIMIZED: Remove from indexed cache
-                                roomMemberIndex[roomId]?.remove(userId)
+                                ProfileCache.removeFromRoomIndex(roomId, userId)
                                 
                                 // COLD START FIX: Only trigger UI updates for actual real-time changes, not historical data
                                 // BATTERY OPTIMIZATION: Only trigger UI updates when foregrounded AND initialization is complete
@@ -4065,7 +4039,7 @@ class AppViewModel : ViewModel() {
      * Generate a hash for member state to detect actual changes
      */
     private fun generateMemberStateHash(): String {
-        return flattenedMemberCache.entries.take(100).joinToString("|") { "${it.key}:${it.value.displayName}:${it.value.avatarUrl}" }
+        return ProfileCache.getAllFlattenedProfiles().entries.take(100).joinToString("|") { "${it.key}:${it.value.displayName}:${it.value.avatarUrl}" }
     }
     
     /**
@@ -9865,18 +9839,20 @@ class AppViewModel : ViewModel() {
      * This prevents loading 15,000+ profiles upfront and only loads what's actually displayed.
      */
     private fun logProfileCacheStats(source: String) {
-        val totalProfiles = globalProfileCache.size + flattenedMemberCache.size
-        val flattenedBytes = flattenedMemberCache.entries.sumOf { (key, profile) ->
+        val flattenedSize = ProfileCache.getFlattenedCacheSize()
+        val globalSize = ProfileCache.getGlobalCacheSize()
+        val totalProfiles = globalSize + flattenedSize
+        val flattenedBytes = ProfileCache.getAllFlattenedProfiles().entries.sumOf { (key, profile) ->
             estimateProfileEntryBytes(key, profile)
         }
-        val globalBytes = globalProfileCache.entries.sumOf { (key, entry) ->
+        val globalBytes = ProfileCache.getAllGlobalProfiles().entries.sumOf { (key, entry) ->
             estimateProfileEntryBytes(key, entry.profile)
         }
         val runtime = Runtime.getRuntime()
         val usedMem = runtime.totalMemory() - runtime.freeMemory()
         if (BuildConfig.DEBUG) android.util.Log.d(
             "Andromuks",
-            "AppViewModel: ProfileCacheStats[$source] - totalProfiles=$totalProfiles, flattened=${flattenedMemberCache.size} (~${formatBytes(flattenedBytes)}), global=${globalProfileCache.size} (~${formatBytes(globalBytes)}), usedMem=${formatBytes(usedMem)}"
+            "AppViewModel: ProfileCacheStats[$source] - totalProfiles=$totalProfiles, flattened=$flattenedSize (~${formatBytes(flattenedBytes)}), global=$globalSize (~${formatBytes(globalBytes)}), usedMem=${formatBytes(usedMem)}"
         )
     }
 
@@ -11442,7 +11418,7 @@ class AppViewModel : ViewModel() {
      */
     @Deprecated("Profiles are in-memory only, loaded opportunistically when rendering events")
     fun saveProfileToDisk(context: android.content.Context, userId: String, profile: MemberProfile) {
-        // No-op - profiles are cached in-memory only (flattenedMemberCache, globalProfileCache)
+        // No-op - profiles are cached in-memory only (ProfileCache singleton)
     }
     
     // Profile management - in-memory only, loaded opportunistically when rendering events
@@ -11487,11 +11463,10 @@ class AppViewModel : ViewModel() {
      * Manages global profile cache size to prevent memory issues.
      */
     private fun manageGlobalCacheSize() {
-        if (globalProfileCache.size > 1000) {
-            // Clear oldest entries to make room - much more aggressive
-            val keysToRemove = globalProfileCache.keys.take(500)
-            keysToRemove.forEach { globalProfileCache.remove(it) }
-            android.util.Log.w("Andromuks", "AppViewModel: Cleared ${keysToRemove.size} old entries from global cache")
+        if (ProfileCache.getGlobalCacheSize() > 1000) {
+            // Use ProfileCache cleanup method
+            ProfileCache.cleanupGlobalProfiles(500) // Keep only 500 most recent
+            android.util.Log.w("Andromuks", "AppViewModel: Cleaned up global cache to prevent memory issues")
         }
     }
     
@@ -11514,11 +11489,10 @@ class AppViewModel : ViewModel() {
      * Manages flattened member cache size to prevent memory issues.
      */
     private fun manageFlattenedMemberCacheSize() {
-        if (flattenedMemberCache.size > 2000) {
+        if (ProfileCache.getFlattenedCacheSize() > 2000) {
             // Clear oldest entries to make room
-            val keysToRemove = flattenedMemberCache.keys.take(1000)
-            keysToRemove.forEach { flattenedMemberCache.remove(it) }
-            android.util.Log.w("Andromuks", "AppViewModel: Cleared ${keysToRemove.size} old entries from flattened cache")
+            ProfileCache.cleanupFlattenedProfiles(1000) // Keep only 1000 most recent
+            android.util.Log.w("Andromuks", "AppViewModel: Cleaned up flattened cache to prevent memory issues")
         }
     }
     
@@ -13070,9 +13044,7 @@ class AppViewModel : ViewModel() {
                                 // For very large lists, clear caches aggressively (only once)
                                 if (updatedMembers > 500 && !cacheCleared) {
                                     // Clear all caches to prevent OOM
-                                    globalProfileCache.clear()
-                                    flattenedMemberCache.clear()
-                                    roomMemberIndex.clear() // OPTIMIZED: Clear index when clearing cache
+                                    ProfileCache.clear()
                                     cacheCleared = true
                                     android.util.Log.w("Andromuks", "AppViewModel: Cleared all caches due to large member list (${updatedMembers}+ members)")
                                 }
@@ -13085,11 +13057,13 @@ class AppViewModel : ViewModel() {
                             // Remove members who left or were banned
                             val wasRemoved = memberMap.remove(stateKey) != null
                             RoomMemberCache.removeMember(roomId, stateKey)
-                            val flattenedKey = "$roomId:$stateKey"
-                            val wasRemovedFromFlattened = flattenedMemberCache.remove(flattenedKey) != null
+                            val wasRemovedFromFlattened = ProfileCache.hasFlattenedProfile(roomId, stateKey)
+                            if (wasRemovedFromFlattened) {
+                                ProfileCache.removeFlattenedProfile(roomId, stateKey)
+                            }
                             
                             // OPTIMIZED: Remove from indexed cache
-                            roomMemberIndex[roomId]?.remove(stateKey)
+                            ProfileCache.removeFromRoomIndex(roomId, stateKey)
                             
                             if (wasRemoved || wasRemovedFromFlattened) {
                                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed $stateKey from room $roomId (membership: $membership)")
@@ -13185,9 +13159,7 @@ class AppViewModel : ViewModel() {
                             // For very large lists, clear caches aggressively to prevent OOM
                             if (updatedProfiles > 500) {
                                 // Clear all caches to prevent OOM
-                                globalProfileCache.clear()
-                                flattenedMemberCache.clear()
-                                roomMemberIndex.clear() // OPTIMIZED: Clear index when clearing cache
+                                ProfileCache.clear()
                                 android.util.Log.w("Andromuks", "AppViewModel: Cleared all caches due to large profile update ($updatedProfiles profiles)")
                             } else {
                                 // Queue for batch saving for smaller lists
@@ -13198,10 +13170,13 @@ class AppViewModel : ViewModel() {
                         // Remove members who left or were banned from room cache
                         val wasRemoved = memberMap.remove(stateKey) != null
                         val flattenedKey = "$roomId:$stateKey"
-                        val wasRemovedFromFlattened = flattenedMemberCache.remove(flattenedKey) != null
+                        val wasRemovedFromFlattened = ProfileCache.hasFlattenedProfile(roomId, stateKey)
+                        if (wasRemovedFromFlattened) {
+                            ProfileCache.removeFlattenedProfile(roomId, stateKey)
+                        }
                         
                         // OPTIMIZED: Remove from indexed cache
-                        roomMemberIndex[roomId]?.remove(stateKey)
+                        ProfileCache.removeFromRoomIndex(roomId, stateKey)
                         
                         if (wasRemoved || wasRemovedFromFlattened) {
                             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed $stateKey from room cache (membership: $membership)")
@@ -13439,7 +13414,7 @@ class AppViewModel : ViewModel() {
                         val profile = MemberProfile(displayName, avatarUrl)
                         RoomMemberCache.updateMember(roomId, userId, profile)
                         // PERFORMANCE: Also add to global cache for O(1) lookups
-                        globalProfileCache[userId] = CachedProfileEntry(profile, System.currentTimeMillis())
+                        ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
                     }
                 }
             } else if (event.type == "m.room.member" && event.timelineRowid >= 0L) {
@@ -16120,7 +16095,7 @@ class AppViewModel : ViewModel() {
         val previousProfile = memberMap[userId]
         
         memberMap[userId] = profile
-        globalProfileCache[userId] = CachedProfileEntry(profile, System.currentTimeMillis())
+        ProfileCache.setGlobalProfile(userId, ProfileCache.CachedProfileEntry(profile, System.currentTimeMillis()))
         
         return if (isProfileChange(previousProfile, profile, event)) {
             memberUpdateCounter++
@@ -16395,9 +16370,9 @@ class AppViewModel : ViewModel() {
         stats["timeline_event_count"] = "$totalTimelineEvents events"
         
         // 3. User profiles memory cache size
-        val flattenedCount = flattenedMemberCache.size
+        val flattenedCount = ProfileCache.getFlattenedCacheSize()
         val roomMemberCount = RoomMemberCache.getAllMembers().values.sumOf { it.size }
-        val globalCount = globalProfileCache.size
+        val globalCount = ProfileCache.getGlobalCacheSize()
         // Estimate: MemberProfile with strings is roughly 200-500 bytes
         val estimatedProfileMemory = (flattenedCount + roomMemberCount + globalCount) * 350L // 350 bytes per profile estimate
         stats["user_profiles_memory_cache"] = formatBytes(estimatedProfileMemory)
