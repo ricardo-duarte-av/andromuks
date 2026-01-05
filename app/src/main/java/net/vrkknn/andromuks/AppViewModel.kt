@@ -10217,24 +10217,28 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: sendMessageFromNotification called for room $roomId, text: '$text'")
         
         // DEDUPLICATION: Check if we've sent this exact message recently
+        // CRITICAL FIX: Synchronize deduplication check and send to prevent race conditions
         val dedupKey = "$roomId|$text"
         val now = System.currentTimeMillis()
-        val lastSentTime = recentNotificationReplies[dedupKey]
         
-        if (lastSentTime != null && (now - lastSentTime) < Companion.NOTIFICATION_REPLY_DEDUP_WINDOW_MS) {
-            val timeSinceLastSend = now - lastSentTime
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping duplicate notification reply - sent ${timeSinceLastSend}ms ago (dedup window: ${Companion.NOTIFICATION_REPLY_DEDUP_WINDOW_MS}ms)")
-            // Call completion callback even for duplicates to prevent UI stalling
-            onComplete?.invoke()
-            return
+        synchronized(recentNotificationReplies) {
+            val lastSentTime = recentNotificationReplies[dedupKey]
+            
+            if (lastSentTime != null && (now - lastSentTime) < Companion.NOTIFICATION_REPLY_DEDUP_WINDOW_MS) {
+                val timeSinceLastSend = now - lastSentTime
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping duplicate notification reply - sent ${timeSinceLastSend}ms ago (dedup window: ${Companion.NOTIFICATION_REPLY_DEDUP_WINDOW_MS}ms)")
+                // Call completion callback even for duplicates to prevent UI stalling
+                onComplete?.invoke()
+                return
+            }
+            
+            // Mark this reply as processing (not sent yet - will be removed on failure)
+            recentNotificationReplies[dedupKey] = now
+            
+            // Clean up old entries (keep only recent entries within dedup window)
+            val cutoffTime = now - Companion.NOTIFICATION_REPLY_DEDUP_WINDOW_MS
+            recentNotificationReplies.entries.removeAll { it.value < cutoffTime }
         }
-        
-        // Mark this reply as sent (before actual send to prevent race conditions)
-        recentNotificationReplies[dedupKey] = now
-        
-        // Clean up old entries (keep only recent entries within dedup window)
-        val cutoffTime = now - Companion.NOTIFICATION_REPLY_DEDUP_WINDOW_MS
-        recentNotificationReplies.entries.removeAll { it.value < cutoffTime }
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing notification reply (dedup key: $dedupKey)")
         
@@ -10321,6 +10325,34 @@ class AppViewModel : ViewModel() {
         // Handle immediate failure cases
         if (result != WebSocketResult.SUCCESS) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to send message from notification, result: $result")
+            
+            // CRITICAL FIX #1: Remove deduplication entry on failure to allow retry
+            synchronized(recentNotificationReplies) {
+                recentNotificationReplies.remove(dedupKey)
+            }
+            
+            // CRITICAL FIX #2: Queue for retry when WebSocket reconnects (if not connected)
+            if (result == WebSocketResult.NOT_CONNECTED) {
+                // Check if already queued to prevent duplicates
+                val isAlreadyQueued = pendingNotificationActions.any { 
+                    it.type == "send_message" && it.roomId == roomId && it.text == text 
+                }
+                
+                if (!isAlreadyQueued) {
+                    pendingNotificationActions.add(
+                        PendingNotificationAction(
+                            type = "send_message",
+                            roomId = roomId,
+                            text = text,
+                            onComplete = onComplete
+                        )
+                    )
+                    android.util.Log.i("Andromuks", "AppViewModel: Queued notification reply for retry when WebSocket reconnects (roomId: $roomId)")
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Notification reply already queued, skipping duplicate queue")
+                }
+            }
+            
             messageRequests.remove(messageRequestId)
             if (pendingSendCount > 0) {
                 pendingSendCount--

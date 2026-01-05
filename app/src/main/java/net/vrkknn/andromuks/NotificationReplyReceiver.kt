@@ -23,7 +23,9 @@ class NotificationReplyReceiver : BroadcastReceiver() {
         // Key: "roomId|replyText|timestamp" (using timestamp to allow same message after window)
         // Value: processing time
         private val recentProcessedReplies = mutableMapOf<String, Long>()
-        private const val DEDUP_WINDOW_MS = 3000L // 3 seconds deduplication window
+        // CRITICAL FIX: Unify deduplication window with AppViewModel (5 seconds)
+        // This prevents race conditions where one layer thinks it's a duplicate but the other doesn't
+        private const val DEDUP_WINDOW_MS = 5000L // 5 seconds deduplication window (matches AppViewModel)
     }
     
     override fun onReceive(context: Context, intent: Intent) {
@@ -83,7 +85,18 @@ class NotificationReplyReceiver : BroadcastReceiver() {
             resultsBundle
         )
         
-        context.sendOrderedBroadcast(forwardIntent, null)
+        // CRITICAL FIX: Use ordered broadcast with explicit parameters to ensure MainActivity receives it first
+        // This prevents multiple receivers from processing the same reply (causing 3x sends)
+        // MainActivity will call abortBroadcast() to prevent other receivers from processing
+        context.sendOrderedBroadcast(
+            forwardIntent,
+            null,  // permission
+            null,  // resultReceiver (not needed)
+            null,  // scheduler (use default)
+            0,     // initialCode (0 = no result code needed)
+            null,  // initialData
+            null   // initialExtras
+        )
         if (BuildConfig.DEBUG) Log.d(TAG, "Forwarded reply via ordered ACTION_REPLY broadcast for roomId: $roomId")
     }
     
