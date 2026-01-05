@@ -61,7 +61,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.activity.compose.BackHandler
-import net.vrkknn.andromuks.utils.OptimizedMediaCache
 import net.vrkknn.andromuks.utils.AdvancedExoPlayerManager
 import net.vrkknn.andromuks.utils.ProgressiveImageLoader
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
@@ -272,7 +271,7 @@ private fun MediaCaption(
         Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
     }
     
-    if (supportsHtml && event != null) {
+    if (supportsHtml) {
         // Use HTML rendering for caption
         HtmlMessageText(
             event = event,
@@ -1007,7 +1006,7 @@ private fun MediaContent(
                                     }
                             }
 
-                        if (BuildConfig.DEBUG) Log.d("Andromuks", "BlurHash painter created: ${blurHashPainter != null}")
+                        if (BuildConfig.DEBUG) Log.d("Andromuks", "BlurHash painter created")
 
                         if (BuildConfig.DEBUG) {
                             val fullWidth = mediaMessage.info.width
@@ -1049,16 +1048,7 @@ private fun MediaContent(
                             onSuccess = {
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
                             },
-                            onError = { state ->
-                                if (state is coil.request.ErrorResult) {
-                                    CacheUtils.handleImageLoadError(
-                                        imageUrl = imageUrl ?: "",
-                                        throwable = state.throwable,
-                                        imageLoader = imageLoader,
-                                        context = "Media"
-                                    )
-                                }
-                            },
+                            onError = { },
                             onLoading = { state ->
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Image loading: $imageUrl, state: $state")
                             }
@@ -1144,16 +1134,7 @@ private fun MediaContent(
                                             "✅ Video thumbnail loaded: $thumbnailFinalUrl"
                                         )
                                     },
-                                    onError = { state ->
-                                        if (state is coil.request.ErrorResult) {
-                                            CacheUtils.handleImageLoadError(
-                                                imageUrl = thumbnailFinalUrl ?: "",
-                                                throwable = state.throwable,
-                                                imageLoader = imageLoader,
-                                                context = "VideoThumbnail"
-                                            )
-                                        }
-                                    }
+                                    onError = { }
                                 )
 
                                 // Duration badge in bottom-right corner
@@ -1754,16 +1735,7 @@ private fun ImageViewerDialog(
                 onSuccess = { 
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Image loaded successfully: $imageUrl")
                 },
-                onError = { state ->
-                    if (state is coil.request.ErrorResult) {
-                        CacheUtils.handleImageLoadError(
-                            imageUrl = imageUrl,
-                            throwable = state.throwable,
-                            imageLoader = imageLoader,
-                            context = "ImageViewer"
-                        )
-                    }
-                }
+                onError = { }
             )
         }
     }

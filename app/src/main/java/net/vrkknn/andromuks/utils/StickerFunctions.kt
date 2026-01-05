@@ -433,16 +433,7 @@ private fun StickerContent(
                 onSuccess = {
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Sticker loaded successfully: $imageUrl")
                 },
-                onError = { state ->
-                    if (state is coil.request.ErrorResult) {
-                        CacheUtils.handleImageLoadError(
-                            imageUrl = imageUrl,
-                            throwable = state.throwable,
-                            imageLoader = imageLoader,
-                            context = "Sticker"
-                        )
-                    }
-                },
+                onError = { },
                 onLoading = { state ->
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "⏳ Sticker loading: $imageUrl, state: $state")
                 }
@@ -570,16 +561,7 @@ private fun StickerViewerDialog(
                 onSuccess = {
                     if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ StickerViewer: Sticker loaded successfully: $imageUrl")
                 },
-                onError = { state ->
-                    if (state is coil.request.ErrorResult) {
-                        CacheUtils.handleImageLoadError(
-                            imageUrl = imageUrl,
-                            throwable = state.throwable,
-                            imageLoader = imageLoader,
-                            context = "StickerViewer"
-                        )
-                    }
-                }
+                onError = { }
             )
         }
     }

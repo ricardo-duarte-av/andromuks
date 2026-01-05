@@ -395,8 +395,8 @@ fun FCMInfoSection(appViewModel: AppViewModel) {
             // VAPID Key
             FCMInfoItem(
                 label = "VAPID Key",
-                value = vapidKey ?: "Not available",
-                onCopy = if (vapidKey != null) {
+                value = if (vapidKey.isNotBlank()) vapidKey else "Not available",
+                onCopy = if (vapidKey.isNotBlank()) {
                     { copyToClipboard("VAPID Key", vapidKey) }
                 } else null
             )

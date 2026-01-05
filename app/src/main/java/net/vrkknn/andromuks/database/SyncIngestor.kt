@@ -778,12 +778,12 @@ class SyncIngestor(private val context: Context) {
         var threadRootEventId: String? = null
         var relatesToEventId: String? = null
         
-        if (isThreadMessage && relatesTo != null) {
+        if (isThreadMessage) {
             // For thread messages:
             // - threadRootEventId = m.relates_to.event_id (the original thread root)
             // - relatesToEventId = m.relates_to.m.in_reply_to.event_id (the previous message in thread)
-            threadRootEventId = relatesTo.optString("event_id")?.takeIf { it.isNotBlank() }
-            val inReplyTo = relatesTo.optJSONObject("m.in_reply_to")
+            threadRootEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+            val inReplyTo = relatesTo?.optJSONObject("m.in_reply_to")
             relatesToEventId = inReplyTo?.optString("event_id")?.takeIf { it.isNotBlank() }
         } else if (relatesTo != null) {
             // For non-thread replies/edits/reactions:
@@ -1174,12 +1174,12 @@ class SyncIngestor(private val context: Context) {
         var threadRootEventId: String? = null
         var relatesToEventId: String? = null
         
-        if (isThreadMessage && relatesTo != null) {
+        if (isThreadMessage) {
             // For thread messages:
             // - threadRootEventId = m.relates_to.event_id (the original thread root)
             // - relatesToEventId = m.relates_to.m.in_reply_to.event_id (the previous message in thread)
-            threadRootEventId = relatesTo.optString("event_id")?.takeIf { it.isNotBlank() }
-            val inReplyTo = relatesTo.optJSONObject("m.in_reply_to")
+            threadRootEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
+            val inReplyTo = relatesTo?.optJSONObject("m.in_reply_to")
             relatesToEventId = inReplyTo?.optString("event_id")?.takeIf { it.isNotBlank() }
         } else if (relatesTo != null) {
             // For non-thread replies/edits/reactions:

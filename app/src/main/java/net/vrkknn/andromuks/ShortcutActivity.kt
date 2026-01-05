@@ -125,7 +125,7 @@ fun ShortcutNavigation(roomId: String) {
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
         val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
         
-        // Initialize FCM to set appContext (required for database loading via bootstrapLoader)
+        // Initialize FCM to set appContext (required for database access)
         // This is critical for loading events from database when RAM cache is empty
         appViewModel.initializeFCM(context, homeserverUrl, authToken)
         

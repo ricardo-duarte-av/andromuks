@@ -582,24 +582,22 @@ private fun AnnotatedString.Builder.appendBlock(
             val spoilerData = extractSpoilerData(listOf(child, tag.children[i + 1]))
             if (spoilerData != null) {
                 val (reason, contentNodes) = spoilerData
-                if (contentNodes != null && contentNodes.isNotEmpty()) {
-                    if (spoilerContext != null) {
-                        appendSpoilerNodes(
-                            nodes = contentNodes,
-                            baseStyle = baseStyle,
-                            inlineImages = inlineImages,
-                            inlineMatrixUsers = inlineMatrixUsers,
-                            spoilerContext = spoilerContext,
-                            reason = reason
-                        )
-                    } else {
-                        contentNodes.forEach {
-                            appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, null)
-                        }
+                if (contentNodes.isNotEmpty() && spoilerContext != null) {
+                    appendSpoilerNodes(
+                        nodes = contentNodes,
+                        baseStyle = baseStyle,
+                        inlineImages = inlineImages,
+                        inlineMatrixUsers = inlineMatrixUsers,
+                        spoilerContext = spoilerContext,
+                        reason = reason
+                    )
+                } else {
+                    contentNodes.forEach {
+                        appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, null)
                     }
-                    i += 2 // Skip both nodes
-                    continue
                 }
+                i += 2 // Skip both nodes
+                continue
             }
         }
         
@@ -1071,7 +1069,7 @@ fun HtmlMessageText(
                 // Single spoiler span without reason
                 if (node is HtmlNode.Tag && node.name == "span") {
                     val classAttr = node.attributes["class"] ?: ""
-                    if (classAttr.contains("hicli-spoiler") && spoilerContext != null && node.children.isNotEmpty()) {
+                    if (classAttr.contains("hicli-spoiler") && node.children.isNotEmpty()) {
                         appendSpoilerNodes(
                             nodes = node.children,
                             baseStyle = SpanStyle(color = color),
@@ -1090,7 +1088,7 @@ fun HtmlMessageText(
                     val spoilerData = extractSpoilerData(listOf(node, nodes[i + 1]))
                     if (spoilerData != null) {
                         val (reason, contentNodes) = spoilerData
-                        if (contentNodes != null && contentNodes.isNotEmpty() && spoilerContext != null) {
+                        if (contentNodes.isNotEmpty()) {
                             appendSpoilerNodes(
                                 nodes = contentNodes,
                                 baseStyle = SpanStyle(color = color),
@@ -1420,16 +1418,7 @@ private fun InlineImage(
             imageLoader = imageLoader,
             contentDescription = alt,
             modifier = Modifier.size(height.dp),
-            onError = { state ->
-                if (state is coil.request.ErrorResult) {
-                    CacheUtils.handleImageLoadError(
-                        imageUrl = imageUrl,
-                        throwable = state.throwable,
-                        imageLoader = imageLoader,
-                        context = "HTML Image"
-                    )
-                }
-            }
+            onError = { }
         )
     } else {
         // Fallback to alt text

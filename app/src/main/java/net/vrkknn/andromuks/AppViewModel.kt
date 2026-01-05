@@ -7517,51 +7517,6 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // CRITICAL FIX: Reload emoji packs from stored account_data if WebSocket is now ready
-        // This handles the case where account_data was loaded from database before WebSocket connected
-        if (webSocket != null) {
-            appContext?.let { context ->
-                viewModelScope.launch(Dispatchers.IO) {
-                    try {
-                        val bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
-                        val accountDataJson = bootstrapLoader.loadAccountData()
-                        if (accountDataJson != null) {
-                            val accountDataObj = org.json.JSONObject(accountDataJson)
-                            val emoteRoomsData = accountDataObj.optJSONObject("im.ponies.emote_rooms")
-                            if (emoteRoomsData != null) {
-                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reloading emoji packs from stored account_data after WebSocket connection")
-                                withContext(Dispatchers.Main) {
-                                    // Process emote_rooms again to request emoji pack data
-                                    val content = emoteRoomsData.optJSONObject("content")
-                                    val rooms = content?.optJSONObject("rooms")
-                                    if (rooms != null) {
-                                        val keys = rooms.names()
-                                        if (keys != null) {
-                                            for (i in 0 until keys.length()) {
-                                                val roomId = keys.optString(i)
-                                                val packsObj = rooms.optJSONObject(roomId)
-                                                if (packsObj != null) {
-                                                    val packNames = packsObj.names()
-                                                    if (packNames != null) {
-                                                        for (j in 0 until packNames.length()) {
-                                                            val packName = packNames.optString(j)
-                                                            requestEmojiPackData(roomId, packName)
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Error reloading emoji packs from account_data: ${e.message}", e)
-                    }
-                }
-            }
-        }
-        
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Run ID stored and service updated")
     }
     
@@ -11465,7 +11420,6 @@ class AppViewModel : ViewModel() {
     private val pendingProfileSaves = mutableMapOf<String, MemberProfile>()
     private var profileSaveJob: kotlinx.coroutines.Job? = null
     private var syncIngestor: net.vrkknn.andromuks.database.SyncIngestor? = null
-    private var bootstrapLoader: net.vrkknn.andromuks.database.BootstrapLoader? = null
 
     /**
      * Ensures SyncIngestor is initialized with the LRU cache listener.
@@ -11491,14 +11445,6 @@ class AppViewModel : ViewModel() {
         return syncIngestor
     }
 
-    private fun ensureBootstrapLoader(): net.vrkknn.andromuks.database.BootstrapLoader? {
-        val context = appContext ?: return null
-        if (bootstrapLoader == null) {
-            bootstrapLoader = net.vrkknn.andromuks.database.BootstrapLoader(context)
-        }
-        return bootstrapLoader
-    }
-    
     /**
      * Manages global profile cache size to prevent memory issues.
      */

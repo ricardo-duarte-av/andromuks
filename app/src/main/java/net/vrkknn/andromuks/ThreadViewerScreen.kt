@@ -809,7 +809,7 @@ fun ThreadViewerScreen(
                                 }
                                 is TimelineItem.Event -> {
                                     val event = item.event
-                                    val isMine = myUserId != null && event.sender == myUserId
+                                    val isMine = event.sender == myUserId
 
                                     // Check if this is a consecutive message from the same sender
                                     var previousEvent: TimelineEvent? = null

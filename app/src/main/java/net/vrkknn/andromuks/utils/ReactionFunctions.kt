@@ -162,16 +162,7 @@ fun ImageReaction(
             onSuccess = {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ImageReaction: Successfully loaded image for $mxcUrl")
             },
-            onError = { state ->
-                if (state is coil.request.ErrorResult) {
-                    CacheUtils.handleImageLoadError(
-                        imageUrl = httpUrl,
-                        throwable = state.throwable,
-                        imageLoader = imageLoader,
-                        context = "Reaction"
-                    )
-                }
-            }
+            onError = { }
         )
     } else {
         android.util.Log.e("Andromuks", "ImageReaction: Failed to convert MXC URL to HTTP URL: $mxcUrl")

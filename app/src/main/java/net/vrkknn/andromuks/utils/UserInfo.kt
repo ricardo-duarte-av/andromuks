@@ -373,7 +373,7 @@ fun UserInfoScreen(
                     
                     Button(
                         onClick = {
-                            if (isDmAvailable && joinedDmRoomId != null) {
+                            if (isDmAvailable) {
                                 val encodedRoomId = java.net.URLEncoder.encode(joinedDmRoomId, "UTF-8")
                                 navController.navigate("room_timeline/$encodedRoomId")
                             }

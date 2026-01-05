@@ -233,19 +233,9 @@ fun AvatarImage(
                             }
                         }
                     },
-                    onError = { state ->
+                    onError = {
                         // Mark as failed so fallback shows
                         imageLoadFailed = true
-                        
-                        if (state is coil.request.ErrorResult) {
-                            // Handle cache invalidation for permanent errors
-                            net.vrkknn.andromuks.utils.CacheUtils.handleImageLoadError(
-                                imageUrl = avatarUrl,
-                                throwable = state.throwable,
-                                imageLoader = imageLoader,
-                                context = "Avatar"
-                            )
-                        }
                     }
                 )
             }

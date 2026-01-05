@@ -118,21 +118,13 @@ class CarRoomTimelineScreen(
                 messages = events.mapNotNull { event ->
                     try {
                         // Priority: 1. ProfileRepository, 2. RoomMember displayName, 3. username localpart
-                        val senderName = if (event.sender != null) {
-                            globalProfiles[event.sender]?.displayName
-                                ?: allMembers[event.sender]?.displayName
-                                ?: event.sender.substringAfter("@").substringBefore(":")
-                        } else {
-                            "Unknown"
-                        }
+                        val senderName = globalProfiles[event.sender]?.displayName
+                            ?: allMembers[event.sender]?.displayName
+                            ?: event.sender.substringAfter("@").substringBefore(":")
                         
                         // Use ProfileRepository avatar URL first, then RoomMember avatar URL
-                        val senderAvatarUrl = if (event.sender != null) {
-                            globalProfiles[event.sender]?.avatarUrl
-                                ?: allMembers[event.sender]?.avatarUrl
-                        } else {
-                            null
-                        }
+                        val senderAvatarUrl = globalProfiles[event.sender]?.avatarUrl
+                            ?: allMembers[event.sender]?.avatarUrl
                         
                         val messageText = when {
                             event.type == "m.room.encrypted" && (event.decryptedType == "m.room.message" || event.decryptedType == "m.text") -> {

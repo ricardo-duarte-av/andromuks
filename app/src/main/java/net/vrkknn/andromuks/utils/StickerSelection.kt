@@ -220,16 +220,7 @@ fun StickerImage(
             onSuccess = {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "StickerImage: Successfully loaded sticker for $mxcUrl")
             },
-            onError = { state ->
-                if (state is coil.request.ErrorResult) {
-                    CacheUtils.handleImageLoadError(
-                        imageUrl = httpUrl,
-                        throwable = state.throwable,
-                        imageLoader = imageLoader,
-                        context = "Sticker"
-                    )
-                }
-            }
+            onError = { }
         )
     } else {
         android.util.Log.e("Andromuks", "StickerImage: Failed to convert MXC URL to HTTP URL: $mxcUrl")
