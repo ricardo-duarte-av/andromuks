@@ -162,8 +162,7 @@ class AppViewModel : ViewModel() {
         private const val MAX_QUEUE_SIZE = 800 // Maximum queue size (raised to cover bulk pagination hydrates)
         private const val MAX_MESSAGE_AGE_MS = 24 * 60 * 60 * 1000L // 24 hours
         
-        // LRU cache size for room timelines (RoomTimelineScreen only)
-        private const val TIMELINE_LRU_CACHE_SIZE = 5
+        // Processed timeline state is now stored in RoomTimelineCache singleton (no size limit needed)
         
         // Initial paginate limit when opening a room to fetch events from server
         // Used when cache is empty or to fetch newer events when cache has data
@@ -1247,9 +1246,7 @@ class AppViewModel : ViewModel() {
         
         // 4. Clear timeline caches on full refresh (all caches are stale)
         RoomTimelineCache.clearAll()
-        synchronized(timelineLruCacheLock) {
-            timelineLruCache.clear()
-        }
+        // Processed timeline state is cleared by RoomTimelineCache.clearAll()
         lastReceivedRequestId = 0
         
         val preservedRunId = currentRunId
@@ -5621,10 +5618,26 @@ class AppViewModel : ViewModel() {
      * Made public so RoomListScreen can call it directly on cold start.
      */
     fun ensureCurrentUserProfileLoaded() {
-        if (currentUserProfile == null && currentUserId.isNotBlank() && appContext != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current user profile missing, requesting from server - userId: $currentUserId")
-            // Profiles are in-memory only - request from server
-            requestUserProfile(currentUserId)
+        if (currentUserProfile == null && currentUserId.isNotBlank()) {
+            // CRITICAL FIX: Check ProfileCache singleton first before requesting from server
+            // This ensures currentUserProfile is populated even if profile was loaded in another AppViewModel instance
+            val cachedProfile = ProfileCache.getGlobalProfileProfile(currentUserId)
+            if (cachedProfile != null) {
+                // Profile exists in singleton cache - populate currentUserProfile from cache
+                currentUserProfile = UserProfile(
+                    userId = currentUserId,
+                    displayName = cachedProfile.displayName,
+                    avatarUrl = cachedProfile.avatarUrl
+                )
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Populated currentUserProfile from ProfileCache singleton - userId: $currentUserId, displayName: ${cachedProfile.displayName}")
+                return
+            }
+            
+            // Profile not in cache - request from server
+            if (appContext != null) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Current user profile missing from cache, requesting from server - userId: $currentUserId")
+                requestUserProfile(currentUserId)
+            }
         }
     }
     
@@ -6076,9 +6089,7 @@ class AppViewModel : ViewModel() {
         RoomTimelineCache.clearAll()
         
         // Clear internal LRU cache
-        synchronized(timelineLruCacheLock) {
-            timelineLruCache.clear()
-        }
+        // Processed timeline state is cleared by RoomTimelineCache.clearAll()
         
         // Clear tracked oldest rowIds since caches are cleared
         oldestRowIdPerRoom.clear()
@@ -6102,16 +6113,8 @@ class AppViewModel : ViewModel() {
     var isTimelineLoading by mutableStateOf(false)
         private set
     
-    // LRU cache for room timelines (RoomTimelineScreen only, not BubbleTimelineScreen)
-    // Stores last 5 opened rooms for quick switching
-    data class CachedTimeline(
-        val events: List<TimelineEvent>,
-        val eventChainMap: Map<String, EventChainEntry>,
-        val editEventsMap: Map<String, TimelineEvent>,
-        val lastAccessedAt: Long = System.currentTimeMillis()
-    )
-    private val timelineLruCache = linkedMapOf<String, CachedTimeline>()
-    private val timelineLruCacheLock = Any()
+    // Processed timeline state is now stored in RoomTimelineCache singleton
+    // No need for per-instance timelineLruCache - all processed state is shared
     
     /**
      * Get the set of room IDs that are actively cached and should receive events from sync_complete.
@@ -6124,63 +6127,109 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Check if a room is in the LRU cache.
+     * Check if a room has processed timeline state cached.
      */
     fun isRoomCached(roomId: String): Boolean {
-        synchronized(timelineLruCacheLock) {
-            return timelineLruCache.containsKey(roomId)
-        }
+        return RoomTimelineCache.getProcessedTimelineState(roomId) != null
     }
     
     /**
-     * Save current timeline state to LRU cache before switching rooms.
+     * Save current timeline state to RoomTimelineCache before switching rooms.
      * Called when leaving a room (but not closing it entirely).
+     * Processed state (eventChainMap, editEventsMap, redactionEventsMap) is stored in singleton cache.
      */
     private fun saveToLruCache(roomId: String) {
         if (roomId.isBlank() || timelineEvents.isEmpty()) return
         
-        synchronized(timelineLruCacheLock) {
-            // Remove if exists (to update access order)
-            timelineLruCache.remove(roomId)
-            
-            // Evict oldest if at capacity
-            while (timelineLruCache.size >= TIMELINE_LRU_CACHE_SIZE) {
-                val oldest = timelineLruCache.keys.firstOrNull() ?: break
-                timelineLruCache.remove(oldest)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: LRU cache evicted room $oldest")
-            }
-            
-            // Save current state
-            timelineLruCache[roomId] = CachedTimeline(
-                events = timelineEvents.toList(),
-                eventChainMap = eventChainMap.toMap(),
-                editEventsMap = editEventsMap.toMap()
-            )
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved room $roomId to LRU cache (${timelineEvents.size} events, cache size: ${timelineLruCache.size})")
+        // Build redaction events map and mapping from redactionCache
+        val redactionEventsMap = mutableMapOf<String, TimelineEvent>()
+        val redactionMapping = mutableMapOf<String, String>()
+        
+        redactionCache.forEach { (originalEventId, redactionEvent) ->
+            redactionEventsMap[redactionEvent.eventId] = redactionEvent
+            redactionMapping[originalEventId] = redactionEvent.eventId
         }
+        
+        // Save processed timeline state to singleton cache (including redactions)
+        RoomTimelineCache.saveProcessedTimelineState(
+            roomId = roomId,
+            eventChainMap = eventChainMap.toMap(),
+            editEventsMap = editEventsMap.toMap(),
+            redactionEventsMap = redactionEventsMap,
+            redactionMapping = redactionMapping
+        )
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved processed timeline state for room $roomId (${eventChainMap.size} chains, ${editEventsMap.size} edits, ${redactionEventsMap.size} redactions)")
     }
     
     /**
-     * Restore timeline state from LRU cache if available.
+     * Restore timeline state from RoomTimelineCache if available.
      * Returns true if cache hit, false if miss.
      */
     private fun restoreFromLruCache(roomId: String): Boolean {
-        synchronized(timelineLruCacheLock) {
-            val cached = timelineLruCache.remove(roomId) ?: return false
-            
-            // Move to end (most recently accessed)
-            timelineLruCache[roomId] = cached.copy(lastAccessedAt = System.currentTimeMillis())
-            
-            // Restore state
-            timelineEvents = cached.events
+        // Get cached events from RoomTimelineCache
+        val cachedEvents = RoomTimelineCache.getCachedEvents(roomId) ?: return false
+        
+        // Get processed timeline state (eventChainMap, editEventsMap, redactionEventsMap, redactionMapping)
+        val processedState = RoomTimelineCache.getProcessedTimelineState(roomId)
+        
+        // Restore events
+        timelineEvents = cachedEvents
+        
+        // Restore processed state if available
+        if (processedState != null) {
             eventChainMap.clear()
-            eventChainMap.putAll(cached.eventChainMap)
+            eventChainMap.putAll(processedState.eventChainMap)
             editEventsMap.clear()
-            editEventsMap.putAll(cached.editEventsMap)
+            editEventsMap.putAll(processedState.editEventsMap)
             
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored room $roomId from LRU cache (${timelineEvents.size} events)")
-            return true
+            // Restore redaction events to MessageVersionsCache
+            // This ensures deleted messages can be displayed
+            processedState.redactionEventsMap.forEach { (redactionEventId, redactionEvent) ->
+                // Find the original event ID from the mapping
+                val originalEventId = processedState.redactionMapping.entries
+                    .find { it.value == redactionEventId }?.key
+                
+                if (originalEventId != null) {
+                    // Update MessageVersionsCache with redaction info
+                    val versioned = messageVersions[originalEventId]
+                    if (versioned != null) {
+                        MessageVersionsCache.updateVersion(originalEventId, versioned.copy(
+                            redactedBy = redactionEvent.sender,
+                            redactionEvent = redactionEvent
+                        ))
+                    } else {
+                        // Redaction came before original - try to find original event in cached events
+                        val originalEvent = timelineEvents.find { it.eventId == originalEventId }
+                            ?: RoomTimelineCache.getCachedEvents(roomId)?.find { it.eventId == originalEventId }
+                        
+                        if (originalEvent != null) {
+                            // Found original event - create VersionedMessage with it
+                            MessageVersionsCache.updateVersion(originalEventId, VersionedMessage(
+                                originalEventId = originalEventId,
+                                originalEvent = originalEvent,
+                                versions = emptyList(),
+                                redactedBy = redactionEvent.sender,
+                                redactionEvent = redactionEvent
+                            ))
+                        } else {
+                            // Original event not found - skip for now, will be handled when original arrives via processVersionedMessages
+                            // This is OK - processVersionedMessages will handle it when the original event arrives
+                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Redaction event ${redactionEvent.eventId} for original $originalEventId but original not found - will be handled when original arrives")
+                        }
+                    }
+                }
+            }
+            
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored room $roomId from cache (${timelineEvents.size} events, ${processedState.eventChainMap.size} chains, ${processedState.editEventsMap.size} edits, ${processedState.redactionEventsMap.size} redactions)")
+        } else {
+            // No processed state - will be rebuilt from events
+            eventChainMap.clear()
+            editEventsMap.clear()
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored room $roomId events from cache (${timelineEvents.size} events), but no processed state - will rebuild")
         }
+        
+        return true
     }
     
     /**
@@ -6204,79 +6253,70 @@ class AppViewModel : ViewModel() {
         }
         
         if (requiresFullRerender) {
-            // Invalidate cache for this room - will be rebuilt on next open
-            synchronized(timelineLruCacheLock) {
-                timelineLruCache.remove(roomId)
-            }
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Invalidated LRU cache for $roomId (edit/redaction/reaction detected)")
+            // Invalidate processed state for this room - will be rebuilt on next open
+            RoomTimelineCache.clearProcessedTimelineState(roomId)
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Invalidated processed timeline state for $roomId (edit/redaction/reaction detected)")
             return false
         }
         
-        synchronized(timelineLruCacheLock) {
-            val cached = timelineLruCache[roomId] ?: return false
-            
-            // Append new events and re-sort
-            val existingEventIds = cached.events.map { it.eventId }.toSet()
-            val trulyNewEvents = newEvents.filter { it.eventId !in existingEventIds }
-            
-            if (trulyNewEvents.isEmpty()) return true
-            
-            // CRITICAL FIX: Also add events to eventChainMap if this is the currently open room
-            // This ensures events aren't lost when handlePaginationMerge rebuilds from eventChainMap
-            if (currentRoomId == roomId) {
-                for (event in trulyNewEvents) {
-                    val isEdit = isEditEvent(event)
-                    if (isEdit) {
-                        editEventsMap[event.eventId] = event
-                    } else {
-                        val existingEntry = eventChainMap[event.eventId]
-                        if (existingEntry == null) {
-                            eventChainMap[event.eventId] = EventChainEntry(
-                                eventId = event.eventId,
-                                ourBubble = event,
-                                replacedBy = null,
-                                originalTimestamp = event.timestamp
-                            )
-                        } else if (event.timestamp > existingEntry.originalTimestamp) {
-                            // Update with newer version
-                            eventChainMap[event.eventId] = existingEntry.copy(
-                                ourBubble = event,
-                                originalTimestamp = event.timestamp
-                            )
-                        }
+        // Check if room has cached events (raw events are in RoomTimelineCache)
+        val cachedEvents = RoomTimelineCache.getCachedEvents(roomId) ?: return false
+        
+        // Append new events and re-sort
+        val existingEventIds = cachedEvents.map { it.eventId }.toSet()
+        val trulyNewEvents = newEvents.filter { it.eventId !in existingEventIds }
+        
+        if (trulyNewEvents.isEmpty()) return true
+        
+        // CRITICAL FIX: Also add events to eventChainMap if this is the currently open room
+        // This ensures events aren't lost when handlePaginationMerge rebuilds from eventChainMap
+        if (currentRoomId == roomId) {
+            for (event in trulyNewEvents) {
+                val isEdit = isEditEvent(event)
+                if (isEdit) {
+                    editEventsMap[event.eventId] = event
+                } else {
+                    val existingEntry = eventChainMap[event.eventId]
+                    if (existingEntry == null) {
+                        eventChainMap[event.eventId] = EventChainEntry(
+                            eventId = event.eventId,
+                            ourBubble = event,
+                            replacedBy = null,
+                            originalTimestamp = event.timestamp
+                        )
+                    } else if (event.timestamp > existingEntry.originalTimestamp) {
+                        // Update with newer version
+                        eventChainMap[event.eventId] = existingEntry.copy(
+                            ourBubble = event,
+                            originalTimestamp = event.timestamp
+                        )
                     }
                 }
-                // Process edit relationships for newly added events
-                processEditRelationships()
             }
+            // Process edit relationships for newly added events
+            processEditRelationships()
             
-            val updatedEvents = (cached.events + trulyNewEvents).sortedBy { it.timestamp }
-            timelineLruCache[roomId] = cached.copy(
-                events = updatedEvents,
-                lastAccessedAt = System.currentTimeMillis()
+            // Update processed state in cache
+            RoomTimelineCache.saveProcessedTimelineState(
+                roomId = roomId,
+                eventChainMap = eventChainMap.toMap(),
+                editEventsMap = editEventsMap.toMap()
             )
             
-            // If this is the currently open room, also update live state
-            // But rebuild from eventChainMap to ensure consistency
-            if (currentRoomId == roomId) {
-                // Rebuild timeline from eventChainMap to ensure all events are included
-                buildTimelineFromChain()
-            }
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Appended ${trulyNewEvents.size} events to cached room $roomId (total: ${updatedEvents.size})")
-            return true
+            // Rebuild timeline from eventChainMap to ensure all events are included
+            buildTimelineFromChain()
         }
+        
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Appended ${trulyNewEvents.size} events to cached room $roomId")
+        return true
     }
     
     /**
-     * Invalidate cache for a specific room (e.g., when edits/redactions arrive).
+     * Invalidate processed timeline state for a specific room (e.g., when edits/redactions arrive).
      */
     fun invalidateCachedRoom(roomId: String) {
-        synchronized(timelineLruCacheLock) {
-            if (timelineLruCache.remove(roomId) != null) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Invalidated LRU cache for room $roomId")
-            }
-        }
+        RoomTimelineCache.clearProcessedTimelineState(roomId)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Invalidated processed timeline state for room $roomId")
     }
     
     // Trigger for timeline refresh when app resumes (incremented when app becomes visible)
