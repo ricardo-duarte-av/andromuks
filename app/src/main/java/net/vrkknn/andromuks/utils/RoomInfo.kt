@@ -9,8 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ExitToApp
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.List
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -159,26 +157,9 @@ fun RoomInfoScreen(
                 title = { Text("Room Info") },
                 actions = {
                     IconButton(
-                        onClick = { navController.navigate("room_timeline_viewer/$roomId") }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.List,
-                            contentDescription = "Timeline Viewer",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(
-                        onClick = { navController.navigate("room_db_explorer/$roomId") }
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Storage,
-                            contentDescription = "DB Explorer",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    IconButton(
                         onClick = { showLeaveRoomDialog = true }
                     ) {
+                        @Suppress("DEPRECATION")
                         Icon(
                             imageVector = Icons.Filled.ExitToApp,
                             contentDescription = "Leave Room",

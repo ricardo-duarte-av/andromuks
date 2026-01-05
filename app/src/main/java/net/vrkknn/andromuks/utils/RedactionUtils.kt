@@ -163,6 +163,7 @@ object RedactionUtils {
         userProfileCache: Map<String, MemberProfile>
     ): String {
         // Find the latest redaction event instead of just using redactedBy
+        @Suppress("DEPRECATION")
         val redactionEvent = findLatestRedactionEvent(redactedEvent.eventId, timelineEvents)
         val redactionReason = redactionEvent?.content?.optString("reason", "")?.takeIf { it.isNotBlank() }
         val redactionSender = redactionEvent?.sender

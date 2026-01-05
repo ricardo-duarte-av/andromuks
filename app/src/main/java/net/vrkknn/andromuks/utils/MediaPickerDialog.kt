@@ -142,6 +142,7 @@ fun MediaPreviewDialog(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        @Suppress("DEPRECATION")
                         Icon(
                             imageVector = Icons.Filled.Send,
                             contentDescription = "Send",
