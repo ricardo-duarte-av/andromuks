@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<automotiveApp>
-    <!-- Legacy messaging support for classic Android Auto -->
-    <uses name="car_messaging" />
-    <!-- Car App Library template support for projected/AAOS -->
-    <uses name="template" />
-</automotiveApp>
-

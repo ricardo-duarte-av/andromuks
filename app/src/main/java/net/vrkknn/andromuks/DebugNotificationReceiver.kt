@@ -22,7 +22,7 @@ import net.vrkknn.andromuks.BuildConfig
  *
  * Usage (ADB):
  * adb shell am broadcast -a net.vrkknn.andromuks.DEBUG_POST_NOTIFICATION \
- *   --es title "Matrix Test" --es body "Hello from AA"
+ *   --es title "Matrix Test" --es body "Hello from debug"
  *
  * This ensures the notification is posted with the app UID, proper channel, and PUBLIC visibility.
  */
@@ -34,7 +34,7 @@ class DebugNotificationReceiver : BroadcastReceiver() {
         Log.d(TAG, "DEBUG_POST_NOTIFICATION received")
 
         val title = intent.getStringExtra("title") ?: "Matrix Test"
-        val body = intent.getStringExtra("body") ?: "Hello from AA"
+        val body = intent.getStringExtra("body") ?: "Hello from debug"
         postTestNotification(context, title, body)
     }
 
@@ -85,7 +85,7 @@ class DebugNotificationReceiver : BroadcastReceiver() {
             "Matrix Messages",
             NotificationManager.IMPORTANCE_HIGH
         ).apply {
-            description = "Debug test notifications for Android Auto"
+            description = "Debug test notifications"
             setShowBadge(true)
         }
         nm.createNotificationChannel(channel)

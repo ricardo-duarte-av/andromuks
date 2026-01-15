@@ -25,7 +25,6 @@ Andromuks é um cliente Matrix moderno e completo para Android, oferecendo uma e
 
 **📱 Funcionalidades Principais**
 - **Chat Bubbles**: Responda mensagens rapidamente sem sair de outros apps
-- **Android Auto**: Use o app com segurança enquanto dirige
 - **Notificações Push**: Receba mensagens mesmo com o app fechado
 - **Envio de Mídia**: Compartilhe fotos, vídeos e áudios diretamente do app
 - **Câmera Integrada**: Tire fotos e grave vídeos sem sair do chat
@@ -81,7 +80,6 @@ Andromuks is a modern and feature-rich Matrix client for Android, offering a dec
 
 **📱 Key Features**
 - **Chat Bubbles**: Quickly reply to messages without leaving other apps
-- **Android Auto**: Use the app safely while driving
 - **Push Notifications**: Receive messages even when the app is closed
 - **Media Sharing**: Share photos, videos, and audio directly from the app
 - **Integrated Camera**: Take photos and record videos without leaving the chat
@@ -118,7 +116,7 @@ Andromuks is perfect for those who value privacy, security, and control over the
 ---
 
 ## Palavras-chave (Keywords)
-Matrix, mensagens, chat, criptografia, E2EE, descentralizado, privacidade, segurança, Android, cliente Matrix, mensagens seguras, comunicação, chat bubbles, Android Auto
+Matrix, mensagens, chat, criptografia, E2EE, descentralizado, privacidade, segurança, Android, cliente Matrix, mensagens seguras, comunicação, chat bubbles
 
 ---
 

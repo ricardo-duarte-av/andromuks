@@ -182,7 +182,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             }
 
             // Create native Android notification channel
-            // Use IMPORTANCE_HIGH for Android Auto compatibility
             val soundUri = android.net.Uri.parse("android.resource://" + context.packageName + "/" + soundResource)
             val channel = NotificationChannel(
                 conversationChannelId,
@@ -192,7 +191,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 description = "Notifications for $roomName"
                 enableVibration(true)
                 enableLights(true)
-                // CRITICAL: Set sound with AudioAttributes for proper Android Auto support
+                // Set sound with AudioAttributes for consistent channel behavior
                 val audioAttributes = android.media.AudioAttributes.Builder()
                     .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
                     .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
@@ -550,19 +549,17 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 }
                 
                 // Create or update MessagingStyle
-                // CRITICAL: Android Auto requires setConversationTitle() when shortcut category is android.shortcut.conversation
                 // For DMs, use sender name as conversation title; for groups, use room name
                 val conversationTitle = if (isGroupRoom) {
                     notificationData.roomName
                 } else {
-                    // For DMs, Android Auto still requires a conversation title when shortcut category is conversation
-                    // Use sender display name as the conversation title
+                    // For DMs, use sender display name as the conversation title
                     notificationData.senderDisplayName ?: notificationData.sender
                 }
                 
                 val messagingStyle = (existingStyle ?: NotificationCompat.MessagingStyle(me))
                     .setConversationTitle(conversationTitle)
-                    .setGroupConversation(isGroupRoom) // Must be explicitly set - Android Auto does not infer it
+                    .setGroupConversation(isGroupRoom)
                 
                 // Add message to style
                 val message = if (hasImage && imageUri != null) {
@@ -648,11 +645,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     .setContentIntent(createRoomIntent(notificationData))
                     .setAutoCancel(true)
                     .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Required for Android Auto
-                    // NOTE: Removed grouping - Android Auto/DHU may filter grouped notifications
-                    // Grouping is useful for phone UI but may prevent Android Auto from showing notifications
-                    // .setGroup(notificationData.roomId) // Group by room
-                    // .setGroupSummary(false)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                     .apply {
                     // Set large icon (always set if available)
                     setLargeIcon(largeIconBitmap)
@@ -686,20 +679,16 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         }
                     }
                     
-                    // CRITICAL: When bubble is open, make notification silent but maintain HIGH priority for Android Auto
-                    // NOTE: Android Auto may filter silent notifications, so we only make it silent if bubble is actually visible
                     if (bubbleAlreadyOpen && bubbleIsVisible) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Bubble is open and visible - making notification silent but keeping HIGH priority for Android Auto: ${notificationData.roomId}")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Bubble is open and visible - making notification silent: ${notificationData.roomId}")
                         // Silent notification - no sound, vibration, or heads-up
-                        // BUT maintain HIGH priority for Android Auto compatibility
                         setSilent(true)
                         setOnlyAlertOnce(true) // Avoid re-alerting
-                        setPriority(NotificationCompat.PRIORITY_HIGH) // Keep HIGH priority for Android Auto
+                        setPriority(NotificationCompat.PRIORITY_HIGH)
                         setDefaults(0) // No sound, vibration, or lights
                     } else {
                         // Normal notification behavior when bubble is not open or not visible
-                        // This ensures Android Auto can display the notification
-                        if (BuildConfig.DEBUG) Log.d(TAG, "Normal notification (bubble open=$bubbleAlreadyOpen, visible=$bubbleIsVisible) - ensuring Android Auto compatibility: ${notificationData.roomId}")
+                        if (BuildConfig.DEBUG) Log.d(TAG, "Normal notification (bubble open=$bubbleAlreadyOpen, visible=$bubbleIsVisible): ${notificationData.roomId}")
                         // CRITICAL: Do NOT call setSilent() at all for normal notifications
                         // Calling setSilent(false) doesn't work - instead, explicitly set sound/vibration
                         setOnlyAlertOnce(true) // Prevent heads-up flicker on rapid updates
@@ -742,27 +731,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     // Add mark as read action
                     val markReadAction = createMarkReadAction(notificationData)
                     addAction(markReadAction)
-                    
-                    // Android Auto/DHU: surface the conversation via CarExtender/UnreadConversation
-                    // CRITICAL: CarExtender must be added for Android Auto/DHU to recognize the notification
-                    val unreadConversation = createUnreadConversation(
-                        notificationData = notificationData,
-                        messagingStyle = messagingStyle,
-                        replyAction = replyAction,
-                        markReadAction = markReadAction
-                    )
-                    if (BuildConfig.DEBUG) {
-                        val messageCount = unreadConversation.messages?.size ?: 0
-                        val hasReply = unreadConversation.replyPendingIntent != null
-                        val hasRead = unreadConversation.readPendingIntent != null
-                        Log.d(TAG, "CarExtender UnreadConversation details - messages: $messageCount, hasReplyAction: $hasReply, hasReadAction: $hasRead, timestamp: ${unreadConversation.latestTimestamp}")
-                    }
-                    val carExtender = NotificationCompat.CarExtender()
-                        .setUnreadConversation(unreadConversation)
-                    extend(carExtender)
-                    if (BuildConfig.DEBUG) {
-                        Log.d(TAG, "CarExtender attached to notification")
-                    }
                     }
                     .build()
                 
@@ -792,9 +760,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                     } else {
                         (notification.defaults and Notification.DEFAULT_SOUND) != 0
                     }
-                    val hasCarExtender = notification.extras?.containsKey("android.car.EXTENSIONS") == true
-                    Log.d(TAG, "Posting notification for Android Auto - ID: $notifID, channel: $channelId, priority: ${notification.priority}, channelHasSound: $channelHasSound, visibility: ${notification.visibility}")
-                    Log.d(TAG, "Notification has CarExtender: $hasCarExtender")
+                    Log.d(TAG, "Posting notification - ID: $notifID, channel: $channelId, priority: ${notification.priority}, channelHasSound: $channelHasSound, visibility: ${notification.visibility}")
                     Log.d(TAG, "Notification category: ${notification.category}, flags: ${notification.flags}, defaults: ${notification.defaults}")
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -807,15 +773,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 notificationManager.notify(notifID, notification)
                 if (BuildConfig.DEBUG) {
                     Log.d(TAG, "✓ Notification posted successfully for room: ${notificationData.roomId}")
-                    // Verify CarExtender was actually attached by checking the built notification
-                    val builtNotification = notification
-                    val carExtenderCheck = NotificationCompat.CarExtender(builtNotification)
-                    val unreadConv = carExtenderCheck.unreadConversation
-                    if (unreadConv != null) {
-                        Log.d(TAG, "✓✓✓ CarExtender verification - UnreadConversation found: ${unreadConv.messages?.size ?: 0} messages")
-                    } else {
-                        Log.w(TAG, "⚠⚠⚠ WARNING: CarExtender UnreadConversation is NULL after building notification!")
-                    }
                 }
             } // End synchronized block
             
@@ -1020,66 +977,6 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             .build()
     }
 
-    /**
-     * Create UnreadConversation for Android Auto from the latest MessagingStyle messages.
-     * This allows DHU/Android Auto to announce and reply via voice using the same actions.
-     */
-    private fun createUnreadConversation(
-        notificationData: NotificationData,
-        messagingStyle: MessagingStyle,
-        replyAction: NotificationCompat.Action,
-        markReadAction: NotificationCompat.Action
-    ): NotificationCompat.CarExtender.UnreadConversation {
-        val conversationTitle = when {
-            notificationData.roomName != null && notificationData.roomName != notificationData.senderDisplayName ->
-                notificationData.roomName
-            else -> notificationData.senderDisplayName ?: notificationData.roomId
-        } ?: "Conversation"
-
-        // Limit to a few recent messages for car UI
-        val latestMessages = messagingStyle.messages.takeLast(5)
-
-        // CRITICAL: Android Auto/DHU requires UnreadConversation to have valid pending intents
-        // Ensure both reply and read actions have valid pending intents
-        val replyPendingIntent = replyAction.actionIntent
-        val readPendingIntent = markReadAction.actionIntent
-        
-        if (BuildConfig.DEBUG) {
-            Log.d(TAG, "CarExtender: ReplyPendingIntent is null: ${replyPendingIntent == null}, ReadPendingIntent is null: ${readPendingIntent == null}")
-        }
-        
-        val builder = NotificationCompat.CarExtender.UnreadConversation.Builder(conversationTitle)
-            .setLatestTimestamp(
-                latestMessages.lastOrNull()?.timestamp
-                    ?: notificationData.timestamp
-                    ?: System.currentTimeMillis()
-            )
-            .setReadPendingIntent(readPendingIntent)
-            .setReplyAction(
-                replyPendingIntent,
-                RemoteInput.Builder(KEY_REPLY_TEXT).setLabel("Reply").build()
-            )
-
-        latestMessages.forEach { msg ->
-            // Extract message text - handle CharSequence properly for Android Auto
-            val messageText = when {
-                msg.text != null -> msg.text.toString()
-                msg.dataUri != null -> "[Media]"
-                else -> ""
-            }
-            if (messageText.isNotEmpty()) {
-                builder.addMessage(messageText)
-                if (BuildConfig.DEBUG) Log.d(TAG, "CarExtender: Added message to UnreadConversation: ${messageText.take(50)}...")
-            }
-        }
-        
-        val unreadConversation = builder.build()
-        if (BuildConfig.DEBUG) {
-            Log.d(TAG, "CarExtender: Created UnreadConversation with title='$conversationTitle', ${latestMessages.size} messages, timestamp=${unreadConversation.latestTimestamp}")
-        }
-        return unreadConversation
-    }
-    
     /**
      * Load person icon synchronously (fallback to default)
      */
@@ -1548,7 +1445,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 .setContentIntent(existingNotification.notification.contentIntent)
                 .setAutoCancel(true)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Required for Android Auto
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .setGroup(roomId)
                 .setGroupSummary(false)
                 .setShortcutId(shortcutId)

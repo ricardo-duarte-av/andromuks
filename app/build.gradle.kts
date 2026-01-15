@@ -128,10 +128,6 @@ dependencies {
     // WorkManager for periodic database maintenance
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     
-    // Android Auto / Car App Library for messaging support
-    implementation("androidx.car.app:app:1.7.0")
-    implementation("androidx.car.app:app-projected:1.7.0")
-    
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

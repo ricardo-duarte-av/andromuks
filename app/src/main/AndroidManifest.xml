@@ -23,9 +23,6 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- Camera permission for taking photos/videos -->
     <uses-permission android:name="android.permission.CAMERA" />
-    <!-- Car App Library binding permission for Android Auto host (not enforced in debug builds) -->
-    <uses-permission android:name="androidx.car.app.CAR_APP_SERVICE" />
-    
 
     <application
         android:allowBackup="true"
@@ -173,35 +170,6 @@
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
             android:value="matrix_notifications" />
-
-        <!-- Car App Library minimum API (application-level for hosts that read here) -->
-        <meta-data
-            android:name="androidx.car.app.minCarApiLevel"
-            android:value="7" />
-
-        <meta-data
-            android:name="com.google.android.gms.car.application"
-            android:resource="@xml/automotive_app_desc" />
-
-        <!-- Car App Library entry point for projected Android Auto -->
-        <service
-            android:name=".car.AndromuksCarAppService"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="androidx.car.app.CarAppService" />
-                <!-- Messaging category per supported Android Auto app types -->
-                <category android:name="androidx.car.app.category.MESSAGING" />
-            </intent-filter>
-            <meta-data
-                android:name="androidx.car.app.hosts"
-                android:resource="@xml/host_validator" />
-            <meta-data
-                android:name="androidx.car.app.minCarApiLevel"
-                android:value="7" />
-            <meta-data
-                android:name="com.google.android.gms.car.application"
-                android:resource="@xml/automotive_app_desc" />
-        </service>
 
         <!-- Debug notification tester (only active in debug builds) -->
         <receiver
