@@ -152,9 +152,6 @@ class MainActivity : ComponentActivity() {
                                 appViewModel.checkAndProcessPendingItemsOnStartup(this)
                             }, 500)
                             
-                            // Schedule database maintenance (daily at 2 AM)
-                            net.vrkknn.andromuks.database.DatabaseMaintenanceWorker.schedule(this)
-                            
                             // Schedule WebSocket health checks (every 15 minutes)
                             WebSocketHealthCheckWorker.schedule(this)
                             
@@ -843,23 +840,11 @@ fun AppNavigation(
                 navController = navController
             )
         }
-        composable("unprocessed_events") {
-            UnprocessedEventsScreen(
-                appViewModel = appViewModel,
-                navController = navController
-            )
-        }
         composable("mentions") {
             MentionsScreen(
                 appViewModel = appViewModel,
                 navController = navController,
                 modifier = modifier
-            )
-        }
-        composable("room_disk_stats") {
-            RoomDiskStatsScreen(
-                appViewModel = appViewModel,
-                navController = navController
             )
         }
         composable(

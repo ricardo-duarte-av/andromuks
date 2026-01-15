@@ -260,7 +260,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
         }
     }
     
-    // CRITICAL FIX: Add fallback navigation if spacesLoaded becomes true from database
+    // CRITICAL FIX: Add fallback navigation if spacesLoaded becomes true from cache
     // or after timeout, even if WebSocket never connects (e.g., airplane mode)
     // This prevents infinite spinner when WebSocket can't connect
     // Only apply this if we have token and homeserver (i.e., not on login screen)
@@ -273,8 +273,8 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
     
     LaunchedEffect(appViewModel.spacesLoaded, hasCredentials) {
         if (hasCredentials && appViewModel.spacesLoaded && !navigationHandled) {
-            // Spaces loaded from database - navigate immediately
-            if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Spaces loaded from database - navigating to room_list (WebSocket may not be connected)")
+            // Spaces loaded from cache - navigate immediately
+            if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Spaces loaded from cache - navigating to room_list (WebSocket may not be connected)")
             appViewModel.isLoading = false
             val currentRoute = navController.currentBackStackEntry?.destination?.route
             if (currentRoute != null && currentRoute != "simple_room_list" && 

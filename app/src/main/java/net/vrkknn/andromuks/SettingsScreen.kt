@@ -55,40 +55,6 @@ fun SettingsScreen(
                 fontWeight = FontWeight.Bold
             )
 
-            // Show Unprocessed Events Setting
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = "Show unprocessed events",
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.Medium
-                        )
-                        Text(
-                            text = "Display low-level events like m.room.create, m.room.join_rules, etc.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    
-                    Switch(
-                        checked = appViewModel.showUnprocessedEvents,
-                        onCheckedChange = { appViewModel.toggleShowUnprocessedEvents() }
-                    )
-                }
-            }
-            
             // Load thumbnails setting
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -621,7 +587,7 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
                 CacheStatItem(
                     label = "User Profiles (Disk)",
                     value = cacheStats!!["user_profiles_disk_cache"] ?: "N/A",
-                    description = "Stored in SQLite database",
+                    description = "Stored on disk",
                     onClick = { navController.navigate("cached_profiles/disk") }
                 )
                 

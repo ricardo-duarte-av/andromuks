@@ -53,7 +53,6 @@ Andromuks é um cliente Matrix moderno e completo para Android, oferecendo uma e
 **🔧 Tecnologia Moderna**
 - Construído com Kotlin e Jetpack Compose
 - Arquitetura limpa e escalável
-- Persistência local com Room Database
 - Notificações ricas com ações rápidas
 
 Andromuks é perfeito para quem valoriza privacidade, segurança e controle sobre suas comunicações. Conecte-se à rede Matrix e experimente mensagens verdadeiramente descentralizadas.
@@ -108,7 +107,6 @@ Andromuks is a modern and feature-rich Matrix client for Android, offering a dec
 **🔧 Modern Technology**
 - Built with Kotlin and Jetpack Compose
 - Clean and scalable architecture
-- Local persistence with Room Database
 - Rich notifications with quick actions
 
 Andromuks is perfect for those who value privacy, security, and control over their communications. Connect to the Matrix network and experience truly decentralized messaging.

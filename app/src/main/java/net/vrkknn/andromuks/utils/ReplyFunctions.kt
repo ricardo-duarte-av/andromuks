@@ -1177,7 +1177,7 @@ fun MessageBubbleWithMenu(
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
                                 CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                                Text("Fetching from local database…")
+                                Text("Fetching from cache…")
                             }
                         },
                         confirmButton = {

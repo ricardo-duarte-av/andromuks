@@ -1,40 +1,12 @@
 package net.vrkknn.andromuks.database
 
 import android.content.Context
-import android.database.sqlite.SQLiteBlobTooBigException
-import android.database.sqlite.SQLiteException
 import android.util.Base64
 import android.util.Log
-import androidx.room.withTransaction
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.BuildConfig
 import net.vrkknn.andromuks.TimelineEvent
-import net.vrkknn.andromuks.database.dao.AccountDataDao
-import net.vrkknn.andromuks.database.dao.EventDao
-import net.vrkknn.andromuks.database.dao.PendingRoomDao
-import net.vrkknn.andromuks.database.dao.ReactionDao
-import net.vrkknn.andromuks.database.dao.ReceiptDao
-import net.vrkknn.andromuks.database.dao.RoomListSummaryDao
-import net.vrkknn.andromuks.database.dao.RoomStateDao
-import net.vrkknn.andromuks.database.dao.RoomSummaryDao
-import net.vrkknn.andromuks.database.dao.SpaceDao
-import net.vrkknn.andromuks.database.dao.SpaceRoomDao
-import net.vrkknn.andromuks.database.dao.SyncMetaDao
-import net.vrkknn.andromuks.database.dao.UnprocessedEventDao
-import net.vrkknn.andromuks.database.entities.AccountDataEntity
-import net.vrkknn.andromuks.database.entities.EventEntity
-import net.vrkknn.andromuks.database.entities.PendingRoomEntity
-import net.vrkknn.andromuks.database.entities.ReactionEntity
-import net.vrkknn.andromuks.database.entities.ReceiptEntity
-import net.vrkknn.andromuks.database.entities.RoomListSummaryEntity
-import net.vrkknn.andromuks.database.entities.RoomStateEntity
-import net.vrkknn.andromuks.database.entities.RoomSummaryEntity
-import net.vrkknn.andromuks.database.entities.SpaceEntity
-import net.vrkknn.andromuks.database.entities.SpaceRoomEntity
-import net.vrkknn.andromuks.database.entities.SyncMetaEntity
-import net.vrkknn.andromuks.database.entities.UnprocessedEventEntity
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
@@ -43,7 +15,7 @@ import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
 /**
- * SyncIngestor - Persists sync_complete messages to Room database
+ * SyncIngestor - Ingests sync_complete messages into in-memory caches
  * 
  * Handles:
  * - Persisting events, room state, receipts from sync_complete
@@ -52,10 +24,7 @@ import java.util.zip.GZIPOutputStream
  * - Transaction-based writes for consistency
  */
 class SyncIngestor(private val context: Context) {
-    private val database = AndromuksDatabase.getInstance(context)
-    private val eventDao = database.eventDao()
-    // All room/space/account/invite data persistence removed - data is in-memory only
-    // Only media and user profiles are persisted (not touched here)
+    // All room/space/account/invite data is in-memory only
     private val TAG = "SyncIngestor"
     
     // SharedPreferences for run_id and since token (replacing syncMetaDao)
@@ -320,24 +289,6 @@ class SyncIngestor(private val context: Context) {
         return emptyList() // No pending rooms - all data is in-memory only
     }
     
-    private data class EventPersistCandidate(
-        val entity: EventEntity,
-        val source: String
-    )
-    
-    private fun logEventPersisted(
-        roomId: String,
-        eventId: String,
-        source: String,
-        type: String,
-        timelineRowId: Long
-    ) {
-        if (BuildConfig.DEBUG) Log.d(
-            TAG,
-            "SyncIngestor: Persisted event (room=$roomId, eventId=$eventId, type=$type, timelineRowId=$timelineRowId, source=$source)"
-        )
-    }
-    
     /**
      * Check if run_id has changed and update it if needed
      * 
@@ -465,7 +416,7 @@ class SyncIngestor(private val context: Context) {
                     Log.d(TAG, "SyncIngestor: Processing room $roomId - $roomContents")
                 }
                 
-                val hadEvents = processRoom(roomId, roomObj, null, isAppVisible)
+                val hadEvents = processRoom(roomId, roomObj, isAppVisible)
                 if (hadEvents) {
                     roomsWithEvents.add(roomId)
                 } else if (BuildConfig.DEBUG) {
@@ -519,9 +470,8 @@ class SyncIngestor(private val context: Context) {
      * @return true if events were persisted for this room, false otherwise
      */
     private suspend fun processRoom(
-        roomId: String, 
-        roomObj: JSONObject, 
-        existingState: RoomStateEntity? = null, 
+        roomId: String,
+        roomObj: JSONObject,
         isAppVisible: Boolean = true
     ): Boolean {
         val existingTimelineRowCache = mutableMapOf<String, Long?>()
@@ -560,7 +510,7 @@ class SyncIngestor(private val context: Context) {
                     val eventId = eventJson.optString("event_id") ?: "<missing>"
                     val eventType = eventJson.optString("type")
                     
-                    val eventEntity = try {
+                    val timelineEvent = try {
                         parseEventFromJson(
                             roomId = roomId,
                             eventJson = eventJson,
@@ -572,21 +522,17 @@ class SyncIngestor(private val context: Context) {
                         logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
                         null
                     }
-                    
-                    if (eventEntity != null) {
+
+                    if (timelineEvent != null) {
                         // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
-                        if (eventEntity.isRedaction || eventEntity.type == "m.reaction") {
+                        if (timelineEvent.type == "m.room.redaction" || timelineEvent.type == "m.reaction") {
                             hasEditRedactionReaction = true
                         }
-                        // Check for m.replace (edit) relation
-                        val rawJsonObj = try { JSONObject(eventEntity.rawJson) } catch (_: Exception) { null }
-                        val relationType = rawJsonObj?.optJSONObject("content")?.optJSONObject("m.relates_to")?.optString("rel_type")
-                            ?: rawJsonObj?.optJSONObject("decrypted")?.optJSONObject("m.relates_to")?.optString("rel_type")
-                        if (relationType == "m.replace") {
+                        if (timelineEvent.relationType == "m.replace") {
                             hasEditRedactionReaction = true
                         }
-                        // Convert to TimelineEvent for cache
-                        entityToTimelineEvent(eventEntity)?.let { eventsForCacheUpdate.add(it) }
+                        // Add to cache
+                        eventsForCacheUpdate.add(timelineEvent)
                     }
                 }
                 
@@ -623,7 +569,7 @@ class SyncIngestor(private val context: Context) {
                     val sourceLabel = "events[$i]"
                     val eventId = eventJson.optString("event_id") ?: "<missing>"
                     
-                    val eventEntity = try {
+                    val timelineEvent = try {
                         parseEventFromJson(
                             roomId = roomId,
                             eventJson = eventJson,
@@ -635,19 +581,16 @@ class SyncIngestor(private val context: Context) {
                         logUnprocessedEvent(roomId, eventJson, sourceLabel, "parse_exception", e)
                         null
                     }
-                    
-                    if (eventEntity != null) {
+
+                    if (timelineEvent != null) {
                         // LRU CACHE: Collect for cache update and detect edit/redaction/reaction
-                        if (eventEntity.isRedaction || eventEntity.type == "m.reaction") {
+                        if (timelineEvent.type == "m.room.redaction" || timelineEvent.type == "m.reaction") {
                             hasEditRedactionReaction = true
                         }
-                        val rawJsonObj = try { JSONObject(eventEntity.rawJson) } catch (_: Exception) { null }
-                        val relationType = rawJsonObj?.optJSONObject("content")?.optJSONObject("m.relates_to")?.optString("rel_type")
-                            ?: rawJsonObj?.optJSONObject("decrypted")?.optJSONObject("m.relates_to")?.optString("rel_type")
-                        if (relationType == "m.replace") {
+                        if (timelineEvent.relationType == "m.replace") {
                             hasEditRedactionReaction = true
                         }
-                        entityToTimelineEvent(eventEntity)?.let { eventsForCacheUpdate.add(it) }
+                        eventsForCacheUpdate.add(timelineEvent)
                     }
                 }
                 
@@ -686,7 +629,7 @@ class SyncIngestor(private val context: Context) {
     }
     
     /**
-     * Parse an event JSON into EventEntity
+     * Parse an event JSON into TimelineEvent for in-memory cache updates.
      */
     private suspend fun parseEventFromJson(
         roomId: String,
@@ -694,7 +637,7 @@ class SyncIngestor(private val context: Context) {
         timelineRowid: Long,
         source: String,
         existingTimelineRowCache: MutableMap<String, Long?>
-    ): EventEntity? {
+    ): TimelineEvent? {
         val eventIdRaw = eventJson.opt("event_id")
         if (eventIdRaw !is String || eventIdRaw.isBlank()) {
             Log.w(
@@ -741,7 +684,7 @@ class SyncIngestor(private val context: Context) {
         
         // Only preserve from cache if we didn't get a valid timeline_rowid (i.e., it's -1)
         // Negative values are valid timeline_rowid values, so we should NOT override them
-        // NOTE: No longer querying database since events are not persisted
+        // NOTE: No longer querying local storage since events are not persisted
         if (resolvedTimelineRowId == -1L) {
             val cachedValue = existingTimelineRowCache[eventId]
             if (cachedValue != null) {
@@ -796,247 +739,38 @@ class SyncIngestor(private val context: Context) {
             relatesToEventId = messageContent?.optString("redacts")?.takeIf { it.isNotBlank() }
         }
         
-        // Include aggregated reactions (if any) in persisted JSON
+        // Include aggregated reactions (if any) in content for cache consumption
         val reactionsObj = eventJson.optJSONObject("reactions") ?: content?.optJSONObject("reactions")
-        val aggregatedReactionsJson = reactionsObj?.toString()
-        val rawJson = if (reactionsObj != null) {
-            try {
-                val jsonCopy = JSONObject(eventJson.toString())
-                if (!jsonCopy.has("reactions")) {
-                    jsonCopy.put("reactions", reactionsObj)
-                }
-                val ensuredContent = jsonCopy.optJSONObject("content") ?: JSONObject().also {
-                    jsonCopy.put("content", it)
-                }
-                if (!ensuredContent.has("reactions")) {
-                    ensuredContent.put("reactions", reactionsObj)
-                }
-                jsonCopy.toString()
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to inject aggregated reactions into rawJson for $eventId: ${e.message}")
-                eventJson.toString()
-            }
-        } else {
-            eventJson.toString()
+        if (reactionsObj != null && content != null && !content.has("reactions")) {
+            content.put("reactions", reactionsObj)
         }
-        if (aggregatedReactionsJson != null) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Detected aggregated reactions for event $eventId -> $aggregatedReactionsJson")
-        }
-        
-        return EventEntity(
-            eventId = eventId,
+
+        val unsigned = eventJson.optJSONObject("unsigned")
+        val localContent = eventJson.optJSONObject("local_content")
+        val transactionId = eventJson.optString("transaction_id").takeIf { it.isNotBlank() }
+            ?: localContent?.optString("transaction_id")?.takeIf { it.isNotBlank() }
+            ?: unsigned?.optString("transaction_id")?.takeIf { it.isNotBlank() }
+
+        return TimelineEvent(
+            rowid = resolvedTimelineRowId,
+            timelineRowid = resolvedTimelineRowId,
             roomId = roomId,
-            timelineRowId = resolvedTimelineRowId,
-            timestamp = timestamp,
-            type = type,
+            eventId = eventId,
             sender = sender,
-            decryptedType = if (decryptedType != null && decryptedType.isNotBlank()) decryptedType else null,
-            relatesToEventId = if (relatesToEventId != null && relatesToEventId.isNotBlank()) relatesToEventId else null,
-            threadRootEventId = threadRootEventId,
-            isRedaction = isRedaction,
-            rawJson = rawJson,
-            aggregatedReactionsJson = aggregatedReactionsJson
+            type = type,
+            timestamp = timestamp,
+            content = content,
+            stateKey = eventJson.optString("state_key").takeIf { it.isNotBlank() },
+            decrypted = eventJson.optJSONObject("decrypted"),
+            decryptedType = decryptedType?.takeIf { it.isNotBlank() },
+            unsigned = unsigned,
+            redactedBy = eventJson.optString("redacted_by").takeIf { it.isNotBlank() },
+            localContent = localContent,
+            relationType = relType?.takeIf { it.isNotBlank() },
+            relatesTo = threadRootEventId ?: relatesToEventId,
+            aggregatedReactions = reactionsObj,
+            transactionId = transactionId
         )
-    }
-    
-    /**
-     * Convert EventEntity to TimelineEvent for LRU cache notification.
-     * This is a minimal conversion sufficient for cache append/invalidation detection.
-     */
-    private fun entityToTimelineEvent(entity: EventEntity): TimelineEvent? {
-        return try {
-            val rawJson = JSONObject(entity.rawJson)
-            val content = rawJson.optJSONObject("content")
-            val decrypted = rawJson.optJSONObject("decrypted")
-            val unsigned = rawJson.optJSONObject("unsigned")
-            val relatesTo = content?.optJSONObject("m.relates_to") 
-                ?: decrypted?.optJSONObject("m.relates_to")
-            
-            TimelineEvent(
-                rowid = entity.timelineRowId,
-                timelineRowid = entity.timelineRowId,
-                roomId = entity.roomId,
-                eventId = entity.eventId,
-                sender = entity.sender ?: "",
-                type = entity.type,
-                timestamp = entity.timestamp,
-                content = content,
-                decrypted = decrypted,
-                decryptedType = entity.decryptedType,
-                unsigned = unsigned,
-                stateKey = rawJson.optString("state_key").takeIf { it.isNotBlank() },
-                redactedBy = rawJson.optString("redacted_by").takeIf { it.isNotBlank() },
-                relationType = relatesTo?.optString("rel_type"),
-                relatesTo = relatesTo?.optString("event_id")
-            )
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to convert EventEntity to TimelineEvent: ${entity.eventId}", e)
-            null
-        }
-    }
-    
-    private fun collectReactionPersistenceFromEvent(
-        roomId: String,
-        eventJson: JSONObject,
-        reactionUpserts: MutableMap<String, ReactionEntity>,
-        reactionDeletes: MutableSet<String>
-    ) {
-        val eventId = eventJson.optString("event_id")
-        if (eventId.isNullOrBlank()) return
-        
-        when (eventJson.optString("type")) {
-            "m.reaction" -> {
-                val content = eventJson.optJSONObject("content") ?: return
-                val relatesTo = content.optJSONObject("m.relates_to")
-                if (relatesTo == null) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping reaction $eventId - missing m.relates_to")
-                    return
-                }
-                if (relatesTo.optString("rel_type") != "m.annotation") {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping reaction $eventId - rel_type='${relatesTo.optString("rel_type")}'")
-                    return
-                }
-                
-                val targetEventId = relatesTo.optString("event_id")
-                val key = relatesTo.optString("key")
-                if (targetEventId.isBlank() || key.isBlank()) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping reaction $eventId - missing target/key (target='$targetEventId', key='$key')")
-                    return
-                }
-                
-                val redactedBy = eventJson.optString("redacted_by")
-                val unsigned = eventJson.optJSONObject("unsigned")
-                val redactedBecause = unsigned?.optJSONObject("redacted_because")
-                if (redactedBy.isNotBlank() || redactedBecause != null) {
-                    reactionDeletes.add(eventId)
-                    reactionUpserts.remove(eventId)
-                    return
-                }
-                
-                val sender = eventJson.optString("sender")
-                val originTs = if (eventJson.has("origin_server_ts")) {
-                    eventJson.optLong("origin_server_ts", 0L)
-                } else {
-                    0L
-                }
-                val fallbackTs = if (eventJson.has("timestamp")) {
-                    eventJson.optLong("timestamp", 0L)
-                } else {
-                    0L
-                }
-                val timestamp = when {
-                    originTs > 0 -> originTs
-                    fallbackTs > 0 -> fallbackTs
-                    else -> System.currentTimeMillis()
-                }
-                
-                reactionDeletes.remove(eventId)
-                reactionUpserts[eventId] = ReactionEntity(
-                    roomId = roomId,
-                    targetEventId = targetEventId,
-                    key = key,
-                    sender = sender,
-                    eventId = eventId,
-                    timestamp = timestamp
-                )
-                if (BuildConfig.DEBUG) Log.d(
-                    TAG,
-                    "SyncIngestor: Queued reaction upsert from JSON eventId=$eventId target=$targetEventId key=$key sender=$sender ts=$timestamp"
-                )
-            }
-            "m.room.redaction" -> {
-                val redacts = eventJson.optJSONObject("content")?.optString("redacts")
-                if (!redacts.isNullOrBlank()) {
-                    reactionDeletes.add(redacts)
-                    reactionUpserts.remove(redacts)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Queued reaction delete due to JSON redaction of $redacts")
-                }
-            }
-            "m.room.message" -> {
-                val reactionsObj = eventJson.optJSONObject("content")?.optJSONObject("reactions")
-                if (reactionsObj != null && reactionsObj.length() > 0) {
-                    val keys = reactionsObj.keys().asSequence().joinToString()
-                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Message $eventId contains aggregated reactions [$keys] (expecting individual m.reaction events)")
-                }
-            }
-        }
-    }
-    
-    private fun collectReactionPersistenceFromTimelineEvent(
-        roomId: String,
-        event: TimelineEvent,
-        reactionUpserts: MutableMap<String, ReactionEntity>,
-        reactionDeletes: MutableSet<String>
-    ) {
-        when (event.type) {
-            "m.reaction" -> {
-                val content = event.content
-                if (content == null) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - missing content")
-                    return
-                }
-                val relatesTo = content.optJSONObject("m.relates_to")
-                if (relatesTo == null) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - missing m.relates_to")
-                    return
-                }
-                if (relatesTo.optString("rel_type") != "m.annotation") {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - rel_type='${relatesTo.optString("rel_type")}'")
-                    return
-                }
-                
-                val targetEventId = relatesTo.optString("event_id")
-                val key = relatesTo.optString("key")
-                if (targetEventId.isBlank() || key.isBlank()) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - missing target/key (target='$targetEventId', key='$key')")
-                    return
-                }
-                
-                val redactedBecause = event.unsigned?.optJSONObject("redacted_because")
-                if (!event.redactedBy.isNullOrBlank() || redactedBecause != null) {
-                    reactionDeletes.add(event.eventId)
-                    reactionUpserts.remove(event.eventId)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Skipping timeline reaction ${event.eventId} - redacted (by='${event.redactedBy}', because=${redactedBecause != null})")
-                    return
-                }
-                
-                reactionDeletes.remove(event.eventId)
-                val reactionTimestamp = if (event.timestamp > 0) {
-                    event.timestamp
-                } else {
-                    val unsignedTs = event.unsigned?.optLong("age_ts") ?: 0L
-                    if (unsignedTs > 0) unsignedTs else System.currentTimeMillis()
-                }
-                
-                reactionUpserts[event.eventId] = ReactionEntity(
-                    roomId = roomId,
-                    targetEventId = targetEventId,
-                    key = key,
-                    sender = event.sender,
-                    eventId = event.eventId,
-                    timestamp = reactionTimestamp
-                )
-                if (BuildConfig.DEBUG) Log.d(
-                    TAG,
-                    "SyncIngestor: Queued reaction upsert from timeline eventId=${event.eventId} target=$targetEventId key=$key sender=${event.sender} ts=$reactionTimestamp"
-                )
-            }
-            "m.room.redaction" -> {
-                val redacts = event.content?.optString("redacts")
-                if (!redacts.isNullOrBlank()) {
-                    reactionDeletes.add(redacts)
-                    reactionUpserts.remove(redacts)
-                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Queued reaction delete due to timeline redaction of $redacts")
-                }
-            }
-            "m.room.message" -> {
-                val reactionsObj = event.content?.optJSONObject("reactions")
-                if (reactionsObj != null && reactionsObj.length() > 0) {
-                    val keys = reactionsObj.keys().asSequence().joinToString()
-                    if (BuildConfig.DEBUG) Log.d(TAG, "SyncIngestor: Timeline message ${event.eventId} contains aggregated reactions [$keys] (expecting individual m.reaction events)")
-                }
-            }
-        }
     }
     
     
@@ -1048,171 +782,13 @@ class SyncIngestor(private val context: Context) {
     }
     
     /**
-     * @deprecated No longer persisting paginated events to database - using cache only
-     * Events are stored in RoomTimelineCache (LRU cache) and can be updated by sync_complete
-     * Database is only used for room summaries (RoomListScreen), not for timeline events
+     * @deprecated No longer persisting paginated events - cache is in-memory only.
      */
-    @Deprecated("No longer persisting timeline events to database - using cache only")
+    @Deprecated("No longer persisting timeline events - using cache only")
     suspend fun persistPaginatedEvents(roomId: String, events: List<TimelineEvent>) = withContext(Dispatchers.IO) {
-        // No-op: Events, reactions, and receipts are now stored in RoomTimelineCache only, not in database
-        // Database is only used for room summaries and room state
         if (BuildConfig.DEBUG && events.isNotEmpty()) {
-            Log.d(TAG, "SyncIngestor: Skipping DB persistence for ${events.size} paginated events (using cache only)")
+            Log.d(TAG, "SyncIngestor: Skipping paginated persistence for ${events.size} events (in-memory cache only)")
         }
-    }
-    
-    /**
-     * Parse TimelineEvent to EventEntity
-     */
-    private suspend fun parseEventFromTimelineEvent(
-        roomId: String,
-        event: TimelineEvent,
-        source: String,
-        existingTimelineRowCache: MutableMap<String, Long?>
-    ): EventEntity? {
-        val eventId = event.eventId
-        if (eventId.isBlank()) {
-            Log.w(
-                TAG,
-                "SyncIngestor: Skipping timeline event (room=$roomId, source=$source) - missing event_id."
-            )
-            return null
-        }
-        
-        // Store raw JSON - reconstruct it from TimelineEvent with all fields
-        // CRITICAL: Must include unsigned field (contains prev_content for state events like m.room.pinned_events)
-        val rawJson = try {
-            val json = org.json.JSONObject()
-            json.put("event_id", eventId)
-            json.put("type", event.type)
-            json.put("sender", event.sender)
-            json.put("origin_server_ts", event.timestamp)
-            if (event.timelineRowid > 0) {
-                json.put("timeline_rowid", event.timelineRowid)
-            }
-            if (event.stateKey != null) {
-                json.put("state_key", event.stateKey)
-            }
-            if (event.content != null) {
-                json.put("content", event.content)
-            }
-            if (event.decrypted != null) {
-                json.put("decrypted", event.decrypted)
-                if (event.decryptedType != null) {
-                    json.put("decrypted_type", event.decryptedType)
-                }
-            }
-            // CRITICAL: Include unsigned field - contains prev_content needed for state event diffs
-            if (event.unsigned != null) {
-                json.put("unsigned", event.unsigned)
-            }
-            if (event.redactedBy != null) {
-                json.put("redacted_by", event.redactedBy)
-            }
-            if (event.localContent != null) {
-                json.put("local_content", event.localContent)
-            }
-            if (event.relationType != null) {
-                json.put("relation_type", event.relationType)
-            }
-            if (event.relatesTo != null) {
-                json.put("relates_to", event.relatesTo)
-            }
-            json.toString()
-        } catch (e: Exception) {
-            Log.w(
-                TAG,
-                "SyncIngestor: Skipping timeline event (room=$roomId, source=$source, eventId=$eventId) - failed to serialize JSON: ${e.message}"
-            )
-            return null
-        }
-        
-        // CRITICAL: Only use timelineRowid, never rowid (rowid is for backend debugging only)
-        // timelineRowid can be negative (for state events or certain syncs), so we accept any value
-        var resolvedTimelineRowId = if (event.timelineRowid != 0L) {
-            event.timelineRowid  // Can be negative
-        } else {
-            -1L
-        }
-        // Only preserve from cache/database if we didn't get a valid timelineRowid (i.e., it's -1)
-        // Negative values are valid timelineRowid values, so we should NOT override them
-        if (resolvedTimelineRowId == -1L) {
-            val cachedValue = existingTimelineRowCache[eventId]
-            val preservedRowId = if (cachedValue != null) {
-                cachedValue
-            } else {
-                val existing = eventDao.getEventById(roomId, eventId)
-                existingTimelineRowCache[eventId] = existing?.timelineRowId
-                existing?.timelineRowId
-            }
-            if (preservedRowId != null) {
-                // Accept preserved value even if negative (negative values are valid)
-                if (BuildConfig.DEBUG) {
-                    Log.d(
-                        TAG,
-                        "SyncIngestor: Preserving timelineRowId $preservedRowId for timeline event $eventId (source=$source)"
-                    )
-                }
-                resolvedTimelineRowId = preservedRowId
-            }
-        } else {
-            existingTimelineRowCache[eventId] = resolvedTimelineRowId
-        }
-        
-        // Extract relates_to for edits/reactions
-        // For encrypted messages, check decrypted content if available
-        val messageContent = when {
-            event.type == "m.room.message" -> event.content
-            event.type == "m.room.encrypted" && event.decryptedType == "m.room.message" -> event.decrypted
-            else -> event.content
-        }
-        val relatesTo = messageContent?.optJSONObject("m.relates_to")
-        val relType = relatesTo?.optString("rel_type")
-        val isThreadMessage = relType == "m.thread"
-        
-        // Extract thread root and relates_to based on message type
-        var threadRootEventId: String? = null
-        var relatesToEventId: String? = null
-        
-        if (isThreadMessage) {
-            // For thread messages:
-            // - threadRootEventId = m.relates_to.event_id (the original thread root)
-            // - relatesToEventId = m.relates_to.m.in_reply_to.event_id (the previous message in thread)
-            threadRootEventId = relatesTo?.optString("event_id")?.takeIf { it.isNotBlank() }
-            val inReplyTo = relatesTo?.optJSONObject("m.in_reply_to")
-            relatesToEventId = inReplyTo?.optString("event_id")?.takeIf { it.isNotBlank() }
-        } else if (relatesTo != null) {
-            // For non-thread replies/edits/reactions:
-            // - relatesToEventId = m.relates_to.event_id (the message being replied to/edited/reacted to)
-            relatesToEventId = relatesTo.optString("event_id")?.takeIf { it.isNotBlank() }
-        }
-        
-        val isRedaction = event.type == "m.room.redaction"
-        
-        // For redactions, the redacted event ID is in content.redacts, not m.relates_to
-        if (isRedaction && relatesToEventId == null) {
-            relatesToEventId = messageContent?.optString("redacts")?.takeIf { it.isNotBlank() }
-        }
-        val reactionsObj = event.aggregatedReactions ?: event.content?.optJSONObject("reactions")
-        val aggregatedReactionsJson = reactionsObj?.toString()
-        if (aggregatedReactionsJson != null) {
-            if (BuildConfig.DEBUG) android.util.Log.d(TAG, "SyncIngestor: Detected aggregated reactions in timeline for event ${event.eventId} -> $aggregatedReactionsJson")
-        }
-        
-        return EventEntity(
-            eventId = eventId,
-            roomId = roomId,
-            timelineRowId = resolvedTimelineRowId,
-            timestamp = event.timestamp,
-            type = event.type,
-            sender = event.sender,
-            decryptedType = if (event.decryptedType != null && event.decryptedType.isNotBlank()) event.decryptedType else null,
-            relatesToEventId = relatesToEventId,
-            threadRootEventId = threadRootEventId,
-            isRedaction = isRedaction,
-            rawJson = rawJson,
-            aggregatedReactionsJson = aggregatedReactionsJson
-        )
     }
     
     /**
@@ -1439,16 +1015,16 @@ class SyncIngestor(private val context: Context) {
     }
     
     /**
-     * @deprecated No longer processing receipts - they're not persisted to database
+     * @deprecated No longer processing receipts - they're not persisted locally
      */
-    @Deprecated("Receipts are no longer persisted to database", level = DeprecationLevel.HIDDEN)
+    @Deprecated("Receipts are no longer persisted locally", level = DeprecationLevel.HIDDEN)
     @Suppress("DEPRECATION")
     suspend fun rushProcessPendingReceipts() = rushProcessPendingItems()
     
     /**
-     * @deprecated No longer tracking pending receipts - they're not persisted to database
+     * @deprecated No longer tracking pending receipts - they're not persisted locally
      */
-    @Deprecated("Receipts are no longer persisted to database")
+    @Deprecated("Receipts are no longer persisted locally")
     fun getPendingReceiptsCount(): Int = 0
     
     /**

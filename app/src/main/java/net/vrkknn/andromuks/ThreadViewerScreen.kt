@@ -438,10 +438,9 @@ fun ThreadViewerScreen(
     var sortedEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
 
     // Process thread events in background when dependencies change
-    LaunchedEffect(threadMessages, appViewModel.showUnprocessedEvents, appViewModel.timelineUpdateCounter) {
+    LaunchedEffect(threadMessages, appViewModel.timelineUpdateCounter) {
         sortedEvents = processTimelineEvents(
             timelineEvents = threadMessages,
-            showUnprocessedEvents = appViewModel.showUnprocessedEvents,
             allowedEventTypes = allowedEventTypes
         )
     }

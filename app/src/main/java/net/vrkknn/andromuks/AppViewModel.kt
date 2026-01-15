@@ -16,8 +16,6 @@ import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.SpaceRoomParser
 import net.vrkknn.andromuks.utils.ReceiptFunctions
 import net.vrkknn.andromuks.utils.processReactionEvent
-import net.vrkknn.andromuks.database.entities.EventEntity
-import net.vrkknn.andromuks.database.entities.RoomListSummaryEntity
 import okhttp3.WebSocket
 import org.json.JSONArray
 import kotlinx.coroutines.CompletableDeferred
@@ -55,11 +53,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.io.File
 import java.util.Collections
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
-import net.vrkknn.andromuks.database.entities.RenderableEventEntity
-import net.vrkknn.andromuks.database.AndromuksDatabase
-import net.vrkknn.andromuks.database.entities.RoomStateEntity
-import net.vrkknn.andromuks.database.entities.RoomSummaryEntity
-import androidx.room.withTransaction
 
 data class MemberProfile(
     val displayName: String?,
@@ -178,47 +171,6 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * DB-backed section flows (read-only) to simplify room list data access.
-     * UI remains unchanged for now.
-     */
-    private fun dbOrNull(): AndromuksDatabase? = appContext?.let { AndromuksDatabase.getInstance(it) }
-    @Volatile private var summariesHydrated = false
-
-    private fun RoomStateEntity.toRoomItem(
-        summary: RoomListSummaryEntity?,
-        fallback: RoomSummaryEntity?
-    ): RoomItem {
-        val displayName = this.name ?: this.roomId
-        val avatar = this.avatarUrl
-        val preview = summary?.lastMessagePreview ?: fallback?.messagePreview
-        val sender = summary?.lastMessageSenderUserId ?: fallback?.messageSender
-        val ts = summary?.lastMessageTimestamp?.takeIf { it > 0 }
-            ?: fallback?.lastTimestamp?.takeIf { it > 0 }
-        val unread = (summary?.unreadCount ?: fallback?.unreadCount)?.takeIf { it > 0 }
-        val highlights = (summary?.highlightCount ?: fallback?.highlightCount)?.takeIf { it > 0 }
-        val lowPriority = summary?.isLowPriority ?: this.isLowPriority
-        if (BuildConfig.DEBUG && ts == null) {
-            android.util.Log.d(
-                "Andromuks",
-                "toRoomItem: Missing timestamp for room $roomId (summary_ts=${summary?.lastMessageTimestamp}, fallback_ts=${fallback?.lastTimestamp})"
-            )
-        }
-        return RoomItem(
-            id = roomId,
-            name = displayName,
-            messagePreview = preview,
-            messageSender = sender,
-            unreadCount = unread,
-            highlightCount = highlights,
-            avatarUrl = avatar,
-            sortingTimestamp = ts,
-            isDirectMessage = isDirect,
-            isFavourite = isFavourite,
-            isLowPriority = lowPriority
-        )
-    }
-
-    /**
      * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
      */
     @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
@@ -282,23 +234,6 @@ class AppViewModel : ViewModel() {
         return getCurrentRoomSection()
     }
 
-    /**
-     * @deprecated Room data is no longer persisted to database - all data comes from sync_complete
-     */
-    @Deprecated("Room data is in-memory only, no DB counts to log")
-    private suspend fun logRoomDbCounts() {
-        // No-op - room data is in-memory only
-    }
-
-    /**
-     * @deprecated Room summaries are no longer persisted to database - they're built in-memory from sync_complete
-     */
-    @Deprecated("Room summaries are in-memory only, no DB hydration needed")
-    private suspend fun hydrateMissingSummariesFromEventsIfNeeded() {
-        summariesHydrated = true // Mark as hydrated to prevent retries
-        // No-op - room summaries are in-memory only
-    }
-    
     // PHASE 4: Unique ID for this ViewModel instance (for WebSocket callback registration)
     private val viewModelId: String = "AppViewModel_${viewModelCounter++}"
     
@@ -599,8 +534,6 @@ class AppViewModel : ViewModel() {
         private set
     
     // Settings
-    var showUnprocessedEvents by mutableStateOf(true)
-        private set
     var enableCompression by mutableStateOf(true)
         private set
     var enterKeySendsMessage by mutableStateOf(true) // true = Enter sends, Shift+Enter newline; false = Enter newline, Shift+Enter sends
@@ -736,10 +669,6 @@ class AppViewModel : ViewModel() {
         lastAllRoomsContentHash = ""
     }
     
-    // Cache of space IDs loaded from DB to improve filtering when spaces aren't yet parsed in-memory.
-    private var cachedDbSpaceIds: Set<String> = emptySet()
-    private var cachedDbSpaceChildSpaceIds: Set<String> = emptySet()
-
     /**
      * Returns the set of known space room IDs.
      * Uses allSpaces when available, otherwise falls back to spaceList.
@@ -750,27 +679,6 @@ class AppViewModel : ViewModel() {
         else if (spaceList.isNotEmpty()) ids.addAll(spaceList.map { it.id })
         ids.addAll(knownSpaceIds)
 
-        // Fallback: load space IDs and child space IDs from DB once, so HOME/UNREAD filters out space shells (including sub-spaces) even before edges are parsed.
-        if (cachedDbSpaceIds.isEmpty() || cachedDbSpaceChildSpaceIds.isEmpty()) {
-            val context = appContext?.applicationContext
-            if (context != null) {
-                runCatching {
-                    val (spaceIdsFromDb, childSpaceIdsFromDb) = kotlinx.coroutines.runBlocking(kotlinx.coroutines.Dispatchers.IO) {
-                        val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                        val spaceIds = db.spaceDao().getAllSpaces().map { it.spaceId }.toSet()
-                        // Only treat a child as a space if it itself is recorded as a space.
-                        val childSpaceIds = db.spaceRoomDao().getAllRoomsForAllSpaces()
-                            .mapNotNull { rel -> rel.childId.takeIf { it in spaceIds } }
-                            .toSet()
-                        spaceIds to childSpaceIds
-                    }
-                    cachedDbSpaceIds = spaceIdsFromDb
-                    cachedDbSpaceChildSpaceIds = childSpaceIdsFromDb
-                }
-            }
-        }
-        ids.addAll(cachedDbSpaceIds)
-        ids.addAll(cachedDbSpaceChildSpaceIds)
         return ids
     }
     
@@ -1234,9 +1142,8 @@ class AppViewModel : ViewModel() {
         synchronized(readReceiptsLock) {
             readReceipts.clear()
         }
-        roomsWithLoadedReceiptsFromDb.clear()
-        roomsWithLoadedReactionsFromDb.clear()
-        lastKnownDbLatestEventId.clear()
+        roomsWithLoadedReceipts.clear()
+        roomsWithLoadedReactions.clear()
         MessageReactionsCache.clear()
         messageReactions = emptyMap()
         readReceiptsUpdateCounter++
@@ -2625,15 +2532,6 @@ class AppViewModel : ViewModel() {
         return RoomMemberCache.getMember(roomId, userId)
     }
 
-    /**
-     * @deprecated Profiles are no longer persisted to database - use opportunistic loading via requestUserProfileOnDemand()
-     */
-    @Deprecated("Profiles are in-memory only, loaded opportunistically when rendering events")
-    suspend fun loadMembersFromDatabase(roomId: String): Map<String, MemberProfile> {
-        // No-op - profiles are loaded opportunistically from backend when rendering events
-        return emptyMap()
-    }
-    
     fun getMemberMap(roomId: String): Map<String, MemberProfile> {
         // OPTIMIZED: Use indexed cache for O(1) lookups instead of scanning all entries
         val memberMap = mutableMapOf<String, MemberProfile>()
@@ -2834,83 +2732,6 @@ class AppViewModel : ViewModel() {
         return messageVersions[originalEventId]
     }
     
-    /**
-     * @deprecated No longer loading edit history from database - timeline events are not persisted.
-     * All events (including edit events) are stored in RoomTimelineCache only.
-     * This function will always return null since events are no longer in the database.
-     * @param eventId The original event ID (not the edit event ID)
-     * @param roomId The room ID containing the event
-     * @return Always returns null (events are not persisted to database)
-     */
-    @Deprecated("Timeline events are no longer persisted to database - using cache only")
-    suspend fun loadMessageVersionsFromDb(eventId: String, roomId: String): VersionedMessage? = withContext(Dispatchers.IO) {
-        try {
-            val context = appContext ?: return@withContext null
-            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-            val eventDao = database.eventDao()
-            
-            // Get the original event
-            val originalEntity = eventDao.getEventById(roomId, eventId) ?: return@withContext null
-            val originalJson = org.json.JSONObject(originalEntity.rawJson)
-            // Add missing fields that TimelineEvent.fromJson expects
-            originalJson.put("rowid", originalEntity.timelineRowId.toLong())
-            originalJson.put("timeline_rowid", originalEntity.timelineRowId)
-            originalJson.put("room_id", originalEntity.roomId)
-            val originalEvent = TimelineEvent.fromJson(originalJson)
-            
-            // Get all edit events that relate to this event
-            val editEntities = eventDao.getEventsByRelatesTo(roomId, eventId)
-            
-            val versions = mutableListOf<MessageVersion>()
-            
-            // Add original event
-            versions.add(MessageVersion(
-                eventId = originalEvent.eventId,
-                event = originalEvent,
-                timestamp = originalEvent.timestamp,
-                isOriginal = true
-            ))
-            
-            // Add edit events
-            for (editEntity in editEntities) {
-                val editJson = org.json.JSONObject(editEntity.rawJson)
-                // Add missing fields that TimelineEvent.fromJson expects
-                editJson.put("rowid", editEntity.timelineRowId.toLong())
-                editJson.put("timeline_rowid", editEntity.timelineRowId)
-                editJson.put("room_id", editEntity.roomId)
-                val editEvent = TimelineEvent.fromJson(editJson)
-                
-                versions.add(MessageVersion(
-                    eventId = editEvent.eventId,
-                    event = editEvent,
-                    timestamp = editEvent.timestamp,
-                    isOriginal = false
-                ))
-                
-                // editToOriginal mapping is handled by MessageVersionsCache.updateVersion
-            }
-            
-            // Sort by timestamp (newest first)
-            val sortedVersions = versions.sortedByDescending { it.timestamp }
-            
-            val versioned = VersionedMessage(
-                originalEventId = eventId,
-                originalEvent = originalEvent,
-                versions = sortedVersions
-            )
-            
-            // Cache in memory for future lookups
-            MessageVersionsCache.updateVersion(eventId, versioned)
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded ${sortedVersions.size} versions from DB for event $eventId (${editEntities.size} edits)")
-            
-            return@withContext versioned
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to load message versions from DB for $eventId", e)
-            return@withContext null
-        }
-    }
-    
     
     /**
      * Gets the redaction event for a deleted message (O(1) lookup)
@@ -2928,29 +2749,6 @@ class AppViewModel : ViewModel() {
     fun isMessageEdited(eventId: String): Boolean {
         val versioned = getMessageVersions(eventId)
         return versioned != null && versioned.versions.size > 1
-    }
-    
-    /**
-     * @deprecated No longer checking database for edit status - timeline events are not persisted.
-     * This function will always return false since events are no longer in the database.
-     * @param eventId The event ID to check
-     * @param roomId The room ID containing the event
-     * @return Always returns false (events are not persisted to database)
-     */
-    @Deprecated("Timeline events are no longer persisted to database - using cache only")
-    suspend fun isMessageEditedInDb(eventId: String, roomId: String): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val context = appContext ?: return@withContext false
-            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-            val eventDao = database.eventDao()
-            
-            // Check if there are any edit events that relate to this event
-            val editCount = eventDao.getEventsByRelatesTo(roomId, eventId).size
-            return@withContext editCount > 0
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to check if message is edited in DB for $eventId", e)
-            return@withContext false
-        }
     }
     
     /**
@@ -3079,7 +2877,7 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * @deprecated Profiles are no longer persisted to database - they're cached in-memory per room
+     * @deprecated Profiles are in-memory only - cached per room
      */
     @Deprecated("Profiles are in-memory only, loaded opportunistically when rendering events")
     suspend fun getAllDiskCachedProfiles(context: Context): List<Pair<String, MemberProfile>> {
@@ -3127,7 +2925,7 @@ class AppViewModel : ViewModel() {
                     val batch = files.subList(i, minOf(i + batchSize, files.size))
                     
                     for (file in batch) {
-                        // Try to find MXC URL (uses mapper first, then database)
+                        // Try to find MXC URL via mapper
                         val mxcUrl = findMxcUrlForCoilFile(context, file)
                         
                         entries.add(CachedMediaEntry(
@@ -3154,7 +2952,7 @@ class AppViewModel : ViewModel() {
         }
     }
     /**
-     * Find MXC URL for a Coil cached file by checking URL mapper first, then event database.
+     * Find MXC URL for a Coil cached file by checking the URL mapper.
      */
     private suspend fun findMxcUrlForCoilFile(context: Context, file: File): String? = withContext(Dispatchers.IO) {
         try {
@@ -3163,40 +2961,6 @@ class AppViewModel : ViewModel() {
             if (mappedUrl != null) {
                 return@withContext mappedUrl
             }
-            
-            // Fallback: Check event database (slower, but more comprehensive)
-            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-            val eventDao = database.eventDao()
-            
-            // Limit search to prevent performance issues
-            val rooms = roomMap.keys.toList().take(10) // Reduced from 20 to 10 for performance
-            
-            for (roomId in rooms) {
-                try {
-                    val events = eventDao.getEventsForRoomDesc(roomId, 30) // Reduced from 50 to 30
-                    for (event in events) {
-                        val content = event.rawJson ?: continue
-                        val mxcUrls = extractMxcUrlsFromJson(content)
-                        
-                        for (mxcUrl in mxcUrls) {
-                            // Convert MXC to HTTP URL and check if it matches the file
-                            val httpUrl = net.vrkknn.andromuks.utils.MediaUtils.mxcToHttpUrl(mxcUrl, homeserverUrl)
-                            if (httpUrl != null) {
-                                // Coil uses URL hash as cache key - try to match
-                                val urlHash = httpUrl.hashCode().toString()
-                                if (file.name.contains(urlHash) || file.absolutePath.contains(httpUrl.replace("https://", "").replace("http://", ""))) {
-                                    // Register this mapping for future lookups
-                                    net.vrkknn.andromuks.utils.CoilUrlMapper.registerMapping(httpUrl, mxcUrl)
-                                    return@withContext mxcUrl
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    // Continue with next room
-                }
-            }
-            
             null
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Error finding MXC URL for Coil file ${file.name}", e)
@@ -3248,7 +3012,7 @@ class AppViewModel : ViewModel() {
                     val batch = files.subList(i, minOf(i + batchSize, files.size))
                     
                     for (file in batch) {
-                        // Try to find MXC URL (uses mapper first, then database)
+                        // Try to find MXC URL via mapper
                         val mxcUrl = findMxcUrlForCoilFile(context, file)
                         
                         entries.add(CachedMediaEntry(
@@ -3273,7 +3037,7 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Find MXC URL for a cached file by checking IntelligentMediaCache first, then event database.
+     * Find MXC URL for a cached file by checking IntelligentMediaCache.
      */
     private suspend fun findMxcUrlForFile(context: Context, file: File): String? = withContext(Dispatchers.IO) {
         try {
@@ -3283,32 +3047,6 @@ class AppViewModel : ViewModel() {
             val mxcUrl: String? = IntelligentMediaCache.getMxcUrlForFile(fileName)
             if (mxcUrl != null) {
                 return@withContext mxcUrl
-            }
-            
-            // Fallback: check event database (limited to avoid performance issues)
-            // This is slower but necessary for files not tracked by IntelligentMediaCache
-            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-            val eventDao = database.eventDao()
-            
-            val rooms = roomMap.keys.toList().take(20) // Limit to first 20 rooms
-            
-            for (roomId in rooms) {
-                try {
-                    val events = eventDao.getEventsForRoomDesc(roomId, 50) // Get last 50 events per room
-                    for (event in events) {
-                        val content = event.rawJson ?: continue
-                        val mxcUrls = extractMxcUrlsFromJson(content)
-                        
-                        for (mxcUrl in mxcUrls) {
-                            val cacheKey = IntelligentMediaCache.getCacheKey(mxcUrl)
-                            if (fileName.contains(cacheKey) || fileName == cacheKey || cacheKey.contains(fileName)) {
-                                return@withContext mxcUrl
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    // Continue with next room
-                }
             }
             
             null
@@ -3786,7 +3524,7 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Process account_data from sync_complete or database
+     * Process account_data from sync_complete or cached state
      * Can be called with either a sync JSON object or a direct account_data JSON string
      * 
      * Rules for processing:
@@ -3794,8 +3532,8 @@ class AppViewModel : ViewModel() {
      * 2. If a key is present but empty/null, clear the corresponding state
      * 3. If a key is missing, preserve existing state (don't touch it)
      * 
-     * IMPORTANT: This function should be called with the MERGED account_data from the database
-     * (after SyncIngestor has merged incoming + existing), not the incoming partial data.
+     * IMPORTANT: This function should be called with the merged account_data from cache/state,
+     * not the incoming partial data.
      * This ensures that keys not present in the incoming sync are preserved.
      */
     private fun processAccountData(accountDataJson: JSONObject) {
@@ -3904,7 +3642,7 @@ class AppViewModel : ViewModel() {
                     )
                     
                     // PERFORMANCE: Update existing rooms in roomMap with correct DM status from account_data
-                    // This ensures rooms loaded from database have correct isDirectMessage flag
+                    // This ensures rooms loaded from cache have correct isDirectMessage flag
                     updateRoomsDirectMessageStatus(dmRoomIds)
                 } else {
                     // Key is present but content is null or empty - clear DM room IDs
@@ -3970,9 +3708,9 @@ class AppViewModel : ViewModel() {
             }
         } else {
             // Key is missing from incoming account_data - preserve existing state
-            // Only reload from database if we have no packs loaded (e.g., after clear_state)
+            // Only reload from storage if we have no packs loaded (e.g., after clear_state)
             // Account data is fully populated on every websocket reconnect (clear_state: true)
-            // No need to reload from database - if packs are missing, they'll come on next reconnect
+            // No need to reload from storage - if packs are missing, they'll come on next reconnect
             if (customEmojiPacks.isEmpty() && stickerPacks.isEmpty()) {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No im.ponies.emote_rooms in incoming sync and no packs loaded - will be populated on next reconnect")
             } else {
@@ -3982,16 +3720,7 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * @deprecated Account data is fully populated on every websocket reconnect (clear_state: true)
-     */
-    @Deprecated("Account data comes from sync_complete on reconnect, no DB reload needed")
-    private fun reloadEmojiPacksFromDatabase() {
-        // No-op - account data comes from sync_complete on reconnect
-    }
-    
-    /**
-     * Updates the isDirectMessage flag for all rooms in roomMap based on m.direct account data
-     * This ensures the Direct tab is correctly populated even when rooms are loaded from database
+     * Updates the isDirectMessage flag for all rooms in roomMap based on m.direct account data.
      */
     private fun updateRoomsDirectMessageStatus(dmRoomIds: Set<String>) {
         var updatedCount = 0
@@ -4282,7 +4011,7 @@ class AppViewModel : ViewModel() {
         // Extract request_id from sync_complete (no longer tracked for reconnection)
         val requestId = syncJson.optInt("request_id", 0)
         
-        // Persist sync_complete to database (run in background)
+        // Process sync_complete in memory (run in background)
         // CRITICAL FIX: Return the summary update job so we can wait for it to complete
         val summaryUpdateJob = appContext?.let { context ->
             ensureSyncIngestor()
@@ -4354,7 +4083,7 @@ class AppViewModel : ViewModel() {
                     // Invoke completion callback after actual DB work is done (it's a suspend function)
                     onComplete?.invoke()
                     
-                    // Events are no longer persisted to database - they're processed in-memory via processSyncEventsArray()
+                    // Events are processed in-memory via processSyncEventsArray()
                     // No DB refresh needed - timeline is updated directly from sync_complete events
                     
                     // Deprecated: onSyncCompletePersisted no longer needed - we no longer track last_received_id
@@ -4425,7 +4154,7 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Handles server-directed clear_state=true: purge in-memory derived state and database summaries/state
+     * Handles server-directed clear_state=true: purge in-memory derived state
      * while keeping events/profile/media intact.
      */
     private fun handleClearStateReset() {
@@ -4439,7 +4168,7 @@ class AppViewModel : ViewModel() {
                 syncIngestor?.handleClearStateSignal()
             }
         }.onFailure {
-            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Failed to clear DB derived state on clear_state: ${it.message}", it)
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Failed to clear derived state on clear_state: ${it.message}", it)
         }
     }
     
@@ -4454,8 +4183,6 @@ class AppViewModel : ViewModel() {
         allSpaces = emptyList()
         spaceList = emptyList()
         knownSpaceIds.clear()
-        cachedDbSpaceIds = emptySet()
-        cachedDbSpaceChildSpaceIds = emptySet()
         storedSpaceEdges = null
         spacesLoaded = false
         newlyJoinedRoomIds.clear()
@@ -4464,9 +4191,8 @@ class AppViewModel : ViewModel() {
         synchronized(readReceiptsLock) {
             readReceipts.clear()
         }
-        roomsWithLoadedReceiptsFromDb.clear()
-        roomsWithLoadedReactionsFromDb.clear()
-        lastKnownDbLatestEventId.clear()
+        roomsWithLoadedReceipts.clear()
+        roomsWithLoadedReactions.clear()
         MessageReactionsCache.clear()
         messageReactions = emptyMap()
         
@@ -4534,7 +4260,7 @@ class AppViewModel : ViewModel() {
         // Extract request_id from sync_complete (no longer tracked for reconnection)
         val requestId = syncJson.optInt("request_id", 0)
         
-        // Persist sync_complete to database (run in background)
+        // Process sync_complete in memory (run in background)
         appContext?.let { context ->
             ensureSyncIngestor()
 
@@ -4601,7 +4327,7 @@ class AppViewModel : ViewModel() {
                         }
                     }
                     
-                    // Events are no longer persisted to database - they're processed in-memory via processSyncEventsArray()
+                    // Events are processed in-memory via processSyncEventsArray()
                     // No DB refresh needed - timeline is updated directly from sync_complete events
                     
                     // NOTE: We no longer track requestId for reconnection - all caches are cleared on connect/reconnect
@@ -4699,7 +4425,7 @@ class AppViewModel : ViewModel() {
         // CRITICAL: Increment sync message count FIRST to prevent duplicate processing
         syncMessageCount++
         
-        // NOTE: Invites are reloaded from database right after ingestSyncComplete completes
+        // NOTE: Invites are loaded from sync_complete right after ingestSyncComplete completes
         // (in the background thread, before processParsedSyncResult runs)
         // This ensures invites are loaded before the UI checks for them
         
@@ -4880,7 +4606,7 @@ class AppViewModel : ViewModel() {
                     PendingInvitesCache.removeInvite(roomId)
                 }
                 
-                // Invites are in-memory only - no database cleanup needed
+                // Invites are in-memory only - no local cleanup needed
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed ${acceptedInvites.size} invites from memory (accepted elsewhere)")
                 
                 // Trigger UI update to remove invites from RoomListScreen
@@ -4890,7 +4616,7 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // NOTE: Invites are reloaded from database at the start of processParsedSyncResult()
+        // NOTE: Invites are loaded from sync_complete at the start of processParsedSyncResult()
         // This ensures invites are always loaded even when there are no room changes
         
         // BATTERY OPTIMIZATION: Disabled timeline event caching - events are always persisted to DB by SyncIngestor
@@ -5754,49 +5480,8 @@ class AppViewModel : ViewModel() {
      * This updates the UI with any changes that happened while app was in background
      */
     private fun refreshUIState() {
-        // CRITICAL FIX: Don't rebuild allRooms from roomMap - it may have stale unread counts
-        // Instead, refresh roomMap from database first to ensure we have latest unread counts
-        // This prevents stale unread counts from being propagated to allRooms
-        appContext?.let { context ->
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                    val roomListSummaryDao = database.roomListSummaryDao()
-                    val roomSummaryDao = database.roomSummaryDao()
-                    
-                    // Refresh unread counts in roomMap from database for all rooms
-                    val allRoomIds = roomMap.keys.toList()
-                    if (allRoomIds.isNotEmpty()) {
-                        val listSummaries = roomListSummaryDao.getRoomSummariesByIds(allRoomIds)
-                        val summaries = allRoomIds.mapNotNull { roomId ->
-                            roomSummaryDao.getRoomSummary(roomId)
-                        }
-                        
-                        // Update roomMap with fresh unread counts from database
-                        withContext(Dispatchers.Main) {
-                            listSummaries.forEach { listSummary ->
-                                val room = roomMap[listSummary.roomId]
-                                if (room != null) {
-                                    // Update unread counts from database (source of truth)
-                                    val summary = summaries.find { it.roomId == listSummary.roomId }
-                                    val dbUnreadCount = listSummary.unreadCount.takeIf { it > 0 } ?: summary?.unreadCount?.takeIf { it > 0 }
-                                    val dbHighlightCount = listSummary.highlightCount.takeIf { it > 0 } ?: summary?.highlightCount?.takeIf { it > 0 }
-                                    
-                                    if (room.unreadCount != dbUnreadCount || room.highlightCount != dbHighlightCount) {
-                                        roomMap[listSummary.roomId] = room.copy(
-                                            unreadCount = dbUnreadCount,
-                                            highlightCount = dbHighlightCount
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.w("Andromuks", "AppViewModel: Failed to refresh unread counts from database: ${e.message}", e)
-                }
-            }
-        }
+        // CRITICAL FIX: Don't rebuild allRooms from roomMap - it may have stale unread counts.
+        // We now treat in-memory state as the single source of truth.
         
         val sortedRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
         
@@ -6410,9 +6095,8 @@ class AppViewModel : ViewModel() {
     private val lastMarkReadSent = mutableMapOf<String, String>() // roomId -> eventId
     private val readReceipts = mutableMapOf<String, MutableList<ReadReceipt>>() // eventId -> list of read receipts
     private val readReceiptsLock = Any() // Synchronization lock for readReceipts access
-    private val roomsWithLoadedReceiptsFromDb = mutableSetOf<String>() // Track which rooms had receipts restored from DB
-    private val roomsWithLoadedReactionsFromDb = mutableSetOf<String>() // Track which rooms had reactions restored from DB
-    private val lastKnownDbLatestEventId = ConcurrentHashMap<String, String>()
+    private val roomsWithLoadedReceipts = mutableSetOf<String>() // Track rooms with receipts loaded from cache
+    private val roomsWithLoadedReactions = mutableSetOf<String>() // Track rooms with reactions loaded from cache
     // Track receipt movements for animation - userId -> (previousEventId, currentEventId, timestamp)
     // THREAD SAFETY: Protected by readReceiptsLock since it's accessed from background threads
     private val receiptMovements = mutableMapOf<String, Triple<String?, String, Long>>()
@@ -6660,41 +6344,6 @@ class AppViewModel : ViewModel() {
         return synchronized(activityLogLock) { activityLog.toList() }
     }
 
-    data class UnprocessedEventLogEntry(
-        val id: Long,
-        val eventId: String,
-        val roomId: String?,
-        val rawJson: String,
-        val reason: String,
-        val source: String?,
-        val createdAt: Long
-    )
-
-    /**
-     * Fetch recently unprocessed events from the database (for debugging/viewing).
-     */
-    suspend fun getUnprocessedEvents(limit: Int = 200): List<UnprocessedEventLogEntry> {
-        val db = dbOrNull() ?: return emptyList()
-        return withContext(Dispatchers.IO) {
-            db.unprocessedEventDao().getRecent(limit).map {
-                UnprocessedEventLogEntry(
-                    id = it.id,
-                    eventId = it.eventId,
-                    roomId = it.roomId,
-                    rawJson = it.rawJson,
-                    reason = it.reason,
-                    source = it.source,
-                    createdAt = it.createdAt
-                )
-            }
-        }
-    }
-
-    suspend fun clearUnprocessedEvents() {
-        val db = dbOrNull() ?: return
-        withContext(Dispatchers.IO) { db.unprocessedEventDao().clear() }
-    }
-    
     // Backwards compatibility - keep old reconnection log methods
     data class ReconnectionLogEntry(
         val timestamp: Long,
@@ -7660,7 +7309,6 @@ class AppViewModel : ViewModel() {
     }
     /**
      * Loads the previously saved WebSocket state and room data from persistent storage.
-     * Tries Room database first, then falls back to SharedPreferences.
      * Returns true if cached data was loaded, false otherwise.
      */
     /**
@@ -8014,9 +7662,8 @@ class AppViewModel : ViewModel() {
         // redactionCache is computed from messageVersions, no need to clear separately
         MessageReactionsCache.clear()
         messageReactions = emptyMap()
-        roomsWithLoadedReceiptsFromDb.remove(roomId)
-        roomsWithLoadedReactionsFromDb.remove(roomId)
-        lastKnownDbLatestEventId.remove(roomId)
+        roomsWithLoadedReceipts.remove(roomId)
+        roomsWithLoadedReactions.remove(roomId)
         
         // Reset pagination state
         smallestRowId = -1L
@@ -8126,22 +7773,11 @@ class AppViewModel : ViewModel() {
         }
         val latestTimelineEvent = timelineEvents.lastOrNull()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Timeline latest event=${latestTimelineEvent?.eventId} timelineRowId=${latestTimelineEvent?.timelineRowid} ts=${latestTimelineEvent?.timestamp}")
-        if (latestTimelineEvent != null) {
-            val applicationContext = appContext?.applicationContext
-            if (applicationContext != null) {
-                viewModelScope.launch(Dispatchers.IO) {
-                    try {
-                        val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(applicationContext)
-                        val dbLatest = database.eventDao().getMostRecentEventForRoom(roomId)
-                        if (BuildConfig.DEBUG) android.util.Log.d(
-                            "Andromuks",
-                            "AppViewModel: DB latest eventId=${dbLatest?.eventId} timelineRowId=${dbLatest?.timelineRowId} ts=${dbLatest?.timestamp} (timeline latest=${latestTimelineEvent.eventId})"
-                        )
-                    } catch (e: Exception) {
-                        android.util.Log.e("Andromuks", "AppViewModel: Failed to compare DB latest for $roomId", e)
-                    }
-                }
-            }
+        if (latestTimelineEvent != null && BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Timeline latest eventId=${latestTimelineEvent.eventId} timelineRowId=${latestTimelineEvent.timelineRowid} ts=${latestTimelineEvent.timestamp}"
+            )
         }
         
         // Read receipts come from sync_complete - no DB loading needed
@@ -8216,217 +7852,10 @@ class AppViewModel : ViewModel() {
      * This avoids recomputing relations/edits/redactions at UI time.
      */
     private fun persistRenderableEvents(roomId: String, events: List<TimelineEvent>) {
-        val context = appContext?.applicationContext ?: return
         if (events.isEmpty()) return
-
-        val renderables = events.map { event ->
-            // Choose decrypted type when available for display.
-            val finalType = event.decryptedType ?: event.type
-
-            // Prefer decrypted content for msg/body if present.
-            // Use decrypted content when available (covers encrypted stickers/files/etc.)
-            val contentForBody = event.decrypted ?: event.content
-
-            val msgType = contentForBody?.optString("msgtype")?.takeIf { it.isNotBlank() }
-            val body = contentForBody?.optString("body")?.takeIf { it.isNotBlank() }
-            val formattedBody = contentForBody
-                ?.optJSONObject("formatted_body")
-                ?.toString()
-                ?: contentForBody
-                    ?.optString("formatted_body")
-                    ?.takeIf { it.isNotBlank() }
-
-            val replyTo = event.getReplyInfo()?.eventId
-            val threadRoot = event.getThreadInfo()?.threadRootEventId
-            val aggregatedReactionsJson = event.aggregatedReactions?.toString()
-
-            val isRedacted = event.redactedBy != null
-            RenderableEventEntity(
-                eventId = event.eventId,
-                roomId = event.roomId,
-                timelineRowId = event.timelineRowid,
-                timestamp = event.timestamp,
-                sender = event.sender,
-                eventType = finalType,
-                msgType = msgType,
-                body = body,
-                formattedBody = formattedBody,
-                isRedacted = isRedacted,
-                isEdited = false, // TODO: enrich using version metadata
-                replyToEventId = replyTo,
-                threadRootEventId = threadRoot,
-                aggregatedReactionsJson = aggregatedReactionsJson,
-                // Reuse parentPreviewJson column to stash unsigned (prev_content) for state events
-                parentPreviewJson = event.unsigned?.toString(),
-                contentJson = contentForBody?.toString(),
-                decryptedType = event.decryptedType,
-                transactionId = event.transactionId
-                    ?: event.localContent?.optString("transaction_id")?.takeIf { it.isNotBlank() }
-                    ?: event.unsigned?.optString("transaction_id")?.takeIf { it.isNotBlank() },
-                localEchoStatus = null,
-                localEchoError = null,
-                deletedBody = if (isRedacted) body else null,
-                deletedFormattedBody = if (isRedacted) formattedBody else null,
-                deletedMsgType = if (isRedacted) msgType else null,
-                deletedContentJson = if (isRedacted) contentForBody?.toString() else null,
-                redactionReason = if (isRedacted) redactionCache[event.eventId]?.content?.optString("reason")?.takeIf { it.isNotBlank() } else null
-            )
-        }
-
-        // Renderable events are no longer persisted - timeline is rendered from in-memory cache
-        // The UI uses timelineEvents directly, not renderableEventDao
         if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Skipping renderable event persistence (using in-memory cache)")
+            android.util.Log.d("Andromuks", "AppViewModel: Skipping renderable event persistence (in-memory cache only)")
         }
-    }
-
-    /**
-     * @deprecated Renderable events are no longer persisted - use timelineEvents directly
-     */
-    @Deprecated("Use timelineEvents directly - renderable events are no longer persisted")
-    fun renderableTimelineFlow(roomId: String, limit: Int = 200): Flow<List<RenderableEventEntity>> {
-        return emptyFlow() // No longer using renderable events - use timelineEvents directly
-    }
-
-    /**
-     * @deprecated Renderable events are no longer persisted - use timelineEvents directly
-     */
-    @Deprecated("Use timelineEvents directly - renderable events are no longer persisted")
-    suspend fun getRenderableTimeline(roomId: String, limit: Int = 200): List<RenderableEventEntity> {
-        return emptyList() // No longer using renderable events - use timelineEvents directly
-    }
-
-    /**
-     * Convert pre-resolved renderable rows into TimelineEvents for legacy UI consumers.
-     * This avoids walking edit/redaction chains at display time.
-     */
-    fun renderablesToTimelineEvents(renderables: List<RenderableEventEntity>): List<TimelineEvent> {
-        // Drop temp echoes if a real event with the same transaction_id exists.
-        val filtered = renderables.filterNot { it.eventId.startsWith("~") }
-
-        // Map each renderable row back to a TimelineEvent. Where possible, hydrate
-        // missing fields (e.g., unsigned/prev_content for state diffs) from the
-        // existing in-memory timeline cache so narrator components can compute
-        // accurate change descriptions.
-        return filtered.map { entity ->
-            // Look up the original timeline event (if present) to reuse metadata
-            val cached = timelineEvents.firstOrNull { it.eventId == entity.eventId }
-            val unsignedJson = cached?.unsigned
-                ?: entity.parentPreviewJson?.let {
-                    runCatching { JSONObject(it) }.getOrNull()
-                }
-            val contentJson = entity.contentJson?.let { JSONObject(it) } ?: JSONObject()
-
-            // Ensure relations are present in content for reply/thread helpers.
-            if (entity.replyToEventId != null) {
-                val relatesTo = contentJson.optJSONObject("m.relates_to") ?: JSONObject().also {
-                    contentJson.put("m.relates_to", it)
-                }
-                val inReply = relatesTo.optJSONObject("m.in_reply_to") ?: JSONObject().also {
-                    relatesTo.put("m.in_reply_to", it)
-                }
-                inReply.put("event_id", entity.replyToEventId)
-            }
-            if (entity.threadRootEventId != null) {
-                val relatesTo = contentJson.optJSONObject("m.relates_to") ?: JSONObject().also {
-                    contentJson.put("m.relates_to", it)
-                }
-                relatesTo.put("rel_type", "m.thread")
-                relatesTo.put("event_id", entity.threadRootEventId)
-            }
-
-            val aggregatedReactions = entity.aggregatedReactionsJson?.let { JSONObject(it) }
-            val localContent = JSONObject()
-            if (!entity.deletedBody.isNullOrBlank()) {
-                localContent.put("deleted_body", entity.deletedBody)
-            }
-            if (!entity.deletedFormattedBody.isNullOrBlank()) {
-                localContent.put("deleted_formatted_body", entity.deletedFormattedBody)
-            }
-            if (!entity.deletedMsgType.isNullOrBlank()) {
-                localContent.put("deleted_msgtype", entity.deletedMsgType)
-            }
-            if (!entity.deletedContentJson.isNullOrBlank()) {
-                localContent.put("deleted_content_json", entity.deletedContentJson)
-            }
-            if (!entity.redactionReason.isNullOrBlank()) {
-                localContent.put("redaction_reason", entity.redactionReason)
-            }
-            if (!entity.transactionId.isNullOrBlank()) {
-                localContent.put("transaction_id", entity.transactionId)
-            }
-            // Only expose echo status/error to UI for temporary echoes or true pending/failed states
-            if (!entity.localEchoStatus.isNullOrBlank() && entity.eventId.startsWith("~")) {
-                localContent.put("local_echo_status", entity.localEchoStatus)
-            }
-            if (!entity.localEchoError.isNullOrBlank() && entity.eventId.startsWith("~")) {
-                localContent.put("local_echo_error", entity.localEchoError)
-            }
-
-            TimelineEvent(
-                rowid = entity.timelineRowId,
-                timelineRowid = entity.timelineRowId,
-                roomId = entity.roomId,
-                eventId = entity.eventId,
-                sender = entity.sender,
-                type = entity.eventType,
-                timestamp = entity.timestamp,
-                content = contentJson,
-                stateKey = cached?.stateKey,
-                decrypted = cached?.decrypted,
-                decryptedType = entity.decryptedType ?: cached?.decryptedType,
-                unsigned = unsignedJson,
-                redactedBy = entity.isRedacted.takeIf { it }?.let { "renderable_redaction" }
-                    ?: cached?.redactedBy,
-                localContent = if (localContent.length() > 0) localContent else cached?.localContent,
-                relationType = entity.threadRootEventId?.let { "m.thread" } ?: cached?.relationType,
-                relatesTo = entity.threadRootEventId ?: cached?.relatesTo,
-                aggregatedReactions = aggregatedReactions ?: cached?.aggregatedReactions,
-                transactionId = entity.transactionId ?: cached?.transactionId
-            )
-        }
-    }
-
-    /**
-     * @deprecated Room summaries are no longer persisted - all data is in-memory only
-     */
-    @Deprecated("Room summaries are no longer persisted - all data is in-memory only")
-    private suspend fun updateRoomListSummaryFromRenderables(
-        db: net.vrkknn.andromuks.database.AndromuksDatabase,
-        roomId: String,
-        renderables: List<RenderableEventEntity>
-    ) {
-        // No-op - room summaries are no longer persisted
-        return
-        if (renderables.isEmpty()) return
-
-        // Pick the latest text message renderable; ignore state/joins/reactions so we don't show "m.room.member".
-        val latest = renderables
-            .sortedByDescending { it.timestamp }
-            .firstOrNull { r ->
-                val hasBody = !r.body.isNullOrBlank() || !r.formattedBody.isNullOrBlank()
-                val isTextMsg = r.msgType?.equals("m.text", ignoreCase = true) == true
-                val isNotRedactionOnly = !(r.isRedacted && (r.body.isNullOrBlank()))
-                hasBody && isTextMsg && isNotRedactionOnly
-            } ?: return
-
-        val preview = latest.body ?: latest.formattedBody ?: return
-
-        val roomMeta = getRoomById(roomId)
-        val summary = RoomListSummaryEntity(
-            roomId = roomId,
-            displayName = roomMeta?.name ?: currentRoomState?.name,
-            avatarMxc = roomMeta?.avatarUrl ?: currentRoomState?.avatarUrl,
-            lastMessageEventId = latest.eventId,
-            lastMessageSenderUserId = latest.sender,
-            lastMessagePreview = preview,
-            lastMessageTimestamp = latest.timestamp,
-            unreadCount = roomMeta?.unreadCount ?: 0,
-            highlightCount = roomMeta?.highlightCount ?: 0,
-            isLowPriority = roomMeta?.isLowPriority ?: false
-        )
-
-        db.roomListSummaryDao().upsert(summary)
     }
 
     /**
@@ -8435,140 +7864,11 @@ class AppViewModel : ViewModel() {
     // Local echo rendering removed.
 
     /**
-     * Find missing referenced events (reply targets, thread roots) that aren't in the renderable table
-     * and hydrate them from the DB in capped batches to avoid thrash.
-     */
-    fun hydrateMissingRenderableReferences(
-        roomId: String,
-        renderables: List<RenderableEventEntity>,
-        maxFetch: Int = 32
-    ) {
-        val context = appContext?.applicationContext ?: return
-        if (renderables.isEmpty() || maxFetch <= 0) return
-
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                val renderableDao = db.renderableEventDao()
-                val eventDao = db.eventDao()
-
-                // ---------- 1) Hydrate missing reply/thread targets ----------
-                val referencedIds = buildSet {
-                    renderables.forEach { r ->
-                        r.replyToEventId?.let { add(it) }
-                        r.threadRootEventId?.let { add(it) }
-                    }
-                }
-                if (referencedIds.isNotEmpty()) {
-                    // Check which references are missing
-                    val existing = renderableDao.getByIds(referencedIds.toList()).map { it.eventId }.toSet()
-                    val missing = (referencedIds - existing).take(maxFetch)
-                    if (missing.isNotEmpty()) {
-                        // Fetch missing targets from raw events
-                        val missingEntities = missing.mapNotNull { id ->
-                            eventDao.getEventById(roomId, id)
-                        }
-
-                        // Convert to TimelineEvent then to RenderableEventEntity
-                        val missingTimeline = missingEntities.mapNotNull { eventEntityToTimelineEvent(it) }
-                        if (missingTimeline.isNotEmpty()) {
-                            val renderableMissing = missingTimeline.map { event ->
-                                // Derive minimal renderable row
-                                val contentForBody = when {
-                                    event.decryptedType == "m.room.message" -> event.decrypted
-                                    else -> event.content
-                                }
-                                val msgType = contentForBody?.optString("msgtype")?.takeIf { it.isNotBlank() }
-                                val body = contentForBody?.optString("body")?.takeIf { it.isNotBlank() }
-                                val formattedBody = contentForBody
-                                    ?.optJSONObject("formatted_body")
-                                    ?.toString()
-                                    ?: contentForBody
-                                        ?.optString("formatted_body")
-                                        ?.takeIf { it.isNotBlank() }
-                                val replyTo = event.getReplyInfo()?.eventId
-                                val threadRoot = event.getThreadInfo()?.threadRootEventId
-                                val aggregatedReactionsJson = event.aggregatedReactions?.toString()
-
-                                RenderableEventEntity(
-                                    eventId = event.eventId,
-                                    roomId = event.roomId,
-                                    timelineRowId = event.timelineRowid,
-                                    timestamp = event.timestamp,
-                                    sender = event.sender,
-                                    eventType = event.decryptedType ?: event.type,
-                                    msgType = msgType,
-                                    body = body,
-                                    formattedBody = formattedBody,
-                                    isRedacted = event.redactedBy != null,
-                                    isEdited = false,
-                                    replyToEventId = replyTo,
-                                    threadRootEventId = threadRoot,
-                                    aggregatedReactionsJson = aggregatedReactionsJson,
-                                    parentPreviewJson = null,
-                                    contentJson = contentForBody?.toString(),
-                                    decryptedType = event.decryptedType
-                                )
-                            }
-
-                            renderableDao.upsert(renderableMissing)
-                        }
-                    }
-                }
-
-                // ---------- 2) Backfill missing deleted snapshots for redacted events ----------
-                val needsSnapshot = renderables
-                    .filter { r ->
-                        r.isRedacted &&
-                            r.deletedBody.isNullOrBlank() &&
-                            r.deletedFormattedBody.isNullOrBlank() &&
-                            r.deletedMsgType.isNullOrBlank() &&
-                            r.deletedContentJson.isNullOrBlank()
-                    }
-                    .take(maxFetch)
-
-                if (needsSnapshot.isNotEmpty()) {
-                    val updated = needsSnapshot.mapNotNull { r ->
-                        val raw = eventDao.getEventById(roomId, r.eventId) ?: return@mapNotNull null
-                        val event = eventEntityToTimelineEvent(raw) ?: return@mapNotNull null
-                        val contentForBody = when {
-                            event.decryptedType == "m.room.message" -> event.decrypted
-                            else -> event.content
-                        }
-                        val msgType = contentForBody?.optString("msgtype")?.takeIf { it.isNotBlank() }
-                        val body = contentForBody?.optString("body")?.takeIf { it.isNotBlank() }
-                        val formattedBody = contentForBody
-                            ?.optJSONObject("formatted_body")
-                            ?.toString()
-                            ?: contentForBody
-                                ?.optString("formatted_body")
-                                ?.takeIf { it.isNotBlank() }
-                        r.copy(
-                            deletedBody = body,
-                            deletedFormattedBody = formattedBody,
-                            deletedMsgType = msgType,
-                            deletedContentJson = contentForBody?.toString(),
-                            redactionReason = r.redactionReason
-                                ?: redactionCache[event.eventId]?.content?.optString("reason")?.takeIf { it.isNotBlank() }
-                                ?: event.content?.optString("reason")?.takeIf { it.isNotBlank() }
-                        )
-                    }
-                    if (updated.isNotEmpty()) {
-                        renderableDao.upsert(updated)
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "hydrateMissingRenderableReferences: error", e)
-            }
-        }
-    }
-
-    /**
      * Load an original event (and minimal context) from on-disk DB for deleted-content preview.
      * Returns the event with redaction cleared so it renders as originally sent.
      */
     /**
-     * @deprecated Events are no longer persisted to database - timeline is in-memory cache only
+     * @deprecated Events are in-memory cache only
      */
     @Deprecated("Events are in-memory cache only, no DB loading needed")
     suspend fun loadOriginalEventWithContext(
@@ -8579,11 +7879,11 @@ class AppViewModel : ViewModel() {
     }
 
     /**
-     * @deprecated Read receipts are no longer persisted to database - they come from sync_complete
+     * @deprecated Read receipts are in-memory only and come from sync_complete
      */
     @Deprecated("Read receipts are in-memory only, loaded from sync_complete")
     private fun loadReceiptsForCachedEvents(roomId: String, cachedEvents: List<TimelineEvent>) {
-        // No-op - receipts come from sync_complete, not database
+        // No-op - receipts come from sync_complete
     }
 
     /**
@@ -8614,101 +7914,36 @@ class AppViewModel : ViewModel() {
             return
         }
         
-        val applicationContext = context.applicationContext
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(applicationContext)
-                val roomStateDao = database.roomStateDao()
-                val existingState = roomStateDao.get(roomId)
-                
-                var needsUpdate = false
-                var newName: String? = existingState?.name
-                var newAvatarUrl: String? = existingState?.avatarUrl
-                
-                // Update name if we found a more recent name event
-                if (nameEvent != null) {
-                    val eventName = nameEvent.content?.optString("name")?.takeIf { it.isNotBlank() }
-                    if (eventName != null) {
-                        // Only update if this event is more recent than the last state update
-                        // or if the name is different
-                        val shouldUpdate = if (existingState != null) {
-                            val eventIsNewer = nameEvent.timestamp > (existingState.updatedAt ?: 0L)
-                            val nameIsDifferent = eventName != existingState.name
-                            eventIsNewer || nameIsDifferent
-                        } else {
-                            true // No existing state, always update
-                        }
-                        
-                        if (shouldUpdate) {
-                            newName = eventName
-                            needsUpdate = true
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found newer m.room.name event for $roomId: '$eventName' (timestamp=${nameEvent.timestamp})")
-                        }
-                    }
-                }
-                
-                // Update avatar if we found a more recent avatar event
-                if (avatarEvent != null) {
-                    val eventAvatarUrl = avatarEvent.content?.optString("url")?.takeIf { it.isNotBlank() }
-                    if (eventAvatarUrl != null) {
-                        // Only update if this event is more recent than the last state update
-                        // or if the avatar is different
-                        val shouldUpdate = if (existingState != null) {
-                            val eventIsNewer = avatarEvent.timestamp > (existingState.updatedAt ?: 0L)
-                            val avatarIsDifferent = eventAvatarUrl != existingState.avatarUrl
-                            eventIsNewer || avatarIsDifferent
-                        } else {
-                            true // No existing state, always update
-                        }
-                        
-                        if (shouldUpdate) {
-                            newAvatarUrl = eventAvatarUrl
-                            needsUpdate = true
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Found newer m.room.avatar event for $roomId: '$eventAvatarUrl' (timestamp=${avatarEvent.timestamp})")
-                        }
-                    }
-                }
-                
-                // Update database if needed
-                if (needsUpdate && existingState != null) {
-                    val updatedState = net.vrkknn.andromuks.database.entities.RoomStateEntity(
-                        roomId = existingState.roomId,
-                        name = newName,
-                        topic = existingState.topic,
-                        avatarUrl = newAvatarUrl,
-                        canonicalAlias = existingState.canonicalAlias,
-                        isDirect = existingState.isDirect,
-                        isFavourite = existingState.isFavourite,
-                        isLowPriority = existingState.isLowPriority,
-                        bridgeInfoJson = null,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                    roomStateDao.upsert(updatedState)
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated RoomStateEntity for $roomId from timeline events (name=${newName != null}, avatar=${newAvatarUrl != null})")
-                } else if (needsUpdate) {
-                    // No existing state found, create new one
-                    val recheckedState = roomStateDao.get(roomId)
-                    
-                    val newState = net.vrkknn.andromuks.database.entities.RoomStateEntity(
-                        roomId = roomId,
-                        name = newName,
-                        topic = recheckedState?.topic,
-                        avatarUrl = newAvatarUrl,
-                        canonicalAlias = recheckedState?.canonicalAlias,
-                        isDirect = recheckedState?.isDirect ?: false,
-                        isFavourite = recheckedState?.isFavourite ?: false,
-                        isLowPriority = recheckedState?.isLowPriority ?: false,
-                        bridgeInfoJson = null,
-                        updatedAt = System.currentTimeMillis()
-                    )
-                    roomStateDao.upsert(newState)
-                    if (BuildConfig.DEBUG) {
-                        android.util.Log.d("Andromuks", "AppViewModel: Created RoomStateEntity for $roomId from timeline events (name=${newName != null}, avatar=${newAvatarUrl != null})")
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to update room state from timeline events for $roomId", e)
+        val eventName = nameEvent?.content?.optString("name")?.takeIf { it.isNotBlank() }
+        val eventAvatarUrl = avatarEvent?.content?.optString("url")?.takeIf { it.isNotBlank() }
+
+        var updated = false
+        val currentRoomItem = roomMap[roomId]
+        var updatedRoomItem = currentRoomItem
+        if (currentRoomItem != null) {
+            if (eventName != null && eventName != currentRoomItem.name) {
+                updatedRoomItem = updatedRoomItem?.copy(name = eventName)
+                updated = true
             }
+            if (eventAvatarUrl != null && eventAvatarUrl != currentRoomItem.avatarUrl) {
+                updatedRoomItem = updatedRoomItem?.copy(avatarUrl = eventAvatarUrl)
+                updated = true
+            }
+            if (updated && updatedRoomItem != null) {
+                roomMap[roomId] = updatedRoomItem
+            }
+        }
+
+        if (currentRoomId == roomId && currentRoomState != null) {
+            currentRoomState = currentRoomState?.copy(
+                name = eventName ?: currentRoomState?.name,
+                avatarUrl = eventAvatarUrl ?: currentRoomState?.avatarUrl
+            )
+        }
+
+        if (updated) {
+            scheduleRoomReorder()
+            roomListUpdateCounter++
         }
     }
     
@@ -8786,77 +8021,13 @@ class AppViewModel : ViewModel() {
     private fun loadReactionsForRoom(roomId: String, cachedEvents: List<TimelineEvent>, forceReload: Boolean = false) {
         if (cachedEvents.isEmpty()) return
 
-        val context = appContext ?: run {
-            android.util.Log.w("Andromuks", "AppViewModel: Cannot restore reactions for $roomId - appContext is null")
+        // Allow reloading reactions when new events arrive (e.g., from paginate response)
+        if (!forceReload && !roomsWithLoadedReactions.add(roomId)) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reactions for room $roomId already loaded from cache, skipping")
             return
         }
 
-        // CRITICAL FIX: Allow reloading reactions when new events arrive (e.g., from paginate response)
-        // This ensures reactions are restored even after the timeline is rebuilt from paginate response
-        if (!forceReload && !roomsWithLoadedReactionsFromDb.add(roomId)) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reactions for room $roomId already restored from database, skipping")
-            return
-        }
-
-        val eventIds = cachedEvents.map { it.eventId }.toSet()
-        if (eventIds.isEmpty()) return
-
-        val applicationContext = context.applicationContext
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(applicationContext)
-                val reactionEntities = database.reactionDao().getReactionsForRoom(roomId)
-                if (reactionEntities.isEmpty()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No stored reactions found in database for room $roomId")
-                    return@launch
-                }
-
-                val reactionsByEvent = reactionEntities
-                    .filter { eventIds.contains(it.targetEventId) }
-                    .groupBy { it.targetEventId }
-                    .mapValues { (_, entities) ->
-                        entities
-                            .groupBy { it.key }
-                            .map { (key, perKeyEntities) ->
-                                MessageReaction(
-                                    emoji = key,
-                                    count = perKeyEntities.size,
-                                    users = perKeyEntities.map { reaction -> reaction.sender }.sorted()
-                                )
-                            }
-                            .sortedBy { it.emoji }
-                    }
-
-                if (reactionsByEvent.isEmpty()) {
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Stored reactions did not match cached events for room $roomId")
-                    return@launch
-                }
-
-                withContext(Dispatchers.Main) {
-                    val updated = messageReactions.toMutableMap()
-                    var changed = false
-                    for ((eventId, reactions) in reactionsByEvent) {
-                        val existing = updated[eventId]
-                        if (existing != reactions) {
-                            updated[eventId] = reactions
-                            changed = true
-                        }
-                    }
-
-                    if (changed) {
-                        MessageReactionsCache.setAll(updated)
-                        messageReactions = updated
-                        reactionUpdateCounter++
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored reactions for ${reactionsByEvent.size} events in room $roomId")
-                        // PERFORMANCE FIX: Removed persistRenderableEvents() - UI now uses timelineEvents directly
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Database reactions already match in-memory state for room $roomId")
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Failed to restore reactions from database for room $roomId", e)
-            }
-        }
+        // Reactions are derived from in-memory events only.
     }
 
     private fun applyAggregatedReactionsFromEvents(events: List<TimelineEvent>, source: String) {
@@ -8936,61 +8107,6 @@ class AppViewModel : ViewModel() {
                 "AppViewModel: Applied aggregated reactions from $source for ${aggregatedByEvent.size} events"
             )
             // PERFORMANCE FIX: Removed persistRenderableEvents() - UI now uses timelineEvents directly
-        }
-    }
-
-    private fun eventEntityToTimelineEvent(entity: EventEntity): TimelineEvent? {
-        return try {
-            val json = JSONObject(entity.rawJson)
-            json.put("rowid", entity.timelineRowId.toLong())
-            json.put("timeline_rowid", entity.timelineRowId)
-            json.put("room_id", entity.roomId)
-            if (!json.has("origin_server_ts") || json.optLong("origin_server_ts") == 0L) {
-                json.put("origin_server_ts", entity.timestamp)
-            }
-            if (!json.has("timestamp") || json.optLong("timestamp") == 0L) {
-                json.put("timestamp", entity.timestamp)
-            }
-            if (entity.aggregatedReactionsJson != null) {
-                try {
-                val content = json.optJSONObject("content")
-                if (content != null && !content.has("reactions")) {
-                        // Parse aggregated reactions JSON - handle malformed JSON gracefully
-                        val reactionsJson = JSONObject(entity.aggregatedReactionsJson)
-                        content.put("reactions", reactionsJson)
-                    }
-                } catch (e: org.json.JSONException) {
-                    // Malformed aggregated reactions JSON - log and skip
-                    android.util.Log.w("Andromuks", "AppViewModel: Failed to parse aggregated reactions JSON for event ${entity.eventId}: ${e.message}")
-                } catch (e: Exception) {
-                    // Any other error - log and skip
-                    android.util.Log.w("Andromuks", "AppViewModel: Error processing aggregated reactions for event ${entity.eventId}: ${e.message}", e)
-                }
-            }
-            var timelineEvent = TimelineEvent.fromJson(json)
-
-            if (timelineEvent.relationType.isNullOrBlank()) {
-                val inferredRelationType = when {
-                    entity.threadRootEventId != null -> "m.thread"
-                    entity.relatesToEventId != null -> timelineEvent.relationType
-                    else -> null
-                }
-                if (!inferredRelationType.isNullOrBlank()) {
-                    timelineEvent = timelineEvent.copy(relationType = inferredRelationType)
-                }
-            }
-
-            if (timelineEvent.relatesTo.isNullOrBlank()) {
-                val inferredRelatesTo = entity.threadRootEventId ?: entity.relatesToEventId
-                if (!inferredRelatesTo.isNullOrBlank()) {
-                    timelineEvent = timelineEvent.copy(relatesTo = inferredRelatesTo)
-                }
-            }
-
-            timelineEvent
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to convert EventEntity ${entity.eventId} to TimelineEvent", e)
-            null
         }
     }
 
@@ -9082,25 +8198,8 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    suspend fun getRoomEventsFromDb(roomId: String, limit: Int): List<EventEntity> {
-        val context = appContext ?: return emptyList()
-        val safeLimit = limit.coerceAtLeast(1)
-        return withContext(Dispatchers.IO) {
-            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context.applicationContext)
-            database.eventDao().getEventsForRoomDesc(roomId, safeLimit)
-        }
-    }
-
-    suspend fun getRoomEventCountFromDb(roomId: String): Int {
-        val context = appContext ?: return 0
-        return withContext(Dispatchers.IO) {
-            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context.applicationContext)
-            database.eventDao().getEventCountForRoom(roomId)
-        }
-    }
-    
     /**
-     * @deprecated Events are no longer persisted to database - timeline is in-memory cache only
+     * @deprecated Events are in-memory cache only
      */
     @Deprecated("Events are in-memory cache only, no DB observation needed")
     fun observeRoomLatestEventTimestamp(roomId: String): Flow<Long?> {
@@ -9310,7 +8409,7 @@ class AppViewModel : ViewModel() {
             // Clear message reactions when switching rooms
             MessageReactionsCache.clear()
         messageReactions = emptyMap()
-            roomsWithLoadedReactionsFromDb.remove(roomId)
+            roomsWithLoadedReactions.remove(roomId)
         }
         
         // Ensure member cache exists for this room (singleton cache handles this automatically)
@@ -9335,9 +8434,9 @@ class AppViewModel : ViewModel() {
         val currentCachedCount = RoomTimelineCache.getCachedEventCount(roomId)
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: NAVIGATION NOTE - Cache miss with $currentCachedCount events available.")
         
-        // Auto paginate disabled: do not request from server even on cache/database miss.
+        // Auto paginate disabled: do not request from server even on cache miss.
         if (currentCachedCount == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Database and cache both empty for $roomId - auto paginate disabled; waiting for manual refresh.")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache empty for $roomId - auto paginate disabled; waiting for manual refresh.")
             isTimelineLoading = false
             return
         } else {
@@ -9352,7 +8451,7 @@ class AppViewModel : ViewModel() {
      * 2. Clears all RAM caches and timeline bookkeeping for the room
      * 3. Resets pagination flags
      * 4. Requests fresh room state
-     * 5. Sends a paginate command for up to 200 events (ingest pipeline upserts the database)
+     * 5. Sends a paginate command for up to 200 events (ingest pipeline updates cache)
      */
     fun fullRefreshRoomTimeline(roomId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Full refresh for room: $roomId (resetting caches and requesting fresh snapshot)")
@@ -9374,7 +8473,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared timeline cache for room: $roomId")
         
         timelineEvents = emptyList()
-        // DISABLED: DB wipe - keeping database entries to preserve timeline data
+        // DISABLED: wipe - keeping cache entries to preserve timeline data
         isTimelineLoading = true
         
         // 3. Reset pagination flags and bookkeeping
@@ -9400,7 +8499,7 @@ class AppViewModel : ViewModel() {
         // 4. Request fresh room state
         requestRoomState(roomId)
         
-        // 5. Request up to 200 events from the backend; ingest path will upsert into the database
+        // 5. Request up to 200 events from the backend; ingest path will update the cache
         val paginateRequestId = requestIdCounter++
         timelineRequests[paginateRequestId] = roomId
         val result = sendWebSocketCommand(
@@ -9518,9 +8617,8 @@ class AppViewModel : ViewModel() {
         // 5. Clear message reactions
         MessageReactionsCache.clear()
         messageReactions = emptyMap()
-        roomsWithLoadedReceiptsFromDb.remove(roomId)
-        roomsWithLoadedReactionsFromDb.remove(roomId)
-        lastKnownDbLatestEventId.remove(roomId)
+        roomsWithLoadedReceipts.remove(roomId)
+        roomsWithLoadedReactions.remove(roomId)
         
         // 6. Clear new message tracking
         newMessageAnimations.clear()
@@ -9669,7 +8767,7 @@ class AppViewModel : ViewModel() {
                 // Build timeline from chain (this updates timelineEvents)
                 buildTimelineFromChain()
                 
-                // CRITICAL FIX: Restore reactions from database after clearing messageReactions
+                // CRITICAL FIX: Restore reactions from cache after clearing messageReactions
                 // This ensures reactions are visible when opening a room from cache
                 loadReactionsForRoom(roomId, cachedEvents)
                 applyAggregatedReactionsFromEvents(cachedEvents, "navigateToRoomWithCache")
@@ -9713,32 +8811,13 @@ class AppViewModel : ViewModel() {
                     val mostRecentEvent = cachedEvents.maxByOrNull { it.timestamp }
                     if (mostRecentEvent != null) {
                         markRoomAsRead(roomId, mostRecentEvent.eventId)
-                    } else {
-                        // No cached events - try to get from database as fallback
-                        viewModelScope.launch(Dispatchers.IO) {
-                            runCatching {
-                                appContext?.let { context ->
-                                    val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                                    val eventDao = database.eventDao()
-                                    val lastEvent = eventDao.getMostRecentEventForRoom(roomId)
-                                    if (lastEvent != null) {
-                                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marking room $roomId as read from DB (no cached events) with event: ${lastEvent.eventId}")
-                                        withContext(Dispatchers.Main) {
-                                            markRoomAsRead(roomId, lastEvent.eventId)
-                                        }
-                                    }
-                                }
-                            }.onFailure {
-                                android.util.Log.w("Andromuks", "AppViewModel: Failed to mark room as read from DB: ${it.message}", it)
-                            }
-                        }
                     }
                 } else {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping mark as read for room $roomId (bubble is minimized)")
                 }
                 
                 // DISABLED: No longer automatically requesting fresh timeline data from server
-                // We rely on database and websocket resilience to ensure we have exact copy of events
+                // We rely on cache and websocket resilience to ensure we have exact copy of events
                 // The websocket will automatically sync any new events via sync_complete messages
                     
                     return@launch // Exit early - room is already rendered from cache
@@ -11408,14 +10487,6 @@ class AppViewModel : ViewModel() {
         scheduleUIUpdate("member")
     }
     
-    /**
-     * @deprecated Profiles are no longer persisted to database - they're cached in-memory per room
-     */
-    @Deprecated("Profiles are in-memory only, loaded opportunistically when rendering events")
-    fun saveProfileToDisk(context: android.content.Context, userId: String, profile: MemberProfile) {
-        // No-op - profiles are cached in-memory only (ProfileCache singleton)
-    }
-    
     // Profile management - in-memory only, loaded opportunistically when rendering events
     private val pendingProfileSaves = mutableMapOf<String, MemberProfile>()
     private var profileSaveJob: kotlinx.coroutines.Job? = null
@@ -11483,11 +10554,8 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Queues a profile for batch saving to database. This prevents blocking the main thread
-     * with individual disk I/O operations when processing large member lists.
-     * 
-     * @param userId The Matrix user ID to save the profile for
-     * @param profile The MemberProfile object containing display name and avatar URL
+     * Queues a profile for batch processing. This prevents blocking the main thread
+     * when processing large member lists.
      */
     private fun queueProfileForBatchSave(userId: String, profile: MemberProfile) {
         synchronized(pendingProfileSaves) {
@@ -11513,9 +10581,7 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Performs batch saving of all queued profiles to database.
-     * This significantly reduces disk I/O when processing large member lists.
-     * Thread-safe: Uses synchronized to prevent concurrent saves.
+     * Performs batch processing of queued profiles (in-memory only).
      */
     private suspend fun performBatchProfileSave() {
         val profilesToSave = synchronized(pendingProfileSaves) {
@@ -11554,20 +10620,7 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Loads a user profile from disk cache
-     */
-    /**
-     * @deprecated Profiles are no longer persisted to database - they're cached in-memory per room
-     */
-    @Deprecated("Profiles are in-memory only, loaded opportunistically when rendering events")
-    private fun loadProfileFromDisk(context: android.content.Context, userId: String): MemberProfile? {
-        // No-op - profiles are cached in-memory only
-        return null
-    }
-    
-    /**
-     * Loads all cached profiles from database and populates the member cache
-     * Also ensures current user profile is loaded if available
+     * Ensures current user profile is loaded if available.
      */
     fun loadCachedProfiles(context: android.content.Context) {
         try {
@@ -11638,68 +10691,6 @@ class AppViewModel : ViewModel() {
         // Local echo handling removed; real events will arrive via sync.
     }
 
-    private fun timelineEventToRenderable(
-        event: TimelineEvent,
-        existing: RenderableEventEntity? = null,
-        transactionId: String? = null
-    ): RenderableEventEntity {
-        // Prefer decrypted content for any decryptedType (messages, stickers, files, etc.)
-        val contentForBody = event.decrypted ?: event.content
-        val msgType = contentForBody?.optString("msgtype")?.takeIf { it.isNotBlank() }
-        val body = contentForBody?.optString("body")?.takeIf { it.isNotBlank() }
-        val formattedBody = contentForBody
-            ?.optJSONObject("formatted_body")
-            ?.toString()
-            ?: contentForBody
-                ?.optString("formatted_body")
-                ?.takeIf { it.isNotBlank() }
-        val replyTo = event.getReplyInfo()?.eventId
-        val threadRoot = event.getThreadInfo()?.threadRootEventId
-        val aggregatedReactionsJson = event.aggregatedReactions?.toString()
-
-        val statusString: String? = null
-        val errorString: String? = null
-        val txnFromEvent = event.transactionId
-            ?: event.localContent?.optString("transaction_id")?.takeIf { it.isNotBlank() }
-            ?: event.unsigned?.optString("transaction_id")?.takeIf { it.isNotBlank() }
-        val txn = transactionId ?: txnFromEvent ?: existing?.transactionId
-
-        val redactionReason = if (event.redactedBy != null) {
-            redactionCache[event.eventId]?.content?.optString("reason")?.takeIf { it.isNotBlank() }
-                ?: event.content?.optString("reason")?.takeIf { it.isNotBlank() }
-        } else {
-            null
-        }
-
-        return RenderableEventEntity(
-            eventId = event.eventId,
-            roomId = event.roomId,
-            timelineRowId = event.timelineRowid,
-            timestamp = event.timestamp,
-            sender = event.sender,
-            eventType = event.decryptedType ?: event.type,
-            msgType = msgType,
-            body = body,
-            formattedBody = formattedBody,
-            isRedacted = event.redactedBy != null,
-            isEdited = false,
-            replyToEventId = replyTo,
-            threadRootEventId = threadRoot,
-            aggregatedReactionsJson = aggregatedReactionsJson,
-            parentPreviewJson = null,
-            contentJson = contentForBody?.toString(),
-            decryptedType = event.decryptedType,
-            transactionId = txn,
-            localEchoStatus = statusString,
-            localEchoError = errorString,
-            deletedBody = if (event.redactedBy != null) existing?.deletedBody ?: body else null,
-            deletedFormattedBody = if (event.redactedBy != null) existing?.deletedFormattedBody ?: formattedBody else null,
-            deletedMsgType = if (event.redactedBy != null) existing?.deletedMsgType ?: msgType else null,
-            deletedContentJson = if (event.redactedBy != null) existing?.deletedContentJson ?: contentForBody?.toString() else null,
-            redactionReason = if (event.redactedBy != null) (existing?.redactionReason ?: redactionReason) else existing?.redactionReason
-        )
-    }
-    
     fun processSendCompleteEvent(eventData: JSONObject) {
         android.util.Log.d("Andromuks", "AppViewModel: processSendCompleteEvent called")
         try {
@@ -11861,26 +10852,9 @@ class AppViewModel : ViewModel() {
             
             // Process asynchronously to check DB if needed
             viewModelScope.launch {
-                // If RAM cache is empty, check DB
-                val dbLatestRowId = if (cachedLatestRowId == 0L) {
-                    val context = appContext
-                    if (context != null) {
-                        withContext(Dispatchers.IO) {
-                            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context.applicationContext)
-                            val dbEvents = database.eventDao().getEventsForRoomDesc(roomId, 1)
-                            dbEvents.firstOrNull()?.timelineRowId ?: 0L
-                        }
-                    } else {
-                        0L
-                    }
-                } else {
-                    0L // Don't need to check DB if we have RAM cache
-                }
+                val ourLatestRowId = cachedLatestRowId
                 
-                // Use the maximum of RAM and DB
-                val ourLatestRowId = maxOf(cachedLatestRowId, dbLatestRowId)
-                
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Freshness check - our latest timeline_rowid: $ourLatestRowId (RAM: $cachedLatestRowId, DB: $dbLatestRowId), server: $serverLatestRowId")
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Freshness check - our latest timeline_rowid: $ourLatestRowId (RAM), server: $serverLatestRowId")
                 
                 // Compare: if server has newer events, trigger full paginate
                 if (serverLatestRowId > ourLatestRowId) {
@@ -12493,33 +11467,7 @@ class AppViewModel : ViewModel() {
                 if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Recorded $roomId as DM via bridge room_type (no room object yet)")
             }
 
-            // Persist DM flag to RoomStateEntity so cold starts keep it.
-            val ctx = appContext?.applicationContext
-            if (ctx != null) {
-                viewModelScope.launch(Dispatchers.IO) {
-                    runCatching {
-                        val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(ctx)
-                        val dao = db.roomStateDao()
-                        val existingState = dao.get(roomId)
-                        val stateToSave = net.vrkknn.andromuks.database.entities.RoomStateEntity(
-                            roomId = roomId,
-                            name = existingState?.name ?: name,
-                            topic = existingState?.topic ?: topic,
-                            avatarUrl = existingState?.avatarUrl ?: avatarUrl,
-                            canonicalAlias = existingState?.canonicalAlias ?: canonicalAlias,
-                            isDirect = true,
-                            isFavourite = existingState?.isFavourite ?: false,
-                            isLowPriority = existingState?.isLowPriority ?: false,
-                            bridgeInfoJson = existingState?.bridgeInfoJson,
-                            updatedAt = System.currentTimeMillis()
-                        )
-                        dao.upsert(stateToSave)
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Persisted isDirect=true to RoomStateEntity for $roomId from bridge room_type")
-                    }.onFailure {
-                        if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Failed to persist bridge DM flag for $roomId: ${it.message}")
-                    }
-                }
-            }
+            // Room state is in-memory only; no local persistence.
         }
         
         // ✓ FIX: Only update currentRoomState if this is the currently open room
@@ -13246,7 +12194,7 @@ class AppViewModel : ViewModel() {
                     updateTimelineFromSync(syncJson, currentRoomId)
                 } else if (currentRoomId.isNotEmpty()) {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✗ Skipping sync_complete - current room $currentRoomId not in this sync batch")
-                    // Events are no longer persisted to database - timeline is updated directly from sync_complete
+                    // Events are in-memory only - timeline is updated directly from sync_complete
                 } else {
                     if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✗ Skipping sync_complete - no room currently open (events will be cached only)")
                 }
@@ -14012,100 +12960,6 @@ class AppViewModel : ViewModel() {
         requestPaginationWithSmallestRowId(roomId, limit = 100)
     }
     
-    @Deprecated("Replaced with cache-only approach", ReplaceWith("loadOlderMessages(roomId, showToast)"))
-    private fun loadOlderMessagesFromDatabase(roomId: String, showToast: Boolean = true) {
-        val context = appContext ?: run {
-            return
-        }
-
-        if (isPaginating) {
-            return
-        }
-
-        if (!hasMoreMessages) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No more historical messages available in DB for $roomId")
-            if (showToast) {
-                android.widget.Toast.makeText(context, "No more messages to load", android.widget.Toast.LENGTH_SHORT).show()
-            }
-            return
-        }
-
-        val cacheSize = RoomTimelineCache.getCachedEventCount(roomId)
-
-        isPaginating = true
-
-        if (showToast) {
-            android.widget.Toast.makeText(context, "Loading more messages...", android.widget.Toast.LENGTH_SHORT).show()
-        }
-
-        viewModelScope.launch(Dispatchers.IO) {
-            val limit = 100
-            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context.applicationContext)
-            val eventDao = database.eventDao()
-
-            val oldestMetadata = RoomTimelineCache.getOldestCachedEventMetadata(roomId)
-            val oldestRowId = oldestMetadata?.timelineRowId ?: -1L
-            val oldestTimestamp = oldestMetadata?.timestamp ?: Long.MAX_VALUE
-
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: DB fetch parameters for $roomId -> oldestRowId=$oldestRowId, oldestTimestamp=$oldestTimestamp"
-            )
-
-            val entities = when {
-                oldestRowId > 0 -> eventDao.getEventsBeforeRowId(roomId, oldestRowId, limit)
-                oldestTimestamp < Long.MAX_VALUE -> eventDao.getEventsBeforeTimestamp(roomId, oldestTimestamp, limit)
-                else -> eventDao.getEventsForRoomAsc(roomId, limit)
-            }
-
-            if (entities.isEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No older events found in DB for room $roomId")
-                withContext(Dispatchers.Main) {
-                    hasMoreMessages = false
-                    isPaginating = false
-                    if (showToast) {
-                        android.widget.Toast.makeText(context, "No more messages to load", android.widget.Toast.LENGTH_SHORT).show()
-                    }
-                }
-                return@launch
-            }
-
-            val timelineList = entities
-                .asReversed() // convert to ascending order
-                .mapNotNull { eventEntityToTimelineEvent(it) }
-
-            if (BuildConfig.DEBUG) android.util.Log.d(
-                "Andromuks",
-                "AppViewModel: Loaded ${timelineList.size} historical events from DB for $roomId (entities=${entities.size})"
-            )
-
-            withContext(Dispatchers.Main) {
-                if (timelineList.isNotEmpty()) {
-                    applyAggregatedReactionsFromEvents(timelineList, "db_load")
-                    RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)
-                    mergePaginationEvents(timelineList)
-                    smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
-                    if (BuildConfig.DEBUG) android.util.Log.d(
-                        "Andromuks",
-                        "AppViewModel: After DB merge, cache has ${RoomTimelineCache.getCachedEventCount(roomId)} events, smallestRowId=$smallestRowId"
-                    )
-                } else {
-                    android.util.Log.w(
-                        "Andromuks",
-                        "AppViewModel: Converted 0 timeline events from DB entities for room $roomId"
-                    )
-                }
-
-                if (entities.size < limit) {
-                    hasMoreMessages = false
-                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marking hasMoreMessages=false for $roomId (fetched less than limit)")
-                }
-
-                isPaginating = false
-            }
-        }
-    }
-    
     /**
      * Request pagination from backend using the smallest row ID from cache only (no DB).
      * Used for pull-to-refresh to load older events.
@@ -14186,7 +13040,7 @@ class AppViewModel : ViewModel() {
                     }
                 }
             } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Error querying database for oldest timelineRowId", e)
+                android.util.Log.e("Andromuks", "AppViewModel: Error determining oldest timelineRowId", e)
                 withContext(Dispatchers.Main) {
                     isPaginating = false
                 }
@@ -14222,15 +13076,14 @@ class AppViewModel : ViewModel() {
         val paginateRequestId = requestIdCounter++
         paginateRequests[paginateRequestId] = roomId
         
-        // Look up the event's timelineRowId from the database
+        // Look up the event's timelineRowId from the in-memory cache
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val db = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-                val eventDao = db.eventDao()
-                val eventEntity = eventDao.getEventById(roomId, maxTimelineEventId)
+                val cachedEvent = RoomTimelineCache.getCachedEvents(roomId)
+                    ?.firstOrNull { it.eventId == maxTimelineEventId }
                 
-                if (eventEntity == null) {
-                    android.util.Log.w("Andromuks", "AppViewModel: Event $maxTimelineEventId not found in database for room $roomId, using 0 as max_timeline_id")
+                if (cachedEvent == null || cachedEvent.timelineRowid <= 0L) {
+                    android.util.Log.w("Andromuks", "AppViewModel: Event $maxTimelineEventId not found in cache for room $roomId, using 0 as max_timeline_id")
                     withContext(Dispatchers.Main) {
                         isPaginating = false
                         paginateRequests.remove(paginateRequestId)
@@ -14238,7 +13091,7 @@ class AppViewModel : ViewModel() {
                     return@launch
                 }
                 
-                val maxTimelineRowId = eventEntity.timelineRowId
+                val maxTimelineRowId = cachedEvent.timelineRowid
                 
                 // Use the timelineRowId directly - backend handles the logic to return events older than this
                 // (timelineRowIds are not consecutive, so backend does the math for us)
@@ -14275,7 +13128,7 @@ class AppViewModel : ViewModel() {
     
     /**
      * Emergency pagination: Request 200 events from backend with no max_timeline_id constraint.
-     * Used when room has fewer than 200 events in database to populate the room before rendering.
+     * Used when room needs a full backfill before rendering.
      * 
      * @param roomId The room ID to paginate
      * @param limit Number of events to fetch (default 200)
@@ -14590,22 +13443,6 @@ class AppViewModel : ViewModel() {
     }
     
     
-    /**
-     * @deprecated Invites are no longer persisted to database - they're loaded from sync_complete on reconnect
-     */
-    @Deprecated("Invites are in-memory only, loaded from sync_complete")
-    private suspend fun reloadInvitesFromDatabaseSync() {
-        // No-op - invites are loaded from sync_complete
-    }
-    
-    /**
-     * @deprecated Invites are no longer persisted to database - they're loaded from sync_complete on reconnect
-     */
-    @Deprecated("Invites are in-memory only, loaded from sync_complete")
-    private fun reloadInvitesFromDatabase() {
-        // No-op - invites are loaded from sync_complete
-    }
-    
     fun markRoomAsRead(roomId: String, eventId: String) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: markRoomAsRead called with roomId: '$roomId', eventId: '$eventId'")
         
@@ -14647,13 +13484,8 @@ class AppViewModel : ViewModel() {
     /**
      * Optimistically clear unread counts for a room when marking as read.
      * This provides instant UI feedback before the backend sends updated counts in sync_complete.
-     * Also updates the database to persist the change across app restarts.
      */
     private fun optimisticallyClearUnreadCounts(roomId: String) {
-        // CRITICAL FIX: Always update the database, regardless of in-memory state
-        // The database is the source of truth, and we must update it even if roomMap doesn't have the room
-        // or if the room was already cleared in a previous session
-        
         // Update in-memory state if the room exists in roomMap
         val existingRoom = roomMap[roomId]
         if (existingRoom != null && ((existingRoom.unreadCount != null && existingRoom.unreadCount > 0) || 
@@ -14686,17 +13518,9 @@ class AppViewModel : ViewModel() {
         // Invalidate cache to force recalculation of sections and badge counts
         invalidateRoomSectionCache()
         
-        // Trigger UI update - all data is in-memory only, no DB operations needed
+        // Trigger UI update - all data is in-memory only
         roomListUpdateCounter++
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked room $roomId as read (in-memory only)")
-    }
-    
-    private suspend fun updateDatabaseUnreadCounts(context: android.content.Context, roomId: String) {
-        // All data is in-memory only - no DB persistence needed
-        // Unread counts are updated in-memory via markRoomAsRead() which updates roomMap
-        if (BuildConfig.DEBUG) {
-            android.util.Log.d("Andromuks", "AppViewModel: Marked room $roomId as read (in-memory only)")
-        }
     }
     
     private fun markRoomAsReadInternal(roomId: String, eventId: String): WebSocketResult {
@@ -14752,7 +13576,7 @@ class AppViewModel : ViewModel() {
         // Remove from pending invites (in-memory only)
         PendingInvitesCache.removeInvite(roomId)
         
-        // Invites are in-memory only - no database cleanup needed
+        // Invites are in-memory only - no local cleanup needed
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed invite from memory: $roomId")
         
         roomListUpdateCounter++
@@ -14771,7 +13595,7 @@ class AppViewModel : ViewModel() {
         // Remove from pending invites (in-memory only)
         PendingInvitesCache.removeInvite(roomId)
         
-        // Invites are in-memory only - no database cleanup needed
+        // Invites are in-memory only - no local cleanup needed
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Removed invite from memory: $roomId")
         
         roomListUpdateCounter++
@@ -15192,19 +14016,6 @@ class AppViewModel : ViewModel() {
     }
 
     // Settings functions
-    fun toggleShowUnprocessedEvents() {
-        showUnprocessedEvents = !showUnprocessedEvents
-        
-        // Save setting to SharedPreferences
-        appContext?.let { context ->
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            prefs.edit()
-                .putBoolean("show_unprocessed_events", showUnprocessedEvents)
-                .apply()
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Saved showUnprocessedEvents setting: $showUnprocessedEvents")
-        }
-    }
-    
     fun toggleCompression() {
         enableCompression = !enableCompression
         
@@ -15258,11 +14069,9 @@ class AppViewModel : ViewModel() {
         val contextToUse = context ?: appContext
         contextToUse?.let { ctx ->
             val prefs = ctx.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
-            showUnprocessedEvents = prefs.getBoolean("show_unprocessed_events", true) // Default to true
             enableCompression = prefs.getBoolean("enable_compression", true) // Default to true
             enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true) // Default to true (Enter sends, Shift+Enter newline)
             loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true) // Default to true
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded showUnprocessedEvents setting: $showUnprocessedEvents")
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded enterKeySendsMessage setting: $enterKeySendsMessage")
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable")
@@ -16157,7 +14966,7 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing background prefetch request, silently adding ${timelineList.size} events to cache (roomId: $roomId)")
         RoomTimelineCache.mergePaginatedEvents(roomId, timelineList)
         
-        // No longer persisting to database - using cache only
+        // No local persistence - using cache only
         signalRoomSnapshotReady(roomId)
         
         val newCacheCount = RoomTimelineCache.getCachedEventCount(roomId)
@@ -16267,7 +15076,7 @@ class AppViewModel : ViewModel() {
             }
         }
         
-        // No longer persisting to database - using cache only
+        // No local persistence - using cache only
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Timeline events AFTER merge: ${timelineEvents.size}")
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cache AFTER merge: ${RoomTimelineCache.getCachedEventCount(roomId)} events")
@@ -16312,14 +15121,14 @@ class AppViewModel : ViewModel() {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Seeding cache with ${timelineList.size} paginated events for room $roomId")
         RoomTimelineCache.seedCacheWithPaginatedEvents(roomId, timelineList)
         
-        // CRITICAL FIX: Restore reactions from database and apply aggregated reactions from events
+        // CRITICAL FIX: Restore reactions from cache and apply aggregated reactions from events
         // This ensures reactions are visible when paginate response rebuilds the timeline
         // Force reload to ensure reactions are loaded even if they were loaded earlier from cache
         loadReactionsForRoom(roomId, timelineList, forceReload = true)
         applyAggregatedReactionsFromEvents(timelineList, "handleInitialTimelineBuild")
         
-        // Persist initial paginated events to database
-        // No longer persisting to database - using cache only
+        // Persist initial paginated events to cache
+        // No local persistence - using cache only
         
         smallestRowId = RoomTimelineCache.getOldestCachedEventRowId(roomId)
     }
@@ -16364,26 +15173,8 @@ class AppViewModel : ViewModel() {
         stats["user_profiles_memory_cache"] = formatBytes(estimatedProfileMemory)
         stats["user_profiles_count"] = "${flattenedCount + roomMemberCount + globalCount} profiles"
         
-        // 4. User profile disk cache size (SQLite database)
-        val profileDiskSize = try {
-            // SQLite database file: /data/data/<package>/databases/andromuks_profiles.db
-            val dbFile = context.getDatabasePath("andromuks_profiles.db")
-            if (dbFile.exists()) {
-                // Also include journal file if it exists
-                val journalFile = File(dbFile.parent, "${dbFile.name}-journal")
-                val walFile = File(dbFile.parent, "${dbFile.name}-wal")
-                val shmFile = File(dbFile.parent, "${dbFile.name}-shm")
-                
-                dbFile.length() +
-                    (if (journalFile.exists()) journalFile.length() else 0L) +
-                    (if (walFile.exists()) walFile.length() else 0L) +
-                    (if (shmFile.exists()) shmFile.length() else 0L)
-            } else {
-                0L
-            }
-        } catch (e: Exception) {
-            0L
-        }
+        // 4. User profile disk cache size (no disk cache)
+        val profileDiskSize = 0L
         stats["user_profiles_disk_cache"] = formatBytes(profileDiskSize)
         
         // 5. Media memory cache size (from Coil)
@@ -16418,7 +15209,7 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * @deprecated Room data is no longer persisted to database - only in-memory caches need clearing
+     * @deprecated Room data is in-memory only - only in-memory caches need clearing
      */
     @Deprecated("Room data is in-memory only, use clearRoomCache instead")
     suspend fun deleteAllRoomData(roomId: String) = withContext(Dispatchers.Main) {
@@ -16459,55 +15250,6 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    /**
-     * Get room statistics: room_id, display name, and disk size
-     */
-    suspend fun getRoomDiskStatistics(context: android.content.Context): List<RoomDiskStat> = withContext(Dispatchers.IO) {
-        try {
-            val database = net.vrkknn.andromuks.database.AndromuksDatabase.getInstance(context)
-            val roomSummaryDao = database.roomSummaryDao()
-            val eventDao = database.eventDao()
-            val roomStateDao = database.roomStateDao()
-            
-            // Get all room summaries
-            val roomSummaries = roomSummaryDao.getAllRooms()
-            val stats = mutableListOf<RoomDiskStat>()
-            
-            for (summary in roomSummaries) {
-                // Get room display name from room state or room map
-                val roomState = roomStateDao.get(summary.roomId)
-                val roomItem = roomMap[summary.roomId]
-                val displayName = roomState?.name ?: roomItem?.name ?: summary.roomId
-                
-                // Get event count and size
-                val eventCount = eventDao.getEventCountForRoom(summary.roomId)
-                val totalSize = eventDao.getTotalSizeForRoom(summary.roomId) ?: 0L
-                
-                stats.add(RoomDiskStat(
-                    roomId = summary.roomId,
-                    displayName = displayName,
-                    diskSizeBytes = totalSize,
-                    isFavourite = roomState?.isFavourite ?: false,
-                    isLowPriority = roomState?.isLowPriority ?: false
-                ))
-            }
-            
-            // Sort by disk size (descending) and return
-            stats.sortedByDescending { it.diskSizeBytes }
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Error getting room disk statistics: ${e.message}", e)
-            emptyList()
-        }
-    }
-    
-    data class RoomDiskStat(
-        val roomId: String,
-        val displayName: String,
-        val diskSizeBytes: Long,
-        val isFavourite: Boolean = false,
-        val isLowPriority: Boolean = false
-    )
-
 }
 
 @Composable
@@ -16540,19 +15282,6 @@ data class SingleEventLoadResult(
     val contextEvents: List<TimelineEvent> = emptyList(),
     val error: String? = null
 )
-
-/**
- * Stream room list summaries for a given set of room IDs.
- */
-/**
- * @deprecated Room summaries are no longer persisted to DB - they're built in-memory from sync_complete.
- * This function returns an empty flow since there's no DB to query.
- */
-@Deprecated("Room summaries are in-memory only, no DB persistence")
-fun AppViewModel.roomListSummariesFlow(roomIds: List<String>): kotlinx.coroutines.flow.Flow<List<RoomListSummaryEntity>> {
-    // Room summaries are no longer persisted - return empty flow
-    return kotlinx.coroutines.flow.emptyFlow()
-}
 
 // Helper to safely access application context from extensions
 fun AppViewModel.getAppContext(): android.content.Context? = try {

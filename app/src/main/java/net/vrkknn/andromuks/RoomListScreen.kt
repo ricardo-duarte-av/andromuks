@@ -137,7 +137,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import net.vrkknn.andromuks.utils.RoomJoinerScreen
 import net.vrkknn.andromuks.utils.RoomLink
-import net.vrkknn.andromuks.database.AndromuksDatabase
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -181,15 +180,14 @@ fun RoomListScreen(
 
     // Ensure cached data and pending items are applied after cold start/activity recreation.
     // CRITICAL FIX: Don't call refreshUIFromCache() here - it rebuilds allRooms from roomMap
-    // which may have stale unread counts. Instead, we load from database via buildSectionSnapshot()
-    // in the LaunchedEffect below.
+    // which may have stale unread counts. We load from in-memory state via buildSectionSnapshot().
     LaunchedEffect(Unit) {
         coldStartRefreshing = true
         appViewModel.checkAndProcessPendingItemsOnStartup(context)
         // CRITICAL FIX: Ensure profile is loaded on cold start to prevent "Loading profile..." stall
         appViewModel.ensureCurrentUserProfileLoaded()
         // REMOVED: appViewModel.refreshUIFromCache() - this rebuilds allRooms from stale roomMap
-        // Instead, we load fresh data from database via buildSectionSnapshot() in LaunchedEffect below
+        // Instead, we load fresh data from in-memory state via buildSectionSnapshot() below
         // Ensure a sort after cache restore/cold start so room order reflects latest DB data.
         appViewModel.forceRoomListSort()
         coldStartRefreshing = false
@@ -211,9 +209,9 @@ fun RoomListScreen(
     
     // Prepare room list data while the loading screen is visible so we avoid flicker
     val roomListUpdateCounter = uiState.roomListUpdateCounter
-    // Seed from DB snapshot to avoid empty in-memory cache after clear_state/cold start
-    // CRITICAL FIX: Initialize with empty section, then load from database in LaunchedEffect
-    // This ensures we always read fresh data from database, not stale in-memory cache
+    // Seed from in-memory snapshot to avoid empty UI after clear_state/cold start
+    // CRITICAL FIX: Initialize with empty section, then load from in-memory state in LaunchedEffect
+    // This ensures we always read fresh data from memory, not stale roomMap
     var stableSection by remember { 
         mutableStateOf(RoomSection(RoomSectionType.HOME, emptyList()))
     }

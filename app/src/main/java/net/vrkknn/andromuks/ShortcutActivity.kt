@@ -125,8 +125,8 @@ fun ShortcutNavigation(roomId: String) {
         val homeserverUrl = sharedPrefs.getString("homeserver_url", "") ?: ""
         val authToken = sharedPrefs.getString("gomuks_auth_token", "") ?: ""
         
-        // Initialize FCM to set appContext (required for database access)
-        // This is critical for loading events from database when RAM cache is empty
+        // Initialize FCM to set appContext (required for cache access)
+        // This is critical for loading events when RAM cache is empty
         appViewModel.initializeFCM(context, homeserverUrl, authToken)
         
         // CRITICAL: Do NOT mark as primary - only MainActivity's AppViewModel should be primary
@@ -144,10 +144,10 @@ fun ShortcutNavigation(roomId: String) {
         // Re-attach to existing WebSocket connection if the service already has one
         appViewModel.attachToExistingWebSocketIfAvailable()
         
-        // CRITICAL FIX #3: Load spaces from database if not already loaded
+        // CRITICAL FIX #3: Load spaces from storage if not already loaded
         // This ensures spacesLoaded is true even if primary AppViewModel hasn't loaded yet
         if (!appViewModel.spacesLoaded) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: Spaces not loaded, loading from database...")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "ShortcutActivity: Spaces not loaded, loading from storage...")
             appViewModel.loadStateFromStorage(context)
         }
         
@@ -181,7 +181,7 @@ fun ShortcutNavigation(roomId: String) {
                 appViewModel.setCurrentRoomIdForTimeline(roomId)
                 
                 // Use cache-first navigation for instant loading
-                // This will fall back to database loading if RAM cache is empty
+                // This will fall back to network loading if RAM cache is empty
                 appViewModel.navigateToRoomWithCache(roomId)
                 
                 // Navigate directly to room timeline

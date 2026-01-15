@@ -194,12 +194,11 @@ sealed class BubbleTimelineItem {
 /** PERFORMANCE: Helper function to process timeline events in background */
 suspend fun bubbleProcessTimelineEvents(
     timelineEvents: List<TimelineEvent>,
-    showUnprocessedEvents: Boolean,
     allowedEventTypes: Set<String>
 ): List<TimelineEvent> = withContext(Dispatchers.Default) {
     if (BuildConfig.DEBUG) Log.d(
         "Andromuks",
-        "BubbleTimelineScreen: Background processing ${timelineEvents.size} timeline events, showUnprocessedEvents: $showUnprocessedEvents"
+        "BubbleTimelineScreen: Background processing ${timelineEvents.size} timeline events"
     )
 
     // Debug: Log event types in timeline
@@ -209,17 +208,10 @@ suspend fun bubbleProcessTimelineEvents(
         "BubbleTimelineScreen: Event types in timeline: ${eventTypes.map { "${it.key}: ${it.value.size}" }.joinToString(", ")}"
     )
 
-    val filteredEvents = if (showUnprocessedEvents) {
-        // Show all events when unprocessed events are enabled, but always exclude redaction events
-        val filtered = timelineEvents.filter { event -> event.type != "m.room.redaction" }
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: After redaction filtering: ${filtered.size} events")
-        filtered
-    } else {
-        // Only show allowed events when unprocessed events are disabled
-        val filtered = timelineEvents.filter { event -> allowedEventTypes.contains(event.type) }
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: After type filtering: ${filtered.size} events")
-        filtered
+    val filteredEvents = timelineEvents.filter { event ->
+        event.type != "m.room.redaction" && allowedEventTypes.contains(event.type)
     }
+    if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: After type filtering: ${filteredEvents.size} events")
 
     // PERFORMANCE: Optimize edit filtering by creating a lookup set
     val editedEventIds = filteredEvents.filter { event ->
@@ -1183,14 +1175,13 @@ fun BubbleTimelineScreen(
     var sortedEvents by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
     
     // Process timeline events in background when dependencies change
-    LaunchedEffect(timelineEvents, appViewModel.showUnprocessedEvents, appViewModel.timelineUpdateCounter) {
+    LaunchedEffect(timelineEvents, appViewModel.timelineUpdateCounter) {
         if (BuildConfig.DEBUG) Log.d(
             "Andromuks",
             "BubbleTimelineScreen: Processing timelineEvents update - size=${timelineEvents.size}, updateCounter=${appViewModel.timelineUpdateCounter}, roomId=$roomId"
         )
         sortedEvents = bubbleProcessTimelineEvents(
             timelineEvents = timelineEvents,
-            showUnprocessedEvents = appViewModel.showUnprocessedEvents,
             allowedEventTypes = allowedEventTypes
         )
     }
@@ -1293,10 +1284,10 @@ fun BubbleTimelineScreen(
                 )
             }
             
-            // Use the oldest event from cache/database, not the oldest rendered event
+            // Use the oldest event from cache, not the oldest rendered event
             // The cache may have events that aren't currently rendered, so we need to use
             // the absolute oldest event to avoid requesting duplicates
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Pull-to-refresh triggered, requesting pagination with oldest event from cache/database")
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: Pull-to-refresh triggered, requesting pagination with oldest cached event")
             isRefreshingPull = true
             appViewModel.requestPaginationWithSmallestRowId(roomId, limit = 100)
         }
@@ -1839,7 +1830,7 @@ fun BubbleTimelineScreen(
         }
     }
     
-    // CRITICAL FIX: Observe database changes reactively using Room Flow
+    // CRITICAL FIX: Observe timeline changes reactively using state flows
     // This detects new events that were persisted to DB but might not have triggered timeline updates
     // (e.g., due to race conditions, timing issues, or if events weren't in sync batch)
     // This is event-driven (no polling) and only triggers when DB actually changes

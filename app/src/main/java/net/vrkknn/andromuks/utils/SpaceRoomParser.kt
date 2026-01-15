@@ -195,7 +195,7 @@ object SpaceRoomParser {
         val roomsJson = data.optJSONObject("rooms")
         if (roomsJson != null) {
             // Always parse all rooms in sync_complete to keep data up-to-date
-            // Since we're not persisting to database, the only cost is JSON parsing (relatively cheap)
+            // Since we're not persisting locally, the only cost is JSON parsing (relatively cheap)
             val roomsToParse = roomsJson.keys().asSequence().toList()
             
             // Parse all rooms
@@ -281,7 +281,7 @@ object SpaceRoomParser {
             val isDirectMessage = detectDirectMessage(roomId, roomObj, meta, appViewModel)
             
             // Extract message preview and sender from events JSON
-            // Always parse to keep summaries up-to-date (no database, so only JSON parsing cost)
+            // Always parse to keep summaries up-to-date (no local persistence, so only JSON parsing cost)
             var messagePreview: String? = null
             var messageSender: String? = null
             
