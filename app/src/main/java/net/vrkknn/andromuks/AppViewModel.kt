@@ -5737,7 +5737,7 @@ class AppViewModel : ViewModel() {
      * This allows notifications to resume for rooms that were previously open.
      * 
      * PERFORMANCE FIX: Also clears in-memory timeline cache to free RAM.
-     * Timeline will be rebuilt from DB when room is opened again.
+     * Timeline will be rebuilt from cache or server when room is opened again.
      */
     fun clearCurrentRoomId(shouldRestoreOnVisible: Boolean = false, saveToCacheForRoomTimeline: Boolean = true) {
         val previousRoomId = currentRoomId
@@ -8218,6 +8218,9 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✅ INSTANT room switch from LRU cache for $roomId (${timelineEvents.size} events)")
             updateCurrentRoomIdInPrefs(roomId)
             isTimelineLoading = false
+            // Mark as actively cached so sync_complete updates keep this cache fresh.
+            RoomTimelineCache.markRoomAsCached(roomId)
+            RoomTimelineCache.markRoomAccessed(roomId)
             
             // Store room open timestamp for animation purposes
             val openTimestamp = System.currentTimeMillis()
