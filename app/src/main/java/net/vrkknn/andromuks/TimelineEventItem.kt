@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.ColorScheme
@@ -80,6 +81,22 @@ private val AvatarGap = 4.dp
 private val AvatarColumnWidth = 32.dp // Wider column to prevent timestamp wrapping
 private val AvatarPlaceholderWidth = AvatarColumnWidth + AvatarGap
 private val ReadReceiptGap = 4.dp
+private val HorizontalRuleHtmlRegex = Regex("^<\\s*hr\\s*/?\\s*>$", RegexOption.IGNORE_CASE)
+
+private fun isHorizontalRuleHtml(html: String?): Boolean {
+    val trimmed = html?.trim().orEmpty()
+    return trimmed.isNotEmpty() && HorizontalRuleHtmlRegex.matches(trimmed)
+}
+
+private fun isHorizontalRuleMessage(
+    event: TimelineEvent,
+    content: JSONObject?,
+    msgType: String
+): Boolean {
+    if (msgType != "m.text" && msgType != "m.notice") return false
+    if (isHorizontalRuleHtml(extractSanitizedHtml(event))) return true
+    return isHorizontalRuleHtml(content?.optString("formatted_body"))
+}
 
 /** Check if a message mentions a specific user */
 private fun isMentioningUser(event: TimelineEvent, userId: String?): Boolean {
@@ -322,6 +339,19 @@ fun AdaptiveMessageText(
             modifier = modifier
         )
     }
+}
+
+@Composable
+private fun HorizontalRuleMessage(
+    modifier: Modifier = Modifier
+) {
+    HorizontalDivider(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        thickness = 1.dp,
+        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+    )
 }
 
 /**
@@ -702,6 +732,12 @@ private fun RoomMessageContent(
     // Check if message has been edited (O(1) lookup) - placed early so downstream renderers can use it
     val hasBeenEdited = remember(event.eventId, appViewModel?.timelineUpdateCounter) {
         appViewModel?.isMessageEdited(event.eventId) ?: false
+    }
+
+    val isHorizontalRule = !isRedacted && isHorizontalRuleMessage(event, content, msgType)
+    if (isHorizontalRule) {
+        HorizontalRuleMessage()
+        return
     }
 
     // Check if this is a reply message
@@ -1767,6 +1803,13 @@ private fun EncryptedMessageContent(
             } else {
                 body
             }
+
+        val contentForHtml = editContent ?: decrypted
+        val isHorizontalRule = !isRedacted && isHorizontalRuleMessage(event, contentForHtml, msgType)
+        if (isHorizontalRule) {
+            HorizontalRuleMessage()
+            return
+        }
 
         // Check if this is a reply message
         val replyInfo = event.getReplyInfo()
