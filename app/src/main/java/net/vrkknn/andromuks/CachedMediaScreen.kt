@@ -25,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import java.io.File
 
 /**
@@ -111,7 +112,7 @@ fun CachedMediaScreen(
                     .padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator()
+                ExpressiveLoadingIndicator()
             }
         } else if (mediaEntries.isEmpty()) {
             Box(

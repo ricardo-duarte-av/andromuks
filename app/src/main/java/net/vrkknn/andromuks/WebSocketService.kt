@@ -138,6 +138,9 @@ class WebSocketService : Service() {
         // Activity log callback - set by AppViewModel
         // Legacy callback - kept for backward compatibility
         private var activityLogCallback: ((String, String?) -> Unit)? = null
+
+        // Headless AppViewModel used for boot/background startup when no UI is running.
+        private var headlessViewModel: AppViewModel? = null
         
         /**
          * PHASE 1.1: Get the primary ViewModel ID
@@ -150,6 +153,37 @@ class WebSocketService : Service() {
          */
         fun isPrimaryInstance(viewModelId: String): Boolean {
             return primaryViewModelId == viewModelId
+        }
+
+        /**
+         * Ensure a headless AppViewModel exists to bring up the WebSocket on boot/background.
+         * This is only used when no UI ViewModel has registered callbacks yet.
+         */
+        fun ensureHeadlessPrimary(context: Context, reason: String) {
+            val hasCallback = getActiveReconnectionCallback() != null
+            if (hasCallback) return
+
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
+            val authToken = prefs.getString("gomuks_auth_token", "") ?: ""
+            if (homeserverUrl.isBlank() || authToken.isBlank()) {
+                if (BuildConfig.DEBUG) Log.d("WebSocketService", "Headless start skipped - missing credentials")
+                return
+            }
+
+            if (headlessViewModel == null) {
+                if (BuildConfig.DEBUG) Log.d("WebSocketService", "Creating headless AppViewModel for background startup ($reason)")
+                headlessViewModel = AppViewModel().apply {
+                    initializeFCM(context.applicationContext, homeserverUrl, authToken, skipCacheClear = true)
+                    updateHomeserverUrl(homeserverUrl)
+                    updateAuthToken(authToken)
+                    loadSettings(context.applicationContext)
+                    markAsPrimaryInstance()
+                }
+            }
+
+            // Trigger connection if not already connected.
+            headlessViewModel?.initializeWebSocketConnection(homeserverUrl, authToken)
         }
         
         /**
@@ -2612,6 +2646,8 @@ class WebSocketService : Service() {
         // If callback is missing, log it for debugging
         if (!hasCallback) {
             android.util.Log.w("WebSocketService", "Service started but reconnection callback not set - notification will show 'Waiting for app...'")
+            // Boot/background startup: create a headless AppViewModel so WebSocket can connect.
+            ensureHeadlessPrimary(applicationContext, "Service start")
         }
         
         // PHASE 2.2: Handle service restart detection

@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -550,7 +551,7 @@ fun CacheStatisticsSection(appViewModel: AppViewModel, navController: NavControl
                     modifier = Modifier.fillMaxWidth().padding(16.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    ExpressiveLoadingIndicator(modifier = Modifier.size(24.dp))
                 }
             } else if (cacheStats != null) {
                 HorizontalDivider()

@@ -1,14 +1,13 @@
 package net.vrkknn.andromuks.ui.components
 
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -37,18 +36,16 @@ fun ExpressiveLoadingIndicator(
     modifier: Modifier = Modifier,
     indicatorColor: Color = LoadingIndicatorDefaults.indicatorColor
 ) {
-    var progress by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(Unit) {
-        var start = 0L
-        withFrameNanos { start = it }
-        while (true) {
-            withFrameNanos { now ->
-                val elapsedMs = (now - start) / 1_000_000f
-                // Loop the value to prevent runaway growth and avoid visible resets.
-                progress = (elapsedMs % 1600f) / 1600f
-            }
-        }
-    }
+    val infiniteTransition = rememberInfiniteTransition(label = "expressive_loading")
+    val progress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 10_000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "expressive_loading_progress"
+    )
 
     LoadingIndicator(
         progress = { progress },

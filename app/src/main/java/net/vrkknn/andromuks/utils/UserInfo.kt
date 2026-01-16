@@ -25,6 +25,7 @@ import net.vrkknn.andromuks.AppViewModel
 import net.vrkknn.andromuks.RoomItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.FullImageDialog
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 
 
 import org.json.JSONObject
@@ -230,7 +231,7 @@ fun UserInfoScreen(
                     .padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator()
+                ExpressiveLoadingIndicator()
             }
         } else if (errorMessage != null) {
             Box(

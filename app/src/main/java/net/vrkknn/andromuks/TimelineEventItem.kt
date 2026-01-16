@@ -72,7 +72,7 @@ import net.vrkknn.andromuks.ReadReceipt
 import net.vrkknn.andromuks.VersionedMessage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.CircularProgressIndicator
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import net.vrkknn.andromuks.utils.EditHistoryDialog
 import androidx.compose.ui.tooling.preview.Preview
 import org.json.JSONObject
@@ -3164,7 +3164,7 @@ fun TimelineEventItem(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                            ExpressiveLoadingIndicator(modifier = Modifier.size(24.dp))
                             Text("Fetching the latest edits…")
                         }
                     }

@@ -23,6 +23,7 @@ import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.TimelineEventItem
 import net.vrkknn.andromuks.ui.components.AvatarImage
 import net.vrkknn.andromuks.ui.components.FullImageDialog
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 
 
 import org.json.JSONObject
@@ -177,7 +178,7 @@ fun RoomInfoScreen(
                     .padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator()
+                ExpressiveLoadingIndicator()
             }
         } else if (errorMessage != null) {
             Box(
@@ -679,7 +680,7 @@ private fun PinnedEventsDialog(
                             .padding(16.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        CircularProgressIndicator()
+                        ExpressiveLoadingIndicator()
                     }
                 }
                 errorMessage != null && pinnedEvents.isEmpty() -> {

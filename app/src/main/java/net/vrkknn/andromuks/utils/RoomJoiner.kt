@@ -44,6 +44,7 @@ import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 
 import org.json.JSONArray
 import org.json.JSONObject
@@ -548,7 +549,7 @@ fun RoomJoinerScreen(
         ) {
             when {
                 isLoading -> {
-                    CircularProgressIndicator(
+                    ExpressiveLoadingIndicator(
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
@@ -813,9 +814,9 @@ private fun RoomSummaryContent(
                     .height(56.dp)
             ) {
                 if (isJoining) {
-                    CircularProgressIndicator(
+                    ExpressiveLoadingIndicator(
                         modifier = Modifier.size(24.dp),
-                        color = MaterialTheme.colorScheme.onPrimary
+                        indicatorColor = MaterialTheme.colorScheme.onPrimary
                     )
                 } else {
                     Text("Join Room", style = MaterialTheme.typography.titleMedium)
@@ -965,9 +966,9 @@ private fun RoomErrorFallbackContent(
                 .height(56.dp)
         ) {
             if (isJoining) {
-                CircularProgressIndicator(
+                ExpressiveLoadingIndicator(
                     modifier = Modifier.size(24.dp),
-                    color = MaterialTheme.colorScheme.onPrimary
+                    indicatorColor = MaterialTheme.colorScheme.onPrimary
                 )
             } else {
                 Text("Join Room", style = MaterialTheme.typography.titleMedium)

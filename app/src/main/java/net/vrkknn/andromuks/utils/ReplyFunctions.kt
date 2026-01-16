@@ -46,7 +46,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
-import androidx.compose.material3.CircularProgressIndicator
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -1176,7 +1176,7 @@ fun MessageBubbleWithMenu(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                                ExpressiveLoadingIndicator(modifier = Modifier.size(20.dp))
                                 Text("Fetching from cache…")
                             }
                         },

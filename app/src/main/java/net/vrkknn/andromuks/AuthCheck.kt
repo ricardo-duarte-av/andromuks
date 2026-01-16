@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -318,7 +318,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 if (appViewModel.isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(64.dp))
+                    ExpressiveLoadingIndicator(modifier = Modifier.size(64.dp))
                 }
             }
         }

@@ -14,6 +14,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import net.vrkknn.andromuks.ui.components.AvatarImage
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 
 /**
  * Data class for cached profile entry
@@ -77,7 +78,7 @@ fun CachedProfilesScreen(
                     .padding(paddingValues),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator()
+                ExpressiveLoadingIndicator()
             }
         } else if (profiles.isEmpty()) {
             Box(

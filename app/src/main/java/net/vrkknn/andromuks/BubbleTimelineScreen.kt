@@ -62,7 +62,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.automirrored.filled.Launch
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -1974,9 +1974,8 @@ fun BubbleTimelineScreen(
                                         modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        androidx.compose.material3.CircularProgressIndicator(
-                                            modifier = Modifier.size(24.dp),
-                                            strokeWidth = 2.dp
+                                        ExpressiveLoadingIndicator(
+                                            modifier = Modifier.size(24.dp)
                                         )
                                     }
                                 }

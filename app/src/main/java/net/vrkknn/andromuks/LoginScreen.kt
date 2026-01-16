@@ -18,7 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
+import net.vrkknn.andromuks.ui.components.ExpressiveLoadingIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -172,7 +172,7 @@ fun LoginScreen(navController: NavController, modifier: Modifier = Modifier, app
                 }
                 if (appViewModel.isLoading) {
                     Spacer(modifier = Modifier.height(16.dp))
-                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    ExpressiveLoadingIndicator(modifier = Modifier.size(24.dp))
                 }
             }
         }
