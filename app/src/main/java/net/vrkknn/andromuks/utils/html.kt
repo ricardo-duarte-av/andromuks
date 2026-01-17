@@ -477,34 +477,36 @@ private fun AnnotatedString.Builder.appendHtmlTag(
         return
     }
 
+    val styledBase = applyInlineColors(tag, baseStyle)
+
     when (tag.name) {
-        "strong", "b" -> appendStyledChildren(tag, baseStyle.copy(fontWeight = FontWeight.Bold), inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "em", "i" -> appendStyledChildren(tag, baseStyle.copy(fontStyle = FontStyle.Italic), inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "strong", "b" -> appendStyledChildren(tag, styledBase.copy(fontWeight = FontWeight.Bold), inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "em", "i" -> appendStyledChildren(tag, styledBase.copy(fontStyle = FontStyle.Italic), inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         "u" -> {
-            val newStyle = baseStyle.copy(textDecoration = (baseStyle.textDecoration ?: TextDecoration.None) + TextDecoration.Underline)
+            val newStyle = styledBase.copy(textDecoration = (styledBase.textDecoration ?: TextDecoration.None) + TextDecoration.Underline)
             appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         }
         "s", "del", "strike" -> {
-            val newStyle = baseStyle.copy(textDecoration = (baseStyle.textDecoration ?: TextDecoration.None) + TextDecoration.LineThrough)
+            val newStyle = styledBase.copy(textDecoration = (styledBase.textDecoration ?: TextDecoration.None) + TextDecoration.LineThrough)
             appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         }
         "ins" -> {
-            val newStyle = baseStyle.copy(textDecoration = (baseStyle.textDecoration ?: TextDecoration.None) + TextDecoration.Underline)
+            val newStyle = styledBase.copy(textDecoration = (styledBase.textDecoration ?: TextDecoration.None) + TextDecoration.Underline)
             appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         }
-        "code" -> appendStyledChildren(tag, baseStyle.copy(fontFamily = FontFamily.Monospace), inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "span", "font" -> appendSpoilerOrStyledChildren(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "code" -> appendStyledChildren(tag, styledBase.copy(fontFamily = FontFamily.Monospace), inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "span", "font" -> appendSpoilerOrStyledChildren(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         "br" -> append("\n")
         "hr" -> appendHorizontalRule()
-        "h1", "h2", "h3", "h4", "h5", "h6" -> appendHeader(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "p", "div" -> appendBlock(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext)
-        "blockquote" -> appendBlockQuote(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "ul" -> appendUnorderedList(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "ol" -> appendOrderedList(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "a" -> appendAnchor(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "h1", "h2", "h3", "h4", "h5", "h6" -> appendHeader(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "p", "div" -> appendBlock(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext)
+        "blockquote" -> appendBlockQuote(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "ul" -> appendUnorderedList(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "ol" -> appendOrderedList(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "a" -> appendAnchor(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         "img" -> appendImage(tag, inlineImages)
-        "pre" -> appendPreformattedBlock(tag, baseStyle, inlineImages, inlineMatrixUsers)
-        else -> tag.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent) }
+        "pre" -> appendPreformattedBlock(tag, styledBase, inlineImages, inlineMatrixUsers)
+        else -> tag.children.forEach { appendHtmlNode(it, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent) }
     }
 }
 
