@@ -395,7 +395,8 @@ object HtmlParser {
 data class InlineImageData(
     val src: String,
     val alt: String,
-    val height: Int
+    val height: Int,
+    val isHidden: Boolean = false
 )
 
 data class InlineMatrixUserChip(
@@ -477,6 +478,22 @@ private fun AnnotatedString.Builder.appendHtmlTag(
         return
     }
 
+    val mxSpoilerReason = tag.attributes["data-mx-spoiler"]
+    if (!hideContent && mxSpoilerReason != null && spoilerContext != null) {
+        val sanitizedReason = mxSpoilerReason.takeIf { it.isNotBlank() }
+        val filteredAttributes = tag.attributes.toMutableMap().apply { remove("data-mx-spoiler") }
+        val tagWithoutSpoiler = tag.copy(attributes = filteredAttributes)
+        appendSpoilerNodes(
+            nodes = listOf(tagWithoutSpoiler),
+            baseStyle = applyInlineColors(tag, baseStyle),
+            inlineImages = inlineImages,
+            inlineMatrixUsers = inlineMatrixUsers,
+            spoilerContext = spoilerContext,
+            reason = sanitizedReason
+        )
+        return
+    }
+
     val styledBase = applyInlineColors(tag, baseStyle)
 
     when (tag.name) {
@@ -504,7 +521,7 @@ private fun AnnotatedString.Builder.appendHtmlTag(
         "ul" -> appendUnorderedList(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         "ol" -> appendOrderedList(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         "a" -> appendAnchor(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "img" -> appendImage(tag, inlineImages)
+        "img" -> appendImage(tag, inlineImages, hideContent)
         "pre" -> appendPreformattedBlock(tag, styledBase, inlineImages, inlineMatrixUsers)
         else -> tag.children.forEach { appendHtmlNode(it, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent) }
     }
@@ -566,20 +583,6 @@ private fun AnnotatedString.Builder.appendSpoilerOrStyledChildren(
 ) {
     val classAttr = tag.attributes["class"] ?: ""
 
-    // Matrix spec spoiler support via data-mx-spoiler
-    val mxSpoilerReason = tag.attributes["data-mx-spoiler"]
-    if (mxSpoilerReason != null && spoilerContext != null && tag.children.isNotEmpty()) {
-        appendSpoilerNodes(
-            nodes = tag.children,
-            baseStyle = applyInlineColors(tag, baseStyle),
-            inlineImages = inlineImages,
-            inlineMatrixUsers = inlineMatrixUsers,
-            spoilerContext = spoilerContext,
-            reason = mxSpoilerReason.takeIf { it.isNotBlank() }
-        )
-        return
-    }
-    
     // Check if this is a spoiler reason span - skip it, will be handled with hicli-spoiler
     if (classAttr.contains("spoiler-reason")) {
         return
@@ -950,17 +953,18 @@ private fun AnnotatedString.Builder.appendAnchor(
 
 private fun AnnotatedString.Builder.appendImage(
     tag: HtmlNode.Tag,
-    inlineImages: MutableMap<String, InlineImageData>
+    inlineImages: MutableMap<String, InlineImageData>,
+    hideContent: Boolean
 ) {
     val src = tag.attributes["src"] ?: tag.attributes["data-mxc"] ?: ""
     val alt = tag.attributes["alt"] ?: tag.attributes["title"] ?: ""
     val height = tag.attributes["height"]?.toIntOrNull() ?: 32
     if (src.isNotBlank()) {
         val id = "inline_img_${inlineImages.size}"
-        inlineImages[id] = InlineImageData(src, alt, height)
+        inlineImages[id] = InlineImageData(src, alt, height, isHidden = hideContent)
         appendInlineContent(id, "\u200B")
     } else {
-        append(alt)
+        append(if (hideContent) maskSpoilerText(alt) else alt)
     }
 }
 
@@ -1296,7 +1300,8 @@ fun HtmlMessageText(
                     alt = imageData.alt,
                     height = maxHeight,
                     homeserverUrl = homeserverUrl,
-                    authToken = authToken
+                    authToken = authToken,
+                    isHidden = imageData.isHidden
                 )
             }
         }
@@ -1493,7 +1498,8 @@ private fun InlineImage(
     alt: String,
     height: Int,
     homeserverUrl: String,
-    authToken: String
+    authToken: String,
+    isHidden: Boolean
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -1546,7 +1552,14 @@ private fun InlineImage(
     // NOTE: Coil handles caching automatically with memoryCachePolicy and diskCachePolicy
     // No need to manually download - would cause duplicate requests (Coil + okhttp)
     
-    if (imageUrl != null) {
+    if (isHidden) {
+        // Render a placeholder with the same size to avoid layout changes.
+        Box(
+            modifier = Modifier
+                .size(height.dp)
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(4.dp))
+        )
+    } else if (imageUrl != null) {
         AsyncImage(
             model = ImageRequest.Builder(context)
                 .data(imageUrl)
