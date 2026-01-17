@@ -5,6 +5,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.util.Log
+import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -171,10 +172,10 @@ private fun maskSegment(length: Int): String {
  * Allowed HTML tags according to Matrix spec for safe rendering
  */
 private val ALLOWED_HTML_TAGS = setOf(
-    "del", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "p", "a", "ul", "ol", 
-    "sup", "sub", "li", "b", "i", "u", "strong", "em", "s", "code", "hr", "br", 
-    "div", "table", "thead", "tbody", "tr", "th", "td", "caption", "pre", "span", 
-    "img", "details", "summary"
+    "del", "h1", "h2", "h3", "h4", "h5", "h6", "blockquote", "p", "a", "ul", "ol",
+    "sup", "sub", "li", "b", "i", "u", "strong", "em", "s", "strike", "ins", "code", "hr", "br",
+    "div", "table", "thead", "tbody", "tr", "th", "td", "caption", "pre", "span",
+    "font", "img", "details", "summary"
 )
 
 /**
@@ -197,7 +198,7 @@ object HtmlParser {
     /**
      * Parse sanitized HTML string into a tree of HtmlNodes
      */
-    fun parse(html: String): List<HtmlNode> {
+    fun parse(html: String, preserveWhitespace: Boolean = false): List<HtmlNode> {
         val nodes = mutableListOf<HtmlNode>()
         var currentPos = 0
         
@@ -207,10 +208,16 @@ object HtmlParser {
             if (nextTagStart == -1) {
                 // No more tags, add remaining text
                 val text = html.substring(currentPos)
-                // Only trim trailing whitespace, preserve leading spaces
-                val trimmedText = text.trimEnd()
-                if (trimmedText.isNotEmpty()) {
-                    nodes.add(HtmlNode.Text(trimmedText))
+                if (preserveWhitespace) {
+                    if (text.isNotEmpty()) {
+                        nodes.add(HtmlNode.Text(text))
+                    }
+                } else {
+                    // Only trim trailing whitespace, preserve leading spaces
+                    val trimmedText = text.trimEnd()
+                    if (trimmedText.isNotEmpty()) {
+                        nodes.add(HtmlNode.Text(trimmedText))
+                    }
                 }
                 break
             }
@@ -250,6 +257,17 @@ object HtmlParser {
             val tagName = parts[0].lowercase()
             val attributesStr = if (parts.size > 1) parts[1] else ""
             
+            // Drop mx-reply blocks entirely (Matrix rich reply fallback)
+            if (tagName == "mx-reply") {
+                val closingTagPos = findMatchingClosingTag(html, tagEnd + 1, tagName)
+                if (closingTagPos != -1) {
+                    currentPos = closingTagPos + "</$tagName>".length
+                } else {
+                    currentPos = tagEnd + 1
+                }
+                continue
+            }
+
             // Only process allowed tags
             if (!ALLOWED_HTML_TAGS.contains(tagName)) {
                 Log.w("Andromuks", "HtmlParser: Skipping disallowed tag: $tagName")
@@ -297,7 +315,8 @@ object HtmlParser {
             
             // Parse children recursively
             val innerHtml = html.substring(tagEnd + 1, closingTagPos)
-            val children = parse(innerHtml)
+            val childPreserveWhitespace = preserveWhitespace || tagName == "pre"
+            val children = parse(innerHtml, childPreserveWhitespace)
             
             nodes.add(HtmlNode.Tag(tagName, attributes, children))
             currentPos = closingTagPos + closingTag.length
@@ -465,13 +484,18 @@ private fun AnnotatedString.Builder.appendHtmlTag(
             val newStyle = baseStyle.copy(textDecoration = (baseStyle.textDecoration ?: TextDecoration.None) + TextDecoration.Underline)
             appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         }
-        "s", "del" -> {
+        "s", "del", "strike" -> {
             val newStyle = baseStyle.copy(textDecoration = (baseStyle.textDecoration ?: TextDecoration.None) + TextDecoration.LineThrough)
             appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         }
+        "ins" -> {
+            val newStyle = baseStyle.copy(textDecoration = (baseStyle.textDecoration ?: TextDecoration.None) + TextDecoration.Underline)
+            appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        }
         "code" -> appendStyledChildren(tag, baseStyle.copy(fontFamily = FontFamily.Monospace), inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "span" -> appendSpoilerOrStyledChildren(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "span", "font" -> appendSpoilerOrStyledChildren(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         "br" -> append("\n")
+        "hr" -> appendHorizontalRule()
         "h1", "h2", "h3", "h4", "h5", "h6" -> appendHeader(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         "p", "div" -> appendBlock(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext)
         "blockquote" -> appendBlockQuote(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
@@ -479,6 +503,7 @@ private fun AnnotatedString.Builder.appendHtmlTag(
         "ol" -> appendOrderedList(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         "a" -> appendAnchor(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
         "img" -> appendImage(tag, inlineImages)
+        "pre" -> appendPreformattedBlock(tag, baseStyle, inlineImages, inlineMatrixUsers)
         else -> tag.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent) }
     }
 }
@@ -538,6 +563,20 @@ private fun AnnotatedString.Builder.appendSpoilerOrStyledChildren(
     hideContent: Boolean = false
 ) {
     val classAttr = tag.attributes["class"] ?: ""
+
+    // Matrix spec spoiler support via data-mx-spoiler
+    val mxSpoilerReason = tag.attributes["data-mx-spoiler"]
+    if (mxSpoilerReason != null && spoilerContext != null && tag.children.isNotEmpty()) {
+        appendSpoilerNodes(
+            nodes = tag.children,
+            baseStyle = applyInlineColors(tag, baseStyle),
+            inlineImages = inlineImages,
+            inlineMatrixUsers = inlineMatrixUsers,
+            spoilerContext = spoilerContext,
+            reason = mxSpoilerReason.takeIf { it.isNotBlank() }
+        )
+        return
+    }
     
     // Check if this is a spoiler reason span - skip it, will be handled with hicli-spoiler
     if (classAttr.contains("spoiler-reason")) {
@@ -559,8 +598,9 @@ private fun AnnotatedString.Builder.appendSpoilerOrStyledChildren(
         }
     }
     
-    // Regular span - process children normally
-    appendStyledChildren(tag, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+    // Regular span/font - process children with optional color/background
+    val styled = applyInlineColors(tag, baseStyle)
+    appendStyledChildren(tag, styled, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
 }
 
 private fun AnnotatedString.Builder.appendBlock(
@@ -744,6 +784,110 @@ private fun AnnotatedString.Builder.appendOrderedList(
             child.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent) }
             append("\n")
             index++
+        }
+    }
+}
+
+private fun AnnotatedString.Builder.appendHorizontalRule() {
+    if (length > 0 && !endsWithNewline()) append("\n")
+    append("────────")
+    append("\n")
+}
+
+private fun AnnotatedString.Builder.appendPreformattedBlock(
+    tag: HtmlNode.Tag,
+    baseStyle: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData>,
+    inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>
+) {
+    if (length > 0 && !endsWithNewline()) append("\n")
+    val rawText = buildString {
+        collectRawText(tag, this)
+    }
+    withStyle(baseStyle.copy(fontFamily = FontFamily.Monospace)) {
+        append(rawText)
+    }
+    append("\n")
+}
+
+private fun collectRawText(node: HtmlNode, builder: StringBuilder) {
+    when (node) {
+        is HtmlNode.Text -> builder.append(node.content)
+        is HtmlNode.LineBreak -> builder.append('\n')
+        is HtmlNode.Tag -> {
+            if (node.name == "br") {
+                builder.append('\n')
+            } else {
+                node.children.forEach { collectRawText(it, builder) }
+            }
+        }
+    }
+}
+
+private fun applyInlineColors(tag: HtmlNode.Tag, baseStyle: SpanStyle): SpanStyle {
+    val styleAttr = tag.attributes["style"]
+    val textColorRaw = tag.attributes["data-mx-color"]
+        ?: tag.attributes["color"]
+        ?: styleAttr?.let { extractStyleValue(it, "color") }
+    val bgColorRaw = tag.attributes["data-mx-bg-color"]
+        ?: styleAttr?.let { extractStyleValue(it, "background-color") }
+
+    var style = baseStyle
+    parseCssColor(textColorRaw)?.let { style = style.copy(color = it) }
+    parseCssColor(bgColorRaw)?.let { style = style.copy(background = it) }
+    return style
+}
+
+private fun extractStyleValue(styleAttr: String, key: String): String? {
+    val regex = Regex("""(?i)\b${Regex.escape(key)}\s*:\s*([^;]+)""")
+    return regex.find(styleAttr)?.groupValues?.getOrNull(1)?.trim()
+}
+
+private fun parseCssColor(raw: String?): Color? {
+    val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    return try {
+        Color(AndroidColor.parseColor(value))
+    } catch (_: IllegalArgumentException) {
+        null
+    }
+}
+
+private val plainUrlRegex = Regex("""(?i)\bhttps?://[^\s<>()]+""")
+private val trailingUrlPunctuation = setOf('.', ',', ':', ';', '!', '?', ')', ']', '}', '"', '\'')
+
+private fun buildPlainTextAnnotatedString(text: String, linkStyle: SpanStyle): AnnotatedString {
+    if (text.isEmpty()) return AnnotatedString("")
+    return buildAnnotatedString {
+        var lastIndex = 0
+        plainUrlRegex.findAll(text).forEach { match ->
+            val start = match.range.first
+            val endExclusive = match.range.last + 1
+            if (start > lastIndex) {
+                append(text.substring(lastIndex, start))
+            }
+
+            var trimmedEnd = endExclusive
+            while (trimmedEnd > start && text[trimmedEnd - 1] in trailingUrlPunctuation) {
+                trimmedEnd--
+            }
+
+            if (trimmedEnd > start) {
+                val url = text.substring(start, trimmedEnd)
+                pushStringAnnotation("URL", url)
+                withStyle(linkStyle) { append(url) }
+                pop()
+                if (trimmedEnd < endExclusive) {
+                    append(text.substring(trimmedEnd, endExclusive))
+                }
+            } else {
+                append(text.substring(start, endExclusive))
+            }
+
+            lastIndex = endExclusive
+        }
+
+        if (lastIndex < text.length) {
+            append(text.substring(lastIndex))
         }
     }
 }
@@ -1007,32 +1151,24 @@ fun HtmlMessageText(
         }
     }
     
-    if (sanitizedHtml == null) {
-        // Fallback to plain text body
+    val plainTextBody = if (sanitizedHtml == null) {
         val content = event.content ?: event.decrypted
-        val body = content?.optString("body", "")?.let { decodeHtmlEntities(it) } ?: ""
-        val baseStyle = MaterialTheme.typography.bodyMedium
-        val textStyle = if (isEmojiOnly) {
-            baseStyle.copy(fontSize = baseStyle.fontSize * 2)
-        } else {
-            baseStyle
-        }
-        Text(
-            text = body,
-            style = textStyle,
-            modifier = modifier,
-            color = color
-        )
-        return
+        content?.optString("body", "")?.let { decodeHtmlEntities(it) } ?: ""
+    } else {
+        ""
     }
     
     // Parse HTML
     val nodes = remember(sanitizedHtml) {
-        try {
-            HtmlParser.parse(sanitizedHtml)
-        } catch (e: Exception) {
-            Log.e("Andromuks", "HtmlMessageText: Failed to parse HTML", e)
+        if (sanitizedHtml == null) {
             emptyList()
+        } else {
+            try {
+                HtmlParser.parse(sanitizedHtml)
+            } catch (e: Exception) {
+                Log.e("Andromuks", "HtmlMessageText: Failed to parse HTML", e)
+                emptyList()
+            }
         }
     }
     
@@ -1057,67 +1193,72 @@ fun HtmlMessageText(
     val spoilerStates = remember { mutableStateMapOf<String, Boolean>() }
     val spoilerContext = remember { SpoilerRenderContext(spoilerStates) }
 
-    val annotatedString = try {
-        spoilerContext.start()
-        inlineImages.clear()
-        inlineMatrixUsers.clear()
-        buildAnnotatedString {
-            var i = 0
-            while (i < nodes.size) {
-                val node = nodes[i]
+    val linkStyle = SpanStyle(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
+    val annotatedString = if (sanitizedHtml == null) {
+        buildPlainTextAnnotatedString(plainTextBody, linkStyle)
+    } else {
+        try {
+            spoilerContext.start()
+            inlineImages.clear()
+            inlineMatrixUsers.clear()
+            buildAnnotatedString {
+                var i = 0
+                while (i < nodes.size) {
+                    val node = nodes[i]
 
-                // Single spoiler span without reason
-                if (node is HtmlNode.Tag && node.name == "span") {
-                    val classAttr = node.attributes["class"] ?: ""
-                    if (classAttr.contains("hicli-spoiler") && node.children.isNotEmpty()) {
-                        appendSpoilerNodes(
-                            nodes = node.children,
-                            baseStyle = SpanStyle(color = color),
-                            inlineImages = inlineImages,
-                            inlineMatrixUsers = inlineMatrixUsers,
-                            spoilerContext = spoilerContext,
-                            reason = null
-                        )
-                        i++
-                        continue
-                    }
-                }
-
-                // Reason + spoiler pattern
-                if (i + 1 < nodes.size) {
-                    val spoilerData = extractSpoilerData(listOf(node, nodes[i + 1]))
-                    if (spoilerData != null) {
-                        val (reason, contentNodes) = spoilerData
-                        if (contentNodes.isNotEmpty()) {
+                    // Single spoiler span without reason
+                    if (node is HtmlNode.Tag && node.name == "span") {
+                        val classAttr = node.attributes["class"] ?: ""
+                        if (classAttr.contains("hicli-spoiler") && node.children.isNotEmpty()) {
                             appendSpoilerNodes(
-                                nodes = contentNodes,
+                                nodes = node.children,
                                 baseStyle = SpanStyle(color = color),
                                 inlineImages = inlineImages,
                                 inlineMatrixUsers = inlineMatrixUsers,
                                 spoilerContext = spoilerContext,
-                                reason = reason
+                                reason = null
                             )
-                            i += 2
+                            i++
                             continue
                         }
                     }
-                }
 
-                appendHtmlNode(
-                    node = node,
-                    baseStyle = SpanStyle(color = color),
-                    inlineImages = inlineImages,
-                    inlineMatrixUsers = inlineMatrixUsers,
-                    spoilerContext = spoilerContext
-                )
-                i++
+                    // Reason + spoiler pattern
+                    if (i + 1 < nodes.size) {
+                        val spoilerData = extractSpoilerData(listOf(node, nodes[i + 1]))
+                        if (spoilerData != null) {
+                            val (reason, contentNodes) = spoilerData
+                            if (contentNodes.isNotEmpty()) {
+                                appendSpoilerNodes(
+                                    nodes = contentNodes,
+                                    baseStyle = SpanStyle(color = color),
+                                    inlineImages = inlineImages,
+                                    inlineMatrixUsers = inlineMatrixUsers,
+                                    spoilerContext = spoilerContext,
+                                    reason = reason
+                                )
+                                i += 2
+                                continue
+                            }
+                        }
+                    }
+
+                    appendHtmlNode(
+                        node = node,
+                        baseStyle = SpanStyle(color = color),
+                        inlineImages = inlineImages,
+                        inlineMatrixUsers = inlineMatrixUsers,
+                        spoilerContext = spoilerContext
+                    )
+                    i++
+                }
             }
+        } catch (e: Exception) {
+            Log.e("Andromuks", "HtmlMessageText: Failed to render HTML", e)
+            AnnotatedString("")
+        }.also {
+            spoilerContext.cleanup()
         }
-    } catch (e: Exception) {
-        Log.e("Andromuks", "HtmlMessageText: Failed to render HTML", e)
-        AnnotatedString("")
-    }.also {
-        spoilerContext.cleanup()
     }
     val density = LocalDensity.current
     val chipTextStyle = MaterialTheme.typography.labelLarge
@@ -1499,7 +1640,25 @@ fun htmlToNotificationText(htmlContent: String): android.text.Spanned {
                                 android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
                             )
                         }
+                        "pre" -> {
+                            if (builder.isNotEmpty() && !builder.toString().endsWith("\n")) builder.append("\n")
+                            node.children.forEach { appendNodeToSpannable(it) }
+                            builder.setSpan(
+                                android.text.style.TypefaceSpan("monospace"),
+                                startIndex,
+                                builder.length,
+                                android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE
+                            )
+                            builder.append("\n")
+                        }
                         "br" -> builder.append("\n")
+                        "hr" -> {
+                            if (builder.isNotEmpty() && !builder.toString().endsWith("\n")) builder.append("\n")
+                            builder.append("────────\n")
+                        }
+                        "mx-reply" -> {
+                            // Skip rich reply fallback block
+                        }
                         "h1", "h2", "h3", "h4", "h5", "h6" -> {
                             if (builder.isNotEmpty() && !builder.toString().endsWith("\n")) builder.append("\n")
                             node.children.forEach { appendNodeToSpannable(it) }
