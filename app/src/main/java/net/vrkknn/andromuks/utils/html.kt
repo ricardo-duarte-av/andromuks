@@ -808,6 +808,8 @@ private fun AnnotatedString.Builder.appendPreformattedBlock(
     if (length > 0 && !endsWithNewline()) append("\n")
     val rawText = buildString {
         collectRawText(tag, this)
+    }.let { text ->
+        if (text.endsWith("\n")) text.dropLast(1) else text
     }
     withStyle(baseStyle.copy(fontFamily = FontFamily.Monospace)) {
         append(rawText)
@@ -893,6 +895,61 @@ private fun buildPlainTextAnnotatedString(text: String, linkStyle: SpanStyle): A
 
         if (lastIndex < text.length) {
             append(text.substring(lastIndex))
+        }
+    }
+}
+
+private fun buildPlainTextAnnotatedStringWithCode(
+    text: String,
+    linkStyle: SpanStyle,
+    codeStyle: SpanStyle
+): AnnotatedString {
+    if (text.isEmpty()) return AnnotatedString("")
+    return buildAnnotatedString {
+        var inCodeBlock = false
+        var hasOutputLine = false
+        var lastOutputWasBlank = false
+
+        fun appendLine(line: AnnotatedString, isBlank: Boolean) {
+            if (hasOutputLine) {
+                append("\n")
+            }
+            if (!isBlank) {
+                append(line)
+            }
+            hasOutputLine = true
+            lastOutputWasBlank = isBlank
+        }
+
+        fun appendBlankLine(allowDuplicate: Boolean) {
+            if (!allowDuplicate && lastOutputWasBlank) return
+            appendLine(AnnotatedString(""), isBlank = true)
+        }
+
+        val lines = text.split('\n')
+        for (line in lines) {
+            if (line.trimStart().startsWith("```")) {
+                if (!inCodeBlock) {
+                    appendBlankLine(allowDuplicate = false)
+                } else {
+                    appendBlankLine(allowDuplicate = false)
+                }
+                inCodeBlock = !inCodeBlock
+                continue
+            }
+
+            if (line.isEmpty()) {
+                appendBlankLine(allowDuplicate = true)
+                continue
+            }
+
+            if (inCodeBlock) {
+                appendLine(AnnotatedString(line), isBlank = false)
+                addStyle(codeStyle, length - line.length, length)
+            } else {
+                val annotatedLine = buildPlainTextAnnotatedString(line, linkStyle)
+                appendLine(annotatedLine, isBlank = false)
+            }
         }
     }
 }
@@ -1049,6 +1106,29 @@ fun extractSanitizedHtml(event: TimelineEvent): String? {
     return sanitizedHtml?.let { decodeHtmlEntities(it) }
 }
 
+private fun hasReplyFallback(event: TimelineEvent): Boolean {
+    val content = event.decrypted ?: event.content ?: return false
+    val relates = content.optJSONObject("m.relates_to") ?: return false
+    val inReplyTo = relates.optJSONObject("m.in_reply_to") ?: return false
+    return inReplyTo.optString("event_id").isNotBlank()
+}
+
+private fun stripReplyFallback(body: String): String {
+    if (body.isEmpty()) return body
+    val lines = body.split('\n')
+    if (lines.isEmpty() || !lines.first().startsWith(">")) return body
+
+    var index = 0
+    while (index < lines.size && lines[index].startsWith(">")) {
+        index++
+    }
+    if (index < lines.size && lines[index].isBlank()) {
+        index++
+    }
+    val stripped = lines.drop(index).joinToString("\n")
+    return if (stripped.isNotBlank()) stripped else body
+}
+
 /**
  * Check if event supports HTML rendering
  */
@@ -1159,7 +1239,12 @@ fun HtmlMessageText(
     
     val plainTextBody = if (sanitizedHtml == null) {
         val content = event.content ?: event.decrypted
-        content?.optString("body", "")?.let { decodeHtmlEntities(it) } ?: ""
+        val rawBody = content?.optString("body", "")?.let { decodeHtmlEntities(it) } ?: ""
+        if (hasReplyFallback(event)) {
+            stripReplyFallback(rawBody)
+        } else {
+            rawBody
+        }
     } else {
         ""
     }
@@ -1200,8 +1285,12 @@ fun HtmlMessageText(
     val spoilerContext = remember { SpoilerRenderContext(spoilerStates) }
 
     val linkStyle = SpanStyle(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
-    val annotatedString = if (sanitizedHtml == null) {
-        buildPlainTextAnnotatedString(plainTextBody, linkStyle)
+    val renderedString = if (sanitizedHtml == null) {
+        buildPlainTextAnnotatedStringWithCode(
+            plainTextBody,
+            linkStyle,
+            SpanStyle(fontFamily = FontFamily.Monospace)
+        )
     } else {
         try {
             spoilerContext.start()
@@ -1265,6 +1354,11 @@ fun HtmlMessageText(
         }.also {
             spoilerContext.cleanup()
         }
+    }
+    val annotatedString = if (sanitizedHtml != null && renderedString.text.endsWith("\n")) {
+        renderedString.subSequence(0, renderedString.length - 1) as AnnotatedString
+    } else {
+        renderedString
     }
     val density = LocalDensity.current
     val chipTextStyle = MaterialTheme.typography.labelLarge
