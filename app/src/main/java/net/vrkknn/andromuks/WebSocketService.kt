@@ -141,6 +141,9 @@ class WebSocketService : Service() {
 
         // Headless AppViewModel used for boot/background startup when no UI is running.
         private var headlessViewModel: AppViewModel? = null
+        // Debounce headless recovery attempts to avoid churn during flappy networks.
+        private const val MIN_HEADLESS_RECOVERY_INTERVAL_MS = 10_000L
+        private var lastHeadlessRecoveryAttemptMs: Long = 0L
         
         /**
          * PHASE 1.1: Get the primary ViewModel ID
@@ -162,6 +165,17 @@ class WebSocketService : Service() {
         fun ensureHeadlessPrimary(context: Context, reason: String) {
             val hasCallback = getActiveReconnectionCallback() != null
             if (hasCallback) return
+            val now = System.currentTimeMillis()
+            if (now - lastHeadlessRecoveryAttemptMs < MIN_HEADLESS_RECOVERY_INTERVAL_MS) {
+                if (BuildConfig.DEBUG) {
+                    Log.d(
+                        "WebSocketService",
+                        "Headless recovery debounced (${now - lastHeadlessRecoveryAttemptMs}ms < ${MIN_HEADLESS_RECOVERY_INTERVAL_MS}ms): $reason"
+                    )
+                }
+                return
+            }
+            lastHeadlessRecoveryAttemptMs = now
 
             val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
             val homeserverUrl = prefs.getString("homeserver_url", "") ?: ""
@@ -1589,6 +1603,9 @@ class WebSocketService : Service() {
                     android.util.Log.w("WebSocketService", "Reconnection callback not available - queued reconnection request: $reason (queue size: ${serviceInstance.pendingReconnectionReasons.size})")
                     logActivity("Reconnection Queued - $reason", serviceInstance.currentNetworkType.name)
                 }
+                // Headless recovery: ensure a primary ViewModel exists to handle reconnection.
+                // This avoids being stuck in "Connecting..." when UI is not running.
+                ensureHeadlessPrimary(serviceInstance.applicationContext, "Reconnection queued - callback missing")
                 return
             }
             
@@ -1985,6 +2002,8 @@ class WebSocketService : Service() {
                 lagMs = lastKnownLagMs,
                 lastSyncTimestamp = lastSyncTimestamp
             )
+            // Headless recovery: recreate a primary ViewModel when callbacks are missing.
+            ensureHeadlessPrimary(applicationContext, "Callback missing during health check")
         } else if (BuildConfig.DEBUG && !isConnected) {
             android.util.Log.d("WebSocketService", "Callback health check: reconnection callback is available (connection not CONNECTED)")
         } else if (BuildConfig.DEBUG && isConnected) {
@@ -2024,6 +2043,7 @@ class WebSocketService : Service() {
                 android.util.Log.i("WebSocketService", "Network available: $networkType - checking if reconnection needed")
                 val newNetworkType = convertNetworkType(networkType)
                 val previousNetworkType = lastNetworkType
+                val hasCallback = getActiveReconnectionCallback() != null
                 
                 // PHASE 3.2: Update network type tracking
                 lastNetworkType = newNetworkType
@@ -2035,6 +2055,9 @@ class WebSocketService : Service() {
                     logActivity("Network Available - Reconnecting", currentNetworkType.name)
                     
                     // PHASE 2.1: Use scheduleReconnection which will queue if callback not available
+                    if (!hasCallback) {
+                        ensureHeadlessPrimary(applicationContext, "Network available - callback missing")
+                    }
                     scheduleReconnection("Network available: $networkType")
                 } else {
                     // PHASE 3.2: Check if network type changed (e.g., offline → WiFi, or different network)
@@ -2044,6 +2067,9 @@ class WebSocketService : Service() {
                         if (shouldReconnect) {
                             android.util.Log.i("WebSocketService", "Network type changed while connected - reconnecting ($previousNetworkType → $newNetworkType)")
                             clearWebSocket("Network type changed: $previousNetworkType → $newNetworkType")
+                            if (!hasCallback) {
+                                ensureHeadlessPrimary(applicationContext, "Network change - callback missing")
+                            }
                             scheduleReconnection("Network type changed: $previousNetworkType → $newNetworkType")
                         }
                     } else {
@@ -2069,6 +2095,7 @@ class WebSocketService : Service() {
             onNetworkTypeChanged = { previousType, newType ->
                 val previousNetworkType = lastNetworkType
                 val newNetworkType = convertNetworkType(newType)
+                val hasCallback = getActiveReconnectionCallback() != null
                 
                 android.util.Log.i("WebSocketService", "Network type changed: $previousType → $newType (previous tracked: $previousNetworkType)")
                 logActivity("Network Type Changed: $previousType → $newType", newType.name)
@@ -2085,10 +2112,16 @@ class WebSocketService : Service() {
                     if (connectionState == ConnectionState.CONNECTED || connectionState == ConnectionState.RECONNECTING) {
                         android.util.Log.w("WebSocketService", "Network type changed while connected - reconnecting on new network ($previousNetworkType → $newNetworkType)")
                         clearWebSocket("Network type changed: $previousNetworkType → $newNetworkType")
+                        if (!hasCallback) {
+                            ensureHeadlessPrimary(applicationContext, "Network type change - callback missing")
+                        }
                         scheduleReconnection("Network type changed: $previousNetworkType → $newNetworkType")
                     } else {
                         // Not connected - just trigger reconnection
                         android.util.Log.i("WebSocketService", "Network type changed - triggering reconnection ($previousNetworkType → $newNetworkType)")
+                        if (!hasCallback) {
+                            ensureHeadlessPrimary(applicationContext, "Network type change - callback missing")
+                        }
                         scheduleReconnection("Network type changed: $previousNetworkType → $newNetworkType")
                     }
                 } else {
