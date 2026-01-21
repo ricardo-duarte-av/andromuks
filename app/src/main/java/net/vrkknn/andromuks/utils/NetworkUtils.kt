@@ -734,6 +734,14 @@ fun connectToWebsocket(
                                         }
                                     }
                                 }
+                                "to_device", "to_device_event", "device_event" -> {
+                                    val data = jsonObject.opt("data")
+                                    WebSocketService.getServiceScope().launch(Dispatchers.IO) {
+                                        for (viewModel in WebSocketService.getRegisteredViewModels()) {
+                                            viewModel.handleToDeviceMessage(data)
+                                        }
+                                    }
+                                }
                                 "send_complete" -> {
                                     val data = jsonObject.optJSONObject("data")
                                     val event = data?.optJSONObject("event")

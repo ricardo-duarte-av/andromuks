@@ -209,7 +209,15 @@ suspend fun bubbleProcessTimelineEvents(
     )
 
     val filteredEvents = timelineEvents.filter { event ->
-        event.type != "m.room.redaction" && allowedEventTypes.contains(event.type)
+        // Filter out redaction events
+        if (event.type == "m.room.redaction") return@filter false
+        // Filter out org.matrix.msc4075.* events (call notifications - should be hidden)
+        if (event.type.startsWith("org.matrix.msc4075.") || 
+            event.decryptedType?.startsWith("org.matrix.msc4075.") == true) {
+            return@filter false
+        }
+        // Only allow events in the whitelist
+        allowedEventTypes.contains(event.type)
     }
     if (BuildConfig.DEBUG) Log.d("Andromuks", "BubbleTimelineScreen: After type filtering: ${filteredEvents.size} events")
 

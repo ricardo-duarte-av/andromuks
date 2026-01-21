@@ -10,18 +10,37 @@
         width: 100%;
         margin: 0;
         padding: 0;
-        background: #000;
+        background: #fff;
       }
       #call-frame {
-        position: absolute;
+        position: fixed;
         inset: 0;
-        width: 100%;
-        height: 100%;
+        width: 100vw;
+        height: 100vh;
+        display: block;
         border: 0;
+        background: #fff;
+      }
+      #host-debug {
+        position: absolute;
+        top: 8px;
+        left: 8px;
+        z-index: 10;
+        padding: 4px 8px;
+        background: rgba(255, 255, 255, 0.9);
+        border: 1px solid #ccc;
+        font: 12px/1.4 sans-serif;
+        color: #333;
+        max-width: calc(100% - 16px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: none;
       }
     </style>
   </head>
   <body>
+    <div id="host-debug">Host loaded</div>
     <iframe
       id="call-frame"
       allow="microphone; camera; fullscreen; encrypted-media; display-capture; screen-wake-lock;"
@@ -30,6 +49,7 @@
       (function () {
         const params = new URLSearchParams(window.location.search);
         const widgetUrl = params.get("url");
+        const debugEnabled = params.get("debug") === "1";
         const widgetId = params.get("widgetId") || "app.andromuks.call";
         const iframe = document.getElementById("call-frame");
         const url = new URL(widgetUrl);
@@ -67,7 +87,30 @@
         if ([...hashParams.keys()].length > 0) {
           url.hash = "?" + hashParams.toString();
         }
+        function updateIframeSize() {
+          const width = Math.max(window.innerWidth || 0, document.documentElement.clientWidth || 0);
+          const height = Math.max(window.innerHeight || 0, document.documentElement.clientHeight || 0);
+          iframe.style.width = `${width}px`;
+          iframe.style.height = `${height}px`;
+          iframe.style.position = "fixed";
+          iframe.style.inset = "0";
+          iframe.style.display = "block";
+          const hostDebug = document.getElementById("host-debug");
+          if (hostDebug) {
+            hostDebug.textContent = `Iframe size ${width}x${height} loading: ${iframe.src}`;
+          }
+        }
+
         iframe.src = url.toString();
+        if (debugEnabled && hostDebug) {
+          hostDebug.style.display = "block";
+        }
+        updateIframeSize();
+        window.addEventListener("resize", updateIframeSize);
+        const hostDebug = document.getElementById("host-debug");
+        if (hostDebug && debugEnabled) {
+          hostDebug.textContent = `Host loaded, iframe loading: ${iframe.src}`;
+        }
         console.log("Host iframe src", iframe.src);
         console.log("Host parsed widget data", JSON.stringify(parseWidgetData()));
 
@@ -130,9 +173,13 @@
 
         const pendingToWidgetRequests = new Map();
         const pendingAndroidRequests = new Map();
+        const delayedEventRequests = new Map();
         let toWidgetRequestCounter = 1;
         let androidRequestCounter = 1;
         let handshakeStarted = false;
+        let delayedEventInterval = null;
+        let currentDelayId = null;
+        let callStatePollingInterval = null;
 
         function sendToWidget(action, data, targetWindow) {
           const message = {
@@ -172,6 +219,48 @@
           return requestId;
         }
 
+        function scheduleDelayedEventRefresh(delayId) {
+          if (!delayId) return;
+          currentDelayId = delayId;
+          if (delayedEventInterval) {
+            clearInterval(delayedEventInterval);
+          }
+          delayedEventInterval = setInterval(() => {
+            if (!currentDelayId) return;
+            const requestId = `host-delay-${Date.now()}-${androidRequestCounter++}`;
+            sendToAndroid("update_delayed_event", requestId, {
+              delay_id: currentDelayId,
+              action: "restart",
+            });
+          }, 60000);
+        }
+
+        function startCallStatePolling(targetWindow) {
+          if (callStatePollingInterval) return;
+          callStatePollingInterval = setInterval(() => {
+            const widgetData = parseWidgetData();
+            if (!widgetData.roomId) return;
+            const requestId = `host-call-members-${Date.now()}-${androidRequestCounter++}`;
+            pendingAndroidRequests.set(requestId, { type: "call_members", targetWindow });
+            sendToAndroid("read_state", requestId, {
+              room_id: widgetData.roomId,
+              type: "org.matrix.msc3401.call.member",
+            });
+          }, 5000);
+        }
+
+        function stopCallStatePolling() {
+          if (callStatePollingInterval) {
+            clearInterval(callStatePollingInterval);
+            callStatePollingInterval = null;
+          }
+        }
+
+        function requestListenToDevice() {
+          const requestId = `host-listen-${Date.now()}-${androidRequestCounter++}`;
+          sendToAndroid("listen_to_device", requestId, true);
+        }
+
         function requestRoomStateForWidget(targetWindow) {
           const widgetData = parseWidgetData();
           if (!widgetData.roomId) {
@@ -202,31 +291,33 @@
           "org.matrix.msc2762.receive.state_event:org.matrix.msc4143.rtc_foci",
           "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member",
           "org.matrix.msc2762.send.state_event:org.matrix.msc4143.rtc_foci",
-          "org.matrix.msc3819.send.to_device:io.element.call.encryption",
-          "org.matrix.msc3819.receive.to_device:io.element.call.encryption",
-          "org.matrix.msc3819.send.to_device:org.matrix.call.e2ee",
-          "org.matrix.msc3819.receive.to_device:org.matrix.call.e2ee",
-          "org.matrix.msc3819.send.to_device:org.matrix.msc3819.call.encryption",
-          "org.matrix.msc3819.receive.to_device:org.matrix.msc3819.call.encryption",
-          "org.matrix.msc3819.send.to_device:org.matrix.call.sas",
-          "org.matrix.msc3819.receive.to_device:org.matrix.call.sas"
+          "org.matrix.msc2762.send.event:org.matrix.msc4075.rtc.notification",
+          "org.matrix.msc2762.receive.event:org.matrix.msc4075.rtc.notification",
+          "org.matrix.msc2762.send.event:org.matrix.msc4075.call.notify",
+          "org.matrix.msc2762.receive.event:org.matrix.msc4075.call.notify",
+          "org.matrix.msc2762.receive.event:io.element.call.encryption_keys",
+          "org.matrix.msc2762.send.event:io.element.call.encryption_keys"
         ];
 
         function ensureCapabilities(capabilities) {
           const list = Array.isArray(capabilities) ? capabilities.slice() : [];
-          if (!list.includes("m.openid")) {
-            list.push("m.openid");
+          const filtered = list.filter(
+            (cap) => !cap.startsWith("org.matrix.msc3819.send.to_device:") &&
+              !cap.startsWith("org.matrix.msc3819.receive.to_device:")
+          );
+          if (!filtered.includes("m.openid")) {
+            filtered.push("m.openid");
           }
-          return list;
+          // Deduplicate while preserving order
+          return Array.from(new Set(filtered));
         }
 
         function startWidgetHandshake(targetWindow) {
           if (handshakeStarted) return;
           handshakeStarted = true;
           const widgetData = parseWidgetData();
-          sendToWidgetRequest("capabilities", {}, targetWindow, (response) => {
-            const requested = response && response.capabilities ? response.capabilities : [];
-            const capabilities = ensureCapabilities(requested.length > 0 ? requested : defaultCapabilities);
+          sendToWidgetRequest("capabilities", {}, targetWindow, () => {
+            const capabilities = ensureCapabilities(defaultCapabilities);
             sendToWidgetRequest(
               "notify_capabilities",
               { requested: capabilities, approved: capabilities },
@@ -243,14 +334,12 @@
           const action = (message.action || "").toLowerCase();
           console.log("Host received widget message", JSON.stringify(message));
           if (action === "capabilities") {
-            const requested = (message.data && message.data.capabilities) || [];
-            const capabilities = ensureCapabilities(requested.length > 0 ? requested : defaultCapabilities);
+            const capabilities = ensureCapabilities(defaultCapabilities);
             replyToWidget(message, { capabilities }, null, targetWindow);
             return;
           }
           if (action.includes("request_capabilities")) {
-            const requested = (message.data && message.data.capabilities) || [];
-            const capabilities = ensureCapabilities(requested.length > 0 ? requested : defaultCapabilities);
+            const capabilities = ensureCapabilities(defaultCapabilities);
             sendToWidget("capabilities", { capabilities }, targetWindow);
             sendToWidget("notify_capabilities", { requested: capabilities, approved: capabilities }, targetWindow);
             replyToWidget(message, {}, null, targetWindow);
@@ -293,6 +382,23 @@
           if (action === "content_loaded" || action === "widget_ready" || action === "ready") {
             replyToWidget(message, {}, null, targetWindow);
             startWidgetHandshake(targetWindow);
+            return;
+          }
+          if (action === "io.element.join") {
+            requestListenToDevice();
+            startCallStatePolling(targetWindow);
+            replyToWidget(message, {}, null, targetWindow);
+            return;
+          }
+          if (action.includes("hangup") || action.includes("leave") || action.includes("call_ended")) {
+            stopCallStatePolling();
+            sendToAndroid(message.action, message.requestId, message.data);
+            replyToWidget(message, {}, null, targetWindow);
+            return;
+          }
+          if (action.includes("always_on_screen")) {
+            sendToAndroid(message.action, message.requestId, message.data);
+            replyToWidget(message, {}, null, targetWindow);
             return;
           }
           if (action.startsWith("io.element.") || action.startsWith("im.vector.") || action === "set_always_on_screen") {
@@ -343,13 +449,19 @@
             action.includes("get_openid") ||
             action.includes("openid") ||
             action.includes("send_to_device") ||
+            action.includes("send.to_device") ||
             action.includes("listen_to_device") ||
             action.includes("receive_to_device") ||
+            action.includes("receive.to_device") ||
             action.includes("update_delayed_event") ||
             action.includes("read_events") ||
             action.includes("read_state") ||
             action.includes("get_state")
           ) {
+            const hasDelay = message.data && (message.data.delay_ms || message.data.delay);
+            if (hasDelay) {
+              delayedEventRequests.set(message.requestId, true);
+            }
             sendToAndroid(message.action, message.requestId, message.data);
             return;
           }
@@ -378,6 +490,10 @@
         });
 
         iframe.addEventListener("load", () => {
+          const hostDebug = document.getElementById("host-debug");
+          if (hostDebug && debugEnabled) {
+            hostDebug.textContent = `Iframe loaded: ${iframe.src}`;
+          }
           setTimeout(() => startWidgetHandshake(iframe.contentWindow), 1000);
         });
 
@@ -414,7 +530,45 @@
                 );
                 return;
               }
+              if (hostRequest.type === "call_members") {
+                let events = [];
+                if (parsed.response) {
+                  if (Array.isArray(parsed.response)) {
+                    events = parsed.response;
+                  } else if (Array.isArray(parsed.response.events)) {
+                    events = parsed.response.events;
+                  } else if (Array.isArray(parsed.response.state)) {
+                    events = parsed.response.state;
+                  }
+                }
+                // Send ALL call.member events to Element Call, including ones with empty content
+                // Element Call needs to see empty content events to know members have left
+                // Empty content = member left, which Element Call will handle correctly
+                sendToWidgetRequest(
+                  "update_state",
+                  { state: events, events },
+                  hostRequest.targetWindow || iframe.contentWindow,
+                  () => {}
+                );
+                return;
+              }
             }
+          if (delayedEventRequests.has(parsed.requestId)) {
+            delayedEventRequests.delete(parsed.requestId);
+            let delayId = null;
+            if (typeof parsed.response === "string") {
+              delayId = parsed.response;
+            } else if (parsed.response && typeof parsed.response.delay_id === "string") {
+              delayId = parsed.response.delay_id;
+            }
+            if (!delayId) {
+              delayId = `andromuks-${Date.now()}`;
+              parsed.response = { delay_id: delayId };
+            } else if (typeof parsed.response === "string") {
+              parsed.response = { delay_id: delayId };
+            }
+            scheduleDelayedEventRefresh(delayId);
+          }
             const message = {
               api: "fromWidget",
               widgetId,
@@ -430,6 +584,23 @@
             if (target && typeof target.postMessage === "function") {
               target.postMessage(message, "*");
             }
+          },
+          onNativeToDevice: function (payload) {
+            let parsed = payload;
+            if (typeof payload === "string") {
+              try {
+                parsed = JSON.parse(payload);
+              } catch (e) {
+                console.error("Failed to parse native to-device payload", payload);
+                return;
+              }
+            }
+            if (parsed && parsed.events) {
+              sendToWidget("send_to_device", parsed, iframe.contentWindow);
+              return;
+            }
+            const events = Array.isArray(parsed) ? parsed : [parsed];
+            sendToWidget("send_to_device", { events }, iframe.contentWindow);
           },
         };
       })();

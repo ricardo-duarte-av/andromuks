@@ -17,6 +17,8 @@ import net.vrkknn.andromuks.utils.SpaceRoomParser
 import net.vrkknn.andromuks.utils.ReceiptFunctions
 import net.vrkknn.andromuks.utils.processReactionEvent
 import okhttp3.WebSocket
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONArray
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -509,6 +511,7 @@ class AppViewModel : ViewModel() {
     var authToken by mutableStateOf("")
         private set
     var realMatrixHomeserverUrl by mutableStateOf("")
+    var wellKnownElementCallBaseUrl by mutableStateOf("")
         private set
     private var appContext: Context? = null
     
@@ -519,6 +522,8 @@ class AppViewModel : ViewModel() {
     var currentUserId by mutableStateOf("")
         private set
     var deviceId by mutableStateOf("")
+    private var callActiveInternal by mutableStateOf(false)
+    private var callReadyForPipInternal by mutableStateOf(false)
         private set
     var imageAuthToken by mutableStateOf("")
         private set
@@ -2292,6 +2297,7 @@ class AppViewModel : ViewModel() {
         if (!homeserver.isNullOrBlank()) {
             realMatrixHomeserverUrl = homeserver
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Set realMatrixHomeserverUrl: $homeserver")
+            refreshElementCallBaseUrlFromWellKnown()
         }
         // IMPORTANT: Do NOT override gomuks backend URL with Matrix homeserver URL from client_state
         // The backend URL is set via AuthCheck from SharedPreferences (e.g., https://webmuks.aguiarvieira.pt)
@@ -2301,8 +2307,226 @@ class AppViewModel : ViewModel() {
         }
     }
 
+    private fun refreshElementCallBaseUrlFromWellKnown() {
+        val homeserver = realMatrixHomeserverUrl.trim()
+        if (homeserver.isBlank()) return
+        val wellKnownUrl = homeserver.trimEnd('/') + "/.well-known/matrix/client"
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val client = OkHttpClient.Builder().build()
+                val request = Request.Builder().url(wellKnownUrl).get().build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        if (BuildConfig.DEBUG) {
+                            android.util.Log.w(
+                                "Andromuks",
+                                "AppViewModel: .well-known fetch failed ${response.code}"
+                            )
+                        }
+                        return@use
+                    }
+                    val body = response.body?.string().orEmpty()
+                    if (body.isBlank()) return@use
+                    val json = JSONObject(body)
+                    val rtcFoci = json.optJSONArray("org.matrix.msc4143.rtc_foci")
+                    var derivedBaseUrl: String? = null
+                    if (rtcFoci != null) {
+                        for (i in 0 until rtcFoci.length()) {
+                            val entry = rtcFoci.optJSONObject(i) ?: continue
+                            if (entry.optString("type") != "livekit") continue
+                            val serviceUrl = entry.optString("livekit_service_url").trim()
+                            if (serviceUrl.isBlank()) continue
+                            try {
+                                val uri = java.net.URI(serviceUrl)
+                                val scheme = uri.scheme ?: "https"
+                                val host = uri.host ?: continue
+                                val port = uri.port
+                                val origin = if (port == -1) {
+                                    "$scheme://$host"
+                                } else {
+                                    "$scheme://$host:$port"
+                                }
+                                derivedBaseUrl = origin.trimEnd('/') + "/room"
+                                break
+                            } catch (_: Exception) {
+                                // Ignore invalid URLs and continue scanning.
+                            }
+                        }
+                    }
+                    if (!derivedBaseUrl.isNullOrBlank()) {
+                        withContext(Dispatchers.Main) {
+                            wellKnownElementCallBaseUrl = derivedBaseUrl
+                            if (BuildConfig.DEBUG) {
+                                android.util.Log.d(
+                                    "Andromuks",
+                                    "AppViewModel: Resolved Element Call base URL from .well-known: $derivedBaseUrl"
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.w("Andromuks", "AppViewModel: .well-known fetch failed", e)
+                }
+            }
+        }
+    }
+
     fun updateImageAuthToken(token: String) {
         imageAuthToken = token
+    }
+
+    fun setCallActive(active: Boolean) {
+        callActiveInternal = active
+    }
+
+    fun isCallActive(): Boolean {
+        return callActiveInternal
+    }
+
+    fun setCallReadyForPip(ready: Boolean) {
+        callReadyForPipInternal = ready
+    }
+
+    fun isCallReadyForPip(): Boolean {
+        return callReadyForPipInternal
+    }
+
+    private var widgetToDeviceHandler: ((Any?) -> Unit)? = null
+
+    fun setWidgetToDeviceHandler(handler: ((Any?) -> Unit)?) {
+        widgetToDeviceHandler = handler
+    }
+
+    fun handleToDeviceMessage(data: Any?) {
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: to_device received ${data?.toString()?.take(200)}")
+        }
+        widgetToDeviceHandler?.invoke(normalizeToDevicePayload(data))
+    }
+
+    private fun handleSyncToDeviceEvents(syncJson: JSONObject) {
+        val data = syncJson.optJSONObject("data") ?: syncJson
+        // to_device can be either an array directly, or an object with "events" key
+        val toDeviceValue = data.opt("to_device")
+        if (toDeviceValue == null) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: No to_device in sync_complete")
+            }
+            return
+        }
+        
+        val events = when (toDeviceValue) {
+            is JSONArray -> toDeviceValue // Direct array (gomuks format)
+            is JSONObject -> toDeviceValue.optJSONArray("events") // Object with events key
+            else -> null
+        }
+        
+        if (events == null || events.length() == 0) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "AppViewModel: to_device exists but no events (count: ${events?.length() ?: 0})")
+            }
+            return
+        }
+        if (BuildConfig.DEBUG) {
+            android.util.Log.d("Andromuks", "AppViewModel: Extracting ${events.length()} to_device events from sync_complete")
+        }
+        try {
+            val payload = JSONObject().put("events", events)
+            handleToDeviceMessage(payload)
+        } catch (e: Exception) {
+            if (BuildConfig.DEBUG) {
+                android.util.Log.w("Andromuks", "AppViewModel: Failed to parse to_device events from sync", e)
+            }
+        }
+    }
+
+    private fun normalizeToDevicePayload(data: Any?): Any? {
+        return when (data) {
+            is JSONObject -> {
+                if (data.has("messages")) {
+                    JSONObject().apply {
+                        put("events", normalizeToDeviceMessages(data))
+                    }
+                } else if (data.has("events")) {
+                    val normalizedEvents = normalizeToDeviceEvents(data.optJSONArray("events"))
+                    JSONObject().apply {
+                        put("events", normalizedEvents)
+                    }
+                } else {
+                    data
+                }
+            }
+            is JSONArray -> {
+                JSONObject().apply {
+                    put("events", normalizeToDeviceEvents(data))
+                }
+            }
+            is Map<*, *> -> normalizeToDevicePayload(JSONObject(data))
+            is List<*> -> normalizeToDevicePayload(JSONArray(data))
+            else -> data
+        }
+    }
+
+    private fun normalizeToDeviceEvents(rawEvents: JSONArray?): JSONArray {
+        val normalized = JSONArray()
+        if (rawEvents == null) return normalized
+        for (i in 0 until rawEvents.length()) {
+            val raw = rawEvents.optJSONObject(i) ?: continue
+            normalized.put(normalizeToDeviceEvent(raw))
+        }
+        return normalized
+    }
+
+    private fun normalizeToDeviceMessages(raw: JSONObject): JSONArray {
+        val normalized = JSONArray()
+        val eventType = raw.optString("type")
+        val sender = raw.optString("sender").takeIf { it.isNotBlank() }
+        val messages = raw.optJSONObject("messages") ?: return normalized
+        val userIds = messages.keys()
+        while (userIds.hasNext()) {
+            val userId = userIds.next()
+            val devices = messages.optJSONObject(userId) ?: continue
+            val deviceIds = devices.keys()
+            while (deviceIds.hasNext()) {
+                val deviceId = deviceIds.next()
+                val content = devices.optJSONObject(deviceId) ?: continue
+                val event = JSONObject()
+                if (eventType.isNotBlank()) {
+                    event.put("type", eventType)
+                }
+                if (sender != null) {
+                    event.put("sender", sender)
+                }
+                event.put("content", content)
+                event.put("to_user_id", userId)
+                event.put("to_device_id", deviceId)
+                normalized.put(event)
+            }
+        }
+        return normalized
+    }
+
+    private fun normalizeToDeviceEvent(raw: JSONObject): JSONObject {
+        val event = JSONObject()
+        val decryptedType = raw.optString("decrypted_type").takeIf { it.isNotBlank() }
+        if (decryptedType != null) {
+            event.put("type", decryptedType)
+        } else {
+            raw.optString("type").takeIf { it.isNotBlank() }?.let { event.put("type", it) }
+        }
+        raw.optString("sender").takeIf { it.isNotBlank() }?.let { event.put("sender", it) }
+        if (raw.has("content")) {
+            event.put("content", raw.opt("content"))
+        }
+        if (decryptedType != null && raw.has("decrypted")) {
+            event.put("content", raw.opt("decrypted"))
+        }
+        if (raw.has("encrypted")) {
+            event.put("encrypted", raw.opt("encrypted"))
+        }
+        return event
     }
     
     /**
@@ -4004,6 +4228,7 @@ class AppViewModel : ViewModel() {
      * @return Job for the summary update, or null if no summary update is needed
      */
     private fun processInitialSyncComplete(syncJson: JSONObject, onComplete: (suspend () -> Unit)? = null): Job? {
+        handleSyncToDeviceEvents(syncJson)
         // Update last sync timestamp immediately (this is lightweight)
         lastSyncTimestamp = System.currentTimeMillis()
         
@@ -4231,6 +4456,7 @@ class AppViewModel : ViewModel() {
      * This prevents UI blocking during sync parsing (200-500ms improvement)
      */
     fun updateRoomsFromSyncJsonAsync(syncJson: JSONObject) {
+        handleSyncToDeviceEvents(syncJson)
         // If server asks us to clear state, drop all derived room/space state (keep events/profile/media).
         val isClearState = syncJson.optJSONObject("data")?.optBoolean("clear_state") == true
         if (isClearState) {
@@ -10259,7 +10485,7 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Widget response received for requestId=$requestId")
             return
         }
-
+        
         if (profileRequests.containsKey(requestId)) {
             if (BuildConfig.DEBUG) {
                 val userId = profileRequests[requestId]
@@ -10335,6 +10561,18 @@ class AppViewModel : ViewModel() {
         }
 
         widgetCommandRequests.remove(requestId)?.let { deferred ->
+            if (errorMessage.contains("M_NOT_FOUND", ignoreCase = true) &&
+                errorMessage.contains("Delayed event not found", ignoreCase = true)
+            ) {
+                deferred.complete(org.json.JSONObject())
+                if (BuildConfig.DEBUG) {
+                    android.util.Log.d(
+                        "Andromuks",
+                        "AppViewModel: Widget delayed event missing for requestId=$requestId, returning empty response"
+                    )
+                }
+                return
+            }
             deferred.completeExceptionally(IllegalStateException(errorMessage))
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Widget error received for requestId=$requestId")
             return
@@ -13734,14 +13972,53 @@ class AppViewModel : ViewModel() {
             else -> data
         }
 
+        val normalizedPayload = if (command == "send_to_device") {
+            val payloadObject = when (payload) {
+                is JSONObject -> payload
+                is String -> {
+                    try {
+                        JSONObject(payload)
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                else -> null
+            }
+            if (payloadObject == null) {
+                payload
+            } else {
+                val eventType = payloadObject.optString("event_type").ifBlank { payloadObject.optString("type") }
+                val normalized = JSONObject()
+                if (eventType.isNotBlank()) {
+                    normalized.put("event_type", eventType)
+                    // Don't include 'type' - gomuks expects only 'event_type'
+                }
+                if (payloadObject.has("encrypted")) {
+                    normalized.put("encrypted", payloadObject.opt("encrypted"))
+                }
+                if (payloadObject.has("messages")) {
+                    normalized.put("messages", payloadObject.opt("messages"))
+                }
+                val keys = payloadObject.keys()
+                while (keys.hasNext()) {
+                    val key = keys.next()
+                    if (normalized.has(key)) continue
+                    normalized.put(key, payloadObject.opt(key))
+                }
+                normalized
+            }
+        } else {
+            payload
+        }
+
         return try {
             val json = JSONObject()
             json.put("command", command)
             json.put("request_id", requestId)
-            json.put("data", payload)
+            json.put("data", normalizedPayload)
             val jsonString = json.toString()
             if (BuildConfig.DEBUG) {
-                android.util.Log.d("Andromuks", "sendRawWebSocketCommand: command='$command', requestId=$requestId, data=${payload.toString().take(200)}")
+                android.util.Log.d("Andromuks", "sendRawWebSocketCommand: command='$command', requestId=$requestId, data=${normalizedPayload.toString().take(200)}")
             }
             ws.send(jsonString)
             WebSocketResult.SUCCESS

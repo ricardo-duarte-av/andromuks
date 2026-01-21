@@ -803,7 +803,8 @@ object RoomTimelineCache {
                     "m.room.topic",
                     "m.room.avatar",
                     "m.room.pinned_events",
-                    "m.sticker"
+                    "m.sticker",
+                    "io.element.call.encryption_keys"
                 )
                 
                 // Check if this is a kick (leave event where sender != state_key)

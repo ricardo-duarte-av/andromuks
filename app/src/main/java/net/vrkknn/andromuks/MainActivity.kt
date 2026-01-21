@@ -7,6 +7,8 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import android.os.Bundle
+import android.app.PictureInPictureParams
+import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -619,10 +621,28 @@ class MainActivity : ComponentActivity() {
         sendBroadcast(foregroundRefreshIntent)
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: Sent FOREGROUND_REFRESH broadcast")
     }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (::appViewModel.isInitialized && appViewModel.isCallActive() && appViewModel.isCallReadyForPip()) {
+            if (canEnterPip()) {
+                try {
+                    enterPictureInPictureMode(PictureInPictureParams.Builder().build())
+                } catch (e: IllegalStateException) {
+                    Log.w("Andromuks", "MainActivity: PiP not supported for this activity", e)
+                }
+            }
+        }
+    }
     
     override fun onStart() {
         super.onStart()
         if (BuildConfig.DEBUG) Log.d("Andromuks", "MainActivity: onStart called")
+    }
+
+    private fun canEnterPip(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        return packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
     }
     
     /**
