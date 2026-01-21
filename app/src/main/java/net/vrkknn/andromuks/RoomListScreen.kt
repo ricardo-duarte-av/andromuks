@@ -1013,6 +1013,10 @@ fun RoomListScreen(
             ) {
             AnimatedContent(
                 targetState = displayedSection,
+                // CRITICAL FIX: Use contentKey to only animate when section TYPE changes, not when data changes
+                // This prevents unnecessary transitions when returning from RoomTimelineScreen
+                // and ensures scrolling works immediately
+                contentKey = { it.type },
                 transitionSpec = {
                     val oldType = initialState.type
                     val newType = targetState.type
