@@ -788,6 +788,18 @@ fun AppNavigation(
             )
         }
         composable(
+            route = "element_call/{roomId}",
+            arguments = listOf(navArgument("roomId") { type = NavType.StringType })
+        ) { backStackEntry: NavBackStackEntry ->
+            val roomId = backStackEntry.arguments?.getString("roomId") ?: ""
+            ElementCallScreen(
+                roomId = roomId,
+                navController = navController,
+                appViewModel = appViewModel,
+                modifier = modifier
+            )
+        }
+        composable(
             route = "thread_viewer/{roomId}/{threadRootId}",
             arguments = listOf(
                 navArgument("roomId") { type = NavType.StringType },

@@ -2146,6 +2146,9 @@ fun RoomTimelineScreen(
                             // Navigate to room info screen
                             navController.navigate("room_info/$roomId")
                         },
+                        onCallClick = {
+                            navController.navigate("element_call/$roomId")
+                        },
                         onRefreshClick = {
                             // Full refresh: drop all on-disk and in-RAM data, then fetch 200 events
                             if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Full refresh button clicked for room $roomId")
@@ -3587,6 +3590,7 @@ fun RoomHeader(
     authToken: String,
     roomId: String? = null,
     onHeaderClick: () -> Unit = {},
+    onCallClick: () -> Unit = {},
     onRefreshClick: () -> Unit = {}
 ) {
     // Debug logging
@@ -3651,6 +3655,14 @@ fun RoomHeader(
             }
             
             val bridgeInfo = roomState?.bridgeInfo
+            IconButton(onClick = onCallClick) {
+                Icon(
+                    imageVector = androidx.compose.material.icons.Icons.Filled.Videocam,
+                    contentDescription = "Start call",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
             if (bridgeInfo != null && bridgeInfo.hasRenderableIcon) {
                 BridgeNetworkBadge(
                     bridgeInfo = bridgeInfo,

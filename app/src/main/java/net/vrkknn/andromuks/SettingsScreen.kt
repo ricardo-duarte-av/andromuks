@@ -49,6 +49,13 @@ fun SettingsScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+            var elementCallBaseUrl by remember { mutableStateOf(appViewModel.elementCallBaseUrl) }
+            LaunchedEffect(appViewModel.elementCallBaseUrl) {
+                if (elementCallBaseUrl != appViewModel.elementCallBaseUrl) {
+                    elementCallBaseUrl = appViewModel.elementCallBaseUrl
+                }
+            }
+
             // Display Settings Section
             Text(
                 text = "Display Settings",
@@ -120,6 +127,47 @@ fun SettingsScreen(
                     Switch(
                         checked = appViewModel.enableCompression,
                         onCheckedChange = { appViewModel.toggleCompression() }
+                    )
+                }
+            }
+
+            // Calls Section
+            Text(
+                text = "Calls",
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 16.dp)
+            )
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Element Call base URL",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Set the base URL of your Element Call deployment. If it does not point to /element-call-embedded, the app will use the gomuks backend's embedded endpoint when available.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextField(
+                        value = elementCallBaseUrl,
+                        onValueChange = {
+                            elementCallBaseUrl = it
+                            appViewModel.updateElementCallBaseUrl(it)
+                        },
+                        singleLine = true,
+                        placeholder = { Text("https://call.example.com/") },
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
             }

@@ -23,6 +23,9 @@
     <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
     <!-- Camera permission for taking photos/videos -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Microphone permission for voice/video calls -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
     <application
         android:allowBackup="true"

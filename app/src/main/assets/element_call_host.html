@@ -1,0 +1,439 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Element Call</title>
+    <style>
+      html, body {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+        background: #000;
+      }
+      #call-frame {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <iframe
+      id="call-frame"
+      allow="microphone; camera; fullscreen; encrypted-media; display-capture; screen-wake-lock;"
+    ></iframe>
+    <script>
+      (function () {
+        const params = new URLSearchParams(window.location.search);
+        const widgetUrl = params.get("url");
+        const widgetId = params.get("widgetId") || "app.andromuks.call";
+        const iframe = document.getElementById("call-frame");
+        const url = new URL(widgetUrl);
+        const hashParams = new URLSearchParams(url.hash.replace(/^#\?/, ""));
+        const hostRoomId = params.get("roomId");
+        const hostUserId = params.get("userId");
+        const hostDeviceId = params.get("deviceId");
+        const hostBaseUrl = params.get("baseUrl");
+        const hostE2ee = params.get("perParticipantE2EE");
+        const hostTheme = params.get("theme");
+        const hostIntent = params.get("intent");
+        const hostHideHeader = params.get("hideHeader");
+        const hostConfine = params.get("confineToRoom");
+        const hostAppPrompt = params.get("appPrompt");
+        const hostLang = params.get("lang");
+        const hostFontScale = params.get("fontScale");
+        const hostRageshakeUrl = params.get("rageshakeSubmitUrl");
+        const hostPreload = params.get("preload");
+
+        if (hostRoomId && !hashParams.has("roomId")) hashParams.set("roomId", hostRoomId);
+        if (hostUserId && !hashParams.has("userId")) hashParams.set("userId", hostUserId);
+        if (hostDeviceId && !hashParams.has("deviceId")) hashParams.set("deviceId", hostDeviceId);
+        if (hostBaseUrl && !hashParams.has("baseUrl")) hashParams.set("baseUrl", hostBaseUrl);
+        if (hostE2ee && !hashParams.has("perParticipantE2EE")) hashParams.set("perParticipantE2EE", hostE2ee);
+        if (hostTheme && !hashParams.has("theme")) hashParams.set("theme", hostTheme);
+        if (hostIntent && !hashParams.has("intent")) hashParams.set("intent", hostIntent);
+        if (hostHideHeader && !hashParams.has("hideHeader")) hashParams.set("hideHeader", hostHideHeader);
+        if (hostConfine && !hashParams.has("confineToRoom")) hashParams.set("confineToRoom", hostConfine);
+        if (hostAppPrompt && !hashParams.has("appPrompt")) hashParams.set("appPrompt", hostAppPrompt);
+        if (hostLang && !hashParams.has("lang")) hashParams.set("lang", hostLang);
+        if (hostFontScale && !hashParams.has("fontScale")) hashParams.set("fontScale", hostFontScale);
+        if (hostRageshakeUrl && !hashParams.has("rageshakeSubmitUrl")) hashParams.set("rageshakeSubmitUrl", hostRageshakeUrl);
+        if (hostPreload && !hashParams.has("preload")) hashParams.set("preload", hostPreload);
+
+        if ([...hashParams.keys()].length > 0) {
+          url.hash = "?" + hashParams.toString();
+        }
+        iframe.src = url.toString();
+        console.log("Host iframe src", iframe.src);
+        console.log("Host parsed widget data", JSON.stringify(parseWidgetData()));
+
+        function sendToAndroid(action, requestId, data) {
+          if (!window.AndroidWidgetBridge || !window.AndroidWidgetBridge.postMessage) {
+            console.error("AndroidWidgetBridge not available");
+            return;
+          }
+          window.AndroidWidgetBridge.postMessage(
+            JSON.stringify({ action, requestId, data })
+          );
+        }
+
+        function parseWidgetData() {
+          try {
+            const hostParams = new URLSearchParams(window.location.search);
+            const url = new URL(iframe.src);
+            const hash = url.hash || "";
+            const hashParams = new URLSearchParams(hash.replace(/^#\?/, ""));
+            const queryParams = url.searchParams;
+            const getParam = (key) =>
+              hashParams.get(key) || queryParams.get(key) || "";
+            const getHostParam = (key) => hostParams.get(key) || "";
+            return {
+              perParticipantE2EE:
+                (getHostParam("perParticipantE2EE") || getParam("perParticipantE2EE")) === "true",
+              homeserverBaseURL: getHostParam("baseUrl") || getParam("baseUrl"),
+              roomId: getHostParam("roomId") || getParam("roomId"),
+              userId: getHostParam("userId") || getParam("userId"),
+              deviceId: getHostParam("deviceId") || getParam("deviceId"),
+              theme: getHostParam("theme") || getParam("theme"),
+            };
+          } catch (e) {
+            console.warn("Failed to parse widget data", e);
+            return {};
+          }
+        }
+
+        function replyToWidget(request, response, error, targetWindow) {
+          console.log("Host replying", request.action, request.requestId, error || response);
+          const message = {
+            api: request.api || "fromWidget",
+            widgetId,
+            action: request.action,
+            requestId: request.requestId,
+          };
+          if (error) {
+            message.error = error;
+          } else {
+            message.response = response;
+          }
+          const target = targetWindow || iframe.contentWindow;
+          if (target && typeof target.postMessage === "function") {
+            target.postMessage(message, "*");
+          }
+          if (iframe.contentWindow && iframe.contentWindow !== target) {
+            iframe.contentWindow.postMessage(message, "*");
+          }
+        }
+
+        const pendingToWidgetRequests = new Map();
+        const pendingAndroidRequests = new Map();
+        let toWidgetRequestCounter = 1;
+        let androidRequestCounter = 1;
+        let handshakeStarted = false;
+
+        function sendToWidget(action, data, targetWindow) {
+          const message = {
+            api: "toWidget",
+            widgetId,
+            action,
+            data: data || {},
+          };
+          const target = targetWindow || iframe.contentWindow;
+          if (target && typeof target.postMessage === "function") {
+            target.postMessage(message, "*");
+          }
+          if (iframe.contentWindow && iframe.contentWindow !== target) {
+            iframe.contentWindow.postMessage(message, "*");
+          }
+          console.log("Host sent toWidget", action, JSON.stringify(data || {}));
+        }
+
+        function sendToWidgetRequest(action, data, targetWindow, onResponse) {
+          const requestId = `host-${Date.now()}-${toWidgetRequestCounter++}`;
+          pendingToWidgetRequests.set(requestId, onResponse);
+          const message = {
+            api: "toWidget",
+            widgetId,
+            requestId,
+            action,
+            data: data || {},
+          };
+          const target = targetWindow || iframe.contentWindow;
+          if (target && typeof target.postMessage === "function") {
+            target.postMessage(message, "*");
+          }
+          if (iframe.contentWindow && iframe.contentWindow !== target) {
+            iframe.contentWindow.postMessage(message, "*");
+          }
+          console.log("Host sent toWidget request", action, requestId, JSON.stringify(data || {}));
+          return requestId;
+        }
+
+        function requestRoomStateForWidget(targetWindow) {
+          const widgetData = parseWidgetData();
+          if (!widgetData.roomId) {
+            console.warn("Host requestRoomStateForWidget: Missing roomId");
+            return;
+          }
+          const requestId = `host-state-${Date.now()}-${androidRequestCounter++}`;
+          pendingAndroidRequests.set(requestId, { type: "room_state", targetWindow });
+          sendToAndroid("read_state", requestId, {
+            room_id: widgetData.roomId,
+            include_members: true,
+            fetch_members: true
+          });
+          console.log("Host requested room state", requestId, widgetData.roomId);
+        }
+
+        const defaultCapabilities = [
+          "org.matrix.msc2762.receive.state_event:m.room.member",
+          "org.matrix.msc2762.receive.state_event:m.room.encryption",
+          "org.matrix.msc2762.receive.state_event:m.room.power_levels",
+          "org.matrix.msc2762.receive.state_event:m.room.join_rules",
+          "org.matrix.msc2762.receive.state_event:m.room.history_visibility",
+          "org.matrix.msc2762.receive.state_event:m.room.name",
+          "org.matrix.msc2762.receive.state_event:m.room.canonical_alias",
+          "org.matrix.msc2762.receive.state_event:m.room.avatar",
+          "org.matrix.msc2762.receive.state_event:m.room.topic",
+          "org.matrix.msc2762.receive.state_event:org.matrix.msc3401.call.member",
+          "org.matrix.msc2762.receive.state_event:org.matrix.msc4143.rtc_foci",
+          "org.matrix.msc2762.send.state_event:org.matrix.msc3401.call.member",
+          "org.matrix.msc2762.send.state_event:org.matrix.msc4143.rtc_foci",
+          "org.matrix.msc3819.send.to_device:io.element.call.encryption",
+          "org.matrix.msc3819.receive.to_device:io.element.call.encryption",
+          "org.matrix.msc3819.send.to_device:org.matrix.call.e2ee",
+          "org.matrix.msc3819.receive.to_device:org.matrix.call.e2ee",
+          "org.matrix.msc3819.send.to_device:org.matrix.msc3819.call.encryption",
+          "org.matrix.msc3819.receive.to_device:org.matrix.msc3819.call.encryption",
+          "org.matrix.msc3819.send.to_device:org.matrix.call.sas",
+          "org.matrix.msc3819.receive.to_device:org.matrix.call.sas"
+        ];
+
+        function ensureCapabilities(capabilities) {
+          const list = Array.isArray(capabilities) ? capabilities.slice() : [];
+          if (!list.includes("m.openid")) {
+            list.push("m.openid");
+          }
+          return list;
+        }
+
+        function startWidgetHandshake(targetWindow) {
+          if (handshakeStarted) return;
+          handshakeStarted = true;
+          const widgetData = parseWidgetData();
+          sendToWidgetRequest("capabilities", {}, targetWindow, (response) => {
+            const requested = response && response.capabilities ? response.capabilities : [];
+            const capabilities = ensureCapabilities(requested.length > 0 ? requested : defaultCapabilities);
+            sendToWidgetRequest(
+              "notify_capabilities",
+              { requested: capabilities, approved: capabilities },
+              targetWindow,
+              () => {}
+            );
+          });
+          sendToWidgetRequest("supported_api_versions", {}, targetWindow, () => {});
+          // Element Call doesn't accept widget_config as a toWidget action.
+          requestRoomStateForWidget(targetWindow);
+        }
+
+        function handleWidgetMessage(message, targetWindow) {
+          const action = (message.action || "").toLowerCase();
+          console.log("Host received widget message", JSON.stringify(message));
+          if (action === "capabilities") {
+            const requested = (message.data && message.data.capabilities) || [];
+            const capabilities = ensureCapabilities(requested.length > 0 ? requested : defaultCapabilities);
+            replyToWidget(message, { capabilities }, null, targetWindow);
+            return;
+          }
+          if (action.includes("request_capabilities")) {
+            const requested = (message.data && message.data.capabilities) || [];
+            const capabilities = ensureCapabilities(requested.length > 0 ? requested : defaultCapabilities);
+            sendToWidget("capabilities", { capabilities }, targetWindow);
+            sendToWidget("notify_capabilities", { requested: capabilities, approved: capabilities }, targetWindow);
+            replyToWidget(message, {}, null, targetWindow);
+            return;
+          }
+          if (action === "supported_api_versions") {
+            replyToWidget(
+              message,
+              {
+                supported_versions: [
+                  "0.0.1",
+                  "0.0.2",
+                  "org.matrix.msc2762",
+                  "org.matrix.msc2762_update_state",
+                  "org.matrix.msc2871",
+                  "org.matrix.msc2873",
+                  "org.matrix.msc2931",
+                  "org.matrix.msc2974",
+                  "org.matrix.msc2876",
+                  "org.matrix.msc3819",
+                  "town.robin.msc3846",
+                  "org.matrix.msc3869",
+                  "org.matrix.msc3973",
+                  "org.matrix.msc4039"
+                ],
+              },
+              null,
+              targetWindow
+            );
+            return;
+          }
+          if (action.includes("client_versions") || action.includes("supported_client")) {
+            replyToWidget(message, { versions: [], client_versions: [] }, null, targetWindow);
+            return;
+          }
+          if (action === "notify_capabilities") {
+            replyToWidget(message, {}, null, targetWindow);
+            return;
+          }
+          if (action === "content_loaded" || action === "widget_ready" || action === "ready") {
+            replyToWidget(message, {}, null, targetWindow);
+            startWidgetHandshake(targetWindow);
+            return;
+          }
+          if (action.startsWith("io.element.") || action.startsWith("im.vector.") || action === "set_always_on_screen") {
+            // Element Call internal widget actions we don't need to handle natively.
+            replyToWidget(message, {}, null, targetWindow);
+            return;
+          }
+          if (action === "get_user_id") {
+            const widgetData = parseWidgetData();
+            replyToWidget(message, { user_id: widgetData.userId || "" }, null, targetWindow);
+            return;
+          }
+          if (action === "get_device_id") {
+            const widgetData = parseWidgetData();
+            replyToWidget(message, { device_id: widgetData.deviceId || "" }, null, targetWindow);
+            return;
+          }
+          if (action === "get_room_id") {
+            const widgetData = parseWidgetData();
+            replyToWidget(message, { room_id: widgetData.roomId || "" }, null, targetWindow);
+            return;
+          }
+          if (action === "get_widget" || action === "get_widget_info") {
+            const widgetData = parseWidgetData();
+            replyToWidget(message, {
+              widget: {
+                id: widgetId,
+                type: "m.call",
+                url: iframe.src,
+                name: "Call",
+                creatorUserId: widgetData.userId || "",
+                data: {
+                  perParticipantE2EE: widgetData.perParticipantE2EE,
+                  homeserverBaseURL: widgetData.homeserverBaseURL,
+                  userId: widgetData.userId,
+                  deviceId: widgetData.deviceId,
+                  roomId: widgetData.roomId,
+                },
+              },
+            }, null, targetWindow);
+            return;
+          }
+
+          if (
+            action.includes("send_event") ||
+            action.includes("send_state") ||
+            action.includes("set_state") ||
+            action.includes("get_openid") ||
+            action.includes("openid") ||
+            action.includes("send_to_device") ||
+            action.includes("listen_to_device") ||
+            action.includes("receive_to_device") ||
+            action.includes("update_delayed_event") ||
+            action.includes("read_events") ||
+            action.includes("read_state") ||
+            action.includes("get_state")
+          ) {
+            sendToAndroid(message.action, message.requestId, message.data);
+            return;
+          }
+
+          replyToWidget(message, {}, null, targetWindow);
+        }
+
+        window.addEventListener("message", (event) => {
+          console.log("Host received message", event.origin, JSON.stringify(event.data));
+          const msg = event.data;
+          if (!msg) {
+            return;
+          }
+          if (msg.response && msg.api === "toWidget") {
+            const handler = pendingToWidgetRequests.get(msg.requestId);
+            if (handler) {
+              pendingToWidgetRequests.delete(msg.requestId);
+              handler(msg.response);
+            }
+            return;
+          }
+          if (msg.api !== "fromWidget") {
+            return;
+          }
+          handleWidgetMessage(msg, event.source);
+        });
+
+        iframe.addEventListener("load", () => {
+          setTimeout(() => startWidgetHandshake(iframe.contentWindow), 1000);
+        });
+
+        window.__andromuksWidgetHost = {
+          onNativeResponse: function (payload) {
+            let parsed = payload;
+            if (typeof payload === "string") {
+              try {
+                parsed = JSON.parse(payload);
+              } catch (e) {
+                console.error("Failed to parse native response", payload);
+                return;
+              }
+            }
+            const hostRequest = pendingAndroidRequests.get(parsed.requestId);
+            if (hostRequest) {
+              pendingAndroidRequests.delete(parsed.requestId);
+              if (hostRequest.type === "room_state") {
+                let events = [];
+                if (parsed.response) {
+                  if (Array.isArray(parsed.response)) {
+                    events = parsed.response;
+                  } else if (Array.isArray(parsed.response.events)) {
+                    events = parsed.response.events;
+                  } else if (Array.isArray(parsed.response.state)) {
+                    events = parsed.response.state;
+                  }
+                }
+                sendToWidgetRequest(
+                  "update_state",
+                  { state: events, events },
+                  hostRequest.targetWindow || iframe.contentWindow,
+                  () => {}
+                );
+                return;
+              }
+            }
+            const message = {
+              api: "fromWidget",
+              widgetId,
+              action: parsed.action,
+              requestId: parsed.requestId,
+            };
+            if (parsed.error) {
+              message.error = parsed.error;
+            } else {
+              message.response = parsed.response;
+            }
+            const target = iframe.contentWindow;
+            if (target && typeof target.postMessage === "function") {
+              target.postMessage(message, "*");
+            }
+          },
+        };
+      })();
+    </script>
+  </body>
+</html>
+

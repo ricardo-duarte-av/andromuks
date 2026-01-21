@@ -540,6 +540,8 @@ class AppViewModel : ViewModel() {
         private set
     var loadThumbnailsIfAvailable by mutableStateOf(true)
         private set
+    var elementCallBaseUrl by mutableStateOf("")
+        private set
 
     var pendingShare by mutableStateOf<PendingSharePayload?>(null)
         private set
@@ -6151,6 +6153,9 @@ class AppViewModel : ViewModel() {
     
     // PERFORMANCE: Track pending full member list requests to prevent duplicate WebSocket commands
     private val pendingFullMemberListRequests = mutableSetOf<String>() // roomId that have pending full member list requests
+
+    // Element Call widget command tracking (requestId -> deferred response)
+    private val widgetCommandRequests = java.util.concurrent.ConcurrentHashMap<Int, CompletableDeferred<Any?>>()
     
     // OPPORTUNISTIC PROFILE LOADING: Track pending on-demand profile requests
     private val pendingProfileRequests = mutableSetOf<String>() // "roomId:userId" keys for pending profile requests
@@ -10205,6 +10210,13 @@ class AppViewModel : ViewModel() {
         // If it's in a request map, it's a valid response (operation might have been cleaned up already)
         // Only treat as stale if it's NOT in any request map
         if (requestId > 0 && !hasPendingOperation) {
+            // Element Call widget responses are handled separately
+            widgetCommandRequests.remove(requestId)?.let { deferred ->
+                deferred.complete(data)
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Widget response received for requestId=$requestId")
+                return
+            }
+
             // Check if this request_id exists in any of our request maps - if so, it's valid (not stale)
             val isInRequestMap = profileRequests.containsKey(requestId) ||
                     timelineRequests.containsKey(requestId) ||
@@ -10230,7 +10242,8 @@ class AppViewModel : ViewModel() {
                     roomSpecificStateRequests.containsKey(requestId) ||
                     fullMemberListRequests.containsKey(requestId) ||
                     outgoingRequests.containsKey(requestId) ||
-                    mentionsRequests.containsKey(requestId)
+                    mentionsRequests.containsKey(requestId) ||
+                    widgetCommandRequests.containsKey(requestId)
             
             // If it's NOT in any request map, it's truly stale - ignore it
             if (!isInRequestMap) {
@@ -10241,6 +10254,12 @@ class AppViewModel : ViewModel() {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing response with requestId=$requestId (found in request map, operation may have been cleaned up)")
         }
         
+        widgetCommandRequests.remove(requestId)?.let { deferred ->
+            deferred.complete(data)
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Widget response received for requestId=$requestId")
+            return
+        }
+
         if (profileRequests.containsKey(requestId)) {
             if (BuildConfig.DEBUG) {
                 val userId = profileRequests[requestId]
@@ -10313,6 +10332,12 @@ class AppViewModel : ViewModel() {
             handleMessageAcknowledgmentByRequestId(requestId)
         } else if (requestId == 0) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PHASE 5.3 - Received error with request_id=0 (no acknowledgment needed)")
+        }
+
+        widgetCommandRequests.remove(requestId)?.let { deferred ->
+            deferred.completeExceptionally(IllegalStateException(errorMessage))
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Widget error received for requestId=$requestId")
+            return
         }
         
         if (profileRequests.containsKey(requestId)) {
@@ -13693,6 +13718,62 @@ class AppViewModel : ViewModel() {
      * Send WebSocket command to the backend
      * Commands are sent individually with sequential request IDs
      */
+    private fun sendRawWebSocketCommand(command: String, requestId: Int, data: Any?): WebSocketResult {
+        val ws = WebSocketService.getWebSocket()
+        if (ws == null) {
+            android.util.Log.w("Andromuks", "AppViewModel: WebSocket is not connected, cannot send command: $command")
+            return WebSocketResult.NOT_CONNECTED
+        }
+
+        val payload = when (data) {
+            null -> JSONObject()
+            is JSONObject -> data
+            is JSONArray -> data
+            is Map<*, *> -> JSONObject(data)
+            is List<*> -> JSONArray(data)
+            else -> data
+        }
+
+        return try {
+            val json = JSONObject()
+            json.put("command", command)
+            json.put("request_id", requestId)
+            json.put("data", payload)
+            val jsonString = json.toString()
+            if (BuildConfig.DEBUG) {
+                android.util.Log.d("Andromuks", "sendRawWebSocketCommand: command='$command', requestId=$requestId, data=${payload.toString().take(200)}")
+            }
+            ws.send(jsonString)
+            WebSocketResult.SUCCESS
+        } catch (e: Exception) {
+            android.util.Log.e("Andromuks", "AppViewModel: Failed to send raw WebSocket command: $command", e)
+            WebSocketResult.CONNECTION_ERROR
+        }
+    }
+
+    fun sendWidgetCommand(command: String, data: Any?, onResult: (Result<Any?>) -> Unit) {
+        val requestId = requestIdCounter++
+        val deferred = CompletableDeferred<Any?>()
+        widgetCommandRequests[requestId] = deferred
+
+        val result = sendRawWebSocketCommand(command, requestId, data)
+        if (result != WebSocketResult.SUCCESS) {
+            widgetCommandRequests.remove(requestId)
+            onResult(Result.failure(IllegalStateException("WebSocket not connected")))
+            return
+        }
+
+        viewModelScope.launch {
+            val response = withTimeoutOrNull(30_000L) { deferred.await() }
+            if (response == null) {
+                widgetCommandRequests.remove(requestId)
+                onResult(Result.failure(java.util.concurrent.TimeoutException("Widget command timeout")))
+            } else {
+                onResult(Result.success(response))
+            }
+        }
+    }
+
     private fun sendWebSocketCommand(command: String, requestId: Int, data: Map<String, Any>): WebSocketResult {
         // Handle offline mode
         if (isOfflineMode && !isOfflineCapableCommand(command)) {
@@ -14064,6 +14145,20 @@ class AppViewModel : ViewModel() {
             )
         }
     }
+
+    fun updateElementCallBaseUrl(url: String) {
+        elementCallBaseUrl = url.trim()
+        appContext?.let { context ->
+            val prefs = context.getSharedPreferences("AndromuksAppPrefs", Context.MODE_PRIVATE)
+            prefs.edit()
+                .putString("element_call_base_url", elementCallBaseUrl)
+                .apply()
+            if (BuildConfig.DEBUG) android.util.Log.d(
+                "Andromuks",
+                "AppViewModel: Saved elementCallBaseUrl setting: $elementCallBaseUrl"
+            )
+        }
+    }
     
     /**
      * Load settings from SharedPreferences
@@ -14075,9 +14170,11 @@ class AppViewModel : ViewModel() {
             enableCompression = prefs.getBoolean("enable_compression", true) // Default to true
             enterKeySendsMessage = prefs.getBoolean("enter_key_sends_message", true) // Default to true (Enter sends, Shift+Enter newline)
             loadThumbnailsIfAvailable = prefs.getBoolean("load_thumbnails_if_available", true) // Default to true
+            elementCallBaseUrl = prefs.getString("element_call_base_url", "") ?: ""
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded enableCompression setting: $enableCompression")
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded enterKeySendsMessage setting: $enterKeySendsMessage")
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded loadThumbnailsIfAvailable setting: $loadThumbnailsIfAvailable")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Loaded elementCallBaseUrl setting: $elementCallBaseUrl")
         }
     }
     /**

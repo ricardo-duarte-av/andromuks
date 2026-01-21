@@ -90,6 +90,7 @@ dependencies {
     implementation(libs.androidx.compose.foundation.layout)
 
     implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.webkit:webkit:1.10.0")
 
     // Accompanist for navigation animations
     implementation("com.google.accompanist:accompanist-navigation-animation:0.34.0")
