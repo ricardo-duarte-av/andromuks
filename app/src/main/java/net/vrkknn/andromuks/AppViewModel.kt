@@ -9001,10 +9001,18 @@ class AppViewModel : ViewModel() {
                 // Build timeline from chain (this updates timelineEvents)
                 buildTimelineFromChain()
                 
-                // CRITICAL FIX: Restore reactions from cache after clearing messageReactions
-                // This ensures reactions are visible when opening a room from cache
+                // CRITICAL FIX: Restore reactions from singleton cache when opening from cache
+                // This ensures reactions are visible when opening a room from cache (they're stored globally, not per-room)
+                populateMessageReactionsFromCache()
+                
+                // CRITICAL FIX: Also extract reactions from events' aggregatedReactions field
+                // This handles reactions that are embedded in events (from paginate/sync_complete)
                 loadReactionsForRoom(roomId, cachedEvents)
                 applyAggregatedReactionsFromEvents(cachedEvents, "navigateToRoomWithCache")
+                
+                // CRITICAL FIX: Restore receipts from singleton cache when opening from cache
+                // This ensures receipts are visible when opening a room from cache (they're stored globally, not per-room)
+                populateReadReceiptsFromCache()
                 
                 // Set smallest rowId from cached events for pagination
                 val smallestCached = cachedEvents.minByOrNull { it.timelineRowid }?.timelineRowid ?: -1L
