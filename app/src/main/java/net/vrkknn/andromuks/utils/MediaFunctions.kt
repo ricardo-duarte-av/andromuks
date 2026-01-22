@@ -75,6 +75,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import android.os.Build
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.ImageLoader
@@ -1018,7 +1019,27 @@ private fun MediaContent(
                             Log.d("Andromuks", "AsyncImage: Full image dimensions: ${fullWidth}x${fullHeight}, Thumbnail dimensions: ${thumbWidth}x${thumbHeight}")
                         }
 
-                        // PERFORMANCE: Use optimized AsyncImage with better caching
+                        // State to track loaded image dimensions for dynamic aspect ratio adjustment
+                        // Only update if JSON dimensions were missing or invalid
+                        var loadedAspectRatio by remember { mutableFloatStateOf(aspectRatio) }
+                        var hasLoadedDimensions by remember { mutableStateOf(false) }
+                        
+                        // Check if JSON dimensions were actually valid
+                        val hasValidJsonDimensions = if (useThumbnail) {
+                            (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 && 
+                             mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0) ||
+                            (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
+                        } else {
+                            mediaMessage.info.width > 0 && mediaMessage.info.height > 0
+                        }
+                        
+                        // Reset when image URL changes
+                        LaunchedEffect(imageUrl) {
+                            loadedAspectRatio = aspectRatio
+                            hasLoadedDimensions = false
+                        }
+
+                        // PERFORMANCE: Use AsyncImage with onSuccess to extract dimensions and adjust aspect ratio
                         // Image fills frame width and maintains aspect ratio, clipped by frame
                         AsyncImage(
                             model = ImageRequest.Builder(context)
@@ -1036,7 +1057,7 @@ private fun MediaContent(
                             contentDescription = mediaMessage.filename,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(aspectRatio)
+                                .aspectRatio(loadedAspectRatio)
                                 .scale(1.02f) // Make image slightly larger than frame so it gets clipped
                                 .combinedClickable(
                                     onClick = { onImageClick() },
@@ -1045,8 +1066,29 @@ private fun MediaContent(
                             placeholder = blurHashPainter,
                             error = blurHashPainter,
                             contentScale = androidx.compose.ui.layout.ContentScale.FillWidth, // Fill frame width, maintain aspect ratio
-                            onSuccess = {
+                            onSuccess = { state ->
                                 if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ Image loaded successfully: $imageUrl")
+                                
+                                        // Extract actual image dimensions from loaded image
+                                        val painter = state.painter
+                                        val intrinsicSize = painter.intrinsicSize
+                                        if (intrinsicSize.width > 0 && intrinsicSize.height > 0 && !hasLoadedDimensions) {
+                                            val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
+                                            if (BuildConfig.DEBUG) Log.d(
+                                                "Andromuks",
+                                                "Image loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidJsonDimensions)"
+                                            )
+                                            // Only update if we didn't have valid dimensions from JSON
+                                            // This means JSON width/height were missing or invalid
+                                            if (!hasValidJsonDimensions) {
+                                                loadedAspectRatio = actualAspectRatio
+                                                hasLoadedDimensions = true
+                                                if (BuildConfig.DEBUG) Log.d(
+                                                    "Andromuks",
+                                                    "Updated aspect ratio from loaded image: $actualAspectRatio"
+                                                )
+                                            }
+                                        }
                             },
                             onError = { },
                             onLoading = { state ->
@@ -1056,16 +1098,33 @@ private fun MediaContent(
                     } else if (mediaMessage.msgType == "m.video") {
                         // Video thumbnail with play button overlay
                         // Fill frame width and maintain aspect ratio, clipped by frame
+                        
+                        // State to track loaded thumbnail dimensions for dynamic aspect ratio adjustment
+                        var loadedThumbnailAspectRatio by remember { mutableFloatStateOf(aspectRatio) }
+                        var hasLoadedThumbnailDimensions by remember { mutableStateOf(false) }
+                        
+                        // Check if video has a thumbnail
+                        val thumbnailUrl = mediaMessage.info.thumbnailUrl
+                        
+                        // Check if JSON dimensions were actually valid for video
+                        val hasValidVideoJsonDimensions = 
+                            (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 && 
+                             mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0) ||
+                            (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
+                        
+                        // Reset when thumbnail URL changes
+                        LaunchedEffect(thumbnailUrl) {
+                            loadedThumbnailAspectRatio = aspectRatio
+                            hasLoadedThumbnailDimensions = false
+                        }
+                        
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(aspectRatio)
+                                .aspectRatio(loadedThumbnailAspectRatio)
                                 .scale(1.02f), // Make thumbnail slightly larger than frame so it gets clipped
                             contentAlignment = Alignment.Center
                         ) {
-                            // Check if video has a thumbnail
-                            val thumbnailUrl = mediaMessage.info.thumbnailUrl
-
                             if (thumbnailUrl != null) {
                                 // Render video thumbnail
                                 val thumbnailHttpUrl =
@@ -1128,11 +1187,31 @@ private fun MediaContent(
                                     placeholder = thumbnailBlurHashPainter,
                                     error = thumbnailBlurHashPainter,
                                     contentScale = androidx.compose.ui.layout.ContentScale.FillWidth, // Fill frame width, maintain aspect ratio
-                                    onSuccess = {
+                                    onSuccess = { state ->
                                         if (BuildConfig.DEBUG) Log.d(
                                             "Andromuks",
                                             "✅ Video thumbnail loaded: $thumbnailFinalUrl"
                                         )
+                                        
+                                        // Extract actual thumbnail dimensions from loaded image
+                                        val painter = state.painter
+                                        val intrinsicSize = painter.intrinsicSize
+                                        if (intrinsicSize.width > 0 && intrinsicSize.height > 0 && !hasLoadedThumbnailDimensions) {
+                                            val actualAspectRatio = intrinsicSize.width / intrinsicSize.height
+                                            if (BuildConfig.DEBUG) Log.d(
+                                                "Andromuks",
+                                                "Video thumbnail loaded with dimensions: ${intrinsicSize.width}x${intrinsicSize.height}, aspectRatio=$actualAspectRatio (original from JSON: $aspectRatio, hasValidJsonDimensions: $hasValidVideoJsonDimensions)"
+                                            )
+                                            // Only update if we didn't have valid dimensions from JSON
+                                            if (!hasValidVideoJsonDimensions) {
+                                                loadedThumbnailAspectRatio = actualAspectRatio
+                                                hasLoadedThumbnailDimensions = true
+                                                if (BuildConfig.DEBUG) Log.d(
+                                                    "Andromuks",
+                                                    "Updated video thumbnail aspect ratio from loaded image: $actualAspectRatio"
+                                                )
+                                            }
+                                        }
                                     },
                                     onError = { }
                                 )

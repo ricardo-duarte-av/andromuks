@@ -210,10 +210,10 @@ fun RoomListScreen(
     // Prepare room list data while the loading screen is visible so we avoid flicker
     val roomListUpdateCounter = uiState.roomListUpdateCounter
     // Seed from in-memory snapshot to avoid empty UI after clear_state/cold start
-    // CRITICAL FIX: Initialize with empty section, then load from in-memory state in LaunchedEffect
-    // This ensures we always read fresh data from memory, not stale roomMap
+    // CRITICAL FIX: Initialize synchronously with current data to avoid delay when returning from RoomTimelineScreen
+    // This ensures rooms appear immediately instead of waiting for LaunchedEffect
     var stableSection by remember { 
-        mutableStateOf(RoomSection(RoomSectionType.HOME, emptyList()))
+        mutableStateOf(appViewModel.getCurrentRoomSection())
     }
     var previousSectionType by remember { mutableStateOf(stableSection.type) }
     var sectionAnimationDirection by remember { mutableStateOf(0) }
