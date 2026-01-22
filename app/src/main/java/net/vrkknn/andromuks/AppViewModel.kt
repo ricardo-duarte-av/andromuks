@@ -11395,6 +11395,14 @@ class AppViewModel : ViewModel() {
                         timelineRequests.remove(requestId)
                         roomsWithPendingPaginate.remove(roomId)
                     }
+                    
+                    // CRITICAL FIX: After initial pagination completes, automatically request member profiles
+                    // for all users in the timeline using get_specific_room_state
+                    // This ensures room-specific display names and avatars are loaded correctly
+                    if (timelineList.isNotEmpty()) {
+                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Initial pagination completed for $roomId, requesting member profiles for ${timelineList.size} events")
+                        requestUpdatedRoomProfiles(roomId, timelineList)
+                    }
                 }
                 
                 // Mark room as read when timeline is successfully loaded - use most recent event by timestamp
