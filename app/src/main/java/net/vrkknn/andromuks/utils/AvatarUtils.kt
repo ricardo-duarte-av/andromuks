@@ -8,6 +8,7 @@ import coil.request.ImageRequest
 import coil.request.ErrorResult
 import coil.request.SuccessResult
 import java.net.URLEncoder
+import net.vrkknn.andromuks.utils.MediaCache
 
 object AvatarUtils {
     private const val FALLBACK_COLOR_COUNT = 10
@@ -88,7 +89,7 @@ object AvatarUtils {
         mxcUrl: String?,
         homeserverUrl: String
     ): String? {
-        // First, check if we have a cached file from MediaCache
+        // First, check if we have a cached file from IntelligentMediaCache
         val cachedFile = if (mxcUrl != null) {
             MediaCache.getCachedFile(context, mxcUrl)
         } else {

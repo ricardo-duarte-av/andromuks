@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
+import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.BuildConfig
@@ -86,7 +87,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     }
     
     /**
-     * Download avatar using Coil with MediaCache integration
+     * Download avatar using Coil with IntelligentMediaCache integration
      */
     private suspend fun downloadAvatar(avatarUrl: String?): Bitmap? = withContext(Dispatchers.IO) {
         
@@ -122,8 +123,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 
 
                 
-                // Download and cache using existing MediaCache infrastructure
-                val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+                // Download and cache using IntelligentMediaCache
+                val downloadedFile = IntelligentMediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
                 
                 if (downloadedFile != null) {
                     downloadedFile.absolutePath
@@ -224,8 +225,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     return@withContext null
                 }
                 
-                // Download and cache using existing MediaCache infrastructure
-                val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+                // Download and cache using IntelligentMediaCache
+                val downloadedFile = IntelligentMediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
                 
                 if (downloadedFile != null) {
                     downloadedFile.absolutePath
@@ -969,7 +970,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 
                 // If not cached, download and cache it (similar to EnhancedNotificationDisplay)
                 if (cachedFile == null || !cachedFile.exists()) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Avatar not in MediaCache, downloading for shortcut: ${shortcut.roomId}")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Avatar not in IntelligentMediaCache, downloading for shortcut: ${shortcut.roomId}")
                     
                     // Convert MXC URL to HTTP URL
                     val httpUrl = when {
@@ -986,8 +987,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     
                     if (httpUrl != null) {
                         if (BuildConfig.DEBUG) Log.d(TAG, "Downloading avatar for shortcut ${shortcut.roomId} from: $httpUrl")
-                        // Download and cache using existing MediaCache infrastructure
-                        cachedFile = MediaCache.downloadAndCache(context, shortcut.roomAvatarUrl, httpUrl, authToken)
+                        // Download and cache using IntelligentMediaCache
+                        cachedFile = IntelligentMediaCache.downloadAndCache(context, shortcut.roomAvatarUrl, httpUrl, authToken)
                         if (cachedFile != null) {
                             if (BuildConfig.DEBUG) Log.d(TAG, "✓ Successfully downloaded and cached avatar for shortcut: ${shortcut.roomId} (${cachedFile.length()} bytes)")
                         } else {
@@ -1072,7 +1073,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 
                 // If not cached, download and cache it (similar to EnhancedNotificationDisplay)
                 if (cachedFile == null || !cachedFile.exists()) {
-                    if (BuildConfig.DEBUG) Log.d(TAG, "Avatar not in MediaCache, downloading for shortcut: ${shortcut.roomId}")
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Avatar not in IntelligentMediaCache, downloading for shortcut: ${shortcut.roomId}")
                     
                     // Convert MXC URL to HTTP URL
                     val httpUrl = when {
@@ -1089,8 +1090,8 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     
                     if (httpUrl != null) {
                         if (BuildConfig.DEBUG) Log.d(TAG, "Downloading avatar for shortcut ${shortcut.roomId} from: $httpUrl")
-                        // Download and cache using existing MediaCache infrastructure
-                        cachedFile = MediaCache.downloadAndCache(context, shortcut.roomAvatarUrl, httpUrl, authToken)
+                        // Download and cache using IntelligentMediaCache
+                        cachedFile = IntelligentMediaCache.downloadAndCache(context, shortcut.roomAvatarUrl, httpUrl, authToken)
                         if (cachedFile != null) {
                             if (BuildConfig.DEBUG) Log.d(TAG, "✓ Successfully downloaded and cached avatar for shortcut: ${shortcut.roomId} (${cachedFile.length()} bytes)")
                         } else {
@@ -1182,7 +1183,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     }
     
     /**
-     * Load bitmap from URL using Coil with MediaCache integration
+     * Load bitmap from URL using Coil with IntelligentMediaCache integration
      */
     private suspend fun loadBitmapFromUrl(url: String): Bitmap? = withContext(Dispatchers.IO) {
         try {
@@ -1211,7 +1212,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 
                 // Download and cache if not cached
                 if (url.startsWith("mxc://")) {
-                    val downloadedFile = MediaCache.downloadAndCache(context, url, httpUrl, authToken)
+                    val downloadedFile = IntelligentMediaCache.downloadAndCache(context, url, httpUrl, authToken)
                     if (downloadedFile != null) {
                         downloadedFile.absolutePath
                     } else {

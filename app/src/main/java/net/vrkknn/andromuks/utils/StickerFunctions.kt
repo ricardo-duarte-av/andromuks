@@ -46,6 +46,7 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.TimelineEvent
+import net.vrkknn.andromuks.utils.MediaCache
 
 
 import android.os.Build
@@ -170,7 +171,7 @@ private fun StickerBubbleTimestamp(
  * 
  * This function renders sticker content with proper aspect ratio constraints based on the
  * declared width and height from the event. It supports both encrypted and unencrypted stickers
- * with appropriate URL parameters and authentication headers. Stickers also use the MediaCache
+ * with appropriate URL parameters and authentication headers. Stickers also use the IntelligentMediaCache
  * for efficient loading and caching.
  * 
  * @param stickerMessage StickerMessage object containing URL, body (alt text), width, and height

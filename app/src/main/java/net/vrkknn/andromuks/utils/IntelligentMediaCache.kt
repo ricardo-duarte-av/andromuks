@@ -8,6 +8,8 @@ import android.util.Log
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -23,7 +25,7 @@ import kotlinx.coroutines.sync.withLock
 object IntelligentMediaCache {
     private const val TAG = "IntelligentMediaCache"
     private const val CACHE_DIR_NAME = "intelligent_media_cache"
-    private const val MAX_CACHE_SIZE = 2L * 1024 * 1024 * 1024L // 2GB
+    private const val MAX_CACHE_SIZE = 4L * 1024 * 1024 * 1024L // 4GB
     private const val VISIBLE_PRIORITY_BOOST = 1000L
     private const val RECENTLY_VIEWED_BOOST = 500L
     private const val ACCESS_COUNT_BOOST = 100L
@@ -207,6 +209,77 @@ object IntelligentMediaCache {
      */
     fun isCached(mxcUrl: String): Boolean {
         return cacheEntries.containsKey(mxcUrl) && cacheEntries[mxcUrl]?.file?.exists() == true
+    }
+    
+    /**
+     * Check if MXC URL is cached (compatibility method with context parameter).
+     */
+    fun isCached(context: Context, mxcUrl: String): Boolean {
+        return isCached(mxcUrl)
+    }
+    
+    /**
+     * Download and cache MXC URL (compatibility method matching MediaCache API).
+     */
+    suspend fun downloadAndCache(
+        context: Context,
+        mxcUrl: String,
+        httpUrl: String,
+        authToken: String
+    ): File? = withContext(Dispatchers.IO) {
+        try {
+            val cacheDir = getCacheDir(context)
+            val cacheKey = getCacheKey(mxcUrl)
+            val cachedFile = File(cacheDir, cacheKey)
+            
+            // Check if already cached
+            if (cachedFile.exists()) {
+                // Register in cache entries if not already there
+                cacheFile(context, mxcUrl, cachedFile, "unknown")
+                return@withContext cachedFile
+            }
+            
+            // Download the file
+            val connection = java.net.URL(httpUrl).openConnection()
+            connection.setRequestProperty("Cookie", "gomuks_auth=$authToken")
+            connection.connect()
+            
+            cachedFile.outputStream().use { output ->
+                connection.getInputStream().use { input ->
+                    input.copyTo(output)
+                }
+            }
+            
+            // Register in cache
+            cacheFile(context, mxcUrl, cachedFile, "unknown")
+            
+            cachedFile
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to cache media: $mxcUrl", e)
+            null
+        }
+    }
+    
+    /**
+     * Clean up cache if size exceeds limit (compatibility method matching MediaCache API).
+     */
+    suspend fun cleanupCache(context: Context) = cacheMutex.withLock {
+        try {
+            val cacheDir = getCacheDir(context)
+            val files = cacheDir.listFiles() ?: return@withLock
+            
+            // Calculate total cache size
+            val totalSize = files.sumOf { it.length() }
+            
+            if (totalSize > MAX_CACHE_SIZE) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Cache size ${totalSize / 1024 / 1024}MB exceeds limit ${MAX_CACHE_SIZE / 1024 / 1024}MB, cleaning up...")
+                
+                // Use intelligent eviction
+                ensureCacheSize(context)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to cleanup cache", e)
+        }
     }
     
     /**

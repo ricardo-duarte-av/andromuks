@@ -32,6 +32,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.htmlToNotificationText
@@ -333,7 +334,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         // Try to download avatar for current user
                         val httpUrl = MediaUtils.mxcToHttpUrl(avatarUrl, homeserverUrl)
                         if (httpUrl != null) {
-                            val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+                            val downloadedFile = IntelligentMediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
                             if (downloadedFile != null) {
                                 if (BuildConfig.DEBUG) Log.d(TAG, "Downloaded current user avatar to cache: ${downloadedFile.absolutePath}")
                                 android.graphics.BitmapFactory.decodeFile(downloadedFile.absolutePath)
@@ -440,7 +441,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                         } else {
                             // Download and cache
                             if (BuildConfig.DEBUG) Log.d(TAG, "Downloading image from: $httpUrl")
-                            val downloadedFile = MediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
+                            val downloadedFile = IntelligentMediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
                             if (downloadedFile != null) {
                                 if (BuildConfig.DEBUG) Log.d(TAG, "Downloaded image to cache: ${downloadedFile.absolutePath}")
                                 // Use FileProvider to create a content:// URI that can be accessed by the notification system
@@ -1232,8 +1233,8 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
             
             if (BuildConfig.DEBUG) Log.d(TAG, "Downloading and caching avatar from: $httpUrl")
             
-            // Download and cache using existing MediaCache infrastructure
-            val downloadedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+            // Download and cache using IntelligentMediaCache
+            val downloadedFile = IntelligentMediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
             
             if (downloadedFile != null) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Successfully downloaded and cached avatar: ${downloadedFile.absolutePath}")

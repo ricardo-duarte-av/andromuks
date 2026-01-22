@@ -28,6 +28,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
+import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.MainActivity
 import net.vrkknn.andromuks.BuildConfig
@@ -323,8 +324,8 @@ class PersonsApi(
                 }
                 
                 if (httpUrl != null) {
-                    // Download and cache using existing MediaCache infrastructure
-                    cachedFile = MediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
+                    // Download and cache using IntelligentMediaCache
+                    cachedFile = IntelligentMediaCache.downloadAndCache(context, avatarUrl, httpUrl, authToken)
                     if (cachedFile != null) {
                         if (BuildConfig.DEBUG) Log.d(TAG, "PersonsApi: ✓ Successfully downloaded and cached avatar for ${target.userId} (${cachedFile.length()} bytes)")
                     } else {

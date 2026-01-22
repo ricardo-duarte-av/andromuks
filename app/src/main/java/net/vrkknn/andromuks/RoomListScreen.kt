@@ -145,7 +145,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.FlowPreview
 import net.vrkknn.andromuks.utils.AvatarUtils
-import net.vrkknn.andromuks.utils.MediaCache
+import net.vrkknn.andromuks.utils.IntelligentMediaCache
 
 private const val ROOM_LIST_VERBOSE_LOGGING = false
 private fun usernameFromMatrixId(userId: String): String =

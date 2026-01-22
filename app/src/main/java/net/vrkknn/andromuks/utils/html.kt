@@ -70,6 +70,7 @@ import java.net.URLDecoder
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.CacheUtils
+import net.vrkknn.andromuks.utils.IntelligentMediaCache
 import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.extractRoomLink

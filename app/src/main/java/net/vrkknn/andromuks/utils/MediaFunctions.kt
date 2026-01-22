@@ -114,107 +114,56 @@ import okhttp3.Response
 import java.io.FileOutputStream
 
 /**
- * Media cache utility functions for MXC URLs
+ * DEPRECATED: MediaCache has been replaced by IntelligentMediaCache.
+ * All functionality has been migrated to IntelligentMediaCache which provides:
+ * - Viewport-aware caching
+ * - Smart eviction based on usage and visibility
+ * - Access count tracking
+ * - Better performance and memory management
+ * 
+ * This object is kept for backward compatibility but should not be used in new code.
+ * Use IntelligentMediaCache instead.
  */
+@Deprecated("Use IntelligentMediaCache instead", ReplaceWith("IntelligentMediaCache"))
 object MediaCache {
-    private const val CACHE_DIR_NAME = "media_cache"
-    private const val MAX_CACHE_SIZE = 4L * 1024 * 1024 * 1024L // 4GB
+    // All methods delegate to IntelligentMediaCache for backward compatibility
+    // This allows old code to continue working while we migrate
     
-    /**
-     * Get cache directory for media files
-     */
+    @Deprecated("Use IntelligentMediaCache.getCacheDir() instead")
     fun getCacheDir(context: android.content.Context): File {
-        val cacheDir = File(context.cacheDir, CACHE_DIR_NAME)
-        if (!cacheDir.exists()) {
-            cacheDir.mkdirs()
-        }
-        return cacheDir
+        return IntelligentMediaCache.getCacheDir(context)
     }
     
-    /**
-     * Generate cache key from MXC URL
-     */
+    @Deprecated("Use IntelligentMediaCache.getCacheKey() instead")
     fun getCacheKey(mxcUrl: String): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        val hash = digest.digest(mxcUrl.toByteArray())
-        return hash.joinToString("") { "%02x".format(it) }
+        return IntelligentMediaCache.getCacheKey(mxcUrl)
     }
     
-    /**
-     * Get cached file for MXC URL
-     */
+    @Deprecated("Use IntelligentMediaCache.getCachedFile() instead")
     fun getCachedFile(context: android.content.Context, mxcUrl: String): File? {
-        val cacheDir = getCacheDir(context)
-        val cacheKey = getCacheKey(mxcUrl)
-        val cachedFile = File(cacheDir, cacheKey)
-        return if (cachedFile.exists()) cachedFile else null
+        return kotlinx.coroutines.runBlocking {
+            IntelligentMediaCache.getCachedFile(context, mxcUrl)
+        }
     }
     
-    /**
-     * Check if MXC URL is cached
-     */
+    @Deprecated("Use IntelligentMediaCache.isCached() instead")
     fun isCached(context: android.content.Context, mxcUrl: String): Boolean {
-        return getCachedFile(context, mxcUrl) != null
+        return IntelligentMediaCache.isCached(context, mxcUrl)
     }
     
-    /**
-     * Download and cache MXC URL
-     */
+    @Deprecated("Use IntelligentMediaCache.downloadAndCache() instead")
     suspend fun downloadAndCache(
         context: android.content.Context,
         mxcUrl: String,
         httpUrl: String,
         authToken: String
-    ): File? = withContext(Dispatchers.IO) {
-        try {
-            val cacheDir = getCacheDir(context)
-            val cacheKey = getCacheKey(mxcUrl)
-            val cachedFile = File(cacheDir, cacheKey)
-            
-            // Download the file
-            val connection = URL(httpUrl).openConnection()
-            connection.setRequestProperty("Cookie", "gomuks_auth=$authToken")
-            connection.connect()
-            
-            cachedFile.outputStream().use { output ->
-                connection.getInputStream().use { input ->
-                    input.copyTo(output)
-                }
-            }
-            
-            cachedFile
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "Failed to cache media: $mxcUrl", e)
-            null
-        }
+    ): File? {
+        return IntelligentMediaCache.downloadAndCache(context, mxcUrl, httpUrl, authToken)
     }
     
-    /**
-     * Clean up old cache files if cache size exceeds limit
-     */
-    fun cleanupCache(context: android.content.Context) {
-        try {
-            val cacheDir = getCacheDir(context)
-            val files = cacheDir.listFiles() ?: return
-            
-            // Calculate total cache size
-            val totalSize = files.sumOf { it.length() }
-            
-            if (totalSize > MAX_CACHE_SIZE) {
-                // Sort by modification time (oldest first)
-                val sortedFiles = files.sortedBy { it.lastModified() }
-                
-                // Remove oldest files until under limit
-                var currentSize = totalSize
-                for (file in sortedFiles) {
-                    if (currentSize <= MAX_CACHE_SIZE) break
-                    file.delete()
-                    currentSize -= file.length()
-                }
-            }
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "Failed to cleanup cache", e)
-        }
+    @Deprecated("Use IntelligentMediaCache.cleanupCache() instead")
+    suspend fun cleanupCache(context: android.content.Context) {
+        IntelligentMediaCache.cleanupCache(context)
     }
 }
 
@@ -913,7 +862,7 @@ private fun MediaContent(
 
                     // Load cached file in background for the chosen resource (thumbnail or full)
                     LaunchedEffect(displayMxcUrl) {
-                        cachedFile = IntelligentMediaCache.getCachedFile(context, displayMxcUrl)
+                        cachedFile = MediaCache.getCachedFile(context, displayMxcUrl)
                     }
 
                     val imageUrl =
