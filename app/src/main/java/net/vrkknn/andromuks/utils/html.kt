@@ -451,13 +451,15 @@ private fun AnnotatedString.Builder.appendHtmlNode(
             text = if (hideContent) {
                 maskSpoilerText(text)
             } else {
-                // Preserve explicit newlines from sanitized_html, but normalize tabs/multiple spaces within each line
-                text.replace("\r\n", "\n")
-                    .replace("\r", "\n")
-                    .split('\n')
-                    .joinToString("\n") { line ->
-                        line.replace(Regex("[\\t ]+"), " ")
-                    }
+                // In HTML mode, <br> tags handle line breaks, so remove newlines from text nodes
+                // to prevent double line breaks when HTML has "<br>\n"
+                // Normalize tabs/multiple spaces within each line
+                // Trim leading/trailing whitespace since whitespace around HTML tags is not significant
+                text.replace("\r\n", " ")
+                    .replace("\r", " ")
+                    .replace("\n", " ")
+                    .replace(Regex("[\\t ]+"), " ")
+                    .trim()
             }
             withStyle(baseStyle) { append(text) }
         }
@@ -1220,7 +1222,8 @@ fun HtmlMessageText(
     onMatrixUserClick: (String) -> Unit = {},
     onRoomLinkClick: (RoomLink) -> Unit = {},
     appViewModel: AppViewModel? = null,
-    isEmojiOnly: Boolean = false
+    isEmojiOnly: Boolean = false,
+    htmlContent: String? = null // Optional HTML content (e.g., from edit) to override event extraction
 ) {
     // Don't render HTML for redacted messages
     // The parent composable should handle showing the deletion message
@@ -1229,13 +1232,21 @@ fun HtmlMessageText(
     }
     
     val context = LocalContext.current
-    val sanitizedHtml = remember(event) {
+    val sanitizedHtml = remember(event, htmlContent) {
+        // Use provided htmlContent if available (e.g., from edit), otherwise extract from event
+        val result = htmlContent?.takeIf { it.isNotBlank() }?.let { decodeHtmlEntities(it) }
+            ?: run {
         val sanitized = extractSanitizedHtml(event)
         sanitized ?: run {
             val formattedBody = event.decrypted?.optString("formatted_body")?.takeIf { it.isNotBlank() }
                 ?: event.content?.optString("formatted_body")?.takeIf { it.isNotBlank() }
             formattedBody?.let { decodeHtmlEntities(it) }
+                }
         }
+        if (BuildConfig.DEBUG && htmlContent != null) {
+            Log.d("Andromuks", "HtmlMessageText: Received htmlContent for event ${event.eventId}, length: ${htmlContent.length}, preview: ${htmlContent.take(100)}, decoded length: ${result?.length ?: 0}, decoded preview: ${result?.take(100)}")
+        }
+        result
     }
     
     val plainTextBody = if (sanitizedHtml == null) {

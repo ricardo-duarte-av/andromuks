@@ -301,8 +301,20 @@ fun AdaptiveMessageText(
     }
     
     // Check if HTML rendering is supported and available (and not redacted)
-    if (!isRedacted && supportsHtmlRendering(event)) {
-        if (BuildConfig.DEBUG) Log.d("Andromuks", "AdaptiveMessageText: Using HTML rendering for event ${event.eventId}")
+    // Support HTML if either the original event or the format parameter indicates HTML
+    val supportsHtml = !isRedacted && (supportsHtmlRendering(event) || format == "org.matrix.custom.html")
+    if (supportsHtml) {
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "AdaptiveMessageText: Using HTML rendering for event ${event.eventId}, format: $format, body length: ${body.length}")
+        // For HTML messages, use the body parameter (which may contain edit content) if format indicates HTML
+        // Always pass body if format is HTML, even if body might be blank (let HtmlMessageText handle fallback)
+        val htmlContent = if (format == "org.matrix.custom.html") {
+            body // Use the passed body which may be edit content (even if blank, HtmlMessageText will fallback)
+        } else {
+            null // Let HtmlMessageText extract from event
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d("Andromuks", "AdaptiveMessageText: HTML format detected, passing htmlContent length: ${htmlContent?.length ?: 0}, preview: ${htmlContent?.take(100)}")
+        }
         HtmlMessageText(
             event = event,
             homeserverUrl = homeserverUrl,
@@ -312,7 +324,8 @@ fun AdaptiveMessageText(
             onMatrixUserClick = onMatrixUserClick,
             onRoomLinkClick = onRoomLinkClick,
             appViewModel = appViewModel,
-            isEmojiOnly = isEmojiOnly
+            isEmojiOnly = isEmojiOnly,
+            htmlContent = htmlContent // Pass edit content if available
         )
     } else {
         // Fallback to plain text for redacted messages or when HTML is not available
@@ -654,8 +667,56 @@ private fun RoomMessageContent(
         }
     val msgType = content?.optString("msgtype", "") ?: ""
     
+    // If this message has been edited (by another event), use the latest edit content
+    val (finalBody, finalFormat, finalMsgType) = if (editedBy != null && !isEditEvent) {
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomMessageContent: Using edit content for event ${event.eventId}, edit event: ${editedBy.eventId}")
+        val newContent = editedBy.content?.optJSONObject("m.new_content")
+        if (BuildConfig.DEBUG) {
+            Log.d("Andromuks", "RoomMessageContent: newContent is null: ${newContent == null}")
+            if (newContent != null) {
+                Log.d("Andromuks", "RoomMessageContent: newContent keys: ${newContent.keys().asSequence().toList()}")
+            }
+        }
+        val editFormatRaw = newContent?.optString("format", "") ?: ""
+        val editFormat = if (editFormatRaw.isBlank()) format else editFormatRaw
+        val editMsgType = newContent?.optString("msgtype", "") ?: msgType
+        
+        if (BuildConfig.DEBUG) {
+            Log.d("Andromuks", "RoomMessageContent: editFormatRaw: '$editFormatRaw', editFormat: '$editFormat', original format: '$format'")
+        }
+        
+        // For HTML messages, prefer sanitized_html from localContent if available, otherwise formatted_body
+        val editBody = if (editFormat == "org.matrix.custom.html") {
+            // Check localContent first (sanitized_html), then formatted_body, then body
+            val sanitized = editedBy.localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
+            val formatted = newContent?.optString("formatted_body", "")?.takeIf { it.isNotBlank() }
+            val result = sanitized ?: formatted ?: body
+            if (BuildConfig.DEBUG) {
+                Log.d("Andromuks", "RoomMessageContent: Edit HTML - sanitized_html present: ${sanitized != null}, formatted_body present: ${formatted != null}, result length: ${result.length}, preview: ${result.take(100)}")
+            }
+            result
+        } else {
+            val result = newContent?.optString("body", "") ?: body
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomMessageContent: Edit plain text - body length: ${result.length}, preview: ${result.take(50)}")
+            result
+        }
+        if (BuildConfig.DEBUG) {
+            Log.d("Andromuks", "RoomMessageContent: Final edit result - body length: ${editBody.length}, format: $editFormat, msgType: $editMsgType")
+        }
+        Triple(editBody, editFormat, editMsgType)
+    } else {
+        if (BuildConfig.DEBUG) {
+            if (editedBy == null) {
+                Log.d("Andromuks", "RoomMessageContent: No edit found for event ${event.eventId}, using original body length: ${body.length}")
+            } else if (isEditEvent) {
+                Log.d("Andromuks", "RoomMessageContent: Event ${event.eventId} IS an edit event, using original body")
+            }
+        }
+        Triple(body, format, msgType)
+    }
+    
     // Handle m.emote messages with narrator rendering
-    if (msgType == "m.emote") {
+    if (finalMsgType == "m.emote") {
         Column(modifier = Modifier.fillMaxWidth()) {
             EmoteEventNarrator(
                 event = event,
@@ -717,7 +778,8 @@ private fun RoomMessageContent(
     }
 
     // Show deletion message if redacted, otherwise show the message content
-    val finalBody =
+    // Use finalBody which already includes edit content if the message was edited
+    val displayBody =
         if (isRedacted) {
             // OPTIMIZED: Create deletion message using O(1) cached redaction event
             net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
@@ -725,8 +787,7 @@ private fun RoomMessageContent(
                 userProfileCache
             )
         } else {
-            body // Show the message content (for edit events, this is already the
-                 // new content)
+            finalBody // Show the message content (includes edit content if edited)
         }
 
     // Check if message has been edited (O(1) lookup) - placed early so downstream renderers can use it
@@ -893,8 +954,8 @@ private fun RoomMessageContent(
     } else {
         RoomTextMessageContent(
             event = event,
-            finalBody = finalBody,
-            format = format,
+            finalBody = displayBody,
+            format = finalFormat,
             actualIsMine = actualIsMine,
             mentionsMe = mentionsMe,
             readReceipts = readReceipts,
@@ -2798,15 +2859,42 @@ fun TimelineEventItem(
             )
 
     // Check if this message is being edited by another event (moved to function start)
-    val editedBy =
-        timelineEvents.find {
-            (it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
-                it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") ||
-                (it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") ==
-                    event.eventId &&
-                    it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") ==
-                        "m.replace")
+    // Try getMessageVersions first (most reliable), then fallback to searching timelineEvents
+    // This ensures we get the latest edit even if edit events are filtered from display
+    val editedBy = remember(event.eventId, appViewModel?.timelineUpdateCounter, timelineEvents) {
+        // First try getMessageVersions (uses cached version data)
+        val versioned = appViewModel?.getMessageVersions(event.eventId)
+        if (BuildConfig.DEBUG) {
+            Log.d("Andromuks", "TimelineEventItem: Checking edits for event ${event.eventId}, versioned: ${versioned != null}, versions count: ${versioned?.versions?.size ?: 0}")
+            versioned?.versions?.forEachIndexed { index, version ->
+                Log.d("Andromuks", "TimelineEventItem: Version $index: eventId=${version.eventId}, isOriginal=${version.isOriginal}, timestamp=${version.timestamp}")
+            }
         }
+        // Find the first version that is NOT the original (i.e., an edit)
+        // Versions are sorted by timestamp (newest first), so the first non-original is the latest edit
+        val editFromVersions = versioned?.versions?.firstOrNull { !it.isOriginal }?.event
+        
+        if (editFromVersions != null) {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "TimelineEventItem: Found edit from versions: ${editFromVersions.eventId}")
+            editFromVersions
+        } else {
+            // Fallback: search timelineEvents directly (unfiltered list should contain edit events)
+            // This works even if getMessageVersions isn't populated yet
+            val editsFromTimeline = timelineEvents.filter {
+                (it.content?.optJSONObject("m.relates_to")?.optString("event_id") == event.eventId &&
+                    it.content?.optJSONObject("m.relates_to")?.optString("rel_type") == "m.replace") ||
+                    (it.decrypted?.optJSONObject("m.relates_to")?.optString("event_id") ==
+                        event.eventId &&
+                        it.decrypted?.optJSONObject("m.relates_to")?.optString("rel_type") ==
+                            "m.replace")
+            }
+            val latestEdit = editsFromTimeline.maxByOrNull { it.timestamp }
+            if (BuildConfig.DEBUG) {
+                Log.d("Andromuks", "TimelineEventItem: Found ${editsFromTimeline.size} edits in timelineEvents for event ${event.eventId}, latest: ${latestEdit?.eventId}")
+            }
+            latestEdit
+        }
+    }
 
     var showEditHistoryDialog by remember(event.eventId) { mutableStateOf(false) }
     var editHistoryLoading by remember(event.eventId) { mutableStateOf(false) }
