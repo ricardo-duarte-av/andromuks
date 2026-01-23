@@ -765,6 +765,7 @@ fun MessageBubbleWithMenu(
     onBubbleClick: (() -> Unit)? = null,
     onShowEditHistory: (() -> Unit)? = null,
     externalMenuTrigger: Int = 0, // External trigger to show menu (increment to trigger)
+    mentionBorder: androidx.compose.ui.graphics.Color? = null, // Optional accent border for mentions (Google Messages style)
     content: @Composable RowScope.() -> Unit
 ) {
     var showMenu by remember { mutableStateOf(false) }
@@ -905,6 +906,18 @@ fun MessageBubbleWithMenu(
             null
         }
     
+    // Google Messages style: Mention border (accent border for mentions)
+    // Mention border takes precedence over highlight border
+    val mentionBorderStroke = mentionBorder?.let {
+        BorderStroke(
+            width = 2.dp,
+            color = it
+        )
+    }
+    
+    // Use mention border if present, otherwise use highlight border
+    val combinedBorder = mentionBorderStroke ?: highlightBorder
+    
     // Adjust bubble color based on local echo state
     val bubbleColorAdjusted = when {
         isPendingEcho -> MaterialTheme.colorScheme.tertiaryContainer // warning tone, softer than error
@@ -957,7 +970,7 @@ fun MessageBubbleWithMenu(
                 } else {
                     3.dp + (6.dp * highlightValue)
                 },  // Shadows in light mode only
-            border = highlightBorder
+            border = combinedBorder
         ) {
             Row(content = content)
         }

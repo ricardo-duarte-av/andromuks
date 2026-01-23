@@ -819,7 +819,8 @@ private fun RoomMessageContent(
                     onDelete = { onDelete(event) },
                     appViewModel = appViewModel,
                     onBubbleClick = { onThreadClick(event) },
-                    onShowEditHistory = null
+                    onShowEditHistory = null,
+                    mentionBorder = deletionColors.mentionBorder
                 ) {
                     Text(
                         text = deletionMessage,
@@ -1028,7 +1029,8 @@ private fun RoomMediaMessageContent(
                 onDelete = { onDelete(event) },
                 appViewModel = appViewModel,
                 onBubbleClick = { onThreadClick(event) },
-                onShowEditHistory = null
+                onShowEditHistory = null,
+                mentionBorder = deletionColors.mentionBorder
             ) {
                 Text(
                     text = deletionMessage,
@@ -1382,7 +1384,8 @@ private fun RoomTextMessageContent(
                 } else {
                     null
                 },
-                onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null
+                onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
+                mentionBorder = bubbleColors.mentionBorder
             ) {
                 Column(
                     modifier = Modifier.padding(8.dp),
@@ -1508,7 +1511,8 @@ private fun RoomTextMessageContent(
                 } else {
                     null
                 },
-                onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null
+                onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
+                mentionBorder = bubbleColors.mentionBorder
             ) {
                 Box(
                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -2063,7 +2067,8 @@ private fun EncryptedMessageContent(
                         onEdit = { onEdit(event) },
                         onDelete = { onDelete(event) },
                         appViewModel = appViewModel,
-                        onBubbleClick = null
+                        onBubbleClick = null,
+                        mentionBorder = fallbackColors.mentionBorder
                     ) {
                         Text(
                             text = body,
@@ -2198,7 +2203,8 @@ private fun EncryptedMessageContent(
                         } else {
                             null
                         },
-                        onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null
+                        onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
+                        mentionBorder = bubbleColors.mentionBorder
                     ) {
                         Column(
                             modifier = Modifier.padding(8.dp),
@@ -2296,7 +2302,8 @@ private fun EncryptedMessageContent(
                         } else {
                             null
                         },
-                        onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null
+                        onShowEditHistory = if (hasBeenEdited) onShowEditHistory else null,
+                        mentionBorder = bubbleColors.mentionBorder
                     ) {
                         Box(
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
@@ -2539,7 +2546,8 @@ private fun StickerMessageContent(
                 onDelete = { onDelete(event) },
                 appViewModel = appViewModel,
                 onBubbleClick = { onThreadClick(event) },
-                onShowEditHistory = null
+                onShowEditHistory = null,
+                mentionBorder = deletionColors.mentionBorder
             ) {
                 Text(
                     text = deletionMessage,
@@ -2764,7 +2772,15 @@ fun TimelineEventItem(
         }
 
     // Check if the current user is mentioned in this message (calculated once for reuse)
-    val mentionsMe = !actualIsMine && isMentioningUser(event, myUserId)
+    // IMPORTANT: Exclude automatic mentions from replies - when someone replies to your message,
+    // Matrix automatically adds you to m.mentions, but that's not a "real" mention that should show a border
+    // Only show mention border if the message actually mentions the user AND it's not just a reply to that user
+    val replyInfoForMention = event.getReplyInfo()
+    val originalEventForMention = replyInfoForMention?.let { reply ->
+        timelineEvents.find<TimelineEvent> { it.eventId == reply.eventId }
+    }
+    val isReplyToMe = originalEventForMention?.sender == myUserId
+    val mentionsMe = !actualIsMine && isMentioningUser(event, myUserId) && !isReplyToMe
 
     // Check if this is a narrator event (system event)
     val isNarratorEvent =
