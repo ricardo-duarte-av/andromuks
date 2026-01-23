@@ -66,6 +66,9 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     private var lastShortcutStableIds: Set<String> = emptySet()
     private var lastNameAvatar: Map<String, Pair<String, String?>> = emptyMap()
     private val lastAvatarCachePresence: MutableMap<String, Boolean> = mutableMapOf()
+    // Track whether shortcut was created with avatar icon (true) or fallback icon (false)
+    // This helps detect when shortcuts need to be refreshed to get avatars
+    private val shortcutHasAvatarIcon: MutableMap<String, Boolean> = mutableMapOf()
     private var cacheInitialized: Boolean = false
     
     /**
@@ -308,7 +311,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
      * NOTE: This function REPLACES all shortcuts with the top rooms from the provided list.
      * Use updateShortcutsFromSyncRooms() for incremental updates that preserve existing shortcuts.
      */
-    fun updateConversationShortcuts(rooms: List<RoomItem>) {
+    fun updateConversationShortcuts(rooms: List<RoomItem>, replaceAll: Boolean = true) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
             //Log.d(TAG, "updateConversationShortcuts called with ${rooms.size} rooms, realMatrixHomeserverUrl: $realMatrixHomeserverUrl")
             
@@ -320,20 +323,20 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     cacheInitialized = true
                     
                     // After cache is initialized, proceed with update
-                    performUpdateConversationShortcuts(rooms)
+                    performUpdateConversationShortcuts(rooms, replaceAll)
                 }
                 return
             }
             
             // Cache already initialized, proceed immediately
-            performUpdateConversationShortcuts(rooms)
+            performUpdateConversationShortcuts(rooms, replaceAll)
         }
     }
     
     /**
      * Internal function to perform the actual shortcut update
      */
-    private fun performUpdateConversationShortcuts(rooms: List<RoomItem>) {
+    private fun performUpdateConversationShortcuts(rooms: List<RoomItem>, replaceAll: Boolean = true) {
         // Cancel any pending update
         pendingShortcutUpdate?.cancel()
         
@@ -347,7 +350,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 kotlinx.coroutines.delay(SHORTCUT_UPDATE_DEBOUNCE_MS - timeSinceLastUpdate)
                 try {
                     val shortcuts = createShortcutsFromRooms(rooms)
-                    updateShortcuts(shortcuts)
+                    updateShortcuts(shortcuts, replaceAll)
                     lastShortcutUpdateTime = System.currentTimeMillis()
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating conversation shortcuts (debounced)", e)
@@ -358,7 +361,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val shortcuts = createShortcutsFromRooms(rooms)
-                    updateShortcuts(shortcuts)
+                    updateShortcuts(shortcuts, replaceAll)
                     lastShortcutUpdateTime = System.currentTimeMillis()
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating conversation shortcuts", e)
@@ -382,7 +385,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             withContext(Dispatchers.IO) {
                 try {
                     val shortcuts = createShortcutsFromRooms(rooms)
-                    updateShortcuts(shortcuts)
+                    updateShortcuts(shortcuts, replaceAll = true) // Always replace for sync updates
                     lastShortcutUpdateTime = System.currentTimeMillis()
                     //Log.d(TAG, "Synchronous shortcut update completed")
                 } catch (e: Exception) {
@@ -406,7 +409,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val shortcuts = createShortcutsFromRooms(rooms)
-                    updateShortcuts(shortcuts)
+                    updateShortcuts(shortcuts, replaceAll = true) // Always replace for immediate updates
                     lastShortcutUpdateTime = System.currentTimeMillis()
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating conversation shortcuts immediately", e)
@@ -481,11 +484,11 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     shortcutIdsSet.add(roomId)
                     nameAvatarMap[roomId] = Pair(roomName, avatarUrl)
                     
-                    // Check if avatar is cached
-                    val avatarInCache = avatarUrl?.let { url ->
-                        kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, url) } != null
-                    } ?: false
+                    // Check if avatar is cached (but we don't have avatar URL from shortcut, so assume false)
+                    // When shortcut is updated later, it will check and refresh if avatar becomes available
+                    val avatarInCache = false // Can't determine from existing shortcut
                     lastAvatarCachePresence[roomId] = avatarInCache
+                    shortcutHasAvatarIcon[roomId] = false // Assume no avatar until we update and check
                 }
                 
                 lastShortcutData = shortcutsMap
@@ -604,19 +607,31 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             true // No existing shortcut data, update it
         }
         
-        if (needsUpdate) {
-            val shortcut = roomToShortcut(room)
-            val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
-            
-            // Check if avatar is in cache AFTER createShortcutInfoCompat (which may have downloaded it)
-            val avatarInCache = room.avatarUrl?.let { url ->
-                kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, url) } != null
-            } ?: false
-            
-            val previouslyCached = lastAvatarCachePresence[room.id] ?: false
-            
-            // Only refresh icon when avatar transitions from not-cached -> cached
-            if (avatarInCache && !previouslyCached) {
+        // Always create shortcut info to check avatar availability
+        val shortcut = roomToShortcut(room)
+        
+        // Check if we can successfully create an avatar icon (not just if file exists)
+        // This detects when avatar becomes available even if file existed but was corrupted before
+        val canCreateAvatar = room.avatarUrl?.let { url ->
+            kotlinx.coroutines.runBlocking { canCreateAvatarIcon(url) }
+        } ?: false
+        
+        val previouslyHadAvatar = shortcutHasAvatarIcon[room.id] ?: false
+        
+        // Refresh icon if:
+        // 1. Avatar transitions from not-available -> available (canCreateAvatar && !previouslyHadAvatar)
+        // 2. Avatar was previously available but shortcut might have been created with fallback
+        //    (This handles the case where shortcut was created with fallback even though avatar existed)
+        val shouldRefreshIcon = canCreateAvatar && !previouslyHadAvatar
+        
+        val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
+        
+        // Track whether this shortcut was created with an avatar icon or fallback
+        val createdWithAvatar = canCreateAvatar
+        
+        if (needsUpdate || shouldRefreshIcon) {
+            // Remove shortcut if avatar became available (to force icon refresh)
+            if (shouldRefreshIcon) {
                 if (BuildConfig.DEBUG) Log.d(TAG, "Removing old shortcut to refresh icon (avatar cache became available)")
                 ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(room.id))
             }
@@ -628,16 +643,26 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             lastShortcutData = lastShortcutData + (room.id to shortcut)
             lastShortcutStableIds = lastShortcutStableIds + room.id
             lastNameAvatar = lastNameAvatar + (room.id to (room.name to room.avatarUrl))
-            lastAvatarCachePresence[room.id] = avatarInCache
+            lastAvatarCachePresence[room.id] = canCreateAvatar
+            shortcutHasAvatarIcon[room.id] = createdWithAvatar
             
             lastShortcutUpdateCompletedTime = System.currentTimeMillis()
             
-            if (BuildConfig.DEBUG) Log.d(TAG, "Updated shortcut for room: ${room.name} (moved to top)")
+            if (BuildConfig.DEBUG) {
+                if (shouldRefreshIcon && !needsUpdate) {
+                    Log.d(TAG, "Refreshed shortcut icon for room: ${room.name} (avatar became available)")
+                } else {
+                    Log.d(TAG, "Updated shortcut for room: ${room.name} (moved to top)")
+                }
+            }
         } else {
             // Still move to top even if no update needed (just push again)
-            val shortcut = roomToShortcut(room)
-            val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
             ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
+            
+            // Update tracking even if we're not refreshing the icon
+            // This ensures tracking stays accurate
+            lastAvatarCachePresence[room.id] = canCreateAvatar
+            shortcutHasAvatarIcon[room.id] = createdWithAvatar
             
             if (BuildConfig.DEBUG) Log.d(TAG, "Moved shortcut to top for room: ${room.name} (no update needed)")
         }
@@ -659,9 +684,10 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         lastNameAvatar = lastNameAvatar + (room.id to (room.name to room.avatarUrl))
         
         val avatarInCache = room.avatarUrl?.let { url ->
-            kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, url) } != null
+            kotlinx.coroutines.runBlocking { canCreateAvatarIcon(url) }
         } ?: false
         lastAvatarCachePresence[room.id] = avatarInCache
+        shortcutHasAvatarIcon[room.id] = avatarInCache
         
         lastShortcutUpdateCompletedTime = System.currentTimeMillis()
         
@@ -687,6 +713,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             lastShortcutStableIds = lastShortcutStableIds - oldestShortcut.roomId
             lastNameAvatar = lastNameAvatar - oldestShortcut.roomId
             lastAvatarCachePresence.remove(oldestShortcut.roomId)
+            shortcutHasAvatarIcon.remove(oldestShortcut.roomId)
             
             if (BuildConfig.DEBUG) Log.d(TAG, "Removed oldest shortcut: ${oldestShortcut.roomName}")
         }
@@ -808,12 +835,13 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
     
     /**
      * Update shortcuts in the system
-     * Intelligently merges with existing shortcuts to preserve good icons
+     * Intelligently merges with existing shortcuts to preserve good icons (if replaceAll=false)
+     * Or replaces all shortcuts with the new list (if replaceAll=true)
      * Runs entirely in background to avoid UI blocking
      * Only updates shortcuts that actually changed
      */
     @RequiresApi(Build.VERSION_CODES.N_MR1)
-    private suspend fun updateShortcuts(shortcuts: List<ConversationShortcut>) {
+    private suspend fun updateShortcuts(shortcuts: List<ConversationShortcut>, replaceAll: Boolean = false) {
         try {
             // CRITICAL: If cache is not initialized, initialize it first to preserve existing shortcuts
             // This prevents shortcuts from being replaced on app restart
@@ -850,69 +878,105 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
 
             //Log.d(TAG, "Updating ${shortcuts.size} shortcuts using pushDynamicShortcut() (background thread)")
             
-            // CRITICAL: Preserve existing shortcuts - only update/add new ones if there's space
-            // This prevents existing shortcuts from being replaced on app restart
-            val newIdsSet = shortcuts.map { it.roomId }.toSet()
-            val existingIdsSet = lastShortcutStableIds
+            val shortcutsToUpdate: List<ConversationShortcut>
+            val shortcutsToKeep: Map<String, ConversationShortcut>
             
-            // Keep existing shortcuts that aren't being updated
-            val shortcutsToKeep = lastShortcutData.filterKeys { it !in newIdsSet }
-            
-            val currentCount = lastShortcutStableIds.size
-            val slotsAvailable = MAX_SHORTCUTS - currentCount
-            
-            // Determine which shortcuts to update/add
-            val shortcutsToUpdate = if (slotsAvailable > 0) {
-                // We have space - can add new shortcuts (up to available slots)
-                shortcuts.take(slotsAvailable)
+            if (replaceAll) {
+                // Replace all shortcuts with the new list (startup refresh)
+                shortcutsToUpdate = shortcuts.take(MAX_SHORTCUTS)
+                shortcutsToKeep = emptyMap()
+                
+                // Remove all existing shortcuts that aren't in the new list
+                val existingShortcutIds = lastShortcutStableIds.toList()
+                val newShortcutIds = shortcutsToUpdate.map { it.roomId }.toSet()
+                val shortcutsToRemove = existingShortcutIds.filter { it !in newShortcutIds }
+                
+                if (shortcutsToRemove.isNotEmpty()) {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "updateShortcuts: Removing ${shortcutsToRemove.size} old shortcuts that aren't in top 4")
+                    }
+                    ShortcutManagerCompat.removeDynamicShortcuts(context, shortcutsToRemove)
+                    
+                    // Clear tracking for removed shortcuts
+                    shortcutsToRemove.forEach { roomId ->
+                        lastAvatarCachePresence.remove(roomId)
+                        shortcutHasAvatarIcon.remove(roomId)
+                    }
+                }
+                
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "updateShortcuts: Replacing all shortcuts with ${shortcutsToUpdate.size} new shortcuts (replaceAll=true)")
+                }
+                
+                // Update cache with new shortcuts only
+                lastShortcutData = shortcutsToUpdate.associateBy { it.roomId }
+                lastShortcutHash = lastShortcutData.hashCode()
+                lastShortcutStableIds = shortcutsToUpdate.map { it.roomId }.toSet()
+                lastNameAvatar = shortcutsToUpdate.associate { it.roomId to (it.roomName to it.roomAvatarUrl) }
             } else {
-                // No space - only update existing shortcuts that are in the new list
-                shortcuts.filter { it.roomId in existingIdsSet }
-            }
-            
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "updateShortcuts: ${shortcuts.size} new shortcuts, ${currentCount} existing, ${slotsAvailable} slots available")
-                Log.d(TAG, "updateShortcuts: Will update ${shortcutsToUpdate.size} shortcuts, preserve ${shortcutsToKeep.size} existing")
-            }
-            
-            // Merge: keep existing shortcuts + update/add new ones
-            // IMPORTANT: Preserve existing shortcuts in their current order, add new ones at the end
-            val mergedShortcuts = (shortcutsToKeep.values + shortcutsToUpdate.filter { it.roomId !in shortcutsToKeep.keys })
-                .take(MAX_SHORTCUTS) // Ensure we don't exceed MAX_SHORTCUTS
-            
-            // Update cache with merged shortcuts
-            lastShortcutData = mergedShortcuts.associateBy { it.roomId }
-            lastShortcutHash = lastShortcutData.hashCode()
-            lastShortcutStableIds = mergedShortcuts.map { it.roomId }.toSet()
-            lastNameAvatar = mergedShortcuts.associate { it.roomId to (it.roomName to it.roomAvatarUrl) }
-            
-            if (BuildConfig.DEBUG) {
-                Log.d(TAG, "Merged shortcuts: ${shortcutsToUpdate.size} updated + ${shortcutsToKeep.size} preserved = ${mergedShortcuts.size} total (max ${MAX_SHORTCUTS})")
-                Log.d(TAG, "Final shortcut IDs: ${mergedShortcuts.map { it.roomId }}")
+                // CRITICAL: Preserve existing shortcuts - only update/add new ones if there's space
+                // This prevents existing shortcuts from being replaced on app restart
+                val newIdsSet = shortcuts.map { it.roomId }.toSet()
+                val existingIdsSet = lastShortcutStableIds
+                
+                // Keep existing shortcuts that aren't being updated
+                shortcutsToKeep = lastShortcutData.filterKeys { it !in newIdsSet }
+                
+                val currentCount = lastShortcutStableIds.size
+                val slotsAvailable = MAX_SHORTCUTS - currentCount
+                
+                // Determine which shortcuts to update/add
+                shortcutsToUpdate = if (slotsAvailable > 0) {
+                    // We have space - can add new shortcuts (up to available slots)
+                    shortcuts.take(slotsAvailable)
+                } else {
+                    // No space - only update existing shortcuts that are in the new list
+                    shortcuts.filter { it.roomId in existingIdsSet }
+                }
+                
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "updateShortcuts: ${shortcuts.size} new shortcuts, ${currentCount} existing, ${slotsAvailable} slots available")
+                    Log.d(TAG, "updateShortcuts: Will update ${shortcutsToUpdate.size} shortcuts, preserve ${shortcutsToKeep.size} existing")
+                }
+                
+                // Merge: keep existing shortcuts + update/add new ones
+                // IMPORTANT: Preserve existing shortcuts in their current order, add new ones at the end
+                val mergedShortcuts = (shortcutsToKeep.values + shortcutsToUpdate.filter { it.roomId !in shortcutsToKeep.keys })
+                    .take(MAX_SHORTCUTS) // Ensure we don't exceed MAX_SHORTCUTS
+                
+                // Update cache with merged shortcuts
+                lastShortcutData = mergedShortcuts.associateBy { it.roomId }
+                lastShortcutHash = lastShortcutData.hashCode()
+                lastShortcutStableIds = mergedShortcuts.map { it.roomId }.toSet()
+                lastNameAvatar = mergedShortcuts.associate { it.roomId to (it.roomName to it.roomAvatarUrl) }
+                
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Merged shortcuts: ${shortcutsToUpdate.size} updated + ${shortcutsToKeep.size} preserved = ${mergedShortcuts.size} total (max ${MAX_SHORTCUTS})")
+                    Log.d(TAG, "Final shortcut IDs: ${mergedShortcuts.map { it.roomId }}")
+                }
             }
             
             for (shortcut in shortcutsToUpdate) {
                 try {
                     //Log.d(TAG, "Updating shortcut - roomId: '${shortcut.roomId}', roomName: '${shortcut.roomName}'")
                     
-                    // Check if avatar was previously cached (before download attempt)
-                    val previouslyCached = lastAvatarCachePresence[shortcut.roomId] ?: false
+                    // Check if we can successfully create an avatar icon (not just if file exists)
+                    val canCreateAvatar = shortcut.roomAvatarUrl?.let { url ->
+                        canCreateAvatarIcon(url)
+                    } ?: false
+                    
+                    val previouslyHadAvatar = shortcutHasAvatarIcon[shortcut.roomId] ?: false
+                    
+                    // Refresh icon if avatar transitions from not-available -> available
+                    val shouldRefreshIcon = canCreateAvatar && !previouslyHadAvatar
                     
                     // Create ShortcutInfoCompat (AndroidX version)
                     // This will now download and cache the avatar if not already cached
                     val shortcutInfoCompat = createShortcutInfoCompat(shortcut)
                     
-                    // Check if avatar is in cache AFTER createShortcutInfoCompat (which may have downloaded it)
-                    val avatarInCache = shortcut.roomAvatarUrl?.let { url ->
-                        IntelligentMediaCache.getCachedFile(context, url) != null
-                    } ?: false
-                    
-                    //Log.d(TAG, "  Avatar in cache (after download attempt): $avatarInCache, previously: $previouslyCached")
-                    
-                    // Only refresh icon when avatar transitions from not-cached -> cached
-                    // This ensures shortcuts get updated with real avatars when they become available
-                    if (avatarInCache && !previouslyCached) {
-                        if (BuildConfig.DEBUG) Log.d(TAG, "  Removing old shortcut to refresh icon (avatar cache became available)")
+                    // Remove shortcut if avatar became available (to force icon refresh)
+                    if (shouldRefreshIcon) {
+                        if (BuildConfig.DEBUG) Log.d(TAG, "  Removing old shortcut to refresh icon (avatar became available)")
                         ShortcutManagerCompat.removeDynamicShortcuts(context, listOf(shortcut.roomId))
                     }
                     
@@ -921,8 +985,9 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     ShortcutManagerCompat.pushDynamicShortcut(context, shortcutInfoCompat)
                     //Log.d(TAG, "  ✓ Shortcut pushed successfully")
 
-                    // Record avatar cache presence for next comparison
-                    lastAvatarCachePresence[shortcut.roomId] = avatarInCache
+                    // Record tracking for next comparison
+                    lastAvatarCachePresence[shortcut.roomId] = canCreateAvatar
+                    shortcutHasAvatarIcon[shortcut.roomId] = canCreateAvatar
                     
                 } catch (e: Exception) {
                     Log.e(TAG, "Error updating shortcut for room: ${shortcut.roomName}", e)
@@ -935,6 +1000,31 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             
         } catch (e: Exception) {
             Log.e(TAG, "Error in updateShortcuts", e)
+        }
+    }
+    
+    /**
+     * Check if we can successfully create an avatar icon for a shortcut
+     * Returns true if avatar file exists and can be decoded into a bitmap
+     */
+    private suspend fun canCreateAvatarIcon(avatarUrl: String?): Boolean {
+        if (avatarUrl == null) return false
+        
+        return try {
+            val cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
+            if (cachedFile != null && cachedFile.exists()) {
+                val bitmap = BitmapFactory.decodeFile(cachedFile.absolutePath)
+                if (bitmap != null) {
+                    val circularBitmap = getCircularBitmap(bitmap)
+                    circularBitmap != null
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            false
         }
     }
     
@@ -1264,6 +1354,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                 lastShortcutStableIds = emptySet()
                 lastNameAvatar = emptyMap()
                 lastAvatarCachePresence.clear()
+                shortcutHasAvatarIcon.clear()
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error clearing shortcuts", e)
@@ -1280,6 +1371,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         lastShortcutStableIds = emptySet()
         lastNameAvatar = emptyMap()
         lastAvatarCachePresence.clear()
+        shortcutHasAvatarIcon.clear()
     }
     
     /**

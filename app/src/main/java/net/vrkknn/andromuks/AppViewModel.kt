@@ -983,6 +983,9 @@ class AppViewModel : ViewModel() {
     // Multiple sync_complete messages can arrive rapidly, and concurrent processing can cause messages to be missed
     private val syncCompleteProcessingMutex = Mutex() // Mutex to serialize sync_complete processing after init_complete
     
+    // Track if shortcuts have been refreshed on startup (only refresh once per app session)
+    private var shortcutsRefreshedOnStartup = false
+    
     // Track sync_complete progress for UI display
     var pendingSyncCompleteCount by mutableStateOf(0)
         private set
@@ -4801,10 +4804,14 @@ class AppViewModel : ViewModel() {
             // Create new ConversationsApi instance with real homeserver URL
             conversationsApi = ConversationsApi(appContext!!, homeserverUrl, authToken, realMatrixHomeserverUrl)
             personsApi = PersonsApi(appContext!!, homeserverUrl, authToken, realMatrixHomeserverUrl)
-            // SHORTCUT OPTIMIZATION: Shortcuts only update when user sends messages (not on init_complete)
-            // This prevents massive shortcut updates on every reconnection. Shortcuts will populate
-            // naturally as the user actively sends messages.
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping shortcut update on init_complete - shortcuts update only when user sends messages")
+            // SHORTCUT OPTIMIZATION: Shortcuts only update when user sends messages (not on every sync_complete)
+            // However, refresh shortcuts once on startup to ensure they're up-to-date with current room state
+            if (!shortcutsRefreshedOnStartup) {
+                refreshShortcutsOnStartup()
+                shortcutsRefreshedOnStartup = true
+            } else {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Skipping shortcut update on init_complete - shortcuts already refreshed on startup")
+            }
         }
         
         // FCM registration with Gomuks Backend will be triggered via callback when token is ready
@@ -11257,15 +11264,66 @@ class AppViewModel : ViewModel() {
                 android.util.Log.w("Andromuks", "AppViewModel: SHORTCUT - conversationsApi is null, cannot update shortcut")
             }
         }
+    }
+    
+    /**
+     * Refresh shortcuts on app startup from current room list
+     * This ensures shortcuts are up-to-date when the app starts, but doesn't update on every sync_complete
+     * Only called once per app session after init_complete
+     * 
+     * Waits for initial sync processing to complete so rooms have their timestamps set
+     */
+    private fun refreshShortcutsOnStartup() {
+        val api = conversationsApi
+        if (api == null) {
+            if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: refreshShortcutsOnStartup - conversationsApi is null, cannot refresh shortcuts")
+            return
+        }
         
-        // Always invoke completion callback for notification actions, even if there was an error
-        // This prevents the UI from stalling indefinitely
-        val callback = notificationActionCompletionCallbacks.remove(requestId)
-        if (callback != null) {
-            if (isError) {
-                android.util.Log.w("Andromuks", "AppViewModel: Message send had error, but calling completion callback to prevent UI stalling")
+        // Wait for initial sync processing to complete so rooms have their timestamps set
+        // This ensures we have room data from sync_complete messages before refreshing shortcuts
+        viewModelScope.launch(Dispatchers.Default) {
+            try {
+                // Wait for initial sync to complete (with timeout to avoid waiting forever)
+                var waitCount = 0
+                val maxWait = 50 // Wait up to 5 seconds (50 * 100ms)
+                while (!initialSyncComplete && waitCount < maxWait) {
+                    kotlinx.coroutines.delay(100)
+                    waitCount++
+                }
+                
+                if (!initialSyncComplete && waitCount >= maxWait) {
+                    if (BuildConfig.DEBUG) android.util.Log.w("Andromuks", "AppViewModel: Initial sync processing timeout, refreshing shortcuts anyway")
+                }
+                
+                // Get top rooms from roomMap
+                // Include rooms with timestamps OR unread counts OR any activity
+                // This handles cases where rooms have events but timestamps aren't set yet
+                val sortedRooms = roomMap.values
+                    .filter { room ->
+                        // Include rooms with timestamps, unread messages, or any activity
+                        (room.sortingTimestamp != null && room.sortingTimestamp > 0) ||
+                        (room.unreadCount != null && room.unreadCount > 0) ||
+                        room.messagePreview != null // Has a message preview (indicates activity)
+                    }
+                    .sortedWith(compareByDescending<RoomItem> { room ->
+                        // Primary sort: timestamp if available
+                        room.sortingTimestamp ?: 0L
+                    }.thenByDescending { room ->
+                        // Secondary sort: unread count
+                        room.unreadCount ?: 0
+                    })
+                
+                if (sortedRooms.isNotEmpty()) {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshing shortcuts on startup with ${sortedRooms.size} active rooms (top 4 will be used)")
+                    // Use updateConversationShortcuts which handles the top 4 selection internally
+                    api.updateConversationShortcuts(sortedRooms)
+                } else {
+                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No active rooms found (no timestamps, unread, or message previews), skipping shortcut refresh on startup")
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("Andromuks", "AppViewModel: Error refreshing shortcuts on startup", e)
             }
-            callback()
         }
     }
     
