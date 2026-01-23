@@ -479,11 +479,15 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 notificationData.body
             }
             
-            // CRITICAL: Update shortcut SYNCHRONOUSLY before entering synchronized block
+            // CRITICAL: Update shortcut before entering synchronized block
             // Android's notification ranking system requires the shortcut to exist
             // and be registered before the notification is posted to recognize it as a conversation
             // This ensures "Ranking is not conversation" errors don't occur
             // Must be done OUTSIDE synchronized block because it's a suspend function
+            // CRITICAL FIX: Use updateShortcutsFromSyncRooms instead of updateConversationShortcutsSync
+            // This does incremental updates and preserves existing shortcuts with avatars
+            // updateConversationShortcutsSync replaces ALL shortcuts, which can overwrite shortcuts
+            // that have avatars with fallback icons if the avatar isn't available at notification time
             if (BuildConfig.DEBUG) Log.d(TAG, "Updating conversation shortcuts before notification display - room: ${notificationData.roomId}")
             val roomItem = RoomItem(
                 id = notificationData.roomId,
@@ -495,7 +499,7 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
                 avatarUrl = notificationData.roomAvatarUrl,
                 sortingTimestamp = notificationData.timestamp ?: System.currentTimeMillis()
             )
-            conversationsApi?.updateConversationShortcutsSync(listOf(roomItem))
+            conversationsApi?.updateShortcutsFromSyncRooms(listOf(roomItem))
             if (BuildConfig.DEBUG) Log.d(TAG, "Conversation shortcuts updated - room: ${notificationData.roomId}")
             
             // CRITICAL: Get shortcut using ALL flags to ensure we get the active shortcut
