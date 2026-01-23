@@ -180,6 +180,7 @@ fun ElementCallScreen(
             AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
+                    @Suppress("DEPRECATION")
                     WebView(ctx).apply {
                         WebView.setWebContentsDebuggingEnabled(true)
                         CookieManager.getInstance().setAcceptCookie(true)
@@ -189,6 +190,7 @@ fun ElementCallScreen(
                         settings.mediaPlaybackRequiresUserGesture = false
                         settings.allowFileAccess = true
                         settings.allowContentAccess = true
+                        // Required for Element Call WebView functionality
                         settings.allowFileAccessFromFileURLs = true
                         settings.allowUniversalAccessFromFileURLs = true
                         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW

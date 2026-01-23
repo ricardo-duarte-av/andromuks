@@ -12,7 +12,6 @@ import kotlinx.coroutines.sync.withLock
 import java.io.File
 import java.net.URL
 import java.util.concurrent.ConcurrentHashMap
-import net.vrkknn.andromuks.utils.MediaCache
 
 /**
  * Download deduplication system to prevent duplicate downloads.
@@ -66,7 +65,7 @@ object DownloadDeduplicationManager {
         authToken: String
     ): File = withContext(Dispatchers.IO) {
         // Check if already cached
-        MediaCache.getCachedFile(context, mxcUrl)?.let { cachedFile ->
+        IntelligentMediaCache.getCachedFile(context, mxcUrl)?.let { cachedFile ->
             if (BuildConfig.DEBUG) Log.d(TAG, "Using cached file for $mxcUrl")
             return@withContext cachedFile
         }

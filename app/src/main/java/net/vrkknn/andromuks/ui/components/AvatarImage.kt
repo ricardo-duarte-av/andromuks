@@ -40,7 +40,6 @@ import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.BlurHashUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
-import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import androidx.compose.foundation.Image
 import kotlin.math.max
@@ -227,7 +226,7 @@ fun AvatarImage(
                         if (mxcUrl != null && avatarUrl.startsWith("http")) {
                             coroutineScope.launch {
                                 // Check if already cached to avoid redundant downloads
-                                if (MediaCache.getCachedFile(context, mxcUrl) == null) {
+                                if (IntelligentMediaCache.getCachedFile(context, mxcUrl) == null) {
                                     IntelligentMediaCache.downloadAndCache(context, mxcUrl, avatarUrl, authToken)
                                     IntelligentMediaCache.cleanupCache(context)
                                 }

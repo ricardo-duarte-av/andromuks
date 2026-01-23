@@ -862,7 +862,7 @@ private fun MediaContent(
 
                     // Load cached file in background for the chosen resource (thumbnail or full)
                     LaunchedEffect(displayMxcUrl) {
-                        cachedFile = MediaCache.getCachedFile(context, displayMxcUrl)
+                        cachedFile = IntelligentMediaCache.getCachedFile(context, displayMxcUrl)
                     }
 
                     val imageUrl =
@@ -1715,14 +1715,16 @@ private fun ImageViewerDialog(
             val imageLoader = remember { ImageLoaderSingleton.get(context) }
             
             // Check if we have a cached version first
-            val cachedFile = remember(mediaMessage.url) {
-                MediaCache.getCachedFile(context, mediaMessage.url)
+            var cachedFile by remember { mutableStateOf<File?>(null) }
+            LaunchedEffect(mediaMessage.url) {
+                cachedFile = IntelligentMediaCache.getCachedFile(context, mediaMessage.url)
             }
             
             val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile) {
-                if (cachedFile != null) {
+                val file = cachedFile
+                if (file != null) {
                     // Use cached file
-                    cachedFile.absolutePath
+                    file.absolutePath
                 } else {
                     // Use HTTP URL
                     val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)

@@ -66,12 +66,12 @@ import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.request.CachePolicy
 import coil.request.ImageRequest
+import java.io.File
 import java.net.URLDecoder
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.TimelineEvent
 import net.vrkknn.andromuks.utils.CacheUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
-import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.utils.extractRoomLink
 import net.vrkknn.andromuks.utils.RoomLink
@@ -1616,16 +1616,18 @@ private fun InlineImage(
     }
     
     // Check if we have a cached version first
-    val cachedFile = remember(mxcUrl) {
-        mxcUrl?.let { MediaCache.getCachedFile(context, it) }
+    var cachedFile by remember { mutableStateOf<File?>(null) }
+    LaunchedEffect(mxcUrl) {
+        cachedFile = mxcUrl?.let { IntelligentMediaCache.getCachedFile(context, it) }
     }
     
     // Convert to HTTP URL or use cached file
     val imageUrl = remember(src, homeserverUrl, cachedFile) {
-        if (cachedFile != null) {
+        val file = cachedFile
+        if (file != null) {
             // Use cached file
-            if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineImage: Using cached file: ${cachedFile.absolutePath}")
-            cachedFile.absolutePath
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineImage: Using cached file: ${file.absolutePath}")
+            file.absolutePath
         } else {
             // Use HTTP URL
             when {

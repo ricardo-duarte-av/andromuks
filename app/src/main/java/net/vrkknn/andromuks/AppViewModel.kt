@@ -172,60 +172,6 @@ class AppViewModel : ViewModel() {
         private const val NOTIFICATION_REPLY_DEDUP_WINDOW_MS = 5000L // 5 seconds deduplication window
     }
     
-    /**
-     * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
-     */
-    @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
-    fun homeRoomsFlow(): Flow<List<RoomItem>> {
-        // Return in-memory data as a flow
-        return flowOf(filterOutSpaces(allRooms))
-    }
-
-    /**
-     * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
-     */
-    @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
-    fun directRoomsFlow(): Flow<List<RoomItem>> {
-        // Return in-memory data as a flow
-        return flowOf(cachedDirectChatRooms)
-    }
-
-    /**
-     * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
-     */
-    @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
-    fun unreadRoomsFlow(): Flow<List<RoomItem>> {
-        // Return in-memory data as a flow
-        return flowOf(cachedUnreadRooms)
-    }
-
-    /**
-     * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
-     */
-    @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
-    fun favouriteRoomsFlow(): Flow<List<RoomItem>> {
-        // Return in-memory data as a flow
-        return flowOf(cachedFavouriteRooms)
-    }
-
-    /**
-     * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
-     */
-    @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
-    fun topLevelSpacesFlow(): Flow<List<SpaceItem>> {
-        // Return in-memory data as a flow
-        return flowOf(allSpaces)
-    }
-
-    /**
-     * @deprecated Use getCurrentRoomSection() instead - room data is in-memory only
-     */
-    @Deprecated("Room data is in-memory only, use getCurrentRoomSection()")
-    fun spaceChildRoomsFlow(spaceId: String): Flow<List<RoomItem>> {
-        // Return in-memory data as a flow
-        val selectedSpace = allSpaces.find { it.id == spaceId }
-        return flowOf(selectedSpace?.rooms ?: emptyList())
-    }
 
     /**
      * Build a one-shot snapshot of the current section from in-memory data.
@@ -845,17 +791,6 @@ class AppViewModel : ViewModel() {
         return directMessageRoomIds.contains(roomId)
     }
 
-    /**
-     * A room is treated as Direct if either:
-     * - m.direct account data marks it (directMessageRoomIds), or
-     * - the room meta / state marks isDirectMessage on the Room object.
-     * We keep both paths so login-cold-start (DB) and live sync agree.
-     */
-    fun isDirectRoom(roomId: String): Boolean {
-        val mapEntry = roomMap[roomId]
-        return directMessageRoomIds.contains(roomId) || (mapEntry?.isDirectMessage == true)
-    }
-    
     // Force recomposition counter - DEPRECATED: Use specific counters below instead
     var updateCounter by mutableStateOf(0)
         private set
@@ -1325,41 +1260,6 @@ class AppViewModel : ViewModel() {
      * @return map of new message event IDs (eventId -> current timestamp)
      */
     fun getNewMessageAnimations(): Map<String, Long> = newMessageAnimations.toMap()
-    
-    /**
-     * Play a notification sound for new messages
-     */
-    private fun playNewMessageSound() {
-        val context = appContext ?: return
-        try {
-            val mediaPlayer = MediaPlayer.create(context, R.raw.popalert)
-            if (mediaPlayer != null) {
-                // Set audio stream to notification channel
-                @Suppress("DEPRECATION")
-                mediaPlayer.setAudioStreamType(AudioManager.STREAM_NOTIFICATION)
-                
-                // Set completion listener to release resources
-                mediaPlayer.setOnCompletionListener { mp: MediaPlayer ->
-                    mp.release()
-                }
-                
-                // Set error listener to handle any issues
-                mediaPlayer.setOnErrorListener { mp: MediaPlayer, what: Int, extra: Int ->
-                    android.util.Log.w("Andromuks", "AppViewModel: Error playing notification sound: what=$what, extra=$extra")
-                    mp.release()
-                    true
-                }
-                
-                // Start playing
-                mediaPlayer.start()
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Playing new message sound")
-            } else {
-                android.util.Log.w("Andromuks", "AppViewModel: Failed to create MediaPlayer for new message sound")
-            }
-        } catch (e: Exception) {
-            android.util.Log.w("Andromuks", "AppViewModel: Error playing new message sound", e)
-        }
-    }
     
     /**
      * Update cached room sections to avoid expensive filtering on every recomposition.
@@ -1944,27 +1844,10 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Unregisters FCM notifications from the backend.
-     * 
-     * This cleans up the FCM registration and removes the device from receiving
-     * push notifications.
-     */
-    fun unregisterFCMNotifications() {
-        fcmNotificationManager?.unregisterFromBackend()
-    }
-    
-    /**
      * Get FCM token for Gomuks Backend registration
      */
     fun getFCMTokenForGomuksBackend(): String? {
         return fcmNotificationManager?.getTokenForGomuksBackend()
-    }
-    
-    /**
-     * Create push registration message for web client
-     */
-    fun createWebClientPushMessage(token: String): JSONObject? {
-        return webClientPushIntegration?.createPushRegistrationMessage(token)
     }
     
     /**
@@ -1998,17 +1881,6 @@ class AppViewModel : ViewModel() {
      */
     fun getLocalDeviceID(): String? {
         return webClientPushIntegration?.getLocalDeviceID()
-    }
-    
-    /**
-     * Store FCM token for Gomuks Backend
-     */
-    fun storeFCMToken(token: String, context: Context) {
-        fcmNotificationManager?.let { manager ->
-            // Store token for Gomuks Backend registration
-            val prefs = context.getSharedPreferences("fcm_prefs", Context.MODE_PRIVATE)
-            prefs.edit().putString("fcm_token_for_gomuks", token).apply()
-        }
     }
     
     /**
@@ -2203,17 +2075,6 @@ class AppViewModel : ViewModel() {
      */
     fun getTypingUsersForRoom(roomId: String): List<String> {
         return typingUsersMap[roomId] ?: emptyList()
-    }
-    
-    /**
-     * Clear typing users when switching rooms or when room is closed
-     */
-    fun clearTypingUsersForRoom(roomId: String) {
-        typingUsersMap.remove(roomId)
-        if (currentRoomId == roomId) {
-            typingUsers = emptyList()
-        }
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared typing users for room $roomId")
     }
     
     private fun normalizeTimestamp(primary: Long, vararg fallbacks: Long): Long {
@@ -2530,13 +2391,6 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Get the current number of rooms in roomMap (for debugging/diagnostics)
-     */
-    fun getRoomMapSize(): Int {
-        return roomMap.size
-    }
-    
-    /**
      * Populate roomMap from singleton cache when it's suspiciously small (e.g., only 1 room after opening from notification)
      * This ensures RoomListScreen has access to all rooms even when opening from notification bypassed normal initialization
      */
@@ -2727,11 +2581,6 @@ class AppViewModel : ViewModel() {
                 versioned.redactionEvent?.let { eventId to it }
             }.toMap()
     
-    // Helper methods to update MessageVersionsCache
-    private fun updateMessageVersion(originalEventId: String, versionedMessage: VersionedMessage) {
-        MessageVersionsCache.updateVersion(originalEventId, versionedMessage)
-    }
-    
     private fun clearMessageVersions() {
         MessageVersionsCache.clear()
     }
@@ -2846,17 +2695,6 @@ class AppViewModel : ViewModel() {
             )
         }
     }
-    fun isMemberCacheEmpty(roomId: String): Boolean {
-        // MEMORY MANAGEMENT: Check if any flattened entries exist for this room
-        val hasFlattenedEntries = ProfileCache.hasFlattenedEntriesForRoom(roomId)
-        if (hasFlattenedEntries) {
-            return false
-        }
-        
-        // Fallback to legacy cache
-        return RoomMemberCache.getRoomMembers(roomId).isEmpty()
-    }
-    
     /**
      * MEMORY MANAGEMENT: Helper method to store member profile in both flattened and legacy caches
      * OPTIMIZATION: Only stores room-specific profile if it differs from global profile to avoid redundancy.
@@ -3047,71 +2885,6 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Gets unique user profiles from memory cache (deduplicated by userId).
-     * Use this if you want to show only one entry per user (merged profile data).
-     * @return List of pairs (userId, MemberProfile) sorted by display name
-     */
-    suspend fun getUniqueMemoryCachedProfiles(): List<Pair<String, MemberProfile>> = withContext(Dispatchers.Default) {
-        val profiles = mutableMapOf<String, MemberProfile>()
-        
-        // Collect from flattened member cache (room-specific profiles)
-        for ((key, profile) in ProfileCache.getAllFlattenedProfiles()) {
-            val lastColonIndex = key.lastIndexOf(':')
-            if (lastColonIndex > 0 && lastColonIndex < key.length - 1) {
-                val userId = key.substring(lastColonIndex + 1)
-                if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
-                    val parts = userId.split(":", limit = 2)
-                    if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
-                        // Merge profile data intelligently: prefer non-null values
-                        val existing = profiles[userId]
-                        if (existing == null) {
-                            profiles[userId] = profile
-                        } else {
-                            profiles[userId] = MemberProfile(
-                                displayName = profile.displayName ?: existing.displayName,
-                                avatarUrl = profile.avatarUrl ?: existing.avatarUrl
-                            )
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Collect from global profile cache
-        for ((userId, entry) in ProfileCache.getAllGlobalProfiles()) {
-            val profile = entry.profile
-                if (userId.startsWith("@") && userId.contains(":") && userId.length > 2) {
-                    val parts = userId.split(":", limit = 2)
-                    if (parts.size == 2 && parts[0].startsWith("@") && parts[0].length > 1 && parts[1].isNotEmpty()) {
-                        val existing = profiles[userId]
-                        if (existing == null) {
-                            profiles[userId] = profile
-                        } else {
-                            profiles[userId] = MemberProfile(
-                                displayName = profile.displayName ?: existing.displayName,
-                                avatarUrl = profile.avatarUrl ?: existing.avatarUrl
-                            )
-                    }
-                }
-            }
-        }
-        
-        profiles.toList().sortedWith(compareBy(
-            { it.second.displayName ?: "\uFFFF" },
-            { it.first }
-        ))
-    }
-    
-    /**
-     * @deprecated Profiles are in-memory only - cached per room
-     */
-    @Deprecated("Profiles are in-memory only, loaded opportunistically when rendering events")
-    suspend fun getAllDiskCachedProfiles(context: Context): List<Pair<String, MemberProfile>> {
-        // No-op - profiles are cached in-memory only
-        return emptyList()
-    }
-    
-    /**
      * Gets all cached media from memory cache.
      * 
      * IMPORTANT: Coil's MemoryCache stores bitmaps in RAM and doesn't support enumeration.
@@ -3260,73 +3033,6 @@ class AppViewModel : ViewModel() {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to get disk cached media", e)
             emptyList()
         }
-    }
-    
-    /**
-     * Find MXC URL for a cached file by checking IntelligentMediaCache.
-     */
-    private suspend fun findMxcUrlForFile(context: Context, file: File): String? = withContext(Dispatchers.IO) {
-        try {
-            val fileName = file.name
-            
-            // First, try IntelligentMediaCache's direct lookup
-            val mxcUrl: String? = IntelligentMediaCache.getMxcUrlForFile(fileName)
-            if (mxcUrl != null) {
-                return@withContext mxcUrl
-            }
-            
-            null
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Error finding MXC URL for file ${file.name}", e)
-            null
-        }
-    }
-    
-    /**
-     * Extract MXC URLs from JSON content (checks common fields like url, thumbnail_url, avatar_url, etc.)
-     */
-    private fun extractMxcUrlsFromJson(json: String): List<String> {
-        val mxcUrls = mutableListOf<String>()
-        try {
-            val jsonObj = org.json.JSONObject(json)
-            
-            // Check common fields that contain MXC URLs
-            val fieldsToCheck = listOf("url", "thumbnail_url", "avatar_url", "info", "file")
-            
-            for (field in fieldsToCheck) {
-                val value = if (jsonObj.has(field)) jsonObj.optString(field) else null
-                if (!value.isNullOrBlank() && value.startsWith("mxc://")) {
-                    mxcUrls.add(value)
-                }
-                
-                // Check nested objects
-                val nestedObj = jsonObj.optJSONObject(field)
-                if (nestedObj != null) {
-                    val nestedUrl = if (nestedObj.has("url")) nestedObj.optString("url") else null
-                    if (!nestedUrl.isNullOrBlank() && nestedUrl.startsWith("mxc://")) {
-                        mxcUrls.add(nestedUrl)
-                    }
-                    
-                    val thumbnailUrl = if (nestedObj.has("thumbnail_url")) nestedObj.optString("thumbnail_url") else null
-                    if (!thumbnailUrl.isNullOrBlank() && thumbnailUrl.startsWith("mxc://")) {
-                        mxcUrls.add(thumbnailUrl)
-                    }
-                    
-                    // Check info.url for media messages
-                    val infoObj = nestedObj.optJSONObject("info")
-                    if (infoObj != null) {
-                        val infoUrl = if (infoObj.has("url")) infoObj.optString("url") else null
-                        if (!infoUrl.isNullOrBlank() && infoUrl.startsWith("mxc://")) {
-                            mxcUrls.add(infoUrl)
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            // Ignore parsing errors
-        }
-        
-        return mxcUrls
     }
     
     /**
@@ -4596,56 +4302,7 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    /**
-     * Legacy synchronous version - kept for backward compatibility
-     * DEPRECATED: Use updateRoomsFromSyncJsonAsync instead for better performance
-     */
-    fun updateRoomsFromSyncJson(syncJson: JSONObject) {
-        // Update last sync timestamp for notification display
-        lastSyncTimestamp = System.currentTimeMillis()
-        
-        // Update service with new sync timestamp
-        WebSocketService.updateLastSyncTimestamp()
-        
-        // First, populate member cache from sync data and check for changes
-        val oldMemberStateHash = generateMemberStateHash()
-        populateMemberCacheFromSync(syncJson)
-        val newMemberStateHash = generateMemberStateHash()
-        val memberStateChanged = newMemberStateHash != oldMemberStateHash
-
-        // Process account_data for recent emojis and m.direct
-        // Account data is fully populated on every websocket reconnect (clear_state: true), so no DB merging needed
-        val data = syncJson.optJSONObject("data")
-        val incomingAccountData = data?.optJSONObject("account_data")
-        // CRITICAL FIX: Only process account_data if the incoming sync_complete actually has account_data keys
-        // Empty account_data object {} should not trigger processing (prevents re-requesting emoji packs on every sync)
-        if (incomingAccountData != null && incomingAccountData.length() > 0) {
-            // Process incoming account_data directly - no DB merging needed
-            processAccountData(incomingAccountData)
-        } else if (incomingAccountData != null && incomingAccountData.length() == 0) {
-            // Incoming account_data is empty {} - don't process, preserve existing state
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Incoming account_data is empty, skipping processing (preserving existing state)")
-        }
-        
-        // Auto-save state periodically (every 10 sync_complete messages) for crash recovery
-        if (syncMessageCount > 0 && syncMessageCount % 10 == 0) {
-            appContext?.let { context ->
-                saveStateToStorage(context)
-            }
-        }
-        
-        val syncResult = SpaceRoomParser.parseSyncUpdate(
-            syncJson,
-            RoomMemberCache.getAllMembers(),
-            this,
-            existingRooms = synchronized(roomMap) { HashMap(roomMap) } // snapshot to avoid ConcurrentModification
-        )
-        syncMessageCount++
-        
-        // Process the sync result
-        processParsedSyncResult(syncResult, syncJson)
-    }
-    /**
+/**
      * Process parsed sync result and update UI
      * Called on main thread after background parsing completes
      */
@@ -5790,15 +5447,6 @@ class AppViewModel : ViewModel() {
         onAppBecameInvisible() // This will save state for crash recovery
     }
     
-    /**
-     * Shuts down the WebSocket connection
-     * Note: With foreground service, this is only called on app cleanup (onCleared)
-     */
-    private fun shutdownWebSocket() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Shutting down WebSocket connection")
-        clearWebSocket("App shutdown")
-    }
-    
     override fun onCleared() {
         super.onCleared()
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: onCleared - cleaning up resources for $viewModelId")
@@ -6037,13 +5685,6 @@ class AppViewModel : ViewModel() {
     fun getCachedRoomIds(): Set<String> {
         // Use RoomTimelineCache's proactive tracking instead of just LRU cache
         return RoomTimelineCache.getActivelyCachedRoomIds()
-    }
-    
-    /**
-     * Check if a room has processed timeline state cached.
-     */
-    fun isRoomCached(roomId: String): Boolean {
-        return RoomTimelineCache.getProcessedTimelineState(roomId) != null
     }
     
     /**
@@ -6343,11 +5984,6 @@ class AppViewModel : ViewModel() {
     private val pendingInvites: Map<String, RoomInvite>
         get() = PendingInvitesCache.getAllInvites()
     
-    // Helper methods to update PendingInvitesCache
-    private fun updatePendingInvite(invite: RoomInvite) {
-        PendingInvitesCache.updateInvite(invite)
-    }
-    
     private fun removePendingInvite(roomId: String) {
         PendingInvitesCache.removeInvite(roomId)
     }
@@ -6583,31 +6219,6 @@ class AppViewModel : ViewModel() {
     
     private val reconnectionLog = mutableListOf<ReconnectionLogEntry>()
     
-    /**
-     * Log a WebSocket reconnection event (legacy - now calls logActivity)
-     */
-    private fun logReconnection(reason: String) {
-        val entry = ReconnectionLogEntry(
-            timestamp = System.currentTimeMillis(),
-            reason = reason
-        )
-        reconnectionLog.add(entry)
-        
-        // Keep only the last maxLogEntries entries
-        if (reconnectionLog.size > maxLogEntries) {
-            reconnectionLog.removeAt(0)
-        }
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Logged reconnection - $reason")
-    }
-    
-    /**
-     * Get the reconnection log for display (legacy)
-     */
-    fun getReconnectionLog(): List<ReconnectionLogEntry> {
-        return reconnectionLog.toList()
-    }
-
     fun setWebSocket(webSocket: WebSocket) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: setWebSocket() called for $viewModelId")
         this.webSocket = webSocket
@@ -7401,15 +7012,6 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * @deprecated No longer used - we no longer track last_received_id
-     * All timeline caches are cleared on connect/reconnect instead
-     */
-    @Deprecated("No longer used - we no longer track last_received_id")
-    private fun onSyncCompletePersisted(requestId: Int) {
-        // No-op - we no longer track last_received_id
-    }
-    
-    /**
      * Gets the current run_id for reconnection
      * RUSH TO HEALTHY: Always read from SharedPreferences (single source of truth)
      */
@@ -7431,45 +7033,6 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Gets the last received sync_complete request_id for reconnection
-     */
-    /**
-     * @deprecated No longer used - we never pass last_received_id on connect/reconnect
-     */
-    @Deprecated("No longer used - we no longer track last_received_id")
-    fun getLastReceivedId(): Int = 0
-    
-    /**
-     * Check for gaps in sync_complete sequence and recover if needed.
-     * 
-     * Request IDs are negative and decrease: -100 is older than -99, -99 is older than -98.
-     * @deprecated No longer used - we no longer track last_received_id or detect gaps
-     * All timeline caches are cleared on connect/reconnect instead
-     * 
-     * (Historical note: Previously, if gaps were detected, we would rollback lastReceivedSyncId
-     * to the last known good ID before the gap and trigger a reconnection.)
-     * last_received_event parameter. The server will then send all messages from that point,
-     * filling in the gaps.
-     * 
-     * We only recover recent gaps (within the last 100 messages) to avoid recovering
-     * very old gaps that might have been filled already.
-     */
-    /**
-     * @deprecated No longer used - we no longer track last_received_id or detect gaps
-     * All timeline caches are cleared on connect/reconnect instead
-     */
-    @Deprecated("No longer used - we no longer track last_received_id")
-    private fun checkAndRecoverGaps() {
-        // No-op - we no longer track last_received_id or detect gaps
-    }
-    
-    /**
-     * @deprecated No longer used - we never pass last_received_id on connect/reconnect
-     */
-    @Deprecated("No longer used - we no longer track last_received_id")
-    fun shouldIncludeLastReceivedId(): Boolean = false
-    
-    /**
      * Gets the current VAPID key for push notifications
      */
     fun getVapidKey(): String = vapidKey
@@ -7487,12 +7050,6 @@ class AppViewModel : ViewModel() {
     /**
      * Check if an event is pinned in the current room
      */
-    
-    /**
-     * Gets the next request ID for outgoing commands
-     * This should be used by all components that send WebSocket commands
-     */
-    fun getNextRequestId(): Int = requestIdCounter++
     
     /**
      * Saves the current WebSocket state and room data to persistent storage.
@@ -7569,36 +7126,6 @@ class AppViewModel : ViewModel() {
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to load state from storage", e)
             return false
-        }
-    }
-    
-    /**
-     * Clears the cached state from storage.
-     * This should be called on logout or when we want to force a fresh start.
-     */
-    fun clearCachedState(context: android.content.Context) {
-        try {
-            val prefs = context.getSharedPreferences("AndromuksAppPrefs", android.content.Context.MODE_PRIVATE)
-            val editor = prefs.edit()
-            
-            editor.remove("ws_run_id")
-            editor.remove("ws_vapid_key")
-            editor.remove("cached_rooms")
-            editor.remove("state_saved_timestamp")
-            
-            editor.apply()
-            
-            // Also clear in-memory state
-            currentRunId = ""
-            vapidKey = ""
-            navigationCallbackTriggered = false // Reset navigation flag for fresh start
-            
-            // Clear service reconnection state
-            WebSocketService.clearReconnectionState()
-            
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared cached state")
-        } catch (e: Exception) {
-            android.util.Log.e("Andromuks", "AppViewModel: Failed to clear cached state", e)
         }
     }
     
@@ -8099,25 +7626,6 @@ class AppViewModel : ViewModel() {
      * Returns the event with redaction cleared so it renders as originally sent.
      */
     /**
-     * @deprecated Events are in-memory cache only
-     */
-    @Deprecated("Events are in-memory cache only, no DB loading needed")
-    suspend fun loadOriginalEventWithContext(
-        roomId: String,
-        eventId: String
-    ): SingleEventLoadResult {
-        return SingleEventLoadResult(null, error = "Events are in-memory cache only")
-    }
-
-    /**
-     * @deprecated Read receipts are in-memory only and come from sync_complete
-     */
-    @Deprecated("Read receipts are in-memory only, loaded from sync_complete")
-    private fun loadReceiptsForCachedEvents(roomId: String, cachedEvents: List<TimelineEvent>) {
-        // No-op - receipts come from sync_complete
-    }
-
-    /**
      * Update room state (name/avatar) from timeline events if they're more recent than current state.
      * This ensures room state stays in sync when m.room.name or m.room.avatar events appear in the timeline.
      */
@@ -8429,15 +7937,6 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    /**
-     * @deprecated Events are in-memory cache only
-     */
-    @Deprecated("Events are in-memory cache only, no DB observation needed")
-    fun observeRoomLatestEventTimestamp(roomId: String): Flow<Long?> {
-        return kotlinx.coroutines.flow.flowOf(null)
-    }
-    
-    
     fun requestRoomTimeline(roomId: String, useLruCache: Boolean = true) {
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Requesting timeline for room: $roomId (useLruCache=$useLruCache)")
         
@@ -8758,117 +8257,6 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    /**
-     * Silently refreshes the room cache without updating the UI.
-     * This populates the cache with fresh data but doesn't trigger any UI updates or scrolling.
-     */
-    fun silentRefreshRoomCache(roomId: String) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Silent refresh for room: $roomId (populating cache without UI updates)")
-        
-        // Set current room ID to ensure proper request handling
-        updateCurrentRoomIdInPrefs(roomId)
-        
-        // Clear cache to get fresh data
-        RoomTimelineCache.clearRoomCache(roomId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared timeline cache for room: $roomId")
-        
-        // Clear new message tracking and room-open timestamp
-        newMessageAnimations.clear()
-        roomOpenTimestamps.remove(roomId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared new message tracking for room: $roomId")
-        
-        // Reset member update counter to prevent stale state (but keep timelineUpdateCounter for UI consistency)
-        memberUpdateCounter = 0
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reset member update counter for room: $roomId")
-        
-        // Reset all update flags and state hashes to prevent stale diff detection
-        needsTimelineUpdate = false
-        needsMemberUpdate = false
-        needsRoomListUpdate = false
-        needsReactionUpdate = false
-        lastTimelineStateHash = ""
-        lastMemberStateHash = ""
-        lastRoomStateHash = ""
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reset all update flags and state hashes for room: $roomId")
-        
-        // Request fresh room state
-        requestRoomState(roomId)
-        
-        // Send fresh paginate command to get consistent data from server (silent)
-        // Request 200 events to ensure we have enough
-        val paginateRequestId = requestIdCounter++
-        backgroundPrefetchRequests[paginateRequestId] = roomId  // Use backgroundPrefetchRequests for silent processing
-        sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-            "room_id" to roomId,
-            "max_timeline_id" to 0,
-            "limit" to 200,
-            "reset" to false
-        ))
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Sent silent paginate request for room: $roomId (200 events)")
-    }
-
-    /**
-     * Refreshes the room timeline by clearing cache and requesting fresh data from server.
-     * This is useful for debugging missing events (e.g., messages from other devices).
-     */
-    fun refreshRoomTimeline(roomId: String) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Refreshing timeline for room: $roomId (clearing cache and requesting fresh data)")
-        
-        if (hasInitialPaginate(roomId)) {
-            logSkippedPaginate(roomId, "refresh_timeline")
-            viewModelScope.launch {
-                ensureTimelineCacheIsFresh(roomId)
-            }
-            isTimelineLoading = false
-            return
-        }
-        
-        // Set current room ID to ensure reaction processing works correctly
-        updateCurrentRoomIdInPrefs(roomId)
-        
-        // 1. Drop all cache for this room
-        RoomTimelineCache.clearRoomCache(roomId)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared timeline cache for room: $roomId")
-        
-        // 2. Clear current timeline state
-        timelineEvents = emptyList()
-        isTimelineLoading = true
-        
-        // 3. Reset pagination state
-        smallestRowId = -1L
-        isPaginating = false
-        hasMoreMessages = true
-        
-        // 4. Clear edit chain mapping and version cache
-        eventChainMap.clear()
-        editEventsMap.clear()
-        MessageVersionsCache.clear()
-        // editToOriginal is computed from messageVersions, no need to clear separately
-        // redactionCache is computed from messageVersions, no need to clear separately
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared version cache for room: $roomId")
-        
-        // 5. Clear message reactions
-        MessageReactionsCache.clear()
-        messageReactions = emptyMap()
-        roomsWithLoadedReceipts.remove(roomId)
-        roomsWithLoadedReactions.remove(roomId)
-        
-        // 6. Clear new message tracking
-        newMessageAnimations.clear()
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared new message tracking for room: $roomId")
-        
-        // 7. Reset member update counter to prevent stale state (but keep timelineUpdateCounter for UI consistency)
-        memberUpdateCounter = 0
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Reset member update counter for room: $roomId")
-        
-        // 8. Request fresh room state
-        requestRoomState(roomId)
-        
-        // 9. Do not auto-paginate; manual refresh will request if needed.
-        isTimelineLoading = false
-    }
-    
     suspend fun prefetchRoomSnapshot(roomId: String, limit: Int = 200, timeoutMs: Long = 6000L): Boolean {
         if (!AUTO_PAGINATION_ENABLED) {
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Prefetch snapshot disabled (AUTO_PAGINATION_ENABLED=false) for $roomId")
@@ -9154,24 +8542,6 @@ class AppViewModel : ViewModel() {
      * OPPORTUNISTIC PROFILE LOADING: Request profile for a single user only when needed for rendering.
      * This prevents loading 15,000+ profiles upfront and only loads what's actually displayed.
      */
-    private fun logProfileCacheStats(source: String) {
-        val flattenedSize = ProfileCache.getFlattenedCacheSize()
-        val globalSize = ProfileCache.getGlobalCacheSize()
-        val totalProfiles = globalSize + flattenedSize
-        val flattenedBytes = ProfileCache.getAllFlattenedProfiles().entries.sumOf { (key, profile) ->
-            estimateProfileEntryBytes(key, profile)
-        }
-        val globalBytes = ProfileCache.getAllGlobalProfiles().entries.sumOf { (key, entry) ->
-            estimateProfileEntryBytes(key, entry.profile)
-        }
-        val runtime = Runtime.getRuntime()
-        val usedMem = runtime.totalMemory() - runtime.freeMemory()
-        if (BuildConfig.DEBUG) android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: ProfileCacheStats[$source] - totalProfiles=$totalProfiles, flattened=$flattenedSize (~${formatBytes(flattenedBytes)}), global=$globalSize (~${formatBytes(globalBytes)}), usedMem=${formatBytes(usedMem)}"
-        )
-    }
-
     private fun estimateProfileEntryBytes(key: String, profile: MemberProfile): Long {
         var bytes = (key.length * 2).toLong()
         profile.displayName?.let { bytes += it.length * 2L }
@@ -10878,22 +10248,6 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Forces immediate saving of all pending profiles to disk.
-     * This should be called when the app is being paused or closed to ensure
-     * no profile data is lost.
-     */
-    fun flushPendingProfileSaves() {
-        synchronized(pendingProfileSaves) {
-            if (pendingProfileSaves.isNotEmpty()) {
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Flushing ${pendingProfileSaves.size} pending profile saves")
-                viewModelScope.launch(Dispatchers.IO) {
-                    performBatchProfileSave()
-                }
-            }
-        }
-    }
-    
-    /**
      * Ensures current user profile is loaded if available.
      */
     fun loadCachedProfiles(context: android.content.Context) {
@@ -11588,26 +10942,10 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Store complete room state for future use
-     */
-    private fun storeRoomState(roomId: String, events: JSONArray) {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Storing room state for room: $roomId with ${events.length()} events")
-        roomStatesCache = roomStatesCache + (roomId to events)
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Room state cache now contains ${roomStatesCache.size} rooms")
-    }
-    
-    /**
      * Get stored room state for a specific room
      */
     fun getRoomState(roomId: String): JSONArray? {
         return roomStatesCache[roomId]
-    }
-    
-    /**
-     * Get all stored room states
-     */
-    fun getAllRoomStates(): Map<String, JSONArray> {
-        return roomStatesCache
     }
     
     /**
@@ -13330,118 +12668,6 @@ class AppViewModel : ViewModel() {
         }
     }
     
-    /**
-     * Request pagination from backend with a specific event ID as max_timeline_id.
-     * Used for pull-to-refresh to load older events.
-     * 
-     * @param roomId The room ID to paginate
-     * @param maxTimelineEventId The event ID to use as max_timeline_id (the oldest event currently rendered)
-     * @param limit Number of events to fetch (default 100)
-     */
-    fun requestPaginationWithEventId(roomId: String, maxTimelineEventId: String, limit: Int = 100) {
-        if (isPaginating) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Already paginating, skipping request for $roomId")
-            return
-        }
-        
-        if (!isWebSocketConnected()) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot paginate for $roomId")
-            return
-        }
-        
-        val context = appContext ?: run {
-            android.util.Log.w("Andromuks", "AppViewModel: No app context, cannot paginate for $roomId")
-            return
-        }
-        
-        isPaginating = true
-        val paginateRequestId = requestIdCounter++
-        paginateRequests[paginateRequestId] = roomId
-        
-        // Look up the event's timelineRowId from the in-memory cache
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val cachedEvent = RoomTimelineCache.getCachedEvents(roomId)
-                    ?.firstOrNull { it.eventId == maxTimelineEventId }
-                
-                if (cachedEvent == null || cachedEvent.timelineRowid <= 0L) {
-                    android.util.Log.w("Andromuks", "AppViewModel: Event $maxTimelineEventId not found in cache for room $roomId, using 0 as max_timeline_id")
-                    withContext(Dispatchers.Main) {
-                        isPaginating = false
-                        paginateRequests.remove(paginateRequestId)
-                    }
-                    return@launch
-                }
-                
-                val maxTimelineRowId = cachedEvent.timelineRowid
-                
-                // Use the timelineRowId directly - backend handles the logic to return events older than this
-                // (timelineRowIds are not consecutive, so backend does the math for us)
-                val maxTimelineId = maxTimelineRowId
-                
-                if (BuildConfig.DEBUG) android.util.Log.d(
-                    "Andromuks",
-                    "AppViewModel: Requesting pagination for $roomId with eventId=$maxTimelineEventId, timelineRowId=$maxTimelineRowId, max_timeline_id=$maxTimelineId, limit=$limit"
-                )
-                
-                val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-                    "room_id" to roomId,
-                    "max_timeline_id" to maxTimelineId,
-                    "limit" to limit,
-                    "reset" to false
-                ))
-                
-                if (result != WebSocketResult.SUCCESS) {
-                    android.util.Log.w("Andromuks", "AppViewModel: Failed to send paginate request for $roomId: $result")
-                    withContext(Dispatchers.Main) {
-                        paginateRequests.remove(paginateRequestId)
-                        isPaginating = false
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("Andromuks", "AppViewModel: Error looking up event for pagination", e)
-                withContext(Dispatchers.Main) {
-                    paginateRequests.remove(paginateRequestId)
-                    isPaginating = false
-                }
-            }
-        }
-    }
-    
-    /**
-     * Emergency pagination: Request 200 events from backend with no max_timeline_id constraint.
-     * Used when room needs a full backfill before rendering.
-     * 
-     * @param roomId The room ID to paginate
-     * @param limit Number of events to fetch (default 200)
-     */
-    fun requestEmergencyPagination(roomId: String, limit: Int = 200) {
-        if (!isWebSocketConnected()) {
-            android.util.Log.w("Andromuks", "AppViewModel: WebSocket not connected, cannot perform emergency pagination for $roomId")
-            return
-        }
-        
-        val paginateRequestId = requestIdCounter++
-        paginateRequests[paginateRequestId] = roomId
-        
-        if (BuildConfig.DEBUG) android.util.Log.d(
-            "Andromuks",
-            "AppViewModel: Sending emergency pagination request for $roomId (max_timeline_id=0, limit=$limit, reqId=$paginateRequestId)"
-        )
-        
-        val result = sendWebSocketCommand("paginate", paginateRequestId, mapOf(
-            "room_id" to roomId,
-            "max_timeline_id" to 0, // No max_timeline_event constraint - fetch latest events
-            "limit" to limit,
-            "reset" to false
-        ))
-        
-        if (result != WebSocketResult.SUCCESS) {
-            android.util.Log.w("Andromuks", "AppViewModel: Failed to send emergency pagination request for $roomId: $result")
-            paginateRequests.remove(paginateRequestId)
-        }
-    }
-    
     private fun mergePaginationEvents(newEvents: List<TimelineEvent>) {
         if (newEvents.isEmpty()) {
             return
@@ -13558,52 +12784,6 @@ class AppViewModel : ViewModel() {
         return currentEvent
     }
     /**
-     * Handles event superseding when new events are added to the timeline.
-     * 
-     * This function ensures that when new events (like edits) are added, they properly
-     * supersede the original events they replace, preventing the display of outdated content.
-     * 
-     * @param existingEvents Current timeline events
-     * @param newEvents New events to add
-     * @return Updated timeline with proper superseding handled
-     */
-    private fun handleEventSuperseding(existingEvents: List<TimelineEvent>, newEvents: List<TimelineEvent>): List<TimelineEvent> {
-        val result = existingEvents.toMutableList()
-        
-        for (newEvent in newEvents) {
-            // Check if this new event supersedes any existing events
-            val supersededEventIds = findSupersededEvents(newEvent, existingEvents)
-            
-            if (supersededEventIds.isNotEmpty()) {
-                // This is an edit event - merge the new content into the original event
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing edit event ${newEvent.eventId} that supersedes: $supersededEventIds")
-                for (supersededEventId in supersededEventIds) {
-                    val originalEventIndex = result.indexOfFirst { it.eventId == supersededEventId }
-                    if (originalEventIndex != -1) {
-                        val originalEvent = result[originalEventIndex]
-                        //android.util.Log.d("Andromuks", "AppViewModel: Found original event at index $originalEventIndex: ${originalEvent.eventId}")
-                        //android.util.Log.d("Andromuks", "AppViewModel: Original event body before merge: ${originalEvent.decrypted?.optString("body", "null")}")
-                        
-                        // Create a new event that merges the original event with the edit content
-                        val mergedEvent = mergeEditContent(originalEvent, newEvent)
-                        result[originalEventIndex] = mergedEvent
-                        //android.util.Log.d("Andromuks", "AppViewModel: Merged edit content into original event $supersededEventId")
-                        //android.util.Log.d("Andromuks", "AppViewModel: Final merged event body: ${mergedEvent.decrypted?.optString("body", "null")}")
-                    } else {
-                        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WARNING - Could not find original event $supersededEventId in timeline")
-                    }
-                }
-            } else {
-                // This is a regular new event - add it to the timeline
-                result.add(newEvent)
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Added new event ${newEvent.eventId}")
-            }
-        }
-        
-        return result
-    }
-    
-    /**
      * Finds events that are superseded by a new event.
      * 
      * @param newEvent The new event that might supersede others
@@ -13645,34 +12825,6 @@ class AppViewModel : ViewModel() {
         
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Returning superseded event IDs: $supersededEventIds")
         return supersededEventIds
-    }
-    
-    /**
-     * Checks if an event is superseded by another event.
-     * 
-     * @param event The event to check if it's superseded
-     * @param otherEvent The other event that might supersede it
-     * @return True if the event is superseded by the other event
-     */
-    private fun isEventSupersededBy(event: TimelineEvent, otherEvent: TimelineEvent): Boolean {
-        // Check if otherEvent is an edit that supersedes this event
-        val relatesTo = when {
-            otherEvent.type == "m.room.message" -> otherEvent.content?.optJSONObject("m.relates_to")
-            otherEvent.type == "m.room.encrypted" && otherEvent.decryptedType == "m.room.message" -> otherEvent.decrypted?.optJSONObject("m.relates_to")
-            else -> null
-        }
-        
-        val relatesToEventId = relatesTo?.optString("event_id")
-        val relType = relatesTo?.optString("rel_type")
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Checking if ${event.eventId} is superseded by ${otherEvent.eventId}")
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: otherEvent type: ${otherEvent.type}, relatesTo: $relatesTo")
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: relatesToEventId: $relatesToEventId, relType: $relType")
-        
-        val isSuperseded = relType == "m.replace" && relatesToEventId == event.eventId
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: isSuperseded: $isSuperseded")
-        
-        return isSuperseded
     }
     
     /**
@@ -14542,22 +13694,6 @@ class AppViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Stops the WebSocket service (used on logout or app cleanup)
-     */
-    fun stopWebSocketService() {
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Stopping WebSocket service")
-        logActivity("Stopping WebSocket Service", null)
-        
-        appContext?.let { context ->
-            // Use intent-based stop to ensure proper cleanup within Android timeout
-            val intent = android.content.Intent(context, WebSocketService::class.java)
-            intent.action = "STOP_SERVICE"
-            context.startService(intent)
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: WebSocket service stop intent sent")
-        }
-    }
-    
     // User Info Functions
     
     /**
@@ -14945,13 +14081,6 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * Send a raw WebSocket message
-     */
-    fun sendWebSocketMessage(message: String) {
-        webSocket?.send(message)
-    }
-    
-    /**
      * Navigate to a room after joining
      * If room already exists, navigate immediately. Otherwise wait for sync.
      */
@@ -15182,37 +14311,6 @@ class AppViewModel : ViewModel() {
             fun empty() = TimelineResponseData(events = JSONArray())
         }
     }
-    /**
-     * Parse timeline response data into structured format
-     */
-    private fun parseTimelineResponseData(
-        data: Any,
-        requestId: Int,
-        isPaginate: Boolean
-    ): TimelineResponseData {
-        return when (data) {
-            is JSONArray -> TimelineResponseData(events = data)
-            is JSONObject -> {
-                val eventsArray = data.optJSONArray("events")
-                val hasMore = if (isPaginate && paginateRequests.containsKey(requestId)) {
-                    data.optBoolean("has_more", true)
-                } else {
-                    true
-                }
-                val receipts = data.optJSONObject("receipts")
-                val fromServer = data.optBoolean("from_server", false)
-                
-                TimelineResponseData(
-                    events = eventsArray,
-                    hasMore = hasMore,
-                    receipts = receipts,
-                    fromServer = fromServer
-                )
-            }
-            else -> TimelineResponseData.empty()
-        }
-    }
-    
     /**
      * Extract profile information from member event
      */
@@ -15604,28 +14702,6 @@ class AppViewModel : ViewModel() {
     /**
      * @deprecated Room data is in-memory only - only in-memory caches need clearing
      */
-    @Deprecated("Room data is in-memory only, use clearRoomCache instead")
-    suspend fun deleteAllRoomData(roomId: String) = withContext(Dispatchers.Main) {
-        // Clear in-memory caches only
-        RoomTimelineCache.clearRoomCache(roomId)
-        
-        // Remove from room map if present
-        roomMap.remove(roomId)
-        
-        // Remove from pending invites (in-memory only)
-        PendingInvitesCache.removeInvite(roomId)
-        
-        // Clear current room if it's the deleted room
-        if (currentRoomId == roomId) {
-            clearCurrentRoomId()
-        }
-        
-        // Trigger room list update
-        roomListUpdateCounter++
-        
-        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Cleared in-memory data for room: $roomId")
-    }
-    
     /**
      * Format bytes to human-readable string (e.g., "1.5 MB")
      */
@@ -15677,10 +14753,3 @@ data class SingleEventLoadResult(
 )
 
 // Helper to safely access application context from extensions
-fun AppViewModel.getAppContext(): android.content.Context? = try {
-    val field = AppViewModel::class.java.getDeclaredField("appContext")
-    field.isAccessible = true
-    (field.get(this) as? android.content.Context)?.applicationContext
-} catch (e: Exception) {
-    null
-}

@@ -1253,17 +1253,9 @@ class EnhancedNotificationDisplay(private val context: Context, private val home
      * Update conversation shortcuts
      */
     private fun updateConversationShortcuts(data: NotificationData) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                conversationsApi.updateShortcutForNewMessage(
-                    data.roomId,
-                    data.body,
-                    data.timestamp ?: System.currentTimeMillis()
-                )
-            } catch (e: Exception) {
-                Log.e(TAG, "Error updating conversation shortcuts", e)
-            }
-        }
+        // updateShortcutForNewMessage() is deprecated and does nothing
+        // Shortcut updates are handled automatically by the regular update flow
+        // No action needed here
     }
     
     

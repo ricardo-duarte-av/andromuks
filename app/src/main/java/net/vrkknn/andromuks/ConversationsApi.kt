@@ -28,7 +28,6 @@ import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.ImageLoaderSingleton
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
-import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.utils.MediaUtils
 import net.vrkknn.andromuks.BuildConfig
 
@@ -98,7 +97,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         
         return@withContext try {
             // Check if we have a cached version first
-            val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+            val cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
             
             val imageUrl = if (cachedFile != null) {
                 cachedFile.absolutePath
@@ -202,7 +201,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         
         try {
             // Check if we have a cached version first
-            val cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+            val cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
             
             val imageUrl = if (cachedFile != null) {
                 cachedFile.absolutePath
@@ -484,7 +483,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     
                     // Check if avatar is cached
                     val avatarInCache = avatarUrl?.let { url ->
-                        MediaCache.getCachedFile(context, url) != null
+                        kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, url) } != null
                     } ?: false
                     lastAvatarCachePresence[roomId] = avatarInCache
                 }
@@ -597,7 +596,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             val nameChanged = existingShortcut.roomName != room.name
             val avatarChanged = existingShortcut.roomAvatarUrl != room.avatarUrl
             val avatarNeedsDownload = room.avatarUrl?.let { url ->
-                MediaCache.getCachedFile(context, url) == null
+                kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, url) } == null
             } ?: false
             
             nameChanged || avatarChanged || avatarNeedsDownload
@@ -611,7 +610,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             
             // Check if avatar is in cache AFTER createShortcutInfoCompat (which may have downloaded it)
             val avatarInCache = room.avatarUrl?.let { url ->
-                MediaCache.getCachedFile(context, url) != null
+                kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, url) } != null
             } ?: false
             
             val previouslyCached = lastAvatarCachePresence[room.id] ?: false
@@ -660,7 +659,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         lastNameAvatar = lastNameAvatar + (room.id to (room.name to room.avatarUrl))
         
         val avatarInCache = room.avatarUrl?.let { url ->
-            MediaCache.getCachedFile(context, url) != null
+            kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, url) } != null
         } ?: false
         lastAvatarCachePresence[room.id] = avatarInCache
         
@@ -786,7 +785,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         if (!idsChanged && !nameAvatarChanged) {
             for (s in newShortcuts) {
                 if (s.roomAvatarUrl != null) {
-                    val cachedFile = MediaCache.getCachedFile(context, s.roomAvatarUrl)
+                    val cachedFile = kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, s.roomAvatarUrl) }
                     if (cachedFile == null || !cachedFile.exists()) {
                         // Avatar URL exists but not cached - need to download
                         avatarsNeedDownload = true
@@ -833,7 +832,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
             // Check if this update is needed for missing avatars (bypass rate limiting)
             val hasMissingAvatars = shortcuts.any { shortcut ->
                 shortcut.roomAvatarUrl != null && 
-                MediaCache.getCachedFile(context, shortcut.roomAvatarUrl) == null
+                kotlinx.coroutines.runBlocking { IntelligentMediaCache.getCachedFile(context, shortcut.roomAvatarUrl) } == null
             }
             
             // Rate limiting: enforce cooldown after last completed update
@@ -905,7 +904,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
                     
                     // Check if avatar is in cache AFTER createShortcutInfoCompat (which may have downloaded it)
                     val avatarInCache = shortcut.roomAvatarUrl?.let { url ->
-                        MediaCache.getCachedFile(context, url) != null
+                        IntelligentMediaCache.getCachedFile(context, url) != null
                     } ?: false
                     
                     //Log.d(TAG, "  Avatar in cache (after download attempt): $avatarInCache, previously: $previouslyCached")
@@ -966,7 +965,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         val icon = if (shortcut.roomAvatarUrl != null) {
             try {
                 // Check if we have a cached version first
-                var cachedFile = MediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
+                var cachedFile = IntelligentMediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
                 
                 // If not cached, download and cache it (similar to EnhancedNotificationDisplay)
                 if (cachedFile == null || !cachedFile.exists()) {
@@ -1069,7 +1068,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         val icon = if (shortcut.roomAvatarUrl != null) {
             try {
                 // Check if we have a cached version first
-                var cachedFile = MediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
+                var cachedFile = IntelligentMediaCache.getCachedFile(context, shortcut.roomAvatarUrl)
                 
                 // If not cached, download and cache it (similar to EnhancedNotificationDisplay)
                 if (cachedFile == null || !cachedFile.exists()) {
@@ -1189,7 +1188,7 @@ class ConversationsApi(private val context: Context, private val homeserverUrl: 
         try {
             // Check if we have a cached version first
             val cachedFile = if (url.startsWith("mxc://")) {
-                MediaCache.getCachedFile(context, url)
+                IntelligentMediaCache.getCachedFile(context, url)
             } else null
             
             val imageUrl = if (cachedFile != null && cachedFile.exists()) {

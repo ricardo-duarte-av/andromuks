@@ -46,7 +46,8 @@ import coil.request.CachePolicy
 import coil.request.ImageRequest
 import kotlinx.coroutines.launch
 import net.vrkknn.andromuks.TimelineEvent
-import net.vrkknn.andromuks.utils.MediaCache
+import net.vrkknn.andromuks.utils.IntelligentMediaCache
+import java.io.File
 
 
 import android.os.Build
@@ -361,24 +362,26 @@ private fun StickerContent(
             val imageLoader = remember { ImageLoaderSingleton.get(context) }
             
             // Check if we have a cached version first
-            val cachedFile = remember(stickerMessage.url) {
-                MediaCache.getCachedFile(context, stickerMessage.url)
+            var cachedFile by remember { mutableStateOf<File?>(null) }
+            LaunchedEffect(stickerMessage.url) {
+                cachedFile = IntelligentMediaCache.getCachedFile(context, stickerMessage.url)
             }
             
             val imageUrl = remember(stickerMessage.url, isEncrypted, cachedFile) {
-                if (cachedFile != null && cachedFile.exists()) {
+                val file = cachedFile
+                if (file != null && file.exists()) {
                     // Use raw cached file path (like AvatarImage does)
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Using cached file: ${cachedFile.absolutePath}")
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Cached file size: ${cachedFile.length()} bytes, canRead: ${cachedFile.canRead()}, isEncrypted: $isEncrypted")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Using cached file: ${file.absolutePath}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: Cached file size: ${file.length()} bytes, canRead: ${file.canRead()}, isEncrypted: $isEncrypted")
                     // Check if file looks like image data (starts with common image magic bytes)
                     try {
-                        val header = cachedFile.inputStream().use { it.readNBytes(4) }
+                        val header = file.inputStream().use { it.readNBytes(4) }
                         val headerHex = header.joinToString("") { "%02x".format(it) }
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerMessage: File header (hex): $headerHex")
                     } catch (e: Exception) {
                         Log.e("Andromuks", "StickerMessage: Failed to read file header", e)
                     }
-                    cachedFile.absolutePath
+                    file.absolutePath
                 } else {
                     // Use HTTP URL
                     val httpUrl = MediaUtils.mxcToHttpUrl(stickerMessage.url, homeserverUrl)
@@ -506,24 +509,26 @@ private fun StickerViewerDialog(
             val imageLoader = remember { ImageLoaderSingleton.get(context) }
             
             // Check if we have a cached version first
-            val cachedFile = remember(stickerMessage.url) {
-                MediaCache.getCachedFile(context, stickerMessage.url)
+            var cachedFile by remember { mutableStateOf<File?>(null) }
+            LaunchedEffect(stickerMessage.url) {
+                cachedFile = IntelligentMediaCache.getCachedFile(context, stickerMessage.url)
             }
             
             val imageUrl = remember(stickerMessage.url, isEncrypted, cachedFile) {
-                if (cachedFile != null && cachedFile.exists()) {
+                val file = cachedFile
+                if (file != null && file.exists()) {
                     // Use raw cached file path (like AvatarImage does)
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerViewer: Using cached file: ${cachedFile.absolutePath}")
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerViewer: Cached file size: ${cachedFile.length()} bytes, canRead: ${cachedFile.canRead()}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerViewer: Using cached file: ${file.absolutePath}")
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerViewer: Cached file size: ${file.length()} bytes, canRead: ${file.canRead()}")
                     // Check if file looks like image data (starts with common image magic bytes)
                     try {
-                        val header = cachedFile.inputStream().use { it.readNBytes(4) }
+                        val header = file.inputStream().use { it.readNBytes(4) }
                         val headerHex = header.joinToString("") { "%02x".format(it) }
                         if (BuildConfig.DEBUG) Log.d("Andromuks", "StickerViewer: File header (hex): $headerHex")
                     } catch (e: Exception) {
                         Log.e("Andromuks", "StickerViewer: Failed to read file header", e)
                     }
-                    cachedFile.absolutePath
+                    file.absolutePath
                 } else {
                     // Use HTTP URL
                     val httpUrl = MediaUtils.mxcToHttpUrl(stickerMessage.url, homeserverUrl)

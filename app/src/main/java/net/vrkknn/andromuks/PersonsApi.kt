@@ -29,7 +29,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.vrkknn.andromuks.utils.AvatarUtils
 import net.vrkknn.andromuks.utils.IntelligentMediaCache
-import net.vrkknn.andromuks.utils.MediaCache
 import net.vrkknn.andromuks.MainActivity
 import net.vrkknn.andromuks.BuildConfig
 
@@ -304,7 +303,7 @@ class PersonsApi(
             }
 
             // Check if we have a cached version first
-            var cachedFile = MediaCache.getCachedFile(context, avatarUrl)
+            var cachedFile = IntelligentMediaCache.getCachedFile(context, avatarUrl)
             
             // If not cached, download and cache it (similar to ConversationsApi)
             if (cachedFile == null || !cachedFile.exists()) {
