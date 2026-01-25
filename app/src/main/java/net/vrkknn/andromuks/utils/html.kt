@@ -7,6 +7,7 @@ import android.os.Build
 import android.util.Log
 import android.graphics.Color as AndroidColor
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -20,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.InlineTextContent
 import androidx.compose.foundation.text.appendInlineContent
@@ -56,6 +58,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
@@ -414,6 +417,12 @@ data class InlineMatrixRoomChip(
     val roomAvatarUrl: String? = null
 )
 
+data class InlineCodeBlockPreview(
+    val previewText: String,
+    val fullCode: String,
+    val totalLines: Int
+)
+
 private fun extractMatrixUserId(href: String): String? {
     val trimmed = href.trim()
     if (trimmed.startsWith("https://matrix.to/#/")) {
@@ -443,7 +452,8 @@ private fun AnnotatedString.Builder.appendHtmlNode(
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     spoilerContext: SpoilerRenderContext? = null,
     hideContent: Boolean = false,
-    previousWasLineBreak: Boolean = false
+    previousWasLineBreak: Boolean = false,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
 ) {
     when (node) {
         is HtmlNode.Text -> {
@@ -479,7 +489,7 @@ private fun AnnotatedString.Builder.appendHtmlNode(
             }
         }
         is HtmlNode.LineBreak -> append("\n")
-        is HtmlNode.Tag -> appendHtmlTag(node, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        is HtmlNode.Tag -> appendHtmlTag(node, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks)
     }
 }
 
@@ -489,7 +499,8 @@ private fun AnnotatedString.Builder.appendHtmlTag(
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     spoilerContext: SpoilerRenderContext?,
-    hideContent: Boolean = false
+    hideContent: Boolean = false,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
 ) {
     val styleAttr = tag.attributes["style"]?.lowercase() ?: ""
     if (styleAttr.contains("display") && styleAttr.contains("none")) {
@@ -507,7 +518,8 @@ private fun AnnotatedString.Builder.appendHtmlTag(
             inlineImages = inlineImages,
             inlineMatrixUsers = inlineMatrixUsers,
             spoilerContext = spoilerContext,
-            reason = sanitizedReason
+            reason = sanitizedReason,
+            inlineCodeBlocks = inlineCodeBlocks
         )
         return
     }
@@ -515,33 +527,45 @@ private fun AnnotatedString.Builder.appendHtmlTag(
     val styledBase = applyInlineColors(tag, baseStyle)
 
     when (tag.name) {
-        "strong", "b" -> appendStyledChildren(tag, styledBase.copy(fontWeight = FontWeight.Bold), inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "em", "i" -> appendStyledChildren(tag, styledBase.copy(fontStyle = FontStyle.Italic), inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "strong", "b" -> appendStyledChildren(tag, styledBase.copy(fontWeight = FontWeight.Bold), inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
+        "em", "i" -> appendStyledChildren(tag, styledBase.copy(fontStyle = FontStyle.Italic), inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
         "u" -> {
             val newStyle = styledBase.copy(textDecoration = (styledBase.textDecoration ?: TextDecoration.None) + TextDecoration.Underline)
-            appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+            appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
         }
         "s", "del", "strike" -> {
             val newStyle = styledBase.copy(textDecoration = (styledBase.textDecoration ?: TextDecoration.None) + TextDecoration.LineThrough)
-            appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+            appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
         }
         "ins" -> {
             val newStyle = styledBase.copy(textDecoration = (styledBase.textDecoration ?: TextDecoration.None) + TextDecoration.Underline)
-            appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+            appendStyledChildren(tag, newStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
         }
-        "code" -> appendStyledChildren(tag, styledBase.copy(fontFamily = FontFamily.Monospace), inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "span", "font" -> appendSpoilerOrStyledChildren(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "code" -> appendStyledChildren(tag, styledBase.copy(fontFamily = FontFamily.Monospace), inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
+        "span", "font" -> appendSpoilerOrStyledChildren(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks)
         "br" -> append("\n")
         "hr" -> appendHorizontalRule()
-        "h1", "h2", "h3", "h4", "h5", "h6" -> appendHeader(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "p", "div" -> appendBlock(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext)
-        "blockquote" -> appendBlockQuote(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "ul" -> appendUnorderedList(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "ol" -> appendOrderedList(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
-        "a" -> appendAnchor(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+        "h1", "h2", "h3", "h4", "h5", "h6" -> appendHeader(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks)
+        "p", "div" -> appendBlock(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, inlineCodeBlocks)
+        "blockquote" -> appendBlockQuote(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks)
+        "ul" -> appendUnorderedList(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks)
+        "ol" -> appendOrderedList(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks)
+        "a" -> appendAnchor(tag, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks)
         "img" -> appendImage(tag, inlineImages, hideContent)
-        "pre" -> appendPreformattedBlock(tag, styledBase, inlineImages, inlineMatrixUsers)
-        else -> tag.children.forEach { appendHtmlNode(it, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent) }
+        "pre" -> {
+            // Check if this is a code block (has <code> inside <pre>)
+            val hasCodeTag = tag.children.any { child ->
+                child is HtmlNode.Tag && child.name == "code"
+            }
+            if (hasCodeTag && inlineCodeBlocks != null) {
+                // This is a code block - render truncated preview
+                appendCodeBlockPreview(tag, styledBase, inlineImages, inlineMatrixUsers, inlineCodeBlocks)
+            } else {
+                // Regular pre block
+                appendPreformattedBlock(tag, styledBase, inlineImages, inlineMatrixUsers)
+            }
+        }
+        else -> tag.children.forEach { appendHtmlNode(it, styledBase, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks) }
     }
 }
 
@@ -551,11 +575,13 @@ private fun AnnotatedString.Builder.appendStyledChildren(
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     spoilerContext: SpoilerRenderContext?,
-    hideContent: Boolean = false
+    hideContent: Boolean = false,
+    initialPreviousWasLineBreak: Boolean = false,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
 ) {
-    var previousWasLineBreak = false
+    var previousWasLineBreak = initialPreviousWasLineBreak
     tag.children.forEach { child ->
-        appendHtmlNode(child, style, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak)
+        appendHtmlNode(child, style, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak, inlineCodeBlocks)
         previousWasLineBreak = child is HtmlNode.LineBreak
     }
 }
@@ -601,7 +627,8 @@ private fun AnnotatedString.Builder.appendSpoilerOrStyledChildren(
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     spoilerContext: SpoilerRenderContext?,
-    hideContent: Boolean = false
+    hideContent: Boolean = false,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
 ) {
     val classAttr = tag.attributes["class"] ?: ""
 
@@ -619,7 +646,8 @@ private fun AnnotatedString.Builder.appendSpoilerOrStyledChildren(
                 inlineImages = inlineImages,
                 inlineMatrixUsers = inlineMatrixUsers,
                 spoilerContext = spoilerContext,
-                reason = null
+                reason = null,
+                inlineCodeBlocks = inlineCodeBlocks
             )
             return
         }
@@ -627,7 +655,7 @@ private fun AnnotatedString.Builder.appendSpoilerOrStyledChildren(
     
     // Regular span/font - process children with optional color/background
     val styled = applyInlineColors(tag, baseStyle)
-    appendStyledChildren(tag, styled, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
+    appendStyledChildren(tag, styled, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, inlineCodeBlocks = inlineCodeBlocks)
 }
 
 private fun AnnotatedString.Builder.appendBlock(
@@ -635,7 +663,8 @@ private fun AnnotatedString.Builder.appendBlock(
     baseStyle: SpanStyle,
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
-    spoilerContext: SpoilerRenderContext?
+    spoilerContext: SpoilerRenderContext?,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
 ) {
     if (length > 0 && !endsWithNewline()) append("\n")
     
@@ -657,12 +686,13 @@ private fun AnnotatedString.Builder.appendBlock(
                         inlineImages = inlineImages,
                         inlineMatrixUsers = inlineMatrixUsers,
                         spoilerContext = spoilerContext,
-                        reason = reason
+                        reason = reason,
+                        inlineCodeBlocks = inlineCodeBlocks
                     )
                 } else {
                     var wasLineBreak = previousWasLineBreak
                     contentNodes.forEach {
-                        appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, null, hideContent = false, previousWasLineBreak = wasLineBreak)
+                        appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, null, hideContent = false, previousWasLineBreak = wasLineBreak, inlineCodeBlocks = inlineCodeBlocks)
                         wasLineBreak = it is HtmlNode.LineBreak
                     }
                     previousWasLineBreak = wasLineBreak
@@ -673,7 +703,7 @@ private fun AnnotatedString.Builder.appendBlock(
         }
         
         // No spoiler pattern, process normally
-        appendHtmlNode(child, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent = false, previousWasLineBreak = previousWasLineBreak)
+        appendHtmlNode(child, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent = false, previousWasLineBreak = previousWasLineBreak, inlineCodeBlocks = inlineCodeBlocks)
         previousWasLineBreak = child is HtmlNode.LineBreak
         i++
     }
@@ -686,7 +716,8 @@ private fun AnnotatedString.Builder.appendHeader(
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     spoilerContext: SpoilerRenderContext?,
-    hideContent: Boolean = false
+    hideContent: Boolean = false,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
 ) {
     if (length > 0 && !endsWithNewline()) append("\n")
     
@@ -696,7 +727,7 @@ private fun AnnotatedString.Builder.appendHeader(
         fontWeight = FontWeight.Bold
     )
     
-    tag.children.forEach { appendHtmlNode(it, headerStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent) }
+    tag.children.forEach { appendHtmlNode(it, headerStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak = false, inlineCodeBlocks = inlineCodeBlocks) }
     append("\n")
 }
 
@@ -711,7 +742,8 @@ private fun AnnotatedString.Builder.appendBlockQuote(
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     spoilerContext: SpoilerRenderContext?,
-    hideContent: Boolean = false
+    hideContent: Boolean = false,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
 ) {
     if (length > 0 && !endsWithNewline()) append("\n")
     
@@ -757,13 +789,14 @@ private fun AnnotatedString.Builder.appendUnorderedList(
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     spoilerContext: SpoilerRenderContext?,
-    hideContent: Boolean = false
+    hideContent: Boolean = false,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
 ) {
     append("\n")
     tag.children.forEach { child ->
         if (child is HtmlNode.Tag && child.name == "li") {
             append("• ")
-            child.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent) }
+            child.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak = false, inlineCodeBlocks = inlineCodeBlocks) }
             append("\n")
         }
     }
@@ -775,7 +808,8 @@ private fun AnnotatedString.Builder.appendSpoilerNodes(
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     spoilerContext: SpoilerRenderContext,
-    reason: String?
+    reason: String?,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
 ) {
     val spoilerId = spoilerContext.nextId()
     val revealed = spoilerContext.isRevealed(spoilerId)
@@ -793,7 +827,9 @@ private fun AnnotatedString.Builder.appendSpoilerNodes(
             inlineImages = inlineImages,
             inlineMatrixUsers = inlineMatrixUsers,
             spoilerContext = spoilerContext,
-            hideContent = !revealed
+            hideContent = !revealed,
+            previousWasLineBreak = false,
+            inlineCodeBlocks = inlineCodeBlocks
         )
     }
     val end = length
@@ -806,14 +842,15 @@ private fun AnnotatedString.Builder.appendOrderedList(
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     spoilerContext: SpoilerRenderContext?,
-    hideContent: Boolean = false
+    hideContent: Boolean = false,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
 ) {
     append("\n")
     var index = 1
     tag.children.forEach { child ->
         if (child is HtmlNode.Tag && child.name == "li") {
             append("${index}. ")
-            child.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent) }
+            child.children.forEach { appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak = false, inlineCodeBlocks = inlineCodeBlocks) }
             append("\n")
             index++
         }
@@ -841,6 +878,58 @@ private fun AnnotatedString.Builder.appendPreformattedBlock(
     withStyle(baseStyle.copy(fontFamily = FontFamily.Monospace)) {
         append(rawText)
     }
+    append("\n")
+}
+
+/**
+ * Render a truncated code block preview (8 lines) with clickable annotation
+ */
+private fun AnnotatedString.Builder.appendCodeBlockPreview(
+    tag: HtmlNode.Tag,
+    baseStyle: SpanStyle,
+    inlineImages: MutableMap<String, InlineImageData>,
+    inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>
+) {
+    if (length > 0 && !endsWithNewline()) append("\n")
+    
+    // Extract full code text
+    val fullCode = buildString {
+        collectRawText(tag, this)
+    }.let { text ->
+        if (text.endsWith("\n")) text.dropLast(1) else text
+    }
+    
+    // Split into lines and truncate to 8 lines if needed
+    val lines = fullCode.lines()
+    val previewLines = if (lines.size > 8) {
+        lines.take(8)
+    } else {
+        lines
+    }
+    val previewText = previewLines.joinToString("\n")
+    
+    // Generate unique ID for this code block
+    val codeBlockId = "code_${inlineCodeBlocks.size}_${fullCode.hashCode()}"
+    inlineCodeBlocks[codeBlockId] = InlineCodeBlockPreview(
+        previewText = previewText,
+        fullCode = fullCode,
+        totalLines = lines.size
+    )
+    
+    // Render the truncated code directly in the text flow with monospace style
+    val codeStyle = baseStyle.copy(fontFamily = FontFamily.Monospace)
+    val annotationStart = length
+    pushStringAnnotation("CODE_BLOCK", codeBlockId)
+    withStyle(codeStyle) {
+        append(previewText)
+        // Add truncation indicator if needed
+        if (lines.size > 8) {
+            append("\n... (${lines.size - 8} more lines, tap to view full code)")
+        }
+    }
+    pop()
+    val annotationEnd = length
     append("\n")
 }
 
@@ -987,7 +1076,8 @@ private fun AnnotatedString.Builder.appendAnchor(
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     spoilerContext: SpoilerRenderContext?,
-    hideContent: Boolean = false
+    hideContent: Boolean = false,
+    inlineCodeBlocks: MutableMap<String, InlineCodeBlockPreview>? = null
 ) {
     val href = tag.attributes["href"] ?: ""
     
@@ -1025,7 +1115,7 @@ private fun AnnotatedString.Builder.appendAnchor(
         pushStringAnnotation("ROOM_LINK", href)
         var previousWasLineBreak = false
         tag.children.forEach { child ->
-            appendHtmlNode(child, linkStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak)
+            appendHtmlNode(child, linkStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak, inlineCodeBlocks = inlineCodeBlocks)
             previousWasLineBreak = child is HtmlNode.LineBreak
         }
         pop()
@@ -1040,7 +1130,7 @@ private fun AnnotatedString.Builder.appendAnchor(
         pushStringAnnotation("URL", href)
         var previousWasLineBreak = false
         tag.children.forEach { child ->
-            appendHtmlNode(child, linkStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak)
+            appendHtmlNode(child, linkStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak, inlineCodeBlocks = inlineCodeBlocks)
             previousWasLineBreak = child is HtmlNode.LineBreak
         }
         val annotationEnd = length
@@ -1277,7 +1367,8 @@ fun HtmlMessageText(
     onRoomLinkClick: (RoomLink) -> Unit = {},
     appViewModel: AppViewModel? = null,
     isEmojiOnly: Boolean = false,
-    htmlContent: String? = null // Optional HTML content (e.g., from edit) to override event extraction
+    htmlContent: String? = null, // Optional HTML content (e.g., from edit) to override event extraction
+    onCodeBlockClick: (String) -> Unit = {} // Callback for code block clicks
 ) {
     // Don't render HTML for redacted messages
     // The parent composable should handle showing the deletion message
@@ -1356,6 +1447,7 @@ fun HtmlMessageText(
     // Render to AnnotatedString with inline images
     val inlineImages = remember { mutableMapOf<String, InlineImageData>() }
     val inlineMatrixUsers = remember { mutableMapOf<String, InlineMatrixUserChip>() }
+    val inlineCodeBlocks = remember { mutableMapOf<String, InlineCodeBlockPreview>() } // Map of code block IDs to preview data
     val spoilerStates = remember { mutableStateMapOf<String, Boolean>() }
     val spoilerContext = remember { SpoilerRenderContext(spoilerStates) }
 
@@ -1371,6 +1463,7 @@ fun HtmlMessageText(
             spoilerContext.start()
             inlineImages.clear()
             inlineMatrixUsers.clear()
+            inlineCodeBlocks.clear()
             buildAnnotatedString {
                 var i = 0
                 var previousWasLineBreak = false
@@ -1387,7 +1480,8 @@ fun HtmlMessageText(
                                 inlineImages = inlineImages,
                                 inlineMatrixUsers = inlineMatrixUsers,
                                 spoilerContext = spoilerContext,
-                                reason = null
+                                reason = null,
+                                inlineCodeBlocks = inlineCodeBlocks
                             )
                             previousWasLineBreak = false
                             i++
@@ -1407,7 +1501,8 @@ fun HtmlMessageText(
                                     inlineImages = inlineImages,
                                     inlineMatrixUsers = inlineMatrixUsers,
                                     spoilerContext = spoilerContext,
-                                    reason = reason
+                                    reason = reason,
+                                    inlineCodeBlocks = inlineCodeBlocks
                                 )
                                 previousWasLineBreak = false
                                 i += 2
@@ -1424,7 +1519,8 @@ fun HtmlMessageText(
                         inlineImages = inlineImages,
                         inlineMatrixUsers = inlineMatrixUsers,
                         spoilerContext = spoilerContext,
-                        previousWasLineBreak = wasLineBreak
+                        previousWasLineBreak = wasLineBreak,
+                        inlineCodeBlocks = inlineCodeBlocks
                     )
                     previousWasLineBreak = node is HtmlNode.LineBreak
                     i++
@@ -1454,7 +1550,7 @@ fun HtmlMessageText(
         with(density) { sampleLayout.size.height.toDp().value.toInt() }
     }
     
-    val inlineContentMap = remember(annotatedString, inlineImages.toMap(), inlineMatrixUsers.toMap(), onMatrixUserClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color) {
+    val inlineContentMap = remember(annotatedString, inlineImages.toMap(), inlineMatrixUsers.toMap(), inlineCodeBlocks.toMap(), onMatrixUserClick, onCodeBlockClick, density, chipTextStyle, textMeasurer, textLineHeight, primaryColor, isEmojiOnly, color, bodyTextStyle) {
         val map = mutableMapOf<String, InlineTextContent>()
         inlineImages.forEach { (id, imageData) ->
             // Limit image height to text line height, but use 2x size for emoji-only messages
@@ -1504,6 +1600,8 @@ fun HtmlMessageText(
                 )
             }
         }
+        // Code blocks are now rendered directly in the text flow, not as inline content
+        // The inlineCodeBlocks map is still used to store full code for click handling
         map
     }
     
@@ -1572,6 +1670,18 @@ fun HtmlMessageText(
                             if (spoilerAnnotation != null) {
                                 up.consume()
                                 spoilerContext.toggle(spoilerAnnotation.item)
+                                return@awaitEachGesture
+                            }
+
+                            // Check for code block annotation first
+                            val codeBlockAnnotation = annotatedString.getStringAnnotations(tag = "CODE_BLOCK", start = offset, end = offset).firstOrNull()
+                            if (codeBlockAnnotation != null) {
+                                up.consume()
+                                val codeBlockId = codeBlockAnnotation.item
+                                val codeBlock = inlineCodeBlocks[codeBlockId]
+                                if (codeBlock != null) {
+                                    onCodeBlockClick(codeBlock.fullCode)
+                                }
                                 return@awaitEachGesture
                             }
 

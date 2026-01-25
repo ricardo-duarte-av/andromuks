@@ -145,6 +145,7 @@ import net.vrkknn.andromuks.utils.EmojiSelectionDialog
 import net.vrkknn.andromuks.utils.StickerSelectionDialog
 import net.vrkknn.andromuks.utils.EmoteEventNarrator
 import net.vrkknn.andromuks.utils.HtmlMessageText
+import net.vrkknn.andromuks.utils.CodeViewer
 import net.vrkknn.andromuks.utils.InlineReadReceiptAvatars
 import net.vrkknn.andromuks.utils.AnimatedInlineReadReceiptAvatars
 import net.vrkknn.andromuks.utils.navigateToUserInfo
@@ -505,6 +506,10 @@ fun RoomTimelineScreen(
     
     // Sticker selection state for text input
     var showStickerPickerForText by remember { mutableStateOf(false) }
+    
+    // Code viewer state
+    var showCodeViewer by remember { mutableStateOf(false) }
+    var codeViewerContent by remember { mutableStateOf("") }
 
     // Scroll highlight state for jump-to-message interactions
     var highlightedEventId by remember(roomId) { mutableStateOf<String?>(null) }
@@ -2382,6 +2387,10 @@ fun RoomTimelineScreen(
                                                     val encodedThreadRoot = java.net.URLEncoder.encode(threadInfo.threadRootEventId, "UTF-8")
                                                     navController.navigate("thread_viewer/$encodedRoomId/$encodedThreadRoot")
                                                 }
+                                            },
+                                            onCodeBlockClick = { code ->
+                                                codeViewerContent = code
+                                                showCodeViewer = true
                                             }
                                         )
                                     }
@@ -3576,6 +3585,17 @@ fun RoomTimelineScreen(
                 // Uploading dialog (shows progress during upload)
                 if (isUploading) {
                     UploadingDialog(isVideo = selectedMediaIsVideo)
+                }
+                
+                // Code viewer dialog
+                if (showCodeViewer) {
+                    CodeViewer(
+                        code = codeViewerContent,
+                        onDismiss = {
+                            showCodeViewer = false
+                            codeViewerContent = ""
+                        }
+                    )
                 }
                 }
             }

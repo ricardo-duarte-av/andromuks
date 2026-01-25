@@ -285,7 +285,8 @@ fun AdaptiveMessageText(
     modifier: Modifier = Modifier,
     onUserClick: (String) -> Unit = {},
     onMatrixUserClick: (String) -> Unit = onUserClick,
-    onRoomLinkClick: (RoomLink) -> Unit = {}
+    onRoomLinkClick: (RoomLink) -> Unit = {},
+    onCodeBlockClick: (String) -> Unit = {}
 ) {
     // For redacted messages, always use plain text to show the deletion message
     val isRedacted = event.redactedBy != null
@@ -340,7 +341,8 @@ fun AdaptiveMessageText(
             onRoomLinkClick = onRoomLinkClick,
             appViewModel = appViewModel,
             isEmojiOnly = isEmojiOnly,
-            htmlContent = htmlContent // Pass HTML edit content if available, otherwise null to extract from event
+            htmlContent = htmlContent, // Pass HTML edit content if available, otherwise null to extract from event
+            onCodeBlockClick = onCodeBlockClick
         )
     } else {
         // Fallback to plain text for redacted messages or when HTML is not available
@@ -534,7 +536,8 @@ private fun MessageTypeContent(
     onUserClick: (String) -> Unit,
     onRoomLinkClick: (RoomLink) -> Unit,
     onThreadClick: (TimelineEvent) -> Unit,
-    onShowEditHistory: (() -> Unit)? = null
+    onShowEditHistory: (() -> Unit)? = null,
+    onCodeBlockClick: (String) -> Unit = {}
 ) {
     when (event.type) {
         "m.room.redaction" -> {
@@ -569,7 +572,8 @@ private fun MessageTypeContent(
                 onUserClick = onUserClick,
                 onRoomLinkClick = onRoomLinkClick,
                 onThreadClick = onThreadClick,
-                onShowEditHistory = onShowEditHistory
+                onShowEditHistory = onShowEditHistory,
+                onCodeBlockClick = onCodeBlockClick
             )
         }
         "m.room.encrypted" -> {
@@ -596,7 +600,8 @@ private fun MessageTypeContent(
                 onUserClick = onUserClick,
                 onRoomLinkClick = onRoomLinkClick,
                 onThreadClick = onThreadClick,
-                onShowEditHistory = onShowEditHistory
+                onShowEditHistory = onShowEditHistory,
+                onCodeBlockClick = onCodeBlockClick
             )
         }
         "m.sticker" -> {
@@ -658,7 +663,8 @@ private fun RoomMessageContent(
     onUserClick: (String) -> Unit,
     onRoomLinkClick: (RoomLink) -> Unit,
     onThreadClick: (TimelineEvent) -> Unit,
-    onShowEditHistory: (() -> Unit)? = null
+    onShowEditHistory: (() -> Unit)? = null,
+    onCodeBlockClick: (String) -> Unit = {}
 ) {
     // Check if this is an edit event (m.replace relationship)
     val isEditEvent =
@@ -993,7 +999,8 @@ private fun RoomMessageContent(
             onUserClick = onUserClick,
             onRoomLinkClick = onRoomLinkClick,
             onThreadClick = onThreadClick,
-            onShowEditHistory = onShowEditHistory
+            onShowEditHistory = onShowEditHistory,
+            onCodeBlockClick = onCodeBlockClick
         )
     }
 }
@@ -1372,7 +1379,8 @@ private fun RoomTextMessageContent(
     onUserClick: (String) -> Unit,
     onRoomLinkClick: (RoomLink) -> Unit,
     onThreadClick: (TimelineEvent) -> Unit,
-    onShowEditHistory: (() -> Unit)? = null
+    onShowEditHistory: (() -> Unit)? = null,
+    onCodeBlockClick: (String) -> Unit = {}
 ) {
     val bubbleShape =
         if (actualIsMine) {
@@ -1509,7 +1517,8 @@ private fun RoomTextMessageContent(
                                     textColor = textColor,
                                     onUserClick = onUserClick,
                                     onMatrixUserClick = onUserClick,
-                                    onRoomLinkClick = onRoomLinkClick
+                                    onRoomLinkClick = onRoomLinkClick,
+                                    onCodeBlockClick = onCodeBlockClick
                                 )
                             }
                             if (hasBeenEdited) {
@@ -1607,7 +1616,8 @@ private fun RoomTextMessageContent(
                             textColor = textColor,
                             onUserClick = onUserClick,
                             onMatrixUserClick = onUserClick,
-                            onRoomLinkClick = onRoomLinkClick
+                            onRoomLinkClick = onRoomLinkClick,
+                            onCodeBlockClick = onCodeBlockClick
                         )
                     }
                     if (hasBeenEdited) {
@@ -1751,7 +1761,8 @@ private fun EncryptedMessageContent(
     onUserClick: (String) -> Unit,
     onRoomLinkClick: (RoomLink) -> Unit,
     onThreadClick: (TimelineEvent) -> Unit,
-    onShowEditHistory: (() -> Unit)? = null
+    onShowEditHistory: (() -> Unit)? = null,
+    onCodeBlockClick: (String) -> Unit = {}
 ) {
     // Check if this is an edit event (m.replace relationship) - don't display edit events
     val isEditEvent =
@@ -2327,7 +2338,8 @@ private fun EncryptedMessageContent(
                                     textColor = textColor,
                                     onUserClick = onUserClick,
                                     onMatrixUserClick = onUserClick,
-                                    onRoomLinkClick = onRoomLinkClick
+                                    onRoomLinkClick = onRoomLinkClick,
+                                    onCodeBlockClick = onCodeBlockClick
                                 )
                             }
                             if (encryptedHasBeenEdited) {
@@ -2399,7 +2411,8 @@ private fun EncryptedMessageContent(
                                     textColor = textColor,
                                     onUserClick = onUserClick,
                                     onMatrixUserClick = onUserClick,
-                                    onRoomLinkClick = onRoomLinkClick
+                                    onRoomLinkClick = onRoomLinkClick,
+                                    onCodeBlockClick = onCodeBlockClick
                                 )
                             }
                             if (encryptedHasBeenEdited) {
@@ -2771,7 +2784,8 @@ fun TimelineEventItem(
     onUserClick: (String) -> Unit = {},
     onRoomLinkClick: (RoomLink) -> Unit = {},
     onThreadClick: (TimelineEvent) -> Unit = {},
-    onNewBubbleAnimationStart: (() -> Unit)? = null
+    onNewBubbleAnimationStart: (() -> Unit)? = null,
+    onCodeBlockClick: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     
@@ -3200,7 +3214,8 @@ fun TimelineEventItem(
                 onUserClick = onUserClick,
                 onRoomLinkClick = onRoomLinkClick,
                 onThreadClick = onThreadClick,
-                onShowEditHistory = if (appViewModel != null) openEditHistory else null
+                onShowEditHistory = if (appViewModel != null) openEditHistory else null,
+                onCodeBlockClick = onCodeBlockClick
             )
         }
 

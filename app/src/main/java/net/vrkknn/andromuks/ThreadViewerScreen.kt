@@ -116,6 +116,7 @@ import net.vrkknn.andromuks.utils.ReplyPreviewInput
 import net.vrkknn.andromuks.utils.navigateToUserInfo
 import net.vrkknn.andromuks.utils.RoomLink
 import net.vrkknn.andromuks.utils.TypingNotificationArea
+import net.vrkknn.andromuks.utils.CodeViewer
 import net.vrkknn.andromuks.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -369,6 +370,10 @@ fun ThreadViewerScreen(
     var emojiStartIndex by remember { mutableStateOf(-1) }
     var showEmojiPickerForText by remember { mutableStateOf(false) }
     var showStickerPickerForText by remember { mutableStateOf(false) }
+    
+    // Code viewer state
+    var showCodeViewer by remember { mutableStateOf(false) }
+    var codeViewerContent by remember { mutableStateOf("") }
     
     // Track websocket connection state
     var websocketConnected by remember { mutableStateOf(appViewModel.isWebSocketConnected()) }
@@ -891,7 +896,11 @@ fun ThreadViewerScreen(
                                                 navController.navigate("room_timeline/$encodedRoomId")
                                             }
                                         },
-                                        onThreadClick = { } // No nested threads
+                                        onThreadClick = { }, // No nested threads
+                                        onCodeBlockClick = { code ->
+                                            codeViewerContent = code
+                                            showCodeViewer = true
+                                        }
                                     )
                                 }
                             }
@@ -1893,6 +1902,17 @@ fun ThreadViewerScreen(
 
                 if (isUploading) {
                     UploadingDialog(isVideo = selectedMediaIsVideo)
+                }
+                
+                // Code viewer dialog
+                if (showCodeViewer) {
+                    CodeViewer(
+                        code = codeViewerContent,
+                        onDismiss = {
+                            showCodeViewer = false
+                            codeViewerContent = ""
+                        }
+                    )
                 }
                 
                 // Delete confirmation dialog
