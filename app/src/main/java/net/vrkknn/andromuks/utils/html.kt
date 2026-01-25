@@ -442,7 +442,8 @@ private fun AnnotatedString.Builder.appendHtmlNode(
     inlineImages: MutableMap<String, InlineImageData>,
     inlineMatrixUsers: MutableMap<String, InlineMatrixUserChip>,
     spoilerContext: SpoilerRenderContext? = null,
-    hideContent: Boolean = false
+    hideContent: Boolean = false,
+    previousWasLineBreak: Boolean = false
 ) {
     when (node) {
         is HtmlNode.Text -> {
@@ -454,14 +455,28 @@ private fun AnnotatedString.Builder.appendHtmlNode(
                 // In HTML mode, <br> tags handle line breaks, so remove newlines from text nodes
                 // to prevent double line breaks when HTML has "<br>\n"
                 // Normalize tabs/multiple spaces within each line
-                // Trim leading/trailing whitespace since whitespace around HTML tags is not significant
-                text.replace("\r\n", " ")
+                // Preserve single spaces around inline tags (like <strong>, <em>) for readability
+                // Only normalize multiple spaces/tabs to single spaces, don't trim edges
+                var normalized = text.replace("\r\n", " ")
                     .replace("\r", " ")
                     .replace("\n", " ")
                     .replace(Regex("[\\t ]+"), " ")
-                    .trim()
+                // If previous node was a line break, trim leading whitespace from this text node
+                // This prevents extra spaces when HTML has "<br>\nMessage"
+                if (previousWasLineBreak && normalized.isNotEmpty() && normalized[0].isWhitespace()) {
+                    normalized = normalized.trimStart()
+                }
+                // Skip text nodes that are only whitespace (e.g., newlines after <br> tags)
+                // This prevents extra spaces when HTML has "<br>\n"
+                if (normalized.isBlank()) {
+                    return@appendHtmlNode // Skip whitespace-only text nodes
+                }
+                normalized
             }
-            withStyle(baseStyle) { append(text) }
+            // Only append if text is not blank (shouldn't happen after normalization, but safety check)
+            if (text.isNotBlank()) {
+                withStyle(baseStyle) { append(text) }
+            }
         }
         is HtmlNode.LineBreak -> append("\n")
         is HtmlNode.Tag -> appendHtmlTag(node, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent)
@@ -538,7 +553,11 @@ private fun AnnotatedString.Builder.appendStyledChildren(
     spoilerContext: SpoilerRenderContext?,
     hideContent: Boolean = false
 ) {
-    tag.children.forEach { appendHtmlNode(it, style, inlineImages, inlineMatrixUsers, spoilerContext, hideContent) }
+    var previousWasLineBreak = false
+    tag.children.forEach { child ->
+        appendHtmlNode(child, style, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak)
+        previousWasLineBreak = child is HtmlNode.LineBreak
+    }
 }
 
 /**
@@ -622,6 +641,7 @@ private fun AnnotatedString.Builder.appendBlock(
     
     // Process children, handling spoiler patterns inline
     var i = 0
+    var previousWasLineBreak = false
     while (i < tag.children.size) {
         val child = tag.children[i]
         
@@ -640,9 +660,12 @@ private fun AnnotatedString.Builder.appendBlock(
                         reason = reason
                     )
                 } else {
+                    var wasLineBreak = previousWasLineBreak
                     contentNodes.forEach {
-                        appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, null)
+                        appendHtmlNode(it, baseStyle, inlineImages, inlineMatrixUsers, null, hideContent = false, previousWasLineBreak = wasLineBreak)
+                        wasLineBreak = it is HtmlNode.LineBreak
                     }
+                    previousWasLineBreak = wasLineBreak
                 }
                 i += 2 // Skip both nodes
                 continue
@@ -650,7 +673,8 @@ private fun AnnotatedString.Builder.appendBlock(
         }
         
         // No spoiler pattern, process normally
-        appendHtmlNode(child, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent = false)
+        appendHtmlNode(child, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent = false, previousWasLineBreak = previousWasLineBreak)
+        previousWasLineBreak = child is HtmlNode.LineBreak
         i++
     }
     append("\n")
@@ -1310,6 +1334,7 @@ fun HtmlMessageText(
             inlineMatrixUsers.clear()
             buildAnnotatedString {
                 var i = 0
+                var previousWasLineBreak = false
                 while (i < nodes.size) {
                     val node = nodes[i]
 
@@ -1325,6 +1350,7 @@ fun HtmlMessageText(
                                 spoilerContext = spoilerContext,
                                 reason = null
                             )
+                            previousWasLineBreak = false
                             i++
                             continue
                         }
@@ -1344,19 +1370,24 @@ fun HtmlMessageText(
                                     spoilerContext = spoilerContext,
                                     reason = reason
                                 )
+                                previousWasLineBreak = false
                                 i += 2
                                 continue
                             }
                         }
                     }
 
+                    // Track if previous node was a line break to trim leading whitespace from following text
+                    val wasLineBreak = previousWasLineBreak
                     appendHtmlNode(
                         node = node,
                         baseStyle = SpanStyle(color = color),
                         inlineImages = inlineImages,
                         inlineMatrixUsers = inlineMatrixUsers,
-                        spoilerContext = spoilerContext
+                        spoilerContext = spoilerContext,
+                        previousWasLineBreak = wasLineBreak
                     )
+                    previousWasLineBreak = node is HtmlNode.LineBreak
                     i++
                 }
             }
