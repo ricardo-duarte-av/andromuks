@@ -1023,16 +1023,38 @@ private fun AnnotatedString.Builder.appendAnchor(
     if (roomLink != null) {
         val linkStyle = baseStyle.copy(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
         pushStringAnnotation("ROOM_LINK", href)
-        tag.children.forEach { appendHtmlNode(it, linkStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent) }
+        var previousWasLineBreak = false
+        tag.children.forEach { child ->
+            appendHtmlNode(child, linkStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak)
+            previousWasLineBreak = child is HtmlNode.LineBreak
+        }
         pop()
         return
     }
     
-    // Regular URL
-    val linkStyle = baseStyle.copy(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
-    pushStringAnnotation("URL", href)
-    tag.children.forEach { appendHtmlNode(it, linkStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent) }
-    pop()
+    // Regular URL - only add annotation if href is not empty
+    if (href.isNotBlank()) {
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "appendAnchor: Adding URL annotation for href=$href")
+        val linkStyle = baseStyle.copy(color = Color(0xFF1A73E8), textDecoration = TextDecoration.Underline)
+        val annotationStart = length
+        pushStringAnnotation("URL", href)
+        var previousWasLineBreak = false
+        tag.children.forEach { child ->
+            appendHtmlNode(child, linkStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak)
+            previousWasLineBreak = child is HtmlNode.LineBreak
+        }
+        val annotationEnd = length
+        pop()
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "appendAnchor: URL annotation added from $annotationStart to $annotationEnd for href=$href")
+    } else {
+        if (BuildConfig.DEBUG) Log.w("Andromuks", "appendAnchor: Empty href, not adding URL annotation")
+        // No href, just render children with base style (shouldn't happen for valid HTML)
+        var previousWasLineBreak = false
+        tag.children.forEach { child ->
+            appendHtmlNode(child, baseStyle, inlineImages, inlineMatrixUsers, spoilerContext, hideContent, previousWasLineBreak)
+            previousWasLineBreak = child is HtmlNode.LineBreak
+        }
+    }
 }
 
 private fun AnnotatedString.Builder.appendImage(
@@ -1128,6 +1150,14 @@ fun extractSanitizedHtml(event: TimelineEvent): String? {
     // Check if event has local_content with sanitized_html
     // local_content is a top-level field in the event JSON, parsed into TimelineEvent.localContent
     val sanitizedHtml = event.localContent?.optString("sanitized_html")?.takeIf { it.isNotBlank() }
+    
+    if (BuildConfig.DEBUG) {
+        if (sanitizedHtml != null) {
+            Log.d("Andromuks", "extractSanitizedHtml: Found sanitized_html for event ${event.eventId}, length: ${sanitizedHtml.length}, preview: ${sanitizedHtml.take(100)}")
+        } else {
+            Log.d("Andromuks", "extractSanitizedHtml: No sanitized_html found for event ${event.eventId}, localContent is null: ${event.localContent == null}")
+        }
+    }
     
     // Decode HTML entities before returning
     return sanitizedHtml?.let { decodeHtmlEntities(it) }
@@ -1258,17 +1288,26 @@ fun HtmlMessageText(
     val context = LocalContext.current
     val sanitizedHtml = remember(event, htmlContent) {
         // Use provided htmlContent if available (e.g., from edit), otherwise extract from event
-        val result = htmlContent?.takeIf { it.isNotBlank() }?.let { decodeHtmlEntities(it) }
-            ?: run {
-        val sanitized = extractSanitizedHtml(event)
-        sanitized ?: run {
-            val formattedBody = event.decrypted?.optString("formatted_body")?.takeIf { it.isNotBlank() }
-                ?: event.content?.optString("formatted_body")?.takeIf { it.isNotBlank() }
-            formattedBody?.let { decodeHtmlEntities(it) }
+        val result = if (htmlContent != null && htmlContent.isNotBlank()) {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: Using provided htmlContent for event ${event.eventId}, length: ${htmlContent.length}, preview: ${htmlContent.take(100)}")
+            decodeHtmlEntities(htmlContent)
+        } else {
+            // Extract from event - prioritize sanitized_html over formatted_body
+            val sanitized = extractSanitizedHtml(event)
+            if (sanitized != null) {
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: Using sanitized_html for event ${event.eventId}, length: ${sanitized.length}, preview: ${sanitized.take(100)}")
+                sanitized
+            } else {
+                val formattedBody = event.decrypted?.optString("formatted_body")?.takeIf { it.isNotBlank() }
+                    ?: event.content?.optString("formatted_body")?.takeIf { it.isNotBlank() }
+                if (formattedBody != null) {
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: Using formatted_body for event ${event.eventId}, length: ${formattedBody.length}, preview: ${formattedBody.take(100)}")
+                    decodeHtmlEntities(formattedBody)
+                } else {
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: No HTML content found for event ${event.eventId}")
+                    null
                 }
-        }
-        if (BuildConfig.DEBUG && htmlContent != null) {
-            Log.d("Andromuks", "HtmlMessageText: Received htmlContent for event ${event.eventId}, length: ${htmlContent.length}, preview: ${htmlContent.take(100)}, decoded length: ${result?.length ?: 0}, decoded preview: ${result?.take(100)}")
+            }
         }
         result
     }

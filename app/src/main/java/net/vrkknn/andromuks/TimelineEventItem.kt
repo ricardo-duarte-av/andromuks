@@ -305,12 +305,27 @@ fun AdaptiveMessageText(
     val supportsHtml = !isRedacted && (supportsHtmlRendering(event) || format == "org.matrix.custom.html")
     if (supportsHtml) {
         if (BuildConfig.DEBUG) Log.d("Andromuks", "AdaptiveMessageText: Using HTML rendering for event ${event.eventId}, format: $format, body length: ${body.length}")
-        // For HTML messages, use the body parameter (which may contain edit content) if format indicates HTML
-        // Always pass body if format is HTML, even if body might be blank (let HtmlMessageText handle fallback)
-        val htmlContent = if (format == "org.matrix.custom.html") {
-            body // Use the passed body which may be edit content (even if blank, HtmlMessageText will fallback)
+        // CRITICAL FIX: Check if sanitized_html exists - if it does, always pass null to use it
+        // sanitized_html has proper anchor tags, while formatted_body may not
+        val hasSanitizedHtml = event.localContent?.optString("sanitized_html")?.isNotBlank() == true
+        
+        // Only pass htmlContent if:
+        // 1. sanitized_html does NOT exist (so we need to use formatted_body or edit content)
+        // 2. AND body contains HTML tags (indicating it's from an edit with HTML format)
+        val htmlContent = if (!hasSanitizedHtml && format == "org.matrix.custom.html" && body.contains("<") && body.contains(">")) {
+            // No sanitized_html, and body contains HTML tags - likely from an edit, pass it
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "AdaptiveMessageText: No sanitized_html, body contains HTML tags, treating as edit content")
+            body
         } else {
-            null // Let HtmlMessageText extract from event
+            // Either sanitized_html exists (prefer it) or body is plain text - let HtmlMessageText extract from event
+            if (BuildConfig.DEBUG) {
+                if (hasSanitizedHtml) {
+                    Log.d("Andromuks", "AdaptiveMessageText: sanitized_html exists, passing null to use it")
+                } else {
+                    Log.d("Andromuks", "AdaptiveMessageText: Body is plain text or no HTML tags, passing null to extract from event")
+                }
+            }
+            null
         }
         if (BuildConfig.DEBUG) {
             Log.d("Andromuks", "AdaptiveMessageText: HTML format detected, passing htmlContent length: ${htmlContent?.length ?: 0}, preview: ${htmlContent?.take(100)}")
@@ -325,7 +340,7 @@ fun AdaptiveMessageText(
             onRoomLinkClick = onRoomLinkClick,
             appViewModel = appViewModel,
             isEmojiOnly = isEmojiOnly,
-            htmlContent = htmlContent // Pass edit content if available
+            htmlContent = htmlContent // Pass HTML edit content if available, otherwise null to extract from event
         )
     } else {
         // Fallback to plain text for redacted messages or when HTML is not available
