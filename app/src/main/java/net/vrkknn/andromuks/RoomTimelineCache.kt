@@ -446,6 +446,49 @@ object RoomTimelineCache {
     }
     
     /**
+     * Get the oldest cached event's timeline_rowid that is positive (> 0) for pagination
+     * Negative timeline_rowid values cannot be used for pagination (backend requires positive values)
+     * Returns -1 if no cached events or no positive timeline_rowid found
+     */
+    fun getOldestPositiveCachedEventRowId(roomId: String): Long {
+        val cache = roomEventsCache[roomId] ?: run {
+            if (BuildConfig.DEBUG) Log.d(TAG, "getOldestPositiveCachedEventRowId: No cache for room $roomId")
+            return -1L
+        }
+        
+        if (cache.events.isEmpty()) {
+            if (BuildConfig.DEBUG) Log.d(TAG, "getOldestPositiveCachedEventRowId: Cache is empty for room $roomId")
+            return -1L
+        }
+        
+        // Ensure cache is sorted correctly before retrieving oldest event
+        cache.events.sortWith { a, b ->
+            if (a == null || b == null) {
+                return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
+            }
+            val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
+            if (rowIdCompare != 0) {
+                rowIdCompare
+            } else {
+                val tsCompare = a.timestamp.compareTo(b.timestamp)
+                if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+            }
+        }
+        
+        // Find the oldest event with a positive timeline_rowid
+        // Negative values cannot be used for pagination (backend requires positive max_timeline_id)
+        val oldestPositiveEvent = cache.events.firstOrNull { it.timelineRowid > 0 }
+        val result = oldestPositiveEvent?.timelineRowid ?: -1L
+        
+        if (BuildConfig.DEBUG) {
+            val positiveCount = cache.events.count { it.timelineRowid > 0 }
+            val negativeCount = cache.events.count { it.timelineRowid < 0 }
+            Log.d(TAG, "getOldestPositiveCachedEventRowId for $roomId: result=$result, positive events=$positiveCount, negative events=$negativeCount")
+        }
+        return result
+    }
+    
+    /**
      * Check if we have some cached events (deprecated - no longer used with unlimited cache)
      * Always returns false since we no longer have partial cache concept
      */
