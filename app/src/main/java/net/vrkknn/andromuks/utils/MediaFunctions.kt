@@ -1815,35 +1815,31 @@ fun VideoPlayerDialog(
         }
     }
     
-    // ExoPlayer instance
-    val exoPlayer = remember {
-        androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
-            // Create MediaItem with authentication headers
-            val mediaItem = androidx.media3.common.MediaItem.Builder()
-                .setUri(videoHttpUrl)
-                .build()
-            
-            setMediaItem(mediaItem)
-            prepare()
-            playWhenReady = true
-        }
-    }
+    // Track the actual ExoPlayer instance that's playing
+    var actualPlayer by remember { mutableStateOf<androidx.media3.exoplayer.ExoPlayer?>(null) }
     
     Dialog(
         onDismissRequest = {
-            // Stop the player before dismissing the dialog
-            exoPlayer.stop()
+            // Stop the actual playing player before dismissing the dialog
+            actualPlayer?.let { player ->
+                player.stop()
+                player.release()
+            }
             onDismiss()
         },
         properties = DialogProperties(
-            dismissOnBackPress = true,
+            dismissOnBackPress = false, // We handle this manually with BackHandler
             dismissOnClickOutside = false,
             usePlatformDefaultWidth = false
         )
     ) {
         // Handle back button/gesture to stop video and dismiss
         BackHandler {
-            exoPlayer.stop()
+            // Stop the actual playing player before dismissing
+            actualPlayer?.let { player ->
+                player.stop()
+                player.release()
+            }
             onDismiss()
         }
         
@@ -1856,41 +1852,42 @@ fun VideoPlayerDialog(
             // Stop and dispose player when dialog is dismissed
             androidx.compose.runtime.DisposableEffect(Unit) {
                 onDispose {
-                    exoPlayer.stop()
-                    exoPlayer.release()
+                    actualPlayer?.let { player ->
+                        player.stop()
+                        player.release()
+                    }
                 }
             }
             
             // Player view
             androidx.compose.ui.viewinterop.AndroidView(
                 factory = { ctx ->
+                    // Set custom request headers for authentication
+                    val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+                        .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
+                    
+                    val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(ctx)
+                        .setDataSourceFactory(dataSourceFactory)
+                    
+                    // Create player with custom data source factory
+                    val player = androidx.media3.exoplayer.ExoPlayer.Builder(ctx)
+                        .setMediaSourceFactory(mediaSourceFactory)
+                        .build()
+                        .apply {
+                            val mediaItem = androidx.media3.common.MediaItem.fromUri(videoHttpUrl)
+                            setMediaItem(mediaItem)
+                            prepare()
+                            playWhenReady = true
+                        }
+                    
+                    // Store reference to the actual player
+                    actualPlayer = player
+                    
                     androidx.media3.ui.PlayerView(ctx).apply {
-                        player = exoPlayer
+                        this.player = player
                         useController = true
                         controllerShowTimeoutMs = 3000
                         controllerHideOnTouch = true
-                        
-                        // Set custom request headers for authentication
-                        // Note: ExoPlayer with DataSource.Factory for custom headers
-                        val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
-                            .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
-                        
-                        val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(ctx)
-                            .setDataSourceFactory(dataSourceFactory)
-                        
-                        // Recreate player with custom data source
-                        exoPlayer.stop()
-                        val newPlayer = androidx.media3.exoplayer.ExoPlayer.Builder(ctx)
-                            .setMediaSourceFactory(mediaSourceFactory)
-                            .build()
-                            .apply {
-                                val mediaItem = androidx.media3.common.MediaItem.fromUri(videoHttpUrl)
-                                setMediaItem(mediaItem)
-                                prepare()
-                                playWhenReady = true
-                            }
-                        
-                        player = newPlayer
                     }
                 },
                 modifier = Modifier.fillMaxSize()
@@ -1899,8 +1896,11 @@ fun VideoPlayerDialog(
             // Close button overlay (top-right corner)
             IconButton(
                 onClick = {
-                    // Stop the player before dismissing
-                    exoPlayer.stop()
+                    // Stop the actual playing player before dismissing
+                    actualPlayer?.let { player ->
+                        player.stop()
+                        player.release()
+                    }
                     onDismiss()
                 },
                 modifier = Modifier
