@@ -7164,7 +7164,15 @@ class AppViewModel : ViewModel() {
             editor.remove("cached_rooms")
             editor.remove("state_saved_timestamp")
             
-            editor.apply()
+            // CRITICAL FIX: Use commit() instead of apply() to ensure credentials are cleared synchronously
+            // This prevents credential loss if the app crashes/terminates right after 401 error
+            // commit() blocks until the write completes, ensuring persistence even if app is killed
+            val commitSuccess = editor.commit()
+            if (!commitSuccess) {
+                android.util.Log.e("Andromuks", "AppViewModel: Failed to commit credential clearing - retrying with apply()")
+                // Fallback to apply() if commit() fails (shouldn't happen, but be defensive)
+                editor.apply()
+            }
             
             // Clear in-memory state
             currentRunId = ""
@@ -7179,7 +7187,7 @@ class AppViewModel : ViewModel() {
             // Stop WebSocket service
             WebSocketService.stopService()
             
-            android.util.Log.i("Andromuks", "AppViewModel: Credentials cleared due to 401 Unauthorized - app will navigate to login on next AuthCheck")
+            android.util.Log.i("Andromuks", "AppViewModel: Credentials cleared due to 401 Unauthorized - app will navigate to login on next AuthCheck (commit success: $commitSuccess)")
         } catch (e: Exception) {
             android.util.Log.e("Andromuks", "AppViewModel: Failed to clear credentials on 401 error", e)
             logActivity("401 Error Handling Failed - ${e.message}", null)
