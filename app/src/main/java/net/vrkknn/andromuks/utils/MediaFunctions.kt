@@ -56,6 +56,7 @@ import net.vrkknn.andromuks.TimelineEvent
 
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -1688,87 +1689,94 @@ private fun ImageViewerDialog(
                 onDismissRequest = onDismiss,
                 properties = DialogProperties(
                     dismissOnBackPress = true,
-                    dismissOnClickOutside = true,
+                    dismissOnClickOutside = false, // We handle this manually
                     usePlatformDefaultWidth = false
                 )
             ) {
+                // Pure black background - tapping it dismisses the dialog
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.3f))
-                        .pointerInput(Unit) {
-                            detectTapGestures(
-                                onTap = {
-                                    // Reset zoom and offset on tap
-                                    scale = 1f
-                                    offsetX = 0f
-                                    offsetY = 0f
-                                }
-                            )
-                        }
+                        .background(Color.Black)
+                        .clickable(onClick = onDismiss) // Tap background to dismiss
                 ) {
-            
-            // Image with zoom and pan
-            val context = LocalContext.current
-            
-            // Use shared ImageLoader singleton with custom User-Agent
-            val imageLoader = remember { ImageLoaderSingleton.get(context) }
-            
-            // Check if we have a cached version first
-            var cachedFile by remember { mutableStateOf<File?>(null) }
-            LaunchedEffect(mediaMessage.url) {
-                cachedFile = IntelligentMediaCache.getCachedFile(context, mediaMessage.url)
-            }
-            
-            val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile) {
-                val file = cachedFile
-                if (file != null) {
-                    // Use cached file
-                    file.absolutePath
-                } else {
-                    // Use HTTP URL
-                    val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
-                    if (isEncrypted) {
-                        "$httpUrl?encrypted=true"
-                    } else {
-                        httpUrl ?: ""
+                    // Image with zoom and pan
+                    val context = LocalContext.current
+                    
+                    // Use shared ImageLoader singleton with custom User-Agent
+                    val imageLoader = remember { ImageLoaderSingleton.get(context) }
+                    
+                    // Check if we have a cached version first
+                    var cachedFile by remember { mutableStateOf<File?>(null) }
+                    LaunchedEffect(mediaMessage.url) {
+                        cachedFile = IntelligentMediaCache.getCachedFile(context, mediaMessage.url)
+                    }
+                    
+                    val imageUrl = remember(mediaMessage.url, isEncrypted, cachedFile) {
+                        val file = cachedFile
+                        if (file != null) {
+                            // Use cached file
+                            file.absolutePath
+                        } else {
+                            // Use HTTP URL
+                            val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+                            if (isEncrypted) {
+                                "$httpUrl?encrypted=true"
+                            } else {
+                                httpUrl ?: ""
+                            }
+                        }
+                    }
+                    
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offsetX,
+                                translationY = offsetY
+                            )
+                            .transformable(state = transformableState)
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onTap = {
+                                        // Tap on image: reset zoom and pan to center
+                                        scale = 1f
+                                        offsetX = 0f
+                                        offsetY = 0f
+                                    }
+                                )
+                            }
+                    ) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(context)
+                                .data(imageUrl)
+                                .apply {
+                                    if (cachedFile == null) {
+                                        addHeader("Cookie", "gomuks_auth=$authToken")
+                                    }
+                                }
+                                // Load at full resolution to avoid any downscaling artifacts in the viewer
+                                .size(Size.ORIGINAL)
+                                .precision(Precision.EXACT)
+                                .memoryCachePolicy(CachePolicy.ENABLED)
+                                .diskCachePolicy(CachePolicy.ENABLED)
+                                .build(),
+                            imageLoader = imageLoader,
+                            contentDescription = mediaMessage.filename,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit, // Maintain aspect ratio, may have letterbox bars
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(8.dp)),
+                            onSuccess = { 
+                                if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Image loaded successfully: $imageUrl")
+                            },
+                            onError = { }
+                        )
                     }
                 }
             }
-            
-            AsyncImage(
-                model = ImageRequest.Builder(context)
-                    .data(imageUrl)
-                    .apply {
-                        if (cachedFile == null) {
-                            addHeader("Cookie", "gomuks_auth=$authToken")
-                        }
-                    }
-                    // Load at full resolution to avoid any downscaling artifacts in the viewer
-                    .size(Size.ORIGINAL)
-                    .precision(Precision.EXACT)
-                    .memoryCachePolicy(CachePolicy.ENABLED)
-                    .diskCachePolicy(CachePolicy.ENABLED)
-                    .build(),
-                imageLoader = imageLoader,
-                contentDescription = mediaMessage.filename,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer(
-                        scaleX = scale,
-                        scaleY = scale,
-                        translationX = offsetX,
-                        translationY = offsetY
-                    )
-                    .transformable(state = transformableState)
-                    .clip(RoundedCornerShape(8.dp)),
-                onSuccess = { 
-                    if (BuildConfig.DEBUG) Log.d("Andromuks", "✅ ImageViewer: Image loaded successfully: $imageUrl")
-                },
-                onError = { }
-            )
-        }
-    }
 }
 
 /**
