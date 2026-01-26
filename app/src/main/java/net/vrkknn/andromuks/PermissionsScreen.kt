@@ -70,9 +70,9 @@ fun PermissionsScreen(
         
         if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Initial permission check - notifications: $notificationPermissionGranted, battery: $batteryOptimizationDisabled")
         
-        // If all permissions are granted, proceed immediately
-        if (notificationPermissionGranted && batteryOptimizationDisabled) {
-            if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "All permissions already granted, proceeding")
+        // If notification permission is granted, proceed immediately (battery exemption is optional)
+        if (notificationPermissionGranted) {
+            if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Notification permission already granted, proceeding")
             onPermissionsGranted()
         }
     }
@@ -95,7 +95,7 @@ fun PermissionsScreen(
         ) {
             // Header
             Text(
-                text = "To provide real-time messaging, Andromuks needs the following permissions:",
+                text = "To provide real-time messaging, Andromuks needs notification permission. Battery optimization exemption is optional but recommended for instant delivery.",
                 style = MaterialTheme.typography.bodyLarge,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(vertical = 16.dp)
@@ -119,11 +119,11 @@ fun PermissionsScreen(
                 }
             )
             
-            // Battery Optimization Card
+            // Battery Optimization Card (Optional)
             PermissionCard(
                 icon = Icons.Default.BatteryFull,
-                title = "Battery Optimization Exemption",
-                description = "Keep connection alive in the background for instant message delivery",
+                title = "Battery Optimization Exemption (Optional)",
+                description = "Keep connection alive in the background for instant message delivery. Not required if you prefer Android to manage battery usage (FCM notifications will still work).",
                 isGranted = batteryOptimizationDisabled,
                 onRequestClick = {
                     if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Requesting battery optimization exemption")
@@ -141,8 +141,8 @@ fun PermissionsScreen(
             
             Spacer(modifier = Modifier.weight(1f))
             
-            // Continue button (only shown if all permissions granted)
-            if (notificationPermissionGranted && batteryOptimizationDisabled) {
+            // Continue button (only requires notification permission; battery exemption is optional)
+            if (notificationPermissionGranted) {
                 Button(
                     onClick = {
                         if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Continue button clicked")
@@ -156,7 +156,7 @@ fun PermissionsScreen(
                 }
             } else {
                 Text(
-                    text = "Please grant all permissions to continue",
+                    text = "Please grant notification permission to continue",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -345,18 +345,19 @@ private fun requestBatteryOptimizationExemption(
 }
 
 /**
- * Check if all permissions are granted and proceed
+ * Check if required permissions are granted and proceed
+ * Only notification permission is required; battery exemption is optional
  */
 private fun checkAndProceed(
     notificationGranted: Boolean,
     batteryOptimizationDisabled: Boolean,
     onPermissionsGranted: () -> Unit
 ) {
-    if (notificationGranted && batteryOptimizationDisabled) {
-        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "All permissions granted, proceeding")
+    if (notificationGranted) {
+        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Notification permission granted, proceeding (battery exemption: $batteryOptimizationDisabled)")
         onPermissionsGranted()
     } else {
-        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Not all permissions granted yet - notifications: $notificationGranted, battery: $batteryOptimizationDisabled")
+        if (BuildConfig.DEBUG) Log.d("PermissionsScreen", "Notification permission not granted yet - notifications: $notificationGranted, battery: $batteryOptimizationDisabled")
     }
 }
 

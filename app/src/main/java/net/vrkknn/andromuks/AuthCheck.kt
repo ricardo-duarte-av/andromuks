@@ -66,9 +66,9 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
             
             if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Permissions check - notifications: $hasNotificationPermission, battery: $hasBatteryOptimization")
             
-            // If permissions not granted, navigate to permissions screen
-            if (!hasNotificationPermission || !hasBatteryOptimization) {
-                if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Permissions not granted, navigating to permissions screen")
+            // Only require notification permission (battery exemption is optional since FCM can handle notifications)
+            if (!hasNotificationPermission) {
+                if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Notification permission not granted, navigating to permissions screen")
                 appViewModel.isLoading = false
                 navController.navigate("permissions") {
                     popUpTo("auth_check") { inclusive = true }
@@ -76,7 +76,7 @@ fun AuthCheckScreen(navController: NavController, modifier: Modifier, appViewMod
                 return@LaunchedEffect
             }
             
-            if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "All permissions granted. Attempting auto WebSocket connect.")
+            if (BuildConfig.DEBUG) Log.d("AuthCheckScreen", "Notification permission granted. Attempting auto WebSocket connect.")
             
             // Try to load cached state first for instant UI
             val hasCachedState = appViewModel.loadStateFromStorage(context)
