@@ -238,8 +238,19 @@ object HtmlParser {
             // Find the end of the tag
             val tagEnd = html.indexOf('>', nextTagStart)
             if (tagEnd == -1) {
-                // Malformed HTML, stop parsing
-                Log.w("Andromuks", "HtmlParser: Malformed HTML, missing closing '>'")
+                // No closing '>' found - this might be text that looks like a tag (e.g., "<--")
+                // Treat everything from the '<' onwards as text
+                val text = html.substring(nextTagStart)
+                if (preserveWhitespace) {
+                    if (text.isNotEmpty()) {
+                        nodes.add(HtmlNode.Text(text))
+                    }
+                } else {
+                    val trimmedText = text.trimEnd()
+                    if (trimmedText.isNotEmpty()) {
+                        nodes.add(HtmlNode.Text(trimmedText))
+                    }
+                }
                 break
             }
             
