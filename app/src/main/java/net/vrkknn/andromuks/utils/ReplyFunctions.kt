@@ -92,6 +92,9 @@ import net.vrkknn.andromuks.LocalScrollHighlightState
 import net.vrkknn.andromuks.utils.RedactionUtils
 import net.vrkknn.andromuks.utils.HtmlMessageText
 import net.vrkknn.andromuks.utils.supportsHtmlRendering
+import net.vrkknn.andromuks.RoomTimelineCache
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 
 
@@ -1121,16 +1124,66 @@ fun MessageBubbleWithMenu(
                                 if (isRedacted && appViewModel != null) {
                                     IconButton(
                                         onClick = {
-                                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: View Original clicked")
+                                            if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: View Original clicked for event ${event.eventId}")
                                             showMenu = false
                                             deletedDialogText = deletedContentSummary
                                             deletedReason = redactionReason
-                                            // Events are in-memory cache only - original event not available from DB
-                                            deletedError = "Events are in-memory cache only - original event not available"
+                                            deletedLoading = true
                                             loadedDeletedEvent = null
                                             loadedDeletedContext = emptyList()
+                                            deletedError = null
                                             showDeletedDialog = true
-                                            deletedLoading = false
+                                            
+                                            // Load the original event from cache
+                                            // The event itself contains the original content, we just need to clear redactedBy
+                                            coroutineScope.launch {
+                                                try {
+                                                    // Get cached events for the room to find the original event
+                                                    val cachedEvents = withContext(Dispatchers.IO) {
+                                                        RoomTimelineCache.getCachedEvents(event.roomId)
+                                                    }
+                                                    
+                                                    if (cachedEvents == null || cachedEvents.isEmpty()) {
+                                                        if (BuildConfig.DEBUG) android.util.Log.w("ReplyFunctions", "MessageBubbleWithMenu: No cached events found for room ${event.roomId}")
+                                                        deletedError = "No cached events available"
+                                                        deletedLoading = false
+                                                        return@launch
+                                                    }
+                                                    
+                                                    // Find the original event in cache (by event ID)
+                                                    // The event we have is the original event, just with redactedBy set
+                                                    val originalEvent = cachedEvents.find { it.eventId == event.eventId }
+                                                    
+                                                    if (originalEvent == null) {
+                                                        if (BuildConfig.DEBUG) android.util.Log.w("ReplyFunctions", "MessageBubbleWithMenu: Original event ${event.eventId} not found in cache (${cachedEvents.size} events)")
+                                                        deletedError = "Original event not found in cache"
+                                                        deletedLoading = false
+                                                        return@launch
+                                                    }
+                                                    
+                                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Found original event ${event.eventId} in cache")
+                                                    
+                                                    // Get context events (events around the original event for better rendering)
+                                                    val originalIndex = cachedEvents.indexOf(originalEvent)
+                                                    val contextStart = maxOf(0, originalIndex - 2)
+                                                    val contextEnd = minOf(cachedEvents.size, originalIndex + 3)
+                                                    val contextEvents = cachedEvents.subList(contextStart, contextEnd).toList()
+                                                    
+                                                    // Create a copy of the original event without redactedBy to show original content
+                                                    // The event still contains the original content, redactedBy just marks it as deleted
+                                                    val originalEventWithoutRedaction = originalEvent.copy(redactedBy = null)
+                                                    
+                                                    loadedDeletedEvent = originalEventWithoutRedaction
+                                                    loadedDeletedContext = contextEvents
+                                                    deletedLoading = false
+                                                    
+                                                    if (BuildConfig.DEBUG) android.util.Log.d("ReplyFunctions", "MessageBubbleWithMenu: Successfully loaded original event with ${contextEvents.size} context events")
+                                                } catch (e: Exception) {
+                                                    android.util.Log.e("ReplyFunctions", "MessageBubbleWithMenu: Error loading original event", e)
+                                                    deletedError = "Error loading original event: ${e.message}"
+                                                    deletedLoading = false
+                                                }
+                                            }
                                         },
                                         modifier = Modifier.size(40.dp)
                                     ) {

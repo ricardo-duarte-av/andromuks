@@ -3183,9 +3183,33 @@ class AppViewModel : ViewModel() {
                                 redactionEvent = event
                             ))
                         } else {
-                            // Redaction came before the original event - create placeholder
-                            // This will be updated when the original event arrives
-                            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Redaction event ${event.eventId} received before original $redactsEventId")
+                            // Redaction came before the original event - try to find original in cache
+                            // This happens when pagination returns redaction before the original message
+                            val originalEvent = RoomTimelineCache.getCachedEvents(event.roomId)?.find { it.eventId == redactsEventId }
+                            
+                            if (originalEvent != null) {
+                                // Found original event in cache - create VersionedMessage with redaction
+                                MessageVersionsCache.updateVersion(redactsEventId, VersionedMessage(
+                                    originalEventId = redactsEventId,
+                                    originalEvent = originalEvent,
+                                    versions = emptyList(),
+                                    redactedBy = event.eventId,
+                                    redactionEvent = event
+                                ))
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Redaction event ${event.eventId} received before original $redactsEventId, but found original in cache")
+                            } else {
+                                // Original not in cache yet - create placeholder so redaction can be found
+                                // We'll use the redaction event itself as a temporary originalEvent
+                                // This will be updated when the original event arrives
+                                MessageVersionsCache.updateVersion(redactsEventId, VersionedMessage(
+                                    originalEventId = redactsEventId,
+                                    originalEvent = event,  // Temporary placeholder
+                                    versions = emptyList(),
+                                    redactedBy = event.eventId,
+                                    redactionEvent = event
+                                ))
+                                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Redaction event ${event.eventId} received before original $redactsEventId - created placeholder")
+                            }
                         }
                     }
                 }
@@ -12793,6 +12817,34 @@ class AppViewModel : ViewModel() {
                                     redactedBy = event.eventId,
                                     redactionEvent = event
                                 ))
+                            } else {
+                                // Redaction came before the original event - try to find original in cache
+                                // This happens when pagination returns redaction before the original message
+                                val originalEvent = RoomTimelineCache.getCachedEvents(event.roomId)?.find { it.eventId == redactsEventId }
+                                
+                                if (originalEvent != null) {
+                                    // Found original event in cache - create VersionedMessage with redaction
+                                    MessageVersionsCache.updateVersion(redactsEventId, VersionedMessage(
+                                        originalEventId = redactsEventId,
+                                        originalEvent = originalEvent,
+                                        versions = emptyList(),
+                                        redactedBy = event.eventId,
+                                        redactionEvent = event
+                                    ))
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: mergePaginationEvents - Redaction event ${event.eventId} received before original $redactsEventId, but found original in cache")
+                                } else {
+                                    // Original not in cache yet - create placeholder so redaction can be found
+                                    // We'll use the redaction event itself as a temporary originalEvent
+                                    // This will be updated when the original event arrives
+                                    MessageVersionsCache.updateVersion(redactsEventId, VersionedMessage(
+                                        originalEventId = redactsEventId,
+                                        originalEvent = event,  // Temporary placeholder
+                                        versions = emptyList(),
+                                        redactedBy = event.eventId,
+                                        redactionEvent = event
+                                    ))
+                                    if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: mergePaginationEvents - Redaction event ${event.eventId} received before original $redactsEventId - created placeholder")
+                                }
                             }
                         }
                     }

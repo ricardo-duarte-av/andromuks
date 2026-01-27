@@ -1149,9 +1149,15 @@ fun ChatBubbleEventItem(
                         appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
                     } else null
                     
+                    // Fallback: If cache lookup failed (e.g., for pagination events), search timeline events
+                    val finalRedactionEvent = redactionEvent ?: if (isRedacted) {
+                        @Suppress("DEPRECATION")
+                        net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
+                    } else null
+                    
                     // Show deletion message if redacted, otherwise show the message content
                     val finalBody = if (isRedacted) {
-                        net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(redactionEvent, userProfileCache)
+                        net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(finalRedactionEvent, userProfileCache)
                     } else {
                         body
                     }
@@ -1353,8 +1359,14 @@ fun ChatBubbleEventItem(
                             appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
                         } else null
                         
+                        // Fallback: If cache lookup failed (e.g., for pagination events), search timeline events
+                        val finalRedactionEvent = redactionEvent ?: if (isRedacted) {
+                            @Suppress("DEPRECATION")
+                            net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
+                        } else null
+                        
                         val finalBody = if (isRedacted) {
-                            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(redactionEvent, userProfileCache)
+                            net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(finalRedactionEvent, userProfileCache)
                         } else {
                             body
                         }

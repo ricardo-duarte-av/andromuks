@@ -785,7 +785,13 @@ private fun RoomMessageContent(
         appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
     } else null
     
-    val redactionSender = redactionEvent?.sender
+    // Fallback: If cache lookup failed (e.g., for pagination events), search timeline events
+    val finalRedactionEvent = redactionEvent ?: if (isRedacted) {
+        @Suppress("DEPRECATION")
+        net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
+    } else null
+    
+    val redactionSender = finalRedactionEvent?.sender
 
     // Request profile if redaction sender is missing from cache
     if (isRedacted && redactionSender != null && appViewModel != null) {
@@ -802,9 +808,9 @@ private fun RoomMessageContent(
     // Use finalBody which already includes edit content if the message was edited
     val displayBody =
         if (isRedacted) {
-            // OPTIMIZED: Create deletion message using O(1) cached redaction event
+            // Create deletion message using cached redaction event (or fallback to timeline search)
             net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                redactionEvent,
+                finalRedactionEvent,
                 userProfileCache
             )
         } else {
@@ -835,11 +841,17 @@ private fun RoomMessageContent(
         val stickerMessage = extractStickerFromEvent(event)
         val isRedacted = event.redactedBy != null
         val redactionEvent = if (isRedacted && appViewModel != null) appViewModel.getRedactionEvent(event.eventId) else null
+        
+        // Fallback: If cache lookup failed (e.g., for pagination events), search timeline events
+        val finalRedactionEvent = redactionEvent ?: if (isRedacted) {
+            @Suppress("DEPRECATION")
+            net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
+        } else null
 
         if (isRedacted) {
             val deletionMessage =
                 net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                    redactionEvent,
+                    finalRedactionEvent,
                     userProfileCache
                 )
 
@@ -1046,10 +1058,16 @@ private fun RoomMediaMessageContent(
 
     // If media message is redacted, show deletion message instead of media
     if (isRedacted) {
-        // OPTIMIZED: Display deletion message for media using cached redaction event
+        // Fallback: If cache lookup failed (e.g., for pagination events), search timeline events
+        val finalRedactionEvent = redactionEvent ?: run {
+            @Suppress("DEPRECATION")
+            net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
+        }
+        
+        // Display deletion message for media using cached redaction event (or fallback to timeline search)
         val deletionMessage =
             net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                redactionEvent,
+                finalRedactionEvent,
                 userProfileCache
             )
 
@@ -1845,7 +1863,13 @@ private fun EncryptedMessageContent(
             appViewModel.getRedactionEvent(event.eventId)  // O(1) lookup!
         } else null
         
-        val redactionSender = redactionEvent?.sender
+        // Fallback: If cache lookup failed (e.g., for pagination events), search timeline events
+        val finalRedactionEvent = redactionEvent ?: if (isRedacted) {
+            @Suppress("DEPRECATION")
+            net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, timelineEvents)
+        } else null
+        
+        val redactionSender = finalRedactionEvent?.sender
 
         // Request profile if redaction sender is missing from cache
         if (isRedacted && redactionSender != null && appViewModel != null) {
@@ -1870,9 +1894,9 @@ private fun EncryptedMessageContent(
         // Use edit content if this message is being edited, or show deletion message if redacted
         val finalBody =
             if (isRedacted) {
-                // OPTIMIZED: Create deletion message using O(1) cached redaction event
+                // Create deletion message using cached redaction event (or fallback to timeline search)
                 net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                    redactionEvent,
+                    finalRedactionEvent,
                     userProfileCache
                 )
             } else if (editedBy != null && editedBy.decrypted != null) {
@@ -2554,9 +2578,21 @@ private fun StickerMessageContent(
     // Show deletion bubble if redacted
     if (event.redactedBy != null) {
         val redactionEvent = appViewModel?.getRedactionEvent(event.eventId)
+        
+        // Fallback: If cache lookup failed (e.g., for pagination events), search cached timeline events
+        val finalRedactionEvent = redactionEvent ?: run {
+            val cachedEvents = net.vrkknn.andromuks.RoomTimelineCache.getCachedEvents(event.roomId)
+            if (cachedEvents != null) {
+                @Suppress("DEPRECATION")
+                net.vrkknn.andromuks.utils.RedactionUtils.findLatestRedactionEvent(event.eventId, cachedEvents)
+            } else {
+                null
+            }
+        }
+        
         val deletionMessage =
             net.vrkknn.andromuks.utils.RedactionUtils.createDeletionMessageFromEvent(
-                redactionEvent,
+                finalRedactionEvent,
                 userProfileCache
             )
 
