@@ -1,0 +1,61 @@
+name: AV Andromuks A
+
+env:
+  main_project_module: pt.aguiarvieira.andromuks.A
+  playstore_name: Andromuks A
+
+on:
+  #push:
+  #  branches: [ main, develop, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set App ID (A variant)
+        run: echo "APP_ID=pt.aguiarvieira.andromuks.A" >> $GITHUB_ENV
+
+      - name: Apply A-variant changes with sed
+        run: |
+          # 1) applicationId in app/build.gradle.kts
+          sed -i 's/applicationId = "pt\.aguiarvieira\.andromuks"/applicationId = "pt.aguiarvieira.andromuks.A"/' app/build.gradle.kts
+
+          # 2) App name in strings.xml
+          sed -i 's/<string name="app_name">Andromuks<\/string>/<string name="app_name">Andromuks A<\/string>/' app/src/main/res/values/strings.xml
+
+          # 3) FileProvider authority in AndroidManifest.xml
+          sed -i 's/android:authorities="pt\.aguiarvieira\.andromuks\.fileprovider"/android:authorities="pt.aguiarvieira.andromuks.A.fileprovider"/' app/src/main/AndroidManifest.xml
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Change wrapper permissions
+        run: chmod +x ./gradlew
+
+      - name: Build A variant release APK
+        run: ./gradlew assembleRelease --stacktrace
+
+      - name: List all APKs
+        run: |
+          echo "### Built APKs (A variant)" >> $GITHUB_STEP_SUMMARY
+          find app/ -name "*.apk" | tee -a $GITHUB_STEP_SUMMARY
+
+      - name: Upload A debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pt.aguiarvieira.andromuks-A-debug
+          path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+
+      - name: Upload A release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pt.aguiarvieira.andromuks-A-release
+          path: app/build/outputs/apk/release/app-arm64-v8a-release.apk
