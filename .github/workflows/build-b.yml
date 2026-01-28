@@ -16,10 +16,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set App ID (A variant)
+      - name: Set App ID (B variant)
         run: echo "APP_ID=pt.aguiarvieira.andromuks.b" >> $GITHUB_ENV
 
-      - name: Apply A-variant changes with sed
+      - name: Apply B-variant changes with sed
         run: |
           # 1) applicationId in app/build.gradle.kts
           sed -i 's/applicationId = "pt\.aguiarvieira\.andromuks"/applicationId = "pt.aguiarvieira.andromuks.b"/' app/build.gradle.kts
@@ -48,12 +48,12 @@ jobs:
       - name: Change wrapper permissions
         run: chmod +x ./gradlew
 
-      - name: Build A variant release APK
+      - name: Build B variant release APK
         run: ./gradlew assemble --stacktrace --no-daemon --parallel --build-cache
 
       - name: List all APKs
         run: |
-          echo "### Built APKs (A variant)" >> $GITHUB_STEP_SUMMARY
+          echo "### Built APKs (B variant)" >> $GITHUB_STEP_SUMMARY
           find app/ -name "*.apk" | tee -a $GITHUB_STEP_SUMMARY
 
       - name: Upload B debug APK
