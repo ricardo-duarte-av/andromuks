@@ -42,6 +42,8 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -1805,7 +1807,18 @@ private fun ImageViewerDialog(
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+    // Track cumulative rotation (can be any value, not just 0-360) to avoid wrap-around animation issues
     var rotationDegrees by remember { mutableFloatStateOf(0f) }
+    
+    // Animate rotation smoothly - normalize to 0-360 range only for rendering
+    val animatedRotation by animateFloatAsState(
+        targetValue = rotationDegrees,
+        animationSpec = tween(durationMillis = 300), // 300ms animation
+        label = "rotation"
+    )
+    
+    // Normalize rotation to 0-360 range for rendering (handles wrap-around correctly)
+    val normalizedRotation = (animatedRotation % 360f + 360f) % 360f
     
     val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
         scale = (scale * zoomChange).coerceIn(0.5f, 5f)
@@ -1869,7 +1882,7 @@ private fun ImageViewerDialog(
                                 scaleY = scale,
                                 translationX = offsetX,
                                 translationY = offsetY,
-                                rotationZ = rotationDegrees
+                                rotationZ = normalizedRotation // Use normalized animated rotation for smooth transitions
                             )
                             .transformable(state = transformableState)
                             .pointerInput(Unit) {
@@ -1923,15 +1936,16 @@ private fun ImageViewerDialog(
                         // Rotate Left button
                         IconButton(
                             onClick = {
-                                rotationDegrees = (rotationDegrees - 90f) % 360f
+                                // Always subtract 90 (don't normalize here - let animation handle it)
+                                rotationDegrees = rotationDegrees - 90f
                                 // Reset zoom/pan when rotating
                                 scale = 1f
                                 offsetX = 0f
                                 offsetY = 0f
                             },
                             colors = IconButtonDefaults.iconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                                contentColor = MaterialTheme.colorScheme.onSurface
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                             ),
                             modifier = Modifier.size(48.dp)
                         ) {
@@ -1945,15 +1959,16 @@ private fun ImageViewerDialog(
                         // Rotate Right button
                         IconButton(
                             onClick = {
-                                rotationDegrees = (rotationDegrees + 90f) % 360f
+                                // Always add 90 (don't normalize here - let animation handle it)
+                                rotationDegrees = rotationDegrees + 90f
                                 // Reset zoom/pan when rotating
                                 scale = 1f
                                 offsetX = 0f
                                 offsetY = 0f
                             },
                             colors = IconButtonDefaults.iconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                                contentColor = MaterialTheme.colorScheme.onSurface
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                             ),
                             modifier = Modifier.size(48.dp)
                         ) {
@@ -1972,8 +1987,8 @@ private fun ImageViewerDialog(
                                 }
                             },
                             colors = IconButtonDefaults.iconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                                contentColor = MaterialTheme.colorScheme.onSurface
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                             ),
                             modifier = Modifier.size(48.dp)
                         ) {
@@ -1988,8 +2003,8 @@ private fun ImageViewerDialog(
                         IconButton(
                             onClick = onDismiss,
                             colors = IconButtonDefaults.iconButtonColors(
-                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
-                                contentColor = MaterialTheme.colorScheme.onSurface
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
                             ),
                             modifier = Modifier.size(48.dp)
                         ) {
