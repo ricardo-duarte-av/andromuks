@@ -24,6 +24,45 @@ data class TimelineEvent(
     val aggregatedReactions: JSONObject? = null,
     val transactionId: String? = null
 ) {
+    /**
+     * Best-effort reconstruction of the raw event JSON for inspection/debugging UI.
+     *
+     * Note: We don't currently persist the original backing JSONObject, so we rebuild one from fields.
+     */
+    fun toRawJsonObject(): JSONObject {
+        val json = JSONObject()
+        json.put("rowid", rowid)
+        json.put("timeline_rowid", timelineRowid)
+        json.put("room_id", roomId)
+        json.put("event_id", eventId)
+        json.put("sender", sender)
+        json.put("type", type)
+        json.put("timestamp", timestamp)
+
+        if (stateKey != null) json.put("state_key", stateKey)
+        if (content != null) json.put("content", content)
+        if (decrypted != null) json.put("decrypted", decrypted)
+        if (decryptedType != null) json.put("decrypted_type", decryptedType)
+        if (unsigned != null) json.put("unsigned", unsigned)
+        if (redactedBy != null) json.put("redacted_by", redactedBy)
+        if (localContent != null) json.put("local_content", localContent)
+        if (relationType != null) json.put("relation_type", relationType)
+        if (relatesTo != null) json.put("relates_to", relatesTo)
+        if (aggregatedReactions != null) json.put("reactions", aggregatedReactions)
+        if (transactionId != null) json.put("transaction_id", transactionId)
+
+        return json
+    }
+
+    fun toRawJsonString(indentSpaces: Int = 2): String {
+        return try {
+            toRawJsonObject().toString(indentSpaces)
+        } catch (_: Exception) {
+            // Fallback to compact string to avoid crashing UI if JSON formatting fails.
+            toRawJsonObject().toString()
+        }
+    }
+
     companion object {
         fun fromJson(json: JSONObject): TimelineEvent {
             // BUG FIX #4: Check for both "timestamp" and "origin_server_ts" since DB stores origin_server_ts

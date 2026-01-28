@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Reply
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.TagFaces
@@ -786,6 +787,9 @@ fun MessageBubbleWithMenu(
     var loadedDeletedEvent by remember { mutableStateOf<TimelineEvent?>(null) }
     var loadedDeletedContext by remember { mutableStateOf<List<TimelineEvent>>(emptyList()) }
 
+    var showRawJsonDialog by remember { mutableStateOf(false) }
+    var rawJsonToShow by remember { mutableStateOf<String?>(null) }
+
     // Local echoes removed; treat all bubbles as normal
     val isRedacted = event.redactedBy != null
     val isPendingEcho = false
@@ -977,6 +981,16 @@ fun MessageBubbleWithMenu(
         ) {
             Row(content = content)
         }
+
+        if (showRawJsonDialog) {
+            CodeViewer(
+                code = rawJsonToShow ?: "",
+                onDismiss = {
+                    showRawJsonDialog = false
+                    rawJsonToShow = null
+                }
+            )
+        }
         
         // Horizontal icon-only menu with fullscreen scrim overlay
         if (showMenu) {
@@ -1052,6 +1066,22 @@ fun MessageBubbleWithMenu(
                             horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
                             run {
+                                // View raw JSON
+                                IconButton(
+                                    onClick = {
+                                        showMenu = false
+                                        rawJsonToShow = event.toRawJsonString(2)
+                                        showRawJsonDialog = true
+                                    },
+                                    modifier = Modifier.size(40.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Code,
+                                        contentDescription = "View raw JSON",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+
                                 // React button
                                 IconButton(
                                     onClick = {
