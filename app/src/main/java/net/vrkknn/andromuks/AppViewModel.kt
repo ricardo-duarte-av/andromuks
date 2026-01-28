@@ -14639,6 +14639,24 @@ class AppViewModel : ViewModel() {
         timelineList: List<TimelineEvent>,
         requestId: Int
     ) {
+        if (BuildConfig.DEBUG) {
+            // Extra safety: detect any events whose roomId doesn't match the target room.
+            val mismatched = timelineList.filter { it.roomId != roomId }
+            if (mismatched.isNotEmpty()) {
+                val distinctRooms = mismatched.asSequence().map { it.roomId }.distinct().take(5).toList()
+                android.util.Log.e(
+                    "Andromuks",
+                    "AppViewModel: ⚠️ Mismatched room_id in pagination merge for room $roomId, events from rooms: $distinctRooms (count=${mismatched.size})"
+                )
+                appContext?.let { context ->
+                    android.widget.Toast.makeText(
+                        context,
+                        "Debug: Dropped ${mismatched.size} events with wrong room_id for room $roomId",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ========================================")
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: PAGINATION RESPONSE RECEIVED (requestId: $requestId)")
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Received ${timelineList.size} events from backend")
@@ -14771,6 +14789,23 @@ class AppViewModel : ViewModel() {
         roomId: String,
         timelineList: List<TimelineEvent>
     ) {
+        if (BuildConfig.DEBUG) {
+            val mismatched = timelineList.filter { it.roomId != roomId }
+            if (mismatched.isNotEmpty()) {
+                val distinctRooms = mismatched.asSequence().map { it.roomId }.distinct().take(5).toList()
+                android.util.Log.e(
+                    "Andromuks",
+                    "AppViewModel: ⚠️ Mismatched room_id in initial timeline build for room $roomId, events from rooms: $distinctRooms (count=${mismatched.size})"
+                )
+                appContext?.let { context ->
+                    android.widget.Toast.makeText(
+                        context,
+                        "Debug: Dropped ${mismatched.size} events with wrong room_id for room $roomId",
+                        android.widget.Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
         // Track the oldest timelineRowId from initial pagination response
         // This is the lowest (smallest) timelineRowId, which represents the oldest event
         // Note: timelineRowId can be positive or negative - both are valid according to Webmucks backend
