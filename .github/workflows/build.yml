@@ -35,11 +35,19 @@ jobs:
           java-version: '21'
           cache: 'gradle'
           
+      - name: Cache Gradle build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/caches/build-cache
+          key: ${{ runner.os }}-gradle-build-cache-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-build-cache-
+            
       - name: Change wrapper permissions
         run: chmod +x ./gradlew
 
       - name: Build release APK
-        run: ./gradlew assemble --stacktrace 
+        run: ./gradlew assemble --stacktrace --no-daemon --parallel --build-cache
 
       - name: List all APKs
         run: |
