@@ -1,7 +1,7 @@
 name: AV Andromuks A
 
 env:
-  main_project_module: pt.aguiarvieira.andromuks.A
+  main_project_module: pt.aguiarvieira.andromuks.a
   playstore_name: Andromuks A
 
 on:
@@ -17,18 +17,18 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set App ID (A variant)
-        run: echo "APP_ID=pt.aguiarvieira.andromuks.A" >> $GITHUB_ENV
+        run: echo "APP_ID=pt.aguiarvieira.andromuks.a" >> $GITHUB_ENV
 
       - name: Apply A-variant changes with sed
         run: |
           # 1) applicationId in app/build.gradle.kts
-          sed -i 's/applicationId = "pt\.aguiarvieira\.andromuks"/applicationId = "pt.aguiarvieira.andromuks.A"/' app/build.gradle.kts
+          sed -i 's/applicationId = "pt\.aguiarvieira\.andromuks"/applicationId = "pt.aguiarvieira.andromuks.a"/' app/build.gradle.kts
 
           # 2) App name in strings.xml
           sed -i 's/<string name="app_name">Andromuks<\/string>/<string name="app_name">Andromuks A<\/string>/' app/src/main/res/values/strings.xml
 
           # 3) FileProvider authority in AndroidManifest.xml
-          sed -i 's/android:authorities="pt\.aguiarvieira\.andromuks\.fileprovider"/android:authorities="pt.aguiarvieira.andromuks.A.fileprovider"/' app/src/main/AndroidManifest.xml
+          sed -i 's/android:authorities="pt\.aguiarvieira\.andromuks\.fileprovider"/android:authorities="pt.aguiarvieira.andromuks.a.fileprovider"/' app/src/main/AndroidManifest.xml
 
       - name: Set Up JDK
         uses: actions/setup-java@v4
