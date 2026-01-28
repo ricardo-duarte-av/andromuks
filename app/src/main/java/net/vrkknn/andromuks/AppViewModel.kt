@@ -4852,6 +4852,21 @@ class AppViewModel : ViewModel() {
         // This ensures backend is ready and prevents triple-sending
         flushPendingQueueAfterReconnection()
         
+        // CRITICAL FIX: Force refresh room list after reconnection to ensure data is up-to-date
+        // This handles cases where initial sync queue was empty or rooms weren't properly updated
+        viewModelScope.launch(Dispatchers.Default) {
+            delay(500) // Small delay to let queued messages process
+            
+            // Force room list update
+            forceRoomListSort()
+            
+            // Trigger UI update
+            withContext(Dispatchers.Main) {
+                roomListUpdateCounter++
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Forced room list refresh after init_complete")
+            }
+        }
+        
         if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Calling navigation callback (callback is ${if (onNavigateToRoomList != null) "set" else "null"})")
         
         // Only trigger navigation callback once to prevent double navigation
