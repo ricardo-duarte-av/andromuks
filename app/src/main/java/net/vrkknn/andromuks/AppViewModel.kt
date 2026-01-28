@@ -1600,6 +1600,8 @@ class AppViewModel : ViewModel() {
             WebSocketService.registerViewModel(viewModelId, isPrimary = false)
         }
         appContext = context
+        // Provide application context to RoomTimelineCache for debug-only diagnostics/toasts
+        RoomTimelineCache.setAppContext(context)
         
         // Clear current room ID on app startup - ensures notifications aren't suppressed after crash/restart
         // The room ID will be set again when user actually opens a room

@@ -1,6 +1,8 @@
 package net.vrkknn.andromuks
 
+import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import org.json.JSONArray
 import org.json.JSONObject
 import net.vrkknn.andromuks.BuildConfig
@@ -25,11 +27,25 @@ import net.vrkknn.andromuks.BuildConfig
  */
 object RoomTimelineCache {
     private const val TAG = "RoomTimelineCache"
+
+    // Serialize all access to the underlying LinkedHashMap + mutable lists.
+    // This prevents rare cross-thread corruption when sync/pagination/clear happen concurrently.
+    private val cacheLock = Any()
     
     // RAM-based cache management: Maximum memory usage for timeline cache (in MB)
     // LRU eviction will purge entire rooms when this threshold is exceeded
     // Default: 100MB (conservative to prevent OOM, can be adjusted)
     private var MAX_CACHE_MEMORY_MB = 100L // Configurable variable
+    
+    // Application context for debug-only toasts and diagnostics (optional)
+    private var appContext: Context? = null
+    
+    fun setAppContext(context: Context) {
+        appContext = context.applicationContext
+        if (BuildConfig.DEBUG) {
+            Log.d(TAG, "RoomTimelineCache: App context set for debug diagnostics")
+        }
+    }
     
     // Track currently opened rooms (unlimited events allowed, exempt from cache clearing on reconnect)
     // Supports multiple rooms (e.g., RoomTimelineScreen + BubbleTimelineScreen)
@@ -91,9 +107,11 @@ object RoomTimelineCache {
      * Rough estimate: ~1.5KB per TimelineEvent
      */
     private fun estimateCacheMemoryUsageMB(): Long {
-        val totalEvents = roomEventsCache.values.sumOf { it.events.size }
-        val estimatedBytes = (totalEvents * 1.5 * 1024).toLong() // 1.5KB per event, convert to Long
-        return estimatedBytes / (1024 * 1024) // Convert to MB (result is Long)
+        synchronized(cacheLock) {
+            val totalEvents = roomEventsCache.values.sumOf { it.events.size }
+            val estimatedBytes = (totalEvents * 1.5 * 1024).toLong() // 1.5KB per event, convert to Long
+            return estimatedBytes / (1024 * 1024) // Convert to MB (result is Long)
+        }
     }
     
     // Track which rooms have received their initial paginate (to avoid duplicate caching)
@@ -110,14 +128,16 @@ object RoomTimelineCache {
      */
     @Deprecated("Use addOpenedRoom() and removeOpenedRoom() for multi-room support")
     fun setCurrentRoom(roomId: String?) {
-        synchronized(openedRoomsLock) {
-            currentlyOpenedRooms.clear()
-            if (roomId != null) {
-                currentlyOpenedRooms.add(roomId)
+        synchronized(cacheLock) {
+            synchronized(openedRoomsLock) {
+                currentlyOpenedRooms.clear()
+                if (roomId != null) {
+                    currentlyOpenedRooms.add(roomId)
+                }
             }
-        }
-        if (BuildConfig.DEBUG) {
-            Log.d(TAG, "Set current room to $roomId (unlimited events allowed, opened rooms: ${currentlyOpenedRooms.size})")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "Set current room to $roomId (unlimited events allowed, opened rooms: ${currentlyOpenedRooms.size})")
+            }
         }
     }
     
@@ -126,10 +146,12 @@ object RoomTimelineCache {
      * Called when RoomTimelineScreen or BubbleTimelineScreen opens a room
      */
     fun addOpenedRoom(roomId: String) {
-        synchronized(openedRoomsLock) {
-            currentlyOpenedRooms.add(roomId)
+        synchronized(cacheLock) {
+            synchronized(openedRoomsLock) {
+                currentlyOpenedRooms.add(roomId)
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "Added room $roomId to opened rooms (total: ${currentlyOpenedRooms.size})")
         }
-        if (BuildConfig.DEBUG) Log.d(TAG, "Added room $roomId to opened rooms (total: ${currentlyOpenedRooms.size})")
     }
     
     /**
@@ -137,18 +159,22 @@ object RoomTimelineCache {
      * Called when RoomTimelineScreen or BubbleTimelineScreen closes a room
      */
     fun removeOpenedRoom(roomId: String) {
-        synchronized(openedRoomsLock) {
-            currentlyOpenedRooms.remove(roomId)
+        synchronized(cacheLock) {
+            synchronized(openedRoomsLock) {
+                currentlyOpenedRooms.remove(roomId)
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "Removed room $roomId from opened rooms (total: ${currentlyOpenedRooms.size})")
         }
-        if (BuildConfig.DEBUG) Log.d(TAG, "Removed room $roomId from opened rooms (total: ${currentlyOpenedRooms.size})")
     }
     
     /**
      * Get the set of currently opened rooms (exempt from cache clearing)
      */
     fun getOpenedRooms(): Set<String> {
-        synchronized(openedRoomsLock) {
-            return currentlyOpenedRooms.toSet()
+        synchronized(cacheLock) {
+            synchronized(openedRoomsLock) {
+                return currentlyOpenedRooms.toSet()
+            }
         }
     }
     
@@ -156,8 +182,10 @@ object RoomTimelineCache {
      * Check if a room is currently opened
      */
     fun isRoomOpened(roomId: String): Boolean {
-        synchronized(openedRoomsLock) {
-            return currentlyOpenedRooms.contains(roomId)
+        synchronized(cacheLock) {
+            synchronized(openedRoomsLock) {
+                return currentlyOpenedRooms.contains(roomId)
+            }
         }
     }
 
@@ -170,12 +198,30 @@ object RoomTimelineCache {
     private fun addEventsToCache(roomId: String, incomingEvents: List<TimelineEvent>): Int {
         if (incomingEvents.isEmpty()) return 0
 
+        // SAFETY: Prevent cross-room cache contamination if a caller accidentally passes the wrong roomId.
+        // Drop mismatched events (cheap and safe).
+        val filteredEvents = incomingEvents.filter { it.roomId == roomId }
+        val droppedCount = incomingEvents.size - filteredEvents.size
+        if (droppedCount > 0 && BuildConfig.DEBUG) {
+            val sampleRooms = incomingEvents.asSequence().map { it.roomId }.distinct().take(5).toList()
+            Log.w(TAG, "addEventsToCache: Dropped $droppedCount events due to room_id mismatch (target=$roomId, incomingRooms=$sampleRooms)")
+            // Show a debug-only toast so developers immediately see that something is wrong
+            appContext?.let { context ->
+                Toast.makeText(
+                    context,
+                    "Dropped $droppedCount events with wrong room_id for room $roomId",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+        if (filteredEvents.isEmpty()) return 0
+
         val cache = roomEventsCache.getOrPut(roomId) { RoomCache() }
         // Update access time when events are added (for LRU eviction)
         cache.lastAccessedAt = System.currentTimeMillis()
 
         var addedCount = 0
-        for (event in incomingEvents) {
+        for (event in filteredEvents) {
             if (event.eventId.isBlank()) continue
             
             // Handle redaction events separately
@@ -246,11 +292,12 @@ object RoomTimelineCache {
      * Includes deduplication to prevent duplicate events
      */
     fun addEventsFromSync(roomId: String, eventsArray: JSONArray, memberMap: Map<String, MemberProfile>) {
-        val events = parseEventsFromArray(eventsArray, memberMap)
+        synchronized(cacheLock) {
+            val events = parseEventsFromArray(eventsArray, memberMap)
         
-        if (events.isEmpty()) {
-            return
-        }
+            if (events.isEmpty()) {
+                return
+            }
         
         if (BuildConfig.DEBUG) {
             val firstIncoming = events.firstOrNull()
@@ -265,13 +312,14 @@ object RoomTimelineCache {
             if (BuildConfig.DEBUG) Log.d(TAG, "Adding ${events.size} events from sync for room $roomId")
         }
         
-        // Get or create cache for this room
-        val added = addEventsToCache(roomId, events)
-        if (added == 0) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "All ${events.size} events already in cache, skipping")
-            return
+            // Get or create cache for this room
+            val added = addEventsToCache(roomId, events)
+            if (added == 0) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "All ${events.size} events already in cache, skipping")
+                return
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "Added $added new events to cache (total=${getCachedEventCount(roomId)})")
         }
-        if (BuildConfig.DEBUG) Log.d(TAG, "Added $added new events to cache (total=${getCachedEventCount(roomId)})")
     }
     
     /**
@@ -284,43 +332,47 @@ object RoomTimelineCache {
      * LRU eviction removes entire rooms when RAM threshold is exceeded
      */
     fun markRoomAccessed(roomId: String) {
-        val cache = roomEventsCache[roomId] ?: return
-        cache.lastAccessedAt = System.currentTimeMillis()
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return
+            cache.lastAccessedAt = System.currentTimeMillis()
+        }
         // Accessing the map also updates LinkedHashMap order for LRU
         // No event limits - rely on RAM-based LRU eviction of entire rooms
     }
     
     fun getCachedEvents(roomId: String): List<TimelineEvent>? {
-        val cache = roomEventsCache[roomId] ?: return null
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return null
         
-        // CRITICAL FIX: Ensure room is marked as opened BEFORE retrieving events
-        // This prevents event eviction if the room was just opened but wasn't in the opened set yet
-        // (e.g., due to race conditions or ordering issues)
-        if (!isRoomOpened(roomId)) {
-            addOpenedRoom(roomId)
-            if (BuildConfig.DEBUG) Log.d(TAG, "getCachedEvents: Room $roomId was not in opened set, added it to prevent event eviction")
-        }
-        
-        // Mark room as accessed for LRU eviction
-        cache.lastAccessedAt = System.currentTimeMillis()
-        
-        // Return a copy of cached events if available (no minimum threshold)
-        // If cache is empty, return null so caller can paginate
-        return if (cache.events.isNotEmpty()) {
-            val eventsCopy = cache.events.toList()
-            if (BuildConfig.DEBUG) {
-                val firstEvent = eventsCopy.firstOrNull()
-                val lastEvent = eventsCopy.lastOrNull()
-                Log.d(
-                    TAG,
-                    "Cache hit for room $roomId: ${eventsCopy.size} events available. " +
-                    "first=${firstEvent?.eventId}@${firstEvent?.timestamp}, last=${lastEvent?.eventId}@${lastEvent?.timestamp}"
-                )
+            // CRITICAL FIX: Ensure room is marked as opened BEFORE retrieving events
+            // This prevents event eviction if the room was just opened but wasn't in the opened set yet
+            // (e.g., due to race conditions or ordering issues)
+            if (!isRoomOpened(roomId)) {
+                addOpenedRoom(roomId)
+                if (BuildConfig.DEBUG) Log.d(TAG, "getCachedEvents: Room $roomId was not in opened set, added it to prevent event eviction")
             }
-            eventsCopy
-        } else {
-            if (BuildConfig.DEBUG) Log.d(TAG, "Cache miss for room $roomId: no events cached")
-            null
+        
+            // Mark room as accessed for LRU eviction
+            cache.lastAccessedAt = System.currentTimeMillis()
+        
+            // Return a copy of cached events if available (no minimum threshold)
+            // If cache is empty, return null so caller can paginate
+            return if (cache.events.isNotEmpty()) {
+                val eventsCopy = cache.events.toList()
+                if (BuildConfig.DEBUG) {
+                    val firstEvent = eventsCopy.firstOrNull()
+                    val lastEvent = eventsCopy.lastOrNull()
+                    Log.d(
+                        TAG,
+                        "Cache hit for room $roomId: ${eventsCopy.size} events available. " +
+                            "first=${firstEvent?.eventId}@${firstEvent?.timestamp}, last=${lastEvent?.eventId}@${lastEvent?.timestamp}"
+                    )
+                }
+                eventsCopy
+            } else {
+                if (BuildConfig.DEBUG) Log.d(TAG, "Cache miss for room $roomId: no events cached")
+                null
+            }
         }
     }
     
@@ -343,30 +395,36 @@ object RoomTimelineCache {
      * Get the number of cached events for a room
      */
     fun getCachedEventCount(roomId: String): Int {
-        return roomEventsCache[roomId]?.events?.size ?: 0
+        synchronized(cacheLock) {
+            return roomEventsCache[roomId]?.events?.size ?: 0
+        }
     }
 
     /**
      * Get metadata for the most recent cached event in a room
      */
     fun getLatestCachedEventMetadata(roomId: String): CachedEventMetadata? {
-        val cache = roomEventsCache[roomId] ?: return null
-        val latest = cache.events.lastOrNull() ?: return null
-        return CachedEventMetadata(
-            eventId = latest.eventId,
-            timelineRowId = latest.timelineRowid,
-            timestamp = latest.timestamp
-        )
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return null
+            val latest = cache.events.lastOrNull() ?: return null
+            return CachedEventMetadata(
+                eventId = latest.eventId,
+                timelineRowId = latest.timelineRowid,
+                timestamp = latest.timestamp
+            )
+        }
     }
 
     fun getOldestCachedEventMetadata(roomId: String): CachedEventMetadata? {
-        val cache = roomEventsCache[roomId] ?: return null
-        val oldest = cache.events.firstOrNull() ?: return null
-        return CachedEventMetadata(
-            eventId = oldest.eventId,
-            timelineRowId = oldest.timelineRowid,
-            timestamp = oldest.timestamp
-        )
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return null
+            val oldest = cache.events.firstOrNull() ?: return null
+            return CachedEventMetadata(
+                eventId = oldest.eventId,
+                timelineRowId = oldest.timelineRowid,
+                timestamp = oldest.timestamp
+            )
+        }
     }
     
     /**
@@ -375,25 +433,27 @@ object RoomTimelineCache {
      * Returns -1 if no second event available
      */
     fun getSecondOldestCachedEventRowId(roomId: String): Long {
-        val cache = roomEventsCache[roomId] ?: return -1L
-        if (cache.events.size < 2) return -1L
-        
-        // Ensure cache is sorted
-        cache.events.sortWith { a, b ->
-            if (a == null || b == null) {
-                return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return -1L
+            if (cache.events.size < 2) return -1L
+            
+            // Ensure cache is sorted
+            cache.events.sortWith { a, b ->
+                if (a == null || b == null) {
+                    return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
+                }
+                val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
+                if (rowIdCompare != 0) {
+                    rowIdCompare
+                } else {
+                    val tsCompare = a.timestamp.compareTo(b.timestamp)
+                    if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                }
             }
-            val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
-            if (rowIdCompare != 0) {
-                rowIdCompare
-            } else {
-                val tsCompare = a.timestamp.compareTo(b.timestamp)
-                if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
-            }
+            
+            val secondOldest = cache.events.getOrNull(1)
+            return secondOldest?.timelineRowid ?: -1L
         }
-        
-        val secondOldest = cache.events.getOrNull(1)
-        return secondOldest?.timelineRowid ?: -1L
     }
     
     /**
@@ -402,47 +462,49 @@ object RoomTimelineCache {
      * Returns -1 if no cached events
      */
     fun getOldestCachedEventRowId(roomId: String): Long {
-        val cache = roomEventsCache[roomId] ?: run {
-            if (BuildConfig.DEBUG) Log.d(TAG, "getOldestCachedEventRowId: No cache for room $roomId")
-            return -1L
-        }
-        
-        if (cache.events.isEmpty()) {
-            if (BuildConfig.DEBUG) Log.d(TAG, "getOldestCachedEventRowId: Cache is empty for room $roomId")
-            return -1L
-        }
-        
-        // Ensure cache is sorted correctly before retrieving oldest event
-        // This is important because the cache might have been created before the sorting fix
-        cache.events.sortWith { a, b ->
-            if (a == null || b == null) {
-                return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: run {
+                if (BuildConfig.DEBUG) Log.d(TAG, "getOldestCachedEventRowId: No cache for room $roomId")
+                return -1L
             }
-            val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
-            if (rowIdCompare != 0) {
-                rowIdCompare
-            } else {
-                val tsCompare = a.timestamp.compareTo(b.timestamp)
-                if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+            
+            if (cache.events.isEmpty()) {
+                if (BuildConfig.DEBUG) Log.d(TAG, "getOldestCachedEventRowId: Cache is empty for room $roomId")
+                return -1L
             }
+            
+            // Ensure cache is sorted correctly before retrieving oldest event
+            // This is important because the cache might have been created before the sorting fix
+            cache.events.sortWith { a, b ->
+                if (a == null || b == null) {
+                    return@sortWith if (a == null && b == null) 0 else if (a == null) 1 else -1
+                }
+                val rowIdCompare = a.timelineRowid.compareTo(b.timelineRowid)
+                if (rowIdCompare != 0) {
+                    rowIdCompare
+                } else {
+                    val tsCompare = a.timestamp.compareTo(b.timestamp)
+                    if (tsCompare != 0) tsCompare else a.eventId.compareTo(b.eventId)
+                }
+            }
+            
+            // Cache is sorted by timelineRowid ASC, so first event is the oldest
+            // Note: timelineRowid can be negative (for state events or certain syncs)
+            val oldestEvent = cache.events.firstOrNull()
+            val result = oldestEvent?.timelineRowid ?: -1L
+            
+            // Debug: Show range of timelineRowid values in cache
+            if (BuildConfig.DEBUG) {
+                val minRowId = cache.events.minOfOrNull { it.timelineRowid } ?: -1L
+                val maxRowId = cache.events.maxOfOrNull { it.timelineRowid } ?: -1L
+                val negativeCount = cache.events.count { it.timelineRowid < 0 }
+                val positiveCount = cache.events.count { it.timelineRowid > 0 }
+                val firstFew = cache.events.take(5).map { "${it.eventId.take(20)}... (rowId=${it.timelineRowid})" }.joinToString(", ")
+                Log.d(TAG, "getOldestCachedEventRowId for $roomId: result=$result, cache has ${cache.events.size} events, rowId range: $minRowId to $maxRowId (negative=$negativeCount, positive=$positiveCount)")
+                Log.d(TAG, "getOldestCachedEventRowId: First 5 events: $firstFew")
+            }
+            return result
         }
-        
-        // Cache is sorted by timelineRowid ASC, so first event is the oldest
-        // Note: timelineRowid can be negative (for state events or certain syncs)
-        val oldestEvent = cache.events.firstOrNull()
-        val result = oldestEvent?.timelineRowid ?: -1L
-        
-        // Debug: Show range of timelineRowid values in cache
-        if (BuildConfig.DEBUG) {
-            val minRowId = cache.events.minOfOrNull { it.timelineRowid } ?: -1L
-            val maxRowId = cache.events.maxOfOrNull { it.timelineRowid } ?: -1L
-            val negativeCount = cache.events.count { it.timelineRowid < 0 }
-            val positiveCount = cache.events.count { it.timelineRowid > 0 }
-            val firstFew = cache.events.take(5).map { "${it.eventId.take(20)}... (rowId=${it.timelineRowid})" }.joinToString(", ")
-            Log.d(TAG, "getOldestCachedEventRowId for $roomId: result=$result, cache has ${cache.events.size} events, rowId range: $minRowId to $maxRowId (negative=$negativeCount, positive=$positiveCount)")
-            Log.d(TAG, "getOldestCachedEventRowId: First 5 events: $firstFew")
-        }
-        return result
     }
     
     /**
@@ -519,18 +581,20 @@ object RoomTimelineCache {
      * This seeds the cache with the full initial paginate response
      */
     fun seedCacheWithPaginatedEvents(roomId: String, events: List<TimelineEvent>) {
-        if (BuildConfig.DEBUG) Log.d(TAG, "Seeding cache for room $roomId with ${events.size} paginated events")
-        
-        val cache = roomEventsCache.getOrPut(roomId) { RoomCache() }
-        cache.events.clear()
-        cache.eventIds.clear()
-        addEventsToCache(roomId, events)
+        synchronized(cacheLock) {
+            if (BuildConfig.DEBUG) Log.d(TAG, "Seeding cache for room $roomId with ${events.size} paginated events")
+            
+            val cache = roomEventsCache.getOrPut(roomId) { RoomCache() }
+            cache.events.clear()
+            cache.eventIds.clear()
+            addEventsToCache(roomId, events)
 
-        // Mark as initialized
-        markRoomInitialized(roomId)
-        // PROACTIVE CACHE MANAGEMENT: Mark room as actively cached when paginated
-        markRoomAsCached(roomId)
-        if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId cache seeded and initialized with ${getCachedEventCount(roomId)} events (marked as actively cached)")
+            // Mark as initialized
+            markRoomInitialized(roomId)
+            // PROACTIVE CACHE MANAGEMENT: Mark room as actively cached when paginated
+            markRoomAsCached(roomId)
+            if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId cache seeded and initialized with ${getCachedEventCount(roomId)} events (marked as actively cached)")
+        }
     }
     
     /**
@@ -538,48 +602,50 @@ object RoomTimelineCache {
      * Also marks room as actively cached if not already marked
      */
     fun mergePaginatedEvents(roomId: String, newEvents: List<TimelineEvent>): Int {
-        if (newEvents.isEmpty()) {
-            return 0
-        }
-        
-        val minRowId = newEvents.mapNotNull { it.timelineRowid.takeIf { row -> row > 0 } }.minOrNull()
-        val maxRowId = newEvents.mapNotNull { it.timelineRowid.takeIf { row -> row > 0 } }.maxOrNull()
-        val minRowDisplay = minRowId?.toString() ?: "n/a"
-        val maxRowDisplay = maxRowId?.toString() ?: "n/a"
-        
-        val cacheBefore = getCachedEventCount(roomId)
-        val oldestRowIdBefore = getOldestCachedEventRowId(roomId)
-
-        if (BuildConfig.DEBUG) Log.d(
-            TAG,
-            "Merging ${newEvents.size} events for room $roomId - rowId range: $minRowDisplay to $maxRowDisplay (cache before: $cacheBefore, oldestRowId: $oldestRowIdBefore)"
-        )
-        
-        val added = addEventsToCache(roomId, newEvents)
-        val cacheAfter = getCachedEventCount(roomId)
-        val oldestRowIdAfter = getOldestCachedEventRowId(roomId)
-        
-        // PROACTIVE CACHE MANAGEMENT: Mark room as actively cached when receiving paginated events
-        // This ensures SyncIngestor knows to update this room with events from sync_complete
-        if (!isRoomActivelyCached(roomId)) {
-            markRoomAsCached(roomId)
-            if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId marked as actively cached after receiving paginated events")
-        }
-        
-        if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId cache after merge: $cacheAfter events (added $added, was $cacheBefore). OldestRowId: $oldestRowIdBefore -> $oldestRowIdAfter")
-        
-        if (added == 0 && newEvents.isNotEmpty()) {
-            // Log detailed information about why all events were duplicates
-            val eventIds = newEvents.take(5).map { "${it.eventId} (rowId=${it.timelineRowid})" }.joinToString(", ")
-            val allNegative = newEvents.all { it.timelineRowid < 0 }
-            Log.w(TAG, "Room $roomId: All ${newEvents.size} events were duplicates! Requested with max_timeline_id around $oldestRowIdBefore, got events with rowId range $minRowDisplay-$maxRowDisplay (allNegative=$allNegative)")
-            if (BuildConfig.DEBUG) {
-                Log.w(TAG, "Room $roomId: Sample duplicate event IDs: $eventIds")
-                Log.w(TAG, "Room $roomId: Cache currently has ${cacheAfter} events, oldestRowId=$oldestRowIdAfter")
+        synchronized(cacheLock) {
+            if (newEvents.isEmpty()) {
+                return 0
             }
+            
+            val minRowId = newEvents.mapNotNull { it.timelineRowid.takeIf { row -> row > 0 } }.minOrNull()
+            val maxRowId = newEvents.mapNotNull { it.timelineRowid.takeIf { row -> row > 0 } }.maxOrNull()
+            val minRowDisplay = minRowId?.toString() ?: "n/a"
+            val maxRowDisplay = maxRowId?.toString() ?: "n/a"
+            
+            val cacheBefore = getCachedEventCount(roomId)
+            val oldestRowIdBefore = getOldestCachedEventRowId(roomId)
+
+            if (BuildConfig.DEBUG) Log.d(
+                TAG,
+                "Merging ${newEvents.size} events for room $roomId - rowId range: $minRowDisplay to $maxRowDisplay (cache before: $cacheBefore, oldestRowId: $oldestRowIdBefore)"
+            )
+            
+            val added = addEventsToCache(roomId, newEvents)
+            val cacheAfter = getCachedEventCount(roomId)
+            val oldestRowIdAfter = getOldestCachedEventRowId(roomId)
+            
+            // PROACTIVE CACHE MANAGEMENT: Mark room as actively cached when receiving paginated events
+            // This ensures SyncIngestor knows to update this room with events from sync_complete
+            if (!isRoomActivelyCached(roomId)) {
+                markRoomAsCached(roomId)
+                if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId marked as actively cached after receiving paginated events")
+            }
+            
+            if (BuildConfig.DEBUG) Log.d(TAG, "Room $roomId cache after merge: $cacheAfter events (added $added, was $cacheBefore). OldestRowId: $oldestRowIdBefore -> $oldestRowIdAfter")
+            
+            if (added == 0 && newEvents.isNotEmpty()) {
+                // Log detailed information about why all events were duplicates
+                val eventIds = newEvents.take(5).map { "${it.eventId} (rowId=${it.timelineRowid})" }.joinToString(", ")
+                val allNegative = newEvents.all { it.timelineRowid < 0 }
+                Log.w(TAG, "Room $roomId: All ${newEvents.size} events were duplicates! Requested with max_timeline_id around $oldestRowIdBefore, got events with rowId range $minRowDisplay-$maxRowDisplay (allNegative=$allNegative)")
+                if (BuildConfig.DEBUG) {
+                    Log.w(TAG, "Room $roomId: Sample duplicate event IDs: $eventIds")
+                    Log.w(TAG, "Room $roomId: Cache currently has ${cacheAfter} events, oldestRowId=$oldestRowIdAfter")
+                }
+            }
+            
+            return added
         }
-        
-        return added
     }
     
     /**
@@ -593,28 +659,30 @@ object RoomTimelineCache {
         redactionEventsMap: Map<String, TimelineEvent>? = null,
         redactionMapping: Map<String, String>? = null
     ) {
-        val cache = roomEventsCache[roomId] ?: return
-        synchronized(cacheStateLock) {
-            cache.processedState.eventChainMap.clear()
-            cache.processedState.eventChainMap.putAll(eventChainMap)
-            cache.processedState.editEventsMap.clear()
-            cache.processedState.editEventsMap.putAll(editEventsMap)
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return
+            synchronized(cacheStateLock) {
+                cache.processedState.eventChainMap.clear()
+                cache.processedState.eventChainMap.putAll(eventChainMap)
+                cache.processedState.editEventsMap.clear()
+                cache.processedState.editEventsMap.putAll(editEventsMap)
             
-            // Save redaction events and mapping if provided
-            if (redactionEventsMap != null) {
-                cache.processedState.redactionEventsMap.clear()
-                cache.processedState.redactionEventsMap.putAll(redactionEventsMap)
-            }
-            if (redactionMapping != null) {
-                cache.processedState.redactionMapping.clear()
-                cache.processedState.redactionMapping.putAll(redactionMapping)
-            }
+                // Save redaction events and mapping if provided
+                if (redactionEventsMap != null) {
+                    cache.processedState.redactionEventsMap.clear()
+                    cache.processedState.redactionEventsMap.putAll(redactionEventsMap)
+                }
+                if (redactionMapping != null) {
+                    cache.processedState.redactionMapping.clear()
+                    cache.processedState.redactionMapping.putAll(redactionMapping)
+                }
             
-            cache.processedState.lastAccessedAt = System.currentTimeMillis()
-            cache.lastAccessedAt = System.currentTimeMillis()
+                cache.processedState.lastAccessedAt = System.currentTimeMillis()
+                cache.lastAccessedAt = System.currentTimeMillis()
+            }
+            val redactionCount = redactionEventsMap?.size ?: 0
+            if (BuildConfig.DEBUG) Log.d(TAG, "Saved processed timeline state for room $roomId (${eventChainMap.size} chains, ${editEventsMap.size} edits, $redactionCount redactions)")
         }
-        val redactionCount = redactionEventsMap?.size ?: 0
-        if (BuildConfig.DEBUG) Log.d(TAG, "Saved processed timeline state for room $roomId (${eventChainMap.size} chains, ${editEventsMap.size} edits, $redactionCount redactions)")
     }
     
     /**
@@ -629,19 +697,21 @@ object RoomTimelineCache {
     )
     
     fun getProcessedTimelineState(roomId: String): ProcessedTimelineStateResult? {
-        val cache = roomEventsCache[roomId] ?: return null
-        return synchronized(cacheStateLock) {
-            if (cache.processedState.eventChainMap.isEmpty() && 
-                cache.processedState.editEventsMap.isEmpty() &&
-                cache.processedState.redactionEventsMap.isEmpty()) {
-                null
-            } else {
-                ProcessedTimelineStateResult(
-                    eventChainMap = cache.processedState.eventChainMap.toMap(),
-                    editEventsMap = cache.processedState.editEventsMap.toMap(),
-                    redactionEventsMap = cache.processedState.redactionEventsMap.toMap(),
-                    redactionMapping = cache.processedState.redactionMapping.toMap()
-                )
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return null
+            return synchronized(cacheStateLock) {
+                if (cache.processedState.eventChainMap.isEmpty() && 
+                    cache.processedState.editEventsMap.isEmpty() &&
+                    cache.processedState.redactionEventsMap.isEmpty()) {
+                    null
+                } else {
+                    ProcessedTimelineStateResult(
+                        eventChainMap = cache.processedState.eventChainMap.toMap(),
+                        editEventsMap = cache.processedState.editEventsMap.toMap(),
+                        redactionEventsMap = cache.processedState.redactionEventsMap.toMap(),
+                        redactionMapping = cache.processedState.redactionMapping.toMap()
+                    )
+                }
             }
         }
     }
@@ -650,39 +720,43 @@ object RoomTimelineCache {
      * Clear processed timeline state for a room (keeps raw events)
      */
     fun clearProcessedTimelineState(roomId: String) {
-        val cache = roomEventsCache[roomId] ?: return
-        synchronized(cacheStateLock) {
-            cache.processedState.eventChainMap.clear()
-            cache.processedState.editEventsMap.clear()
-            cache.processedState.redactionEventsMap.clear()
-            cache.processedState.redactionMapping.clear()
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return
+            synchronized(cacheStateLock) {
+                cache.processedState.eventChainMap.clear()
+                cache.processedState.editEventsMap.clear()
+                cache.processedState.redactionEventsMap.clear()
+                cache.processedState.redactionMapping.clear()
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared processed timeline state for room $roomId")
         }
-        if (BuildConfig.DEBUG) Log.d(TAG, "Cleared processed timeline state for room $roomId")
     }
     
     /**
      * Add a redaction event to the cache (stored separately from main events)
      */
     fun addRedactionEvent(roomId: String, redactionEvent: TimelineEvent) {
-        val cache = roomEventsCache.getOrPut(roomId) { RoomCache() }
-        synchronized(cacheStateLock) {
-            // Store redaction event separately
-            if (cache.redactionEvents.none { it.eventId == redactionEvent.eventId }) {
-                cache.redactionEvents.add(redactionEvent)
-            }
+        synchronized(cacheLock) {
+            val cache = roomEventsCache.getOrPut(roomId) { RoomCache() }
+            synchronized(cacheStateLock) {
+                // Store redaction event separately
+                if (cache.redactionEvents.none { it.eventId == redactionEvent.eventId }) {
+                    cache.redactionEvents.add(redactionEvent)
+                }
             
-            // Extract the event ID being redacted
-            val redactsString = redactionEvent.content?.optString("redacts")?.takeIf { it.isNotBlank() }
-            val redactsObject = redactionEvent.content?.optJSONObject("redacts")?.optString("event_id")?.takeIf { it.isNotBlank() }
-            val originalEventId = redactsString ?: redactsObject
+                // Extract the event ID being redacted
+                val redactsString = redactionEvent.content?.optString("redacts")?.takeIf { it.isNotBlank() }
+                val redactsObject = redactionEvent.content?.optJSONObject("redacts")?.optString("event_id")?.takeIf { it.isNotBlank() }
+                val originalEventId = redactsString ?: redactsObject
             
-            if (originalEventId != null) {
-                // Store mapping: originalEventId -> redactionEventId
-                cache.processedState.redactionMapping[originalEventId] = redactionEvent.eventId
-                cache.processedState.redactionEventsMap[redactionEvent.eventId] = redactionEvent
-                if (BuildConfig.DEBUG) Log.d(TAG, "Added redaction event ${redactionEvent.eventId} for room $roomId (redacts: $originalEventId)")
-            } else {
-                if (BuildConfig.DEBUG) Log.w(TAG, "Added redaction event ${redactionEvent.eventId} for room $roomId but could not extract original event ID")
+                if (originalEventId != null) {
+                    // Store mapping: originalEventId -> redactionEventId
+                    cache.processedState.redactionMapping[originalEventId] = redactionEvent.eventId
+                    cache.processedState.redactionEventsMap[redactionEvent.eventId] = redactionEvent
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Added redaction event ${redactionEvent.eventId} for room $roomId (redacts: $originalEventId)")
+                } else {
+                    if (BuildConfig.DEBUG) Log.w(TAG, "Added redaction event ${redactionEvent.eventId} for room $roomId but could not extract original event ID")
+                }
             }
         }
     }
@@ -691,9 +765,11 @@ object RoomTimelineCache {
      * Get all redaction events for a room
      */
     fun getRedactionEvents(roomId: String): List<TimelineEvent> {
-        val cache = roomEventsCache[roomId] ?: return emptyList()
-        return synchronized(cacheStateLock) {
-            cache.redactionEvents.toList()
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return emptyList()
+            return synchronized(cacheStateLock) {
+                cache.redactionEvents.toList()
+            }
         }
     }
     
@@ -701,10 +777,12 @@ object RoomTimelineCache {
      * Get redaction event for a specific original event
      */
     fun getRedactionEventForOriginal(roomId: String, originalEventId: String): TimelineEvent? {
-        val cache = roomEventsCache[roomId] ?: return null
-        return synchronized(cacheStateLock) {
-            val redactionEventId = cache.processedState.redactionMapping[originalEventId]
-            redactionEventId?.let { cache.processedState.redactionEventsMap[it] }
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return null
+            return synchronized(cacheStateLock) {
+                val redactionEventId = cache.processedState.redactionMapping[originalEventId]
+                redactionEventId?.let { cache.processedState.redactionEventsMap[it] }
+            }
         }
     }
     
@@ -712,21 +790,25 @@ object RoomTimelineCache {
      * Clear cache for a specific room (useful when leaving a room)
      */
     fun clearRoomCache(roomId: String) {
-        synchronized(cacheStateLock) {
-            roomEventsCache.remove(roomId)
-            roomsInitialized.remove(roomId)
-            activelyCachedRooms.remove(roomId)
+        synchronized(cacheLock) {
+            synchronized(cacheStateLock) {
+                roomEventsCache.remove(roomId)
+                roomsInitialized.remove(roomId)
+                activelyCachedRooms.remove(roomId)
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared cache for room $roomId and marked as not cached")
         }
-        if (BuildConfig.DEBUG) Log.d(TAG, "Cleared cache for room $roomId and marked as not cached")
     }
     
     /**
      * Clear all caches (useful on logout or WebSocket reconnect)
      */
     fun clearAllCaches() {
-        roomEventsCache.clear()
-        roomsInitialized.clear()
-        if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches")
+        synchronized(cacheLock) {
+            roomEventsCache.clear()
+            roomsInitialized.clear()
+            if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches")
+        }
     }
     
     /**
@@ -735,35 +817,37 @@ object RoomTimelineCache {
      * EXCEPTION: Currently opened rooms are preserved (exempt from cache clearing)
      */
     fun clearAll() {
-        synchronized(cacheStateLock) {
-            val openedRooms = getOpenedRooms()
+        synchronized(cacheLock) {
+            synchronized(cacheStateLock) {
+                val openedRooms = getOpenedRooms()
             
-            if (openedRooms.isEmpty()) {
-                // No opened rooms - clear everything
-                roomEventsCache.clear()
-                roomsInitialized.clear()
-                activelyCachedRooms.clear()
-                if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches and marked all rooms as needing pagination (no opened rooms)")
-            } else {
-                // Preserve caches for currently opened rooms
-                val roomsToClear = roomEventsCache.keys.filter { it !in openedRooms }.toSet()
-                val roomsToPreserve = roomEventsCache.keys.filter { it in openedRooms }.toSet()
+                if (openedRooms.isEmpty()) {
+                    // No opened rooms - clear everything
+                    roomEventsCache.clear()
+                    roomsInitialized.clear()
+                    activelyCachedRooms.clear()
+                    if (BuildConfig.DEBUG) Log.d(TAG, "Cleared all room caches and marked all rooms as needing pagination (no opened rooms)")
+                } else {
+                    // Preserve caches for currently opened rooms
+                    val roomsToClear = roomEventsCache.keys.filter { it !in openedRooms }.toSet()
+                    val roomsToPreserve = roomEventsCache.keys.filter { it in openedRooms }.toSet()
                 
-                // Clear caches for non-opened rooms
-                for (roomId in roomsToClear) {
-                    roomEventsCache.remove(roomId)
-                    roomsInitialized.remove(roomId)
-                    activelyCachedRooms.remove(roomId)
-                }
+                    // Clear caches for non-opened rooms
+                    for (roomId in roomsToClear) {
+                        roomEventsCache.remove(roomId)
+                        roomsInitialized.remove(roomId)
+                        activelyCachedRooms.remove(roomId)
+                    }
                 
-                // Preserve opened rooms:
-                // - Keep cache (roomEventsCache) - already preserved by not removing
-                // - Keep roomsInitialized flag - already preserved by not removing
-                // - Keep activelyCachedRooms - already preserved by not removing
-                // Opened rooms continue receiving events from sync_complete and remain actively cached
+                    // Preserve opened rooms:
+                    // - Keep cache (roomEventsCache) - already preserved by not removing
+                    // - Keep roomsInitialized flag - already preserved by not removing
+                    // - Keep activelyCachedRooms - already preserved by not removing
+                    // Opened rooms continue receiving events from sync_complete and remain actively cached
                 
-                if (BuildConfig.DEBUG) {
-                    Log.d(TAG, "Cleared caches for ${roomsToClear.size} rooms, preserved ${roomsToPreserve.size} opened rooms: ${roomsToPreserve.joinToString(", ")}")
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "Cleared caches for ${roomsToClear.size} rooms, preserved ${roomsToPreserve.size} opened rooms: ${roomsToPreserve.joinToString(", ")}")
+                    }
                 }
             }
         }
@@ -774,10 +858,12 @@ object RoomTimelineCache {
      * Called when a room is opened and paginated
      */
     fun markRoomAsCached(roomId: String) {
-        synchronized(cacheStateLock) {
-            activelyCachedRooms.add(roomId)
+        synchronized(cacheLock) {
+            synchronized(cacheStateLock) {
+                activelyCachedRooms.add(roomId)
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "Marked room $roomId as actively cached (will receive events from sync_complete)")
         }
-        if (BuildConfig.DEBUG) Log.d(TAG, "Marked room $roomId as actively cached (will receive events from sync_complete)")
     }
     
     /**
@@ -785,10 +871,12 @@ object RoomTimelineCache {
      * Called when leaving a room or when cache is cleared
      */
     fun markRoomAsNotCached(roomId: String) {
-        synchronized(cacheStateLock) {
-            activelyCachedRooms.remove(roomId)
+        synchronized(cacheLock) {
+            synchronized(cacheStateLock) {
+                activelyCachedRooms.remove(roomId)
+            }
+            if (BuildConfig.DEBUG) Log.d(TAG, "Marked room $roomId as not cached (will not receive events from sync_complete)")
         }
-        if (BuildConfig.DEBUG) Log.d(TAG, "Marked room $roomId as not cached (will not receive events from sync_complete)")
     }
     
     /**
@@ -796,8 +884,10 @@ object RoomTimelineCache {
      * Used by SyncIngestor to determine which rooms to update
      */
     fun getActivelyCachedRoomIds(): Set<String> {
-        synchronized(cacheStateLock) {
-            return activelyCachedRooms.toSet()
+        synchronized(cacheLock) {
+            synchronized(cacheStateLock) {
+                return activelyCachedRooms.toSet()
+            }
         }
     }
     
@@ -805,8 +895,10 @@ object RoomTimelineCache {
      * Check if a room is actively cached (should receive events from sync_complete)
      */
     fun isRoomActivelyCached(roomId: String): Boolean {
-        synchronized(cacheStateLock) {
-            return activelyCachedRooms.contains(roomId)
+        synchronized(cacheLock) {
+            synchronized(cacheStateLock) {
+                return activelyCachedRooms.contains(roomId)
+            }
         }
     }
     
@@ -814,12 +906,14 @@ object RoomTimelineCache {
      * Get cache statistics for debugging
      */
     fun getCacheStats(): Map<String, Any> {
-        return mapOf(
-            "total_rooms_cached" to roomEventsCache.size,
-            "total_rooms_initialized" to roomsInitialized.size,
-            "total_events_cached" to roomEventsCache.values.sumOf { it.events.size },
-            "cache_details" to roomEventsCache.mapValues { it.value.events.size }
-        )
+        synchronized(cacheLock) {
+            return mapOf(
+                "total_rooms_cached" to roomEventsCache.size,
+                "total_rooms_initialized" to roomsInitialized.size,
+                "total_events_cached" to roomEventsCache.values.sumOf { it.events.size },
+                "cache_details" to roomEventsCache.mapValues { it.value.events.size }
+            )
+        }
     }
     
     /**
