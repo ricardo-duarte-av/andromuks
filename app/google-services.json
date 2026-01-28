@@ -121,6 +121,44 @@
     },
     {
       "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:10e8c37d20b68363ec9bc4",
+        "android_client_info": {
+          "package_name": "pt.aguiarvieira.andromuks.b"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:532032404365:android:b37182c4a813bd29ec9bc4",
+        "android_client_info": {
+          "package_name": "pt.aguiarvieira.andromuks.c"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAAGwca7l1BN9uatWbC3TsYrPphjdVb4BA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:532032404365:android:70b62c80025379ddec9bc4",
         "android_client_info": {
           "package_name": "pt.aguiarvieira.element"
