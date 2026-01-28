@@ -5,8 +5,8 @@ env:
   playstore_name: Andromuks A
 
 on:
-  #push:
-  #  branches: [ main, develop, master ]
+  push:
+    branches: [ main, develop, master ]
   workflow_dispatch:
 
 jobs:
