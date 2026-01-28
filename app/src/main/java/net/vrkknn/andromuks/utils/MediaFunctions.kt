@@ -24,10 +24,15 @@ import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -102,13 +107,20 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.InsertDriveFile
+import androidx.compose.material.icons.automirrored.filled.RotateRight
+import androidx.compose.material.icons.automirrored.filled.RotateLeft
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.DisposableEffect
 import android.app.DownloadManager
 import android.content.Context
+import android.content.ContentValues
 import android.net.Uri
 import android.os.Environment
+import android.provider.MediaStore
+import java.io.ByteArrayOutputStream
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -1650,6 +1662,124 @@ private fun formatDurationMs(durationMs: Int): String {
 }
 
 /**
+ * Save image to device gallery using MediaStore
+ */
+private suspend fun saveImageToGallery(
+    context: Context,
+    bitmap: android.graphics.Bitmap?,
+    cachedFile: File?,
+    imageUrl: String,
+    filename: String?,
+    authToken: String
+) = withContext(Dispatchers.IO) {
+    try {
+        var imageFile: File? = cachedFile
+        
+        // If we don't have bitmap or cached file, download the image
+        if (bitmap == null && imageFile == null) {
+            val httpUrl = if (imageUrl.startsWith("http")) {
+                imageUrl
+            } else if (imageUrl.startsWith("/")) {
+                // Local file path
+                imageFile = File(imageUrl)
+                null
+            } else {
+                // If it's a file path, try to use it
+                imageFile = File(imageUrl)
+                null
+            }
+            
+            if (httpUrl != null) {
+                val client = OkHttpClient()
+                val request = Request.Builder()
+                    .url(httpUrl)
+                    .addHeader("Cookie", "gomuks_auth=$authToken")
+                    .build()
+                
+                val response = client.newCall(request).execute()
+                if (!response.isSuccessful) {
+                    throw Exception("Failed to download image: ${response.code}")
+                }
+                
+                response.body?.byteStream()?.use { input ->
+                    val tempFile = File(context.cacheDir, "temp_image_${System.currentTimeMillis()}.jpg")
+                    FileOutputStream(tempFile).use { output ->
+                        input.copyTo(output)
+                    }
+                    imageFile = tempFile
+                }
+            }
+        }
+        
+        // Determine filename
+        val displayName = filename?.takeIf { it.isNotBlank() } 
+            ?: "image_${System.currentTimeMillis()}.jpg"
+        val finalFilename = if (!displayName.contains(".")) {
+            "$displayName.jpg"
+        } else {
+            displayName
+        }
+        
+        // Save to MediaStore
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, finalFilename)
+            put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Andromuks")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+        }
+        
+        val uri = context.contentResolver.insert(
+            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        ) ?: throw Exception("Failed to create MediaStore entry")
+        
+        // Write image data
+        context.contentResolver.openOutputStream(uri)?.use { output ->
+            if (bitmap != null) {
+                // Save bitmap
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 100, output)
+            } else if (imageFile != null && imageFile.exists()) {
+                // Copy file
+                imageFile.inputStream().use { input ->
+                    input.copyTo(output)
+                }
+            } else {
+                throw Exception("No image data available")
+            }
+        }
+        
+        // Mark as not pending (Android Q+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            contentValues.clear()
+            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            context.contentResolver.update(uri, contentValues, null, null)
+        }
+        
+        // Show success toast
+        withContext(Dispatchers.Main) {
+            android.widget.Toast.makeText(
+                context,
+                "Image saved to gallery",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+        
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "Image saved to gallery: $finalFilename")
+    } catch (e: Exception) {
+        Log.e("Andromuks", "Failed to save image to gallery", e)
+        withContext(Dispatchers.Main) {
+            android.widget.Toast.makeText(
+                context,
+                "Failed to save image: ${e.message}",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+}
+
+/**
  * Fullscreen image viewer dialog with zoom and pan capabilities.
  * 
  * This dialog provides a fullscreen image viewing experience with:
@@ -1675,6 +1805,7 @@ private fun ImageViewerDialog(
     var scale by remember { mutableFloatStateOf(1f) }
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+    var rotationDegrees by remember { mutableFloatStateOf(0f) }
     
     val transformableState = rememberTransformableState { zoomChange, offsetChange, _ ->
         scale = (scale * zoomChange).coerceIn(0.5f, 5f)
@@ -1684,6 +1815,8 @@ private fun ImageViewerDialog(
         offsetX = (offsetX + offsetChange.x * panScale).coerceIn(-maxPan, maxPan)
         offsetY = (offsetY + offsetChange.y * panScale).coerceIn(-maxPan, maxPan)
     }
+    
+    val coroutineScope = rememberCoroutineScope()
     
             Dialog(
                 onDismissRequest = onDismiss,
@@ -1735,7 +1868,8 @@ private fun ImageViewerDialog(
                                 scaleX = scale,
                                 scaleY = scale,
                                 translationX = offsetX,
-                                translationY = offsetY
+                                translationY = offsetY,
+                                rotationZ = rotationDegrees
                             )
                             .transformable(state = transformableState)
                             .pointerInput(Unit) {
@@ -1774,6 +1908,97 @@ private fun ImageViewerDialog(
                             },
                             onError = { }
                         )
+                    }
+                    
+                    // Top toolbar with action buttons
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .windowInsetsPadding(WindowInsets.statusBars)
+                            .padding(horizontal = 8.dp)
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        // Rotate Left button
+                        IconButton(
+                            onClick = {
+                                rotationDegrees = (rotationDegrees - 90f) % 360f
+                                // Reset zoom/pan when rotating
+                                scale = 1f
+                                offsetX = 0f
+                                offsetY = 0f
+                            },
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.RotateLeft,
+                                contentDescription = "Rotate Left",
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        
+                        // Rotate Right button
+                        IconButton(
+                            onClick = {
+                                rotationDegrees = (rotationDegrees + 90f) % 360f
+                                // Reset zoom/pan when rotating
+                                scale = 1f
+                                offsetX = 0f
+                                offsetY = 0f
+                            },
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.RotateRight,
+                                contentDescription = "Rotate Right",
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        
+                        // Save button
+                        IconButton(
+                            onClick = {
+                                coroutineScope.launch {
+                                    saveImageToGallery(context, null, cachedFile, imageUrl, mediaMessage.filename, authToken)
+                                }
+                            },
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Save,
+                                contentDescription = "Save to Gallery",
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                        
+                        // Close button
+                        IconButton(
+                            onClick = onDismiss,
+                            colors = IconButtonDefaults.iconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.7f),
+                                contentColor = MaterialTheme.colorScheme.onSurface
+                            ),
+                            modifier = Modifier.size(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Close",
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                 }
             }
