@@ -1,0 +1,89 @@
+name: AV Andromuks B
+
+env:
+  main_project_module: pt.aguiarvieira.andromuks.b
+  playstore_name: Andromuks B
+
+on:
+  push:
+    branches: [ main, develop, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set App ID (A variant)
+        run: echo "APP_ID=pt.aguiarvieira.andromuks.b" >> $GITHUB_ENV
+
+      - name: Apply A-variant changes with sed
+        run: |
+          # 1) applicationId in app/build.gradle.kts
+          sed -i 's/applicationId = "pt\.aguiarvieira\.andromuks"/applicationId = "pt.aguiarvieira.andromuks.b"/' app/build.gradle.kts
+
+          # 2) App name in strings.xml
+          sed -i 's/<string name="app_name">Andromuks<\/string>/<string name="app_name">Andromuks B<\/string>/' app/src/main/res/values/strings.xml
+
+          # 3) FileProvider authority in AndroidManifest.xml
+          sed -i 's/android:authorities="pt\.aguiarvieira\.andromuks\.fileprovider"/android:authorities="pt.aguiarvieira.andromuks.b.fileprovider"/' app/src/main/AndroidManifest.xml
+
+      - name: Set Up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+          cache: 'gradle'
+          
+      - name: Cache Gradle build cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/caches/build-cache
+          key: ${{ runner.os }}-gradle-build-cache-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-build-cache-
+
+      - name: Change wrapper permissions
+        run: chmod +x ./gradlew
+
+      - name: Build A variant release APK
+        run: ./gradlew assemble --stacktrace --no-daemon --parallel --build-cache
+
+      - name: List all APKs
+        run: |
+          echo "### Built APKs (A variant)" >> $GITHUB_STEP_SUMMARY
+          find app/ -name "*.apk" | tee -a $GITHUB_STEP_SUMMARY
+
+      - name: Upload B debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pt.aguiarvieira.andromuks-B-debug
+          path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk
+
+      - name: Upload B release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: pt.aguiarvieira.andromuks-B-release
+          path: app/build/outputs/apk/release/app-arm64-v8a-release.apk
+
+      - name: Deploy Nightly Debug
+        uses: WebFreak001/deploy-nightly@v3.1.0
+        with:
+          upload_url: https://uploads.github.com/repos/ricardo-duarte-av/andromuks/releases/248878640/assets{?name,label} # find out this value by opening https://api.github.com/repos/<owner>/<repo>/releases in your browser and copy the full "upload_url" value including the {?name,label} part
+          release_id: 248878640 # same as above (id can just be taken out the upload_url, it's used to find old releases)
+          asset_path: app/build/outputs/apk/debug/app-arm64-v8a-debug.apk # path to archive to upload
+          asset_name: andromuks.aguiarvieira.pt-debug-B-$$.apk # name to upload the release as, use $$ to insert date (YYYYMMDD) and 6 letter commit hash
+          asset_content_type: application/vnd.android.package-archive # required by GitHub API
+          max_releases: 1 # optional, if there are more releases than this matching the asset_name, the oldest ones are going to be deleted
+
+      - name: Deploy Nightly Release
+        uses: WebFreak001/deploy-nightly@v3.1.0
+        with:
+          upload_url: https://uploads.github.com/repos/ricardo-duarte-av/andromuks/releases/249916670/assets{?name,label} # find out this value by opening https://api.github.com/repos/<owner>/<repo>/releases in your browser and copy the full "upload_url" value including the {?name,label} part
+          release_id: 249916670 # same as above (id can just be taken out the upload_url, it's used to find old releases)
+          asset_path: app/build/outputs/apk/release/app-arm64-v8a-release.apk # path to archive to upload
+          asset_name: andromuks.aguiarvieira.pt-release-B-$$.apk # name to upload the release as, use $$ to insert date (YYYYMMDD) and 6 letter commit hash
+          asset_content_type: application/vnd.android.package-archive # required by GitHub API
+          max_releases: 1 # optional, if there are more releases than this matching the asset_name, the oldest ones are going to be deleted
