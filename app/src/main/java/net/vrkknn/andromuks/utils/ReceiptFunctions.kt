@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -45,6 +46,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import net.vrkknn.andromuks.AppViewModel
@@ -721,10 +724,17 @@ fun ReadReceiptDetailsDialog(
                         modifier = Modifier.padding(bottom = 16.dp)
                     )
                     
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    // Use LazyColumn for scrollable list of receipts
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 400.dp) // Limit max height to ensure dialog doesn't take full screen
                     ) {
-                        receipts.forEach { receipt ->
+                        items(
+                            items = receipts,
+                            key = { receipt -> receipt.userId } // Use userId as stable key
+                        ) { receipt ->
                             // Prioritize AppViewModel profile over cache
                             val userProfile = appViewModel?.getUserProfile(receipt.userId, roomId) ?: userProfileCache[receipt.userId]
                             ReadReceiptItem(
