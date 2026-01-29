@@ -118,12 +118,20 @@ import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.automirrored.filled.RotateLeft
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.ui.PlayerView
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.BoxScope
+import kotlinx.coroutines.delay
 import android.app.DownloadManager
 import android.content.Context
 import android.content.ContentValues
@@ -140,6 +148,52 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import java.io.FileOutputStream
+
+/**
+ * Shared state manager for inline video players.
+ * Ensures only one video plays at a time across all timeline items.
+ */
+object InlineVideoPlayerManager {
+    private var currentPlayingVideoId: String? = null
+    private var currentPlayer: ExoPlayer? = null
+    
+    /**
+     * Set the currently playing video. Pauses any previously playing video.
+     */
+    fun setCurrentVideo(videoId: String, player: ExoPlayer?) {
+        // Pause previous video if different
+        if (currentPlayingVideoId != null && currentPlayingVideoId != videoId && currentPlayer != null) {
+            try {
+                currentPlayer?.pause()
+                if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineVideoPlayerManager: Paused previous video: $currentPlayingVideoId")
+            } catch (e: Exception) {
+                Log.e("Andromuks", "InlineVideoPlayerManager: Error pausing previous video", e)
+            }
+        }
+        
+        currentPlayingVideoId = videoId
+        currentPlayer = player
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineVideoPlayerManager: Set current video: $videoId")
+    }
+    
+    /**
+     * Clear the current video (when player is released).
+     */
+    fun clearCurrentVideo(videoId: String) {
+        if (currentPlayingVideoId == videoId) {
+            currentPlayingVideoId = null
+            currentPlayer = null
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineVideoPlayerManager: Cleared current video: $videoId")
+        }
+    }
+    
+    /**
+     * Check if a video is currently playing.
+     */
+    fun isVideoPlaying(videoId: String): Boolean {
+        return currentPlayingVideoId == videoId && currentPlayer?.isPlaying == true
+    }
+}
 
 /**
  * DEPRECATED: MediaCache has been replaced by IntelligentMediaCache.
@@ -348,6 +402,11 @@ fun MediaMessage(
     val useThumbnails = appViewModel?.loadThumbnailsIfAvailable ?: true
     var showImageViewer by remember { mutableStateOf(false) }
     var showVideoPlayer by remember { mutableStateOf(false) }
+    // State for inline video player
+    var isVideoPlayingInline by remember { mutableStateOf(false) }
+    // State for fullscreen continuation
+    var fullscreenInitialPosition by remember { mutableLongStateOf(0L) }
+    var fullscreenShouldAutoPlay by remember { mutableStateOf(false) }
     // Shared state to trigger menu from image long press
     var triggerMenuFromImage by remember { mutableStateOf(0) }
     
@@ -369,7 +428,13 @@ fun MediaMessage(
             homeserverUrl = homeserverUrl,
             authToken = authToken,
             isEncrypted = isEncrypted,
-            onDismiss = { showVideoPlayer = false }
+            initialPosition = fullscreenInitialPosition,
+            shouldAutoPlay = fullscreenShouldAutoPlay,
+            onDismiss = { 
+                showVideoPlayer = false
+                fullscreenInitialPosition = 0L
+                fullscreenShouldAutoPlay = false
+            }
         )
     }
     // Check if there's a caption to determine layout strategy
@@ -440,10 +505,19 @@ fun MediaMessage(
                         isMine = isMine,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
-                                showVideoPlayer = true
+                                // Toggle inline player instead of opening fullscreen
+                                isVideoPlayingInline = !isVideoPlayingInline
                             } else {
                                 showImageViewer = true
                             }
+                        },
+                        isVideoPlayingInline = isVideoPlayingInline,
+                        onFullscreenRequest = { currentPosition, isPlaying ->
+                            // When fullscreen is requested from inline player, close inline and open fullscreen
+                            isVideoPlayingInline = false
+                            fullscreenInitialPosition = currentPosition
+                            fullscreenShouldAutoPlay = isPlaying
+                            showVideoPlayer = true
                         },
                         onImageLongPress = {
                             // Trigger menu from image long press
@@ -523,10 +597,19 @@ fun MediaMessage(
                         isMine = isMine,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
-                                showVideoPlayer = true
+                                // Toggle inline player instead of opening fullscreen
+                                isVideoPlayingInline = !isVideoPlayingInline
                             } else {
                                 showImageViewer = true
                             }
+                        },
+                        isVideoPlayingInline = isVideoPlayingInline,
+                        onFullscreenRequest = { currentPosition, isPlaying ->
+                            // When fullscreen is requested from inline player, close inline and open fullscreen
+                            isVideoPlayingInline = false
+                            fullscreenInitialPosition = currentPosition
+                            fullscreenShouldAutoPlay = isPlaying
+                            showVideoPlayer = true
                         },
                         onImageLongPress = {
                             // Trigger menu from image long press
@@ -602,10 +685,19 @@ fun MediaMessage(
                         isMine = isMine,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
-                                showVideoPlayer = true
+                                // Toggle inline player instead of opening fullscreen
+                                isVideoPlayingInline = !isVideoPlayingInline
                             } else {
                                 showImageViewer = true
                             }
+                        },
+                        isVideoPlayingInline = isVideoPlayingInline,
+                        onFullscreenRequest = { currentPosition, isPlaying ->
+                            // When fullscreen is requested from inline player, close inline and open fullscreen
+                            isVideoPlayingInline = false
+                            fullscreenInitialPosition = currentPosition
+                            fullscreenShouldAutoPlay = isPlaying
+                            showVideoPlayer = true
                         },
                         onImageLongPress = {
                             // Trigger menu from image long press
@@ -685,10 +777,19 @@ fun MediaMessage(
                         isMine = isMine,
                         onImageClick = { 
                             if (mediaMessage.msgType == "m.video") {
-                                showVideoPlayer = true
+                                // Toggle inline player instead of opening fullscreen
+                                isVideoPlayingInline = !isVideoPlayingInline
                             } else {
                                 showImageViewer = true
                             }
+                        },
+                        isVideoPlayingInline = isVideoPlayingInline,
+                        onFullscreenRequest = { currentPosition, isPlaying ->
+                            // When fullscreen is requested from inline player, close inline and open fullscreen
+                            isVideoPlayingInline = false
+                            fullscreenInitialPosition = currentPosition
+                            fullscreenShouldAutoPlay = isPlaying
+                            showVideoPlayer = true
                         },
                         onImageLongPress = {
                             // Trigger menu from image long press
@@ -758,7 +859,9 @@ private fun MediaContent(
     loadThumbnailsIfAvailable: Boolean,
     isMine: Boolean = false, // For determining bubble shape
     onImageClick: () -> Unit = {},
-    onImageLongPress: (() -> Unit)? = null
+    onImageLongPress: (() -> Unit)? = null,
+    isVideoPlayingInline: Boolean = false, // For inline video player
+    onFullscreenRequest: (currentPosition: Long, isPlaying: Boolean) -> Unit = { _, _ -> } // Callback for fullscreen request from inline player
 ) {
     val density = LocalDensity.current
     
@@ -1073,29 +1176,46 @@ private fun MediaContent(
                             }
                         )
                     } else if (mediaMessage.msgType == "m.video") {
-                        // Video thumbnail with play button overlay
-                        // Fill frame width and maintain aspect ratio, clipped by frame
-                        
-                        // State to track loaded thumbnail dimensions for dynamic aspect ratio adjustment
-                        var loadedThumbnailAspectRatio by remember { mutableFloatStateOf(aspectRatio) }
-                        var hasLoadedThumbnailDimensions by remember { mutableStateOf(false) }
-                        
-                        // Check if video has a thumbnail
-                        val thumbnailUrl = mediaMessage.info.thumbnailUrl
-                        
-                        // Check if JSON dimensions were actually valid for video
-                        val hasValidVideoJsonDimensions = 
-                            (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 && 
-                             mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0) ||
-                            (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
-                        
-                        // Reset when thumbnail URL changes
-                        LaunchedEffect(thumbnailUrl) {
-                            loadedThumbnailAspectRatio = aspectRatio
-                            hasLoadedThumbnailDimensions = false
-                        }
-                        
-                        Box(
+                        // Check if we should show inline player or thumbnail
+                        if (isVideoPlayingInline) {
+                            // Show inline video player
+                            InlineVideoPlayer(
+                                mediaMessage = mediaMessage,
+                                homeserverUrl = homeserverUrl,
+                                authToken = authToken,
+                                isEncrypted = isEncrypted,
+                                aspectRatio = aspectRatio,
+                                videoId = mediaMessage.url, // Use MXC URL as unique ID
+                                onFullscreenClick = { currentPosition, isPlaying ->
+                                    // Switch to fullscreen player with current position and playing state
+                                    onFullscreenRequest(currentPosition, isPlaying)
+                                },
+                                modifier = Modifier
+                            )
+                        } else {
+                            // Video thumbnail with play button overlay
+                            // Fill frame width and maintain aspect ratio, clipped by frame
+                            
+                            // State to track loaded thumbnail dimensions for dynamic aspect ratio adjustment
+                            var loadedThumbnailAspectRatio by remember { mutableFloatStateOf(aspectRatio) }
+                            var hasLoadedThumbnailDimensions by remember { mutableStateOf(false) }
+                            
+                            // Check if video has a thumbnail
+                            val thumbnailUrl = mediaMessage.info.thumbnailUrl
+                            
+                            // Check if JSON dimensions were actually valid for video
+                            val hasValidVideoJsonDimensions = 
+                                (mediaMessage.info.thumbnailWidth != null && mediaMessage.info.thumbnailWidth!! > 0 && 
+                                 mediaMessage.info.thumbnailHeight != null && mediaMessage.info.thumbnailHeight!! > 0) ||
+                                (mediaMessage.info.width > 0 && mediaMessage.info.height > 0)
+                            
+                            // Reset when thumbnail URL changes
+                            LaunchedEffect(thumbnailUrl) {
+                                loadedThumbnailAspectRatio = aspectRatio
+                                hasLoadedThumbnailDimensions = false
+                            }
+                            
+                            Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .aspectRatio(loadedThumbnailAspectRatio)
@@ -1244,6 +1364,7 @@ private fun MediaContent(
                                 }
                             }
                         }
+                        }
                     }
                 }
             }
@@ -1251,6 +1372,263 @@ private fun MediaContent(
     }
 }
 
+/**
+ * Inline video player composable that replaces thumbnail when playing.
+ * Features:
+ * - ExoPlayer embedded in timeline
+ * - Play/pause and fullscreen buttons
+ * - Auto-hide controls after 3 seconds
+ * - Proper lifecycle management
+ */
+@Composable
+private fun InlineVideoPlayer(
+    mediaMessage: MediaMessage,
+    homeserverUrl: String,
+    authToken: String,
+    isEncrypted: Boolean,
+    aspectRatio: Float,
+    videoId: String,
+    onFullscreenClick: (currentPosition: Long, isPlaying: Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val colorScheme = MaterialTheme.colorScheme
+    val primaryColor = colorScheme.primary
+    
+    // Player state
+    var player by remember(videoId) { mutableStateOf<ExoPlayer?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
+    var showControls by remember { mutableStateOf(true) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    
+    // Auto-hide controls after 3 seconds
+    LaunchedEffect(isPlaying, showControls) {
+        if (isPlaying && showControls) {
+            kotlinx.coroutines.delay(3000)
+            if (isPlaying) {
+                controlsVisible = false
+            }
+        } else if (!isPlaying) {
+            controlsVisible = true
+        }
+    }
+    
+    // Reset controls visibility when user interacts
+    LaunchedEffect(showControls) {
+        if (showControls) {
+            controlsVisible = true
+        }
+    }
+    
+    // Convert MXC URL to HTTP URL
+    val videoHttpUrl = remember(mediaMessage.url, isEncrypted) {
+        val httpUrl = MediaUtils.mxcToHttpUrl(mediaMessage.url, homeserverUrl)
+        if (isEncrypted && httpUrl != null) {
+            "$httpUrl?encrypted=true"
+        } else {
+            httpUrl ?: ""
+        }
+    }
+    
+    // Create and manage ExoPlayer
+    DisposableEffect(videoId, videoHttpUrl) {
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineVideoPlayer: Creating player for $videoId")
+        
+        val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
+            .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
+        
+        val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(context)
+            .setDataSourceFactory(dataSourceFactory)
+        
+        val exoPlayer = androidx.media3.exoplayer.ExoPlayer.Builder(context)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
+            .apply {
+                setAudioAttributes(
+                    androidx.media3.common.AudioAttributes.Builder()
+                        .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                        .setContentType(androidx.media3.common.C.CONTENT_TYPE_MOVIE)
+                        .build(),
+                    true
+                )
+            }
+        
+        // Set media item
+        if (videoHttpUrl.isNotEmpty()) {
+            val mediaItem = androidx.media3.common.MediaItem.fromUri(videoHttpUrl)
+            exoPlayer.setMediaItem(mediaItem)
+            exoPlayer.prepare()
+            // Auto-play when inline player is first shown
+            exoPlayer.play()
+            InlineVideoPlayerManager.setCurrentVideo(videoId, exoPlayer)
+        }
+        
+        // Register listener
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onIsPlayingChanged(isPlayingValue: Boolean) {
+                isPlaying = isPlayingValue
+                InlineVideoPlayerManager.setCurrentVideo(videoId, if (isPlayingValue) exoPlayer else null)
+            }
+        }
+        exoPlayer.addListener(listener)
+        
+        player = exoPlayer
+        
+        onDispose {
+            if (BuildConfig.DEBUG) Log.d("Andromuks", "InlineVideoPlayer: Releasing player for $videoId")
+            exoPlayer.removeListener(listener)
+            exoPlayer.stop()
+            exoPlayer.release()
+            InlineVideoPlayerManager.clearCurrentVideo(videoId)
+            player = null
+        }
+    }
+    
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .aspectRatio(aspectRatio)
+            .scale(1.02f)
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = {
+                        // Toggle play/pause on tap
+                        player?.let { p ->
+                            if (p.isPlaying) {
+                                p.pause()
+                            } else {
+                                p.play()
+                                InlineVideoPlayerManager.setCurrentVideo(videoId, p)
+                            }
+                            showControls = true
+                            controlsVisible = true
+                        }
+                    }
+                )
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        // ExoPlayer view
+        player?.let { p ->
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        this.player = p
+                        useController = false // We'll use custom controls
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                update = { view ->
+                    view.player = p
+                }
+            )
+        }
+        
+        // Controls overlay
+        AnimatedVisibility(
+            visible = controlsVisible,
+            enter = fadeIn(),
+            exit = fadeOut()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .pointerInput(Unit) {
+                        detectTapGestures(
+                            onTap = {
+                                // Show controls on tap
+                                showControls = true
+                                controlsVisible = true
+                            }
+                        )
+                    }
+            ) {
+                // Play/Pause button (center)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = {
+                                    player?.let { p ->
+                                        if (p.isPlaying) {
+                                            p.pause()
+                                        } else {
+                                            p.play()
+                                            InlineVideoPlayerManager.setCurrentVideo(videoId, p)
+                                        }
+                                        showControls = true
+                                        controlsVisible = true
+                                    }
+                                }
+                            )
+                        }
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = 0.6f),
+                        modifier = Modifier.size(56.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                player?.let { p ->
+                                    if (p.isPlaying) {
+                                        p.pause()
+                                    } else {
+                                        p.play()
+                                        InlineVideoPlayerManager.setCurrentVideo(videoId, p)
+                                    }
+                                    showControls = true
+                                    controlsVisible = true
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+                    }
+                }
+                
+                // Fullscreen button (top-right)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = Color.Black.copy(alpha = 0.6f),
+                        modifier = Modifier.size(40.dp)
+                    ) {
+                        IconButton(
+                            onClick = {
+                                player?.let { p ->
+                                    onFullscreenClick(p.currentPosition, p.isPlaying)
+                                } ?: run {
+                                    onFullscreenClick(0L, false)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Fullscreen,
+                                contentDescription = "Fullscreen",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
 /**
  * Audio player component for m.audio messages with Material 3 design.
@@ -2144,6 +2522,8 @@ fun VideoPlayerDialog(
     homeserverUrl: String,
     authToken: String,
     isEncrypted: Boolean,
+    initialPosition: Long = 0L,
+    shouldAutoPlay: Boolean = false,
     onDismiss: () -> Unit
 ) {
     // Video player container
@@ -2256,6 +2636,10 @@ fun VideoPlayerDialog(
                     // Store reference to the actual player FIRST
                     actualPlayer = player
                     
+                    // Track if we've already performed the initial seek and resume
+                    var hasSeekedToInitialPosition = false
+                    val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                    
                     // Listen to player state changes
                     val listener = object : androidx.media3.common.Player.Listener {
                         override fun onIsPlayingChanged(isPlayingValue: Boolean) {
@@ -2265,6 +2649,25 @@ fun VideoPlayerDialog(
                             playbackState = state
                             if (state == androidx.media3.common.Player.STATE_READY) {
                                 duration = player.duration
+                                // Seek to initial position when ready (if provided and not already seeked)
+                                if (initialPosition > 0L && !hasSeekedToInitialPosition) {
+                                    hasSeekedToInitialPosition = true
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Seeking to position $initialPosition, shouldAutoPlay=$shouldAutoPlay")
+                                    // Set playWhenReady BEFORE seeking, so playback resumes automatically after seek completes
+                                    if (shouldAutoPlay) {
+                                        player.playWhenReady = true
+                                    }
+                                    player.seekTo(initialPosition)
+                                    // Also explicitly call play() to ensure playback starts
+                                    if (shouldAutoPlay) {
+                                        handler.postDelayed({
+                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Ensuring playback after seek, currentPosition=${player.currentPosition}, state=${player.playbackState}, isPlaying=${player.isPlaying}")
+                                            if (!player.isPlaying && player.playbackState == androidx.media3.common.Player.STATE_READY) {
+                                                player.play()
+                                            }
+                                        }, 200)
+                                    }
+                                }
                             }
                         }
                         override fun onPositionDiscontinuity(
@@ -2273,6 +2676,18 @@ fun VideoPlayerDialog(
                             reason: Int
                         ) {
                             currentPosition = player.currentPosition
+                            // If we just seeked and should be playing, ensure playback resumes
+                            if (reason == androidx.media3.common.Player.DISCONTINUITY_REASON_SEEK && 
+                                shouldAutoPlay && 
+                                hasSeekedToInitialPosition &&
+                                !player.isPlaying &&
+                                player.playbackState == androidx.media3.common.Player.STATE_READY) {
+                                handler.post {
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Resuming playback after seek discontinuity, position=${player.currentPosition}")
+                                    player.playWhenReady = true
+                                    player.play()
+                                }
+                            }
                         }
                     }
                     player.addListener(listener)
@@ -2284,11 +2699,21 @@ fun VideoPlayerDialog(
                         // Set media item and prepare AFTER player is attached to view
                         // Only proceed if we have a valid video URL
                         if (videoHttpUrl.isNotEmpty()) {
-                            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Setting up video: $videoHttpUrl")
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Setting up video: $videoHttpUrl, initialPosition=$initialPosition, shouldAutoPlay=$shouldAutoPlay")
                                 val mediaItem = androidx.media3.common.MediaItem.fromUri(videoHttpUrl)
                             player.setMediaItem(mediaItem)
                             player.prepare()
-                            player.playWhenReady = true
+                            // Set playWhenReady based on shouldAutoPlay
+                            // If we need to seek, we'll set playWhenReady=true in the listener before seeking
+                            // so playback resumes automatically after seek completes
+                            if (initialPosition == 0L) {
+                                // No seek needed, just set playWhenReady
+                                player.playWhenReady = shouldAutoPlay
+                            } else {
+                                // We'll set playWhenReady=true in the listener before seeking
+                                // For now, set it to false to prevent premature playback
+                                player.playWhenReady = false
+                            }
                         } else {
                             if (BuildConfig.DEBUG) Log.e("Andromuks", "VideoPlayerDialog: Empty video URL!")
                         }
