@@ -27,7 +27,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -40,6 +42,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.core.animateFloatAsState
@@ -115,13 +119,21 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.runtime.DisposableEffect
 import android.app.DownloadManager
 import android.content.Context
 import android.content.ContentValues
+import android.content.res.ColorStateList
+import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import android.widget.ImageButton
+import android.widget.TextView
+import android.view.ViewGroup
 import java.io.ByteArrayOutputStream
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -2020,6 +2032,97 @@ private fun ImageViewerDialog(
 }
 
 /**
+ * Save video to device gallery using MediaStore
+ */
+private suspend fun saveVideoToGallery(
+    context: Context,
+    videoUrl: String,
+    filename: String?,
+    mimeType: String,
+    authToken: String
+) = withContext(Dispatchers.IO) {
+    try {
+        // Determine filename and extension from MIME type
+        val extension = when {
+            mimeType.contains("webm") -> "webm"
+            mimeType.contains("quicktime") || mimeType.contains("mov") -> "mov"
+            mimeType.contains("avi") -> "avi"
+            mimeType.contains("mkv") -> "mkv"
+            else -> "mp4" // Default to mp4
+        }
+        
+        val displayName = filename?.takeIf { it.isNotBlank() } 
+            ?: "video_${System.currentTimeMillis()}.$extension"
+        val finalFilename = if (!displayName.contains(".")) {
+            "$displayName.$extension"
+        } else {
+            displayName
+        }
+        
+        // Download video using OkHttp
+        val client = OkHttpClient()
+        val request = Request.Builder()
+            .url(videoUrl)
+            .addHeader("Cookie", "gomuks_auth=$authToken")
+            .build()
+        
+        val response = client.newCall(request).execute()
+        if (!response.isSuccessful) {
+            throw Exception("Failed to download video: ${response.code}")
+        }
+        
+        // Save to MediaStore
+        val contentValues = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, finalFilename)
+            put(MediaStore.Video.Media.MIME_TYPE, mimeType)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/Andromuks")
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+            }
+        }
+        
+        val uri = context.contentResolver.insert(
+            MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
+            contentValues
+        ) ?: throw Exception("Failed to create MediaStore entry")
+        
+        // Write video data
+        context.contentResolver.openOutputStream(uri)?.use { output ->
+            response.body?.byteStream()?.use { input ->
+                input.copyTo(output)
+            }
+        }
+        
+        // Mark as not pending (Android Q+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            contentValues.clear()
+            contentValues.put(MediaStore.Video.Media.IS_PENDING, 0)
+            context.contentResolver.update(uri, contentValues, null, null)
+        }
+        
+        // Show success toast
+        withContext(Dispatchers.Main) {
+            android.widget.Toast.makeText(
+                context,
+                "Video saved to gallery",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+        
+        if (BuildConfig.DEBUG) Log.d("Andromuks", "Video saved to gallery: $finalFilename")
+    } catch (e: Exception) {
+        Log.e("Andromuks", "Failed to save video to gallery", e)
+        withContext(Dispatchers.Main) {
+            android.widget.Toast.makeText(
+                context,
+                "Failed to save video: ${e.message}",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+}
+
+/**
  * Fullscreen video player dialog with ExoPlayer.
  * 
  * This dialog provides a fullscreen video playback experience with:
@@ -2058,6 +2161,23 @@ fun VideoPlayerDialog(
     // Track the actual ExoPlayer instance that's playing
     var actualPlayer by remember { mutableStateOf<androidx.media3.exoplayer.ExoPlayer?>(null) }
     
+    // Track player state for progress bar
+    var currentPosition by remember { mutableLongStateOf(0L) }
+    var duration by remember { mutableLongStateOf(0L) }
+    var isPlaying by remember { mutableStateOf(false) }
+    
+    val coroutineScope = rememberCoroutineScope()
+    
+    // Get Material 3 colors for ExoPlayer controls
+    val colorScheme = MaterialTheme.colorScheme
+    val primaryColor = colorScheme.primary
+    val primaryColorInt = AndroidColor.valueOf(
+        primaryColor.red,
+        primaryColor.green,
+        primaryColor.blue,
+        primaryColor.alpha
+    ).toArgb()
+    
     Dialog(
         onDismissRequest = {
             // Stop the actual playing player before dismissing the dialog
@@ -2090,6 +2210,7 @@ fun VideoPlayerDialog(
         ) {
             
             // Stop and dispose player when dialog is dismissed
+            // Use Unit as key so it only runs on actual dispose, not when actualPlayer changes
             androidx.compose.runtime.DisposableEffect(Unit) {
                 onDispose {
                     actualPlayer?.let { player ->
@@ -2099,9 +2220,23 @@ fun VideoPlayerDialog(
                 }
             }
             
-            // Player view
+            // Update position periodically using LaunchedEffect
+            LaunchedEffect(actualPlayer) {
+                while (actualPlayer != null) {
+                    kotlinx.coroutines.delay(100)
+                    actualPlayer?.let { player ->
+                        currentPosition = player.currentPosition
+                        if (duration == 0L && player.duration > 0) {
+                            duration = player.duration
+                        }
+                    }
+                }
+            }
+            
+            // Player view - use key to prevent recreation
             androidx.compose.ui.viewinterop.AndroidView(
                 factory = { ctx ->
+                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Creating PlayerView")
                     // Set custom request headers for authentication
                     val dataSourceFactory = androidx.media3.datasource.DefaultHttpDataSource.Factory()
                         .setDefaultRequestProperties(mapOf("Cookie" to "gomuks_auth=$authToken"))
@@ -2113,25 +2248,511 @@ fun VideoPlayerDialog(
                     val player = androidx.media3.exoplayer.ExoPlayer.Builder(ctx)
                         .setMediaSourceFactory(mediaSourceFactory)
                         .build()
-                        .apply {
-                            val mediaItem = androidx.media3.common.MediaItem.fromUri(videoHttpUrl)
-                            setMediaItem(mediaItem)
-                            prepare()
-                            playWhenReady = true
-                        }
                     
-                    // Store reference to the actual player
+                    // Store reference to the actual player FIRST
                     actualPlayer = player
                     
+                    // Listen to player state changes
+                    val listener = object : androidx.media3.common.Player.Listener {
+                        override fun onIsPlayingChanged(isPlayingValue: Boolean) {
+                            isPlaying = isPlayingValue
+                        }
+                        override fun onPlaybackStateChanged(state: Int) {
+                            if (state == androidx.media3.common.Player.STATE_READY) {
+                                duration = player.duration
+                            }
+                        }
+                        override fun onPositionDiscontinuity(
+                            oldPosition: androidx.media3.common.Player.PositionInfo,
+                            newPosition: androidx.media3.common.Player.PositionInfo,
+                            reason: Int
+                        ) {
+                            currentPosition = player.currentPosition
+                        }
+                    }
+                    player.addListener(listener)
+                    
                     androidx.media3.ui.PlayerView(ctx).apply {
+                        // Set player FIRST before preparing media
                         this.player = player
+                        
+                        // Set media item and prepare AFTER player is attached to view
+                        // Only proceed if we have a valid video URL
+                        if (videoHttpUrl.isNotEmpty()) {
+                            if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Setting up video: $videoHttpUrl")
+                            val mediaItem = androidx.media3.common.MediaItem.fromUri(videoHttpUrl)
+                            player.setMediaItem(mediaItem)
+                            player.prepare()
+                            player.playWhenReady = true
+                        } else {
+                            if (BuildConfig.DEBUG) Log.e("Andromuks", "VideoPlayerDialog: Empty video URL!")
+                        }
                         useController = true
                         controllerShowTimeoutMs = 3000
                         controllerHideOnTouch = true
+                        // Hide fullscreen button (the X button in top right)
+                        // Note: setShowFullscreenButton might not be available in all ExoPlayer versions
+                        // We'll hide it via ViewTreeObserver instead
+                        
+                        // Hide default progress bar - we'll use Compose wavy progress bar instead
+                        val progressBar = findViewById<androidx.media3.ui.DefaultTimeBar>(
+                            androidx.media3.ui.R.id.exo_progress
+                        )
+                        progressBar?.visibility = android.view.View.GONE
+                        
+                        // Function to hide close buttons
+                        fun hideCloseButtons(v: android.view.View) {
+                            if (v is android.widget.ImageButton) {
+                                val contentDesc = v.contentDescription?.toString()?.lowercase() ?: ""
+                                val tag = v.tag?.toString()?.lowercase() ?: ""
+                                val idName = try {
+                                    v.resources.getResourceEntryName(v.id).lowercase()
+                                } catch (e: Exception) {
+                                    ""
+                                }
+                                // Hide if it's a close/fullscreen button or if it's in the top-right corner
+                                val isTopRight = try {
+                                    val location = IntArray(2)
+                                    v.getLocationOnScreen(location)
+                                    val screenWidth = v.resources.displayMetrics.widthPixels
+                                    location[0] > screenWidth * 0.7f && location[1] < screenWidth * 0.2f
+                                } catch (e: Exception) {
+                                    false
+                                }
+                                if (contentDesc.contains("close") || contentDesc.contains("fullscreen") || 
+                                    tag.contains("close") || tag.contains("fullscreen") ||
+                                    idName.contains("close") || idName.contains("fullscreen") ||
+                                    isTopRight) {
+                                    v.visibility = android.view.View.GONE
+                                }
+                            }
+                            if (v is android.view.ViewGroup) {
+                                for (i in 0 until v.childCount) {
+                                    hideCloseButtons(v.getChildAt(i))
+                                }
+                            }
+                        }
+                        
+                        // Use ViewTreeObserver to continuously monitor and hide fullscreen/close button
+                        val observer = viewTreeObserver
+                        val layoutListener = object : android.view.ViewTreeObserver.OnGlobalLayoutListener {
+                            override fun onGlobalLayout() {
+                                hideCloseButtons(this@apply)
+                                
+                                // Also check overlay specifically and hide ALL ImageButtons there
+                                val overlay = findViewById<android.view.ViewGroup>(
+                                    androidx.media3.ui.R.id.exo_overlay
+                                )
+                                overlay?.let { overlayGroup ->
+                                    for (i in 0 until overlayGroup.childCount) {
+                                        val child = overlayGroup.getChildAt(i)
+                                        if (child is android.widget.ImageButton) {
+                                            child.visibility = android.view.View.GONE
+                                        }
+                                    }
+                                }
+                                
+                                // Also try to find fullscreen button by searching the entire view hierarchy
+                                // Look for buttons in top-right corner (fullscreen button location)
+                                val rootView = rootView
+                                if (rootView != null) {
+                                    val screenWidth = resources.displayMetrics.widthPixels
+                                    val screenHeight = resources.displayMetrics.heightPixels
+                                    fun findAndHideTopRightButtons(v: android.view.View) {
+                                        if (v is android.widget.ImageButton && v.visibility == android.view.View.VISIBLE) {
+                                            val location = IntArray(2)
+                                            v.getLocationOnScreen(location)
+                                            // Check if button is in top-right area (last 20% width, first 15% height)
+                                            if (location[0] > screenWidth * 0.8f && location[1] < screenHeight * 0.15f) {
+                                                v.visibility = android.view.View.GONE
+                                                if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Hid top-right button at (${location[0]}, ${location[1]})")
+                                            }
+                                        }
+                                        if (v is android.view.ViewGroup) {
+                                            for (i in 0 until v.childCount) {
+                                                findAndHideTopRightButtons(v.getChildAt(i))
+                                            }
+                                        }
+                                    }
+                                    findAndHideTopRightButtons(rootView)
+                                }
+                            }
+                        }
+                        observer.addOnGlobalLayoutListener(layoutListener)
+                        
+                        // Post to ensure view is laid out before customizing controls
+                        post {
+                            hideCloseButtons(this)
+                        }
+                        
+                        // Use delayed post to ensure all buttons are created before theming
+                        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                            // Find and customize control views
+                            val controllerView = findViewById<ViewGroup>(
+                                androidx.media3.ui.R.id.exo_controller
+                            )
+                            controllerView?.let { controller ->
+                                // Customize play/pause button
+                                val playButton = controller.findViewById<ImageButton>(
+                                    androidx.media3.ui.R.id.exo_play_pause
+                                )
+                                playButton?.let {
+                                    it.imageTintList = ColorStateList.valueOf(primaryColorInt)
+                                }
+                                
+                                // Customize previous button
+                                val prevButton = controller.findViewById<ImageButton>(
+                                    androidx.media3.ui.R.id.exo_prev
+                                )
+                                prevButton?.let {
+                                    it.imageTintList = ColorStateList.valueOf(primaryColorInt)
+                                }
+                                
+                                // Customize next button
+                                val nextButton = controller.findViewById<ImageButton>(
+                                    androidx.media3.ui.R.id.exo_next
+                                )
+                                nextButton?.let {
+                                    it.imageTintList = ColorStateList.valueOf(primaryColorInt)
+                                }
+                                
+                                // Customize rewind button (minus 5 seconds) - search more thoroughly
+                                var rewindButton = controller.findViewById<ImageButton>(
+                                    androidx.media3.ui.R.id.exo_rew
+                                )
+                                // Also try finding by traversing all children recursively
+                                if (rewindButton == null) {
+                                    fun findRewindButton(v: android.view.View): ImageButton? {
+                                        if (v is ImageButton) {
+                                            val idName = try {
+                                                v.resources.getResourceEntryName(v.id).lowercase()
+                                            } catch (e: Exception) {
+                                                ""
+                                            }
+                                            val contentDesc = v.contentDescription?.toString()?.lowercase() ?: ""
+                                            if (idName.contains("rew") || idName.contains("rewind") ||
+                                                contentDesc.contains("rewind") || contentDesc.contains("backward")) {
+                                                return v
+                                            }
+                                        }
+                                        if (v is android.view.ViewGroup) {
+                                            for (i in 0 until v.childCount) {
+                                                val found = findRewindButton(v.getChildAt(i))
+                                                if (found != null) return found
+                                            }
+                                        }
+                                        return null
+                                    }
+                                    rewindButton = findRewindButton(controller)
+                                }
+                                rewindButton?.let {
+                                    it.imageTintList = ColorStateList.valueOf(primaryColorInt)
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Themed rewind button")
+                                }
+                                
+                                // Customize fast forward button (plus 15 seconds) - search more thoroughly
+                                var fastForwardButton = controller.findViewById<ImageButton>(
+                                    androidx.media3.ui.R.id.exo_ffwd
+                                )
+                                // Also try finding by traversing all children recursively
+                                if (fastForwardButton == null) {
+                                    fun findFastForwardButton(v: android.view.View): ImageButton? {
+                                        if (v is ImageButton) {
+                                            val idName = try {
+                                                v.resources.getResourceEntryName(v.id).lowercase()
+                                            } catch (e: Exception) {
+                                                ""
+                                            }
+                                            val contentDesc = v.contentDescription?.toString()?.lowercase() ?: ""
+                                            if (idName.contains("ffwd") || idName.contains("fastforward") || idName.contains("fast_forward") ||
+                                                contentDesc.contains("fast forward") || contentDesc.contains("forward")) {
+                                                return v
+                                            }
+                                        }
+                                        if (v is android.view.ViewGroup) {
+                                            for (i in 0 until v.childCount) {
+                                                val found = findFastForwardButton(v.getChildAt(i))
+                                                if (found != null) return found
+                                            }
+                                        }
+                                        return null
+                                    }
+                                    fastForwardButton = findFastForwardButton(controller)
+                                }
+                                fastForwardButton?.let {
+                                    it.imageTintList = ColorStateList.valueOf(primaryColorInt)
+                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "VideoPlayerDialog: Themed fast forward button")
+                                }
+                                
+                                // Customize settings/overflow menu button (bottom right)
+                                val settingsButton = controller.findViewById<ImageButton>(
+                                    androidx.media3.ui.R.id.exo_settings
+                                ) ?: controller.findViewById<ImageButton>(
+                                    androidx.media3.ui.R.id.exo_overflow_show
+                                )
+                                settingsButton?.let {
+                                    it.imageTintList = ColorStateList.valueOf(primaryColorInt)
+                                }
+                                
+                                // Customize time text views
+                                val currentTime = controller.findViewById<TextView>(
+                                    androidx.media3.ui.R.id.exo_position
+                                )
+                                currentTime?.setTextColor(primaryColorInt)
+                                
+                                val totalTime = controller.findViewById<TextView>(
+                                    androidx.media3.ui.R.id.exo_duration
+                                )
+                                totalTime?.setTextColor(primaryColorInt)
+                            }
+                        }, 200)
                     }
                 },
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier.fillMaxSize(),
+                update = { view ->
+                    // Update colors when theme changes
+                    val primaryColorInt = AndroidColor.valueOf(
+                        primaryColor.red,
+                        primaryColor.green,
+                        primaryColor.blue,
+                        primaryColor.alpha
+                    ).toArgb()
+                    
+                    view.post {
+                        // Search recursively for any close/fullscreen buttons and hide them
+                        fun hideCloseButtons(v: android.view.View) {
+                            if (v is android.widget.ImageButton) {
+                                val contentDesc = v.contentDescription?.toString()?.lowercase() ?: ""
+                                val tag = v.tag?.toString()?.lowercase() ?: ""
+                                val idName = try {
+                                    v.resources.getResourceEntryName(v.id).lowercase()
+                                } catch (e: Exception) {
+                                    ""
+                                }
+                                if (contentDesc.contains("close") || contentDesc.contains("fullscreen") || 
+                                    tag.contains("close") || tag.contains("fullscreen") ||
+                                    idName.contains("close") || idName.contains("fullscreen")) {
+                                    v.visibility = android.view.View.GONE
+                                }
+                            }
+                            if (v is android.view.ViewGroup) {
+                                for (i in 0 until v.childCount) {
+                                    hideCloseButtons(v.getChildAt(i))
+                                }
+                            }
+                        }
+                        hideCloseButtons(view)
+                        
+                        // Hide any overlay buttons (like fullscreen/close) that might appear
+                        val overlay = view.findViewById<android.view.ViewGroup>(
+                            androidx.media3.ui.R.id.exo_overlay
+                        )
+                        overlay?.let { overlayGroup ->
+                            for (i in 0 until overlayGroup.childCount) {
+                                val child = overlayGroup.getChildAt(i)
+                                if (child is android.widget.ImageButton) {
+                                    child.visibility = android.view.View.GONE
+                                }
+                            }
+                        }
+                        
+                        val controllerView = view.findViewById<ViewGroup>(
+                            androidx.media3.ui.R.id.exo_controller
+                        )
+                        controllerView?.let { controller ->
+                            val playButton = controller.findViewById<ImageButton>(
+                                androidx.media3.ui.R.id.exo_play_pause
+                            )
+                            playButton?.imageTintList = ColorStateList.valueOf(primaryColorInt)
+                            
+                            val prevButton = controller.findViewById<ImageButton>(
+                                androidx.media3.ui.R.id.exo_prev
+                            )
+                            prevButton?.imageTintList = ColorStateList.valueOf(primaryColorInt)
+                            
+                            val nextButton = controller.findViewById<ImageButton>(
+                                androidx.media3.ui.R.id.exo_next
+                            )
+                            nextButton?.imageTintList = ColorStateList.valueOf(primaryColorInt)
+                            
+                            // Customize rewind button (minus 5 seconds) - search more thoroughly
+                            var rewindButton = controller.findViewById<ImageButton>(
+                                androidx.media3.ui.R.id.exo_rew
+                            )
+                            // Also try finding by traversing all children recursively
+                            if (rewindButton == null) {
+                                fun findRewindButton(v: android.view.View): ImageButton? {
+                                    if (v is ImageButton) {
+                                        val idName = try {
+                                            v.resources.getResourceEntryName(v.id).lowercase()
+                                        } catch (e: Exception) {
+                                            ""
+                                        }
+                                        val contentDesc = v.contentDescription?.toString()?.lowercase() ?: ""
+                                        if (idName.contains("rew") || idName.contains("rewind") ||
+                                            contentDesc.contains("rewind") || contentDesc.contains("backward")) {
+                                            return v
+                                        }
+                                    }
+                                    if (v is android.view.ViewGroup) {
+                                        for (i in 0 until v.childCount) {
+                                            val found = findRewindButton(v.getChildAt(i))
+                                            if (found != null) return found
+                                        }
+                                    }
+                                    return null
+                                }
+                                rewindButton = findRewindButton(controller)
+                            }
+                            rewindButton?.imageTintList = ColorStateList.valueOf(primaryColorInt)
+                            
+                            // Customize fast forward button (plus 15 seconds) - search more thoroughly
+                            var fastForwardButton = controller.findViewById<ImageButton>(
+                                androidx.media3.ui.R.id.exo_ffwd
+                            )
+                            // Also try finding by traversing all children recursively
+                            if (fastForwardButton == null) {
+                                fun findFastForwardButton(v: android.view.View): ImageButton? {
+                                    if (v is ImageButton) {
+                                        val idName = try {
+                                            v.resources.getResourceEntryName(v.id).lowercase()
+                                        } catch (e: Exception) {
+                                            ""
+                                        }
+                                        val contentDesc = v.contentDescription?.toString()?.lowercase() ?: ""
+                                        if (idName.contains("ffwd") || idName.contains("fastforward") || idName.contains("fast_forward") ||
+                                            contentDesc.contains("fast forward") || contentDesc.contains("forward")) {
+                                            return v
+                                        }
+                                    }
+                                    if (v is android.view.ViewGroup) {
+                                        for (i in 0 until v.childCount) {
+                                            val found = findFastForwardButton(v.getChildAt(i))
+                                            if (found != null) return found
+                                        }
+                                    }
+                                    return null
+                                }
+                                fastForwardButton = findFastForwardButton(controller)
+                            }
+                            fastForwardButton?.imageTintList = ColorStateList.valueOf(primaryColorInt)
+                            
+                            // Customize settings/overflow menu button (bottom right)
+                            val settingsButton = controller.findViewById<ImageButton>(
+                                androidx.media3.ui.R.id.exo_settings
+                            ) ?: controller.findViewById<ImageButton>(
+                                androidx.media3.ui.R.id.exo_overflow_show
+                            )
+                            settingsButton?.let {
+                                it.imageTintList = ColorStateList.valueOf(primaryColorInt)
+                            }
+                            
+                            val currentTime = controller.findViewById<TextView>(
+                                androidx.media3.ui.R.id.exo_position
+                            )
+                            currentTime?.setTextColor(primaryColorInt)
+                            
+                            val totalTime = controller.findViewById<TextView>(
+                                androidx.media3.ui.R.id.exo_duration
+                            )
+                            totalTime?.setTextColor(primaryColorInt)
+                        }
+                    }
+                }
             )
+            
+            // Wavy progress bar overlay at bottom
+            val progressState = remember {
+                mutableFloatStateOf(0f)
+            }
+            
+            // Update progress state
+            LaunchedEffect(currentPosition, duration) {
+                progressState.floatValue = if (duration > 0) {
+                    (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+            }
+            
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.navigationBars)
+                    .padding(bottom = 8.dp)
+            ) {
+                @OptIn(ExperimentalMaterial3ExpressiveApi::class)
+                LinearWavyProgressIndicator(
+                    progress = { progressState.floatValue },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .padding(horizontal = 16.dp),
+                    color = primaryColor,
+                    trackColor = primaryColor.copy(alpha = 0.3f)
+                )
+            }
+            
+            // Top toolbar with action buttons
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .windowInsetsPadding(WindowInsets.statusBars)
+                    .padding(horizontal = 8.dp)
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                // Save button
+                IconButton(
+                    onClick = {
+                        coroutineScope.launch {
+                            saveVideoToGallery(
+                                context, 
+                                videoHttpUrl, 
+                                mediaMessage.filename, 
+                                mediaMessage.info.mimeType ?: "video/mp4",
+                                authToken
+                            )
+                        }
+                    },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Save,
+                        contentDescription = "Save to Gallery",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                
+                // Close button
+                IconButton(
+                    onClick = {
+                        // Stop the actual playing player before dismissing
+                        actualPlayer?.let { player ->
+                            player.stop()
+                            player.release()
+                        }
+                        onDismiss()
+                    },
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                    ),
+                    modifier = Modifier.size(48.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Close",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
             
             // Close button overlay (top-right corner)
             IconButton(
