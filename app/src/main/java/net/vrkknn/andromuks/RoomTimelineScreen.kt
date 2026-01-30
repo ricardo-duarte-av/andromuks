@@ -2368,9 +2368,14 @@ fun RoomTimelineScreen(
                                                 
                                                 if (existingRoom != null) {
                                                     // Already joined, navigate directly
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Already joined, navigating to ${roomLink.roomIdOrAlias}")
-                                                    val encodedRoomId = java.net.URLEncoder.encode(roomLink.roomIdOrAlias, "UTF-8")
-                                                    navController.navigate("room_timeline/$encodedRoomId")
+                                                    val targetRoomId = roomLink.roomIdOrAlias
+                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Already joined, navigating to $targetRoomId")
+                                                    // CRITICAL: When navigating from one room_timeline to another, use setDirectRoomNavigation
+                                                    // and navigate via room_list, letting RoomListScreen handle the final navigation.
+                                                    // This matches the pattern used by notifications/shortcuts and ensures proper state management.
+                                                    appViewModel.setCurrentRoomIdForTimeline(targetRoomId)
+                                                    appViewModel.setDirectRoomNavigation(targetRoomId)
+                                                    navController.navigate("room_list")
                                                 } else {
                                                     // For aliases or non-joined rooms, show room joiner
                                                     if (BuildConfig.DEBUG) Log.d("Andromuks", "RoomTimelineScreen: Not joined, showing room joiner")

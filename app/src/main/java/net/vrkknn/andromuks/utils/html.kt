@@ -1735,13 +1735,38 @@ fun HtmlMessageText(
                                             }
                                             url.startsWith("https://matrix.to/#/") -> {
                                                 val encodedPart = url.removePrefix("https://matrix.to/#/")
-                                                val userId = runCatching { URLDecoder.decode(encodedPart, Charsets.UTF_8.name()) }
+                                                val decoded = runCatching { URLDecoder.decode(encodedPart, Charsets.UTF_8.name()) }
                                                     .getOrDefault(encodedPart)
-                                                if (userId.startsWith("@")) {
-                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: matrix.to link tapped for $userId")
-                                                    onMatrixUserClick(userId)
+                                                if (decoded.startsWith("@")) {
+                                                    // User link
+                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: matrix.to link tapped for $decoded")
+                                                    onMatrixUserClick(decoded)
                                                 } else {
-                                                    // Fallback to opening in browser for non-user matrix.to links
+                                                    // Check if it's a room link (starts with ! or #)
+                                                    val roomLink = extractRoomLink(url)
+                                                    if (roomLink != null) {
+                                                        if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: matrix.to room link tapped for ${roomLink.roomIdOrAlias}")
+                                                        onRoomLinkClick(roomLink)
+                                                    } else {
+                                                        // Fallback to opening in browser for unrecognized matrix.to links
+                                                        try {
+                                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                                                            context.startActivity(intent)
+                                                            if (BuildConfig.DEBUG) Log.d("Andromuks", "Opening URL: $url")
+                                                        } catch (e: Exception) {
+                                                            Log.e("Andromuks", "Failed to open URL: $url", e)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            url.startsWith("matrix:roomid/") || url.startsWith("matrix:/roomid/") || url.startsWith("matrix:r/") || url.startsWith("matrix:/r/") -> {
+                                                // Matrix room link in matrix: URI format
+                                                val roomLink = extractRoomLink(url)
+                                                if (roomLink != null) {
+                                                    if (BuildConfig.DEBUG) Log.d("Andromuks", "HtmlMessageText: matrix: room link tapped for ${roomLink.roomIdOrAlias}")
+                                                    onRoomLinkClick(roomLink)
+                                                } else {
+                                                    // Fallback to opening in browser
                                                     try {
                                                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                                                         context.startActivity(intent)
