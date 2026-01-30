@@ -7823,7 +7823,23 @@ class AppViewModel : ViewModel() {
             return
         }
 
-        // Reactions are derived from in-memory events only.
+        // CRITICAL FIX: Process reaction events from cache to restore reactions when reopening a room
+        // Reaction events are stored separately in the cache (filtered from timeline events)
+        val reactionEvents = RoomTimelineCache.getCachedReactionEvents(roomId)
+        if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: loadReactionsForRoom($roomId) - found ${reactionEvents.size} cached reaction events")
+        if (reactionEvents.isNotEmpty()) {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Processing ${reactionEvents.size} reaction events from cache for room $roomId")
+            var processedCount = 0
+            for (reactionEvent in reactionEvents) {
+                // Process each reaction event to rebuild messageReactions
+                if (processReactionFromTimeline(reactionEvent)) {
+                    processedCount++
+                }
+            }
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Restored reactions from ${processedCount}/${reactionEvents.size} cached reaction events for room $roomId")
+        } else {
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No cached reaction events found for room $roomId")
+        }
     }
 
     private fun applyAggregatedReactionsFromEvents(events: List<TimelineEvent>, source: String) {
@@ -7889,8 +7905,35 @@ class AppViewModel : ViewModel() {
 
         for ((eventId, reactions) in aggregatedByEvent) {
             val existing = updated[eventId]
+            // CRITICAL FIX: Merge aggregated reactions with existing reactions instead of only setting if empty
+            // This ensures reactions from paginate (aggregated) are combined with reactions from sync_complete (individual events)
             if (existing == null || existing.isEmpty()) {
+                // No existing reactions - use aggregated reactions directly
                 updated[eventId] = reactions
+                changed = true
+            } else {
+                // Merge aggregated reactions with existing reactions
+                // Create a map of emoji -> count from aggregated reactions
+                val aggregatedMap = reactions.associate { it.emoji to it.count }
+                val mergedReactions = existing.map { existingReaction ->
+                    val aggregatedCount = aggregatedMap[existingReaction.emoji] ?: existingReaction.count
+                    // Use the larger count (aggregated reactions from paginate are authoritative for counts)
+                    if (aggregatedCount > existingReaction.count) {
+                        existingReaction.copy(count = aggregatedCount)
+                    } else {
+                        existingReaction
+                    }
+                }.toMutableList()
+                
+                // Add any reactions from aggregated that don't exist in current
+                val existingEmojis = existing.map { it.emoji }.toSet()
+                reactions.forEach { aggregatedReaction ->
+                    if (aggregatedReaction.emoji !in existingEmojis) {
+                        mergedReactions.add(aggregatedReaction)
+                    }
+                }
+                
+                updated[eventId] = mergedReactions
                 changed = true
             }
         }
@@ -8450,10 +8493,15 @@ class AppViewModel : ViewModel() {
                 // This ensures reactions are visible when opening a room from cache (they're stored globally, not per-room)
                 populateMessageReactionsFromCache()
                 
-                // CRITICAL FIX: Also extract reactions from events' aggregatedReactions field
-                // This handles reactions that are embedded in events (from paginate/sync_complete)
-                loadReactionsForRoom(roomId, cachedEvents)
+                // CRITICAL FIX: Apply aggregated reactions FIRST (from paginate - these have complete counts)
+                // Then process individual reaction events to add any new ones from sync_complete
+                // This ensures we have the full picture: aggregated reactions from paginate + new reactions from sync_complete
                 applyAggregatedReactionsFromEvents(cachedEvents, "navigateToRoomWithCache")
+                
+                // CRITICAL FIX: Process reaction events from cache AFTER aggregated reactions
+                // This adds any new reactions from sync_complete that aren't in the aggregated reactions
+                // Reaction events from sync_complete are stored separately in the cache
+                loadReactionsForRoom(roomId, cachedEvents, forceReload = true)
                 
                 // CRITICAL FIX: Restore receipts from singleton cache when opening from cache
                 // This ensures receipts are visible when opening a room from cache (they're stored globally, not per-room)
@@ -12113,6 +12161,10 @@ class AppViewModel : ViewModel() {
                 
                 // OPTIMIZED: UI update will be triggered by buildTimelineFromChain() at the end of processSyncEventsArray
             } else if (event.type == "m.reaction") {
+                // CRITICAL FIX: Add reaction events to cache so they can be restored when reopening room
+                // Reaction events are processed in-memory AND cached for persistence
+                RoomTimelineCache.mergePaginatedEvents(roomId, listOf(event))
+                
                 // Process reaction events (don't add to timeline)
                 val content = event.content
                 if (content != null) {

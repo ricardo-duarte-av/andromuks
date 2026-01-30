@@ -70,6 +70,8 @@ object RoomTimelineCache {
         val eventIds: MutableSet<String> = mutableSetOf(),
         // Store redaction events separately (they're filtered from main events list)
         val redactionEvents: MutableList<TimelineEvent> = mutableListOf(),
+        // Store reaction events separately (they're filtered from main events list but needed to restore reactions)
+        val reactionEvents: MutableList<TimelineEvent> = mutableListOf(),
         var lastAccessedAt: Long = System.currentTimeMillis(),
         // Processed timeline state (event chains, edits, and redactions) for quick room switching
         val processedState: ProcessedTimelineState = ProcessedTimelineState()
@@ -242,11 +244,44 @@ object RoomTimelineCache {
                         }
                     }
                 }
+            } else if (event.type == "m.reaction") {
+                // Store reaction events separately (they're filtered from main events list but needed to restore reactions)
+                if (cache.reactionEvents.none { it.eventId == event.eventId }) {
+                    cache.reactionEvents.add(event)
+                    addedCount++
+                    if (BuildConfig.DEBUG) {
+                        val relatesTo = event.content?.optJSONObject("m.relates_to")
+                        val relatesToEventId = relatesTo?.optString("event_id")
+                        val emoji = relatesTo?.optString("key")
+                        Log.d(TAG, "RoomTimelineCache: Cached reaction event: ${event.eventId} relatesTo=$relatesToEventId emoji=$emoji (room=$roomId, totalReactions=${cache.reactionEvents.size})")
+                    }
+                } else {
+                    if (BuildConfig.DEBUG) {
+                        Log.d(TAG, "RoomTimelineCache: Reaction event ${event.eventId} already in cache, skipping duplicate")
+                    }
+                }
             } else {
                 // Regular events
                 if (cache.eventIds.add(event.eventId)) {
+                    // New event - add it
                     cache.events.add(event)
                     addedCount++
+                } else {
+                    // Event already exists - merge aggregatedReactions if present
+                    // This handles sync_complete updates where events come with updated reaction aggregations
+                    val existingEventIndex = cache.events.indexOfFirst { it.eventId == event.eventId }
+                    if (existingEventIndex >= 0) {
+                        val existingEvent = cache.events[existingEventIndex]
+                        // If incoming event has aggregatedReactions, update the existing event
+                        if (event.aggregatedReactions != null) {
+                            // Create updated event with new aggregatedReactions
+                            val updatedEvent = existingEvent.copy(aggregatedReactions = event.aggregatedReactions)
+                            cache.events[existingEventIndex] = updatedEvent
+                            if (BuildConfig.DEBUG) {
+                                Log.d(TAG, "RoomTimelineCache: Updated aggregatedReactions for existing event ${event.eventId} in room $roomId")
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -607,6 +642,7 @@ object RoomTimelineCache {
                 return 0
             }
             
+            val reactionEventsCount = newEvents.count { it.type == "m.reaction" }
             val minRowId = newEvents.mapNotNull { it.timelineRowid.takeIf { row -> row > 0 } }.minOrNull()
             val maxRowId = newEvents.mapNotNull { it.timelineRowid.takeIf { row -> row > 0 } }.maxOrNull()
             val minRowDisplay = minRowId?.toString() ?: "n/a"
@@ -614,13 +650,19 @@ object RoomTimelineCache {
             
             val cacheBefore = getCachedEventCount(roomId)
             val oldestRowIdBefore = getOldestCachedEventRowId(roomId)
+            val cache = roomEventsCache[roomId]
+            val reactionEventsBefore = cache?.reactionEvents?.size ?: 0
 
             if (BuildConfig.DEBUG) Log.d(
                 TAG,
-                "Merging ${newEvents.size} events for room $roomId - rowId range: $minRowDisplay to $maxRowDisplay (cache before: $cacheBefore, oldestRowId: $oldestRowIdBefore)"
+                "Merging ${newEvents.size} events for room $roomId (${reactionEventsCount} reactions) - rowId range: $minRowDisplay to $maxRowDisplay (cache before: $cacheBefore events, $reactionEventsBefore reactions, oldestRowId: $oldestRowIdBefore)"
             )
             
             val added = addEventsToCache(roomId, newEvents)
+            val reactionEventsAfter = roomEventsCache[roomId]?.reactionEvents?.size ?: 0
+            if (BuildConfig.DEBUG && reactionEventsCount > 0) {
+                Log.d(TAG, "After merge: room $roomId now has $reactionEventsAfter reaction events (added ${reactionEventsAfter - reactionEventsBefore} reactions)")
+            }
             val cacheAfter = getCachedEventCount(roomId)
             val oldestRowIdAfter = getOldestCachedEventRowId(roomId)
             
@@ -783,6 +825,17 @@ object RoomTimelineCache {
                 val redactionEventId = cache.processedState.redactionMapping[originalEventId]
                 redactionEventId?.let { cache.processedState.redactionEventsMap[it] }
             }
+        }
+    }
+    
+    /**
+     * Get all cached reaction events for a room
+     * Used to restore reactions when reopening a room
+     */
+    fun getCachedReactionEvents(roomId: String): List<TimelineEvent> {
+        synchronized(cacheLock) {
+            val cache = roomEventsCache[roomId] ?: return emptyList()
+            return cache.reactionEvents.toList()
         }
     }
     
@@ -953,13 +1006,16 @@ object RoomTimelineCache {
                             event.content?.optString("membership") == "leave"
                 
                 // Filtering logic:
-                // 1. Always filter out reactions (they're aggregated, not shown as timeline events)
+                // 1. Store reaction events separately (they're filtered from timeline but needed to restore reactions)
                 // 2. Filter out member state events (timelineRowid < 0) UNLESS they're kicks
                 // 3. Store redaction events separately (they're needed to show deleted messages)
                 // 4. Allow all other allowed event types regardless of timelineRowid
                 //    (timelineRowid can be negative for many valid timeline events, including messages)
                 val shouldCache = when {
-                    event.type == "m.reaction" -> false
+                    event.type == "m.reaction" -> {
+                        // Store reaction events separately - they're needed to restore reactions when reopening a room
+                        true // Will be handled separately in addEventsToCache
+                    }
                     event.type == "m.room.member" && event.timelineRowid < 0 && !isKick -> false
                     event.type == "m.room.redaction" -> {
                         // Store redaction events separately - they're needed to show deleted messages
