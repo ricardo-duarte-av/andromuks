@@ -1676,7 +1676,7 @@ fun BubbleTimelineScreen(
         RoomTimelineCache.addOpenedRoom(roomId)
         
         val requireInitComplete = !appViewModel.isWebSocketConnected()
-        val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete)
+        val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete, roomId = roomId)
         readinessCheckComplete = true
         if (!readinessResult && BuildConfig.DEBUG) {
             Log.w("Andromuks", "BubbleTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data")

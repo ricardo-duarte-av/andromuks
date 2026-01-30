@@ -224,7 +224,8 @@ class AppViewModel : ViewModel() {
     suspend fun awaitRoomDataReadiness(
         timeoutMs: Long = 15_000L,
         pollDelayMs: Long = 100L,
-        requireInitComplete: Boolean = false
+        requireInitComplete: Boolean = false,
+        roomId: String? = null
     ): Boolean {
         return withTimeoutOrNull(timeoutMs) {
             while (true) {
@@ -236,7 +237,21 @@ class AppViewModel : ViewModel() {
                 val syncReady = initialSyncComplete
                 val initReady = !requireInitComplete || initializationComplete
                 
-                if (pendingReady && syncReady && initReady) {
+                // CRITICAL FIX: Also wait for timeline to finish loading if we're loading a specific room
+                // This prevents the timeline from showing a spinner indefinitely when opened during sync processing
+                val timelineReady = if (roomId != null && currentRoomId == roomId) {
+                    // If we're loading this specific room, wait for loading to complete
+                    // Timeline is ready if:
+                    // 1. We're not loading (!isTimelineLoading) - either loaded or not started
+                    // 2. OR we have events (timelineEvents.isNotEmpty()) - data is available even if still loading
+                    // This ensures we don't wait forever if loading fails or is slow
+                    !isTimelineLoading || timelineEvents.isNotEmpty()
+                } else {
+                    // Not loading a specific room, or room doesn't match - don't wait for timeline
+                    true
+                }
+                
+                if (pendingReady && syncReady && initReady && timelineReady) {
                     break
                 }
                 delay(pollDelayMs)
@@ -955,8 +970,7 @@ class AppViewModel : ViewModel() {
     private val pendingOperationsLock = Any() // Lock for synchronizing access to pendingWebSocketOperations
     private val maxRetryAttempts = 3
     
-    // QUEUE FLUSHING: Track if queue is being flushed to prevent out-of-order messages
-    private var isFlushingQueue = false
+    // Track last reconnection time for stabilization period
     private var lastReconnectionTime = 0L
     
     // INFINITE LOOP FIX: Track restart state to prevent rapid-fire restarts
@@ -6813,13 +6827,13 @@ class AppViewModel : ViewModel() {
     }
     
     /**
-     * QUEUE FLUSHING FIX: Flush pending queue after reconnection with stabilization delay
-     * Waits for init_complete, then adds stabilization delay before flushing to prevent triple-sending
+     * Retry pending unacknowledged operations after reconnection with stabilization delay
+     * Webmuks handles out-of-order messages, so we can retry in background without blocking new commands
      */
     private fun flushPendingQueueAfterReconnection() {
         val pendingSize = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
         if (pendingSize == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending operations to flush after reconnection")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: No pending operations to retry after reconnection")
             return
         }
         
@@ -6827,34 +6841,26 @@ class AppViewModel : ViewModel() {
             pendingWebSocketOperations.count { !it.acknowledged }
         }
         if (unacknowledgedCount == 0) {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: All pending operations already acknowledged, no flush needed")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: All pending operations already acknowledged, no retry needed")
             return
         }
         
-        android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Scheduling flush of $unacknowledgedCount unacknowledged operations after stabilization delay")
+        android.util.Log.i("Andromuks", "AppViewModel: Scheduling retry of $unacknowledgedCount unacknowledged operations after stabilization delay")
         lastReconnectionTime = System.currentTimeMillis()
         
         viewModelScope.launch {
-            // QUEUE FLUSHING FIX: Wait 2 seconds after init_complete for backend to stabilize
-            // This prevents triple-sending messages
+            // Wait 2 seconds after init_complete for backend to stabilize before retrying
+            // This prevents overwhelming the backend immediately after reconnection
             delay(2000L)
             
-            // Set flag to prevent new messages from being sent while flushing
-            isFlushingQueue = true
+            android.util.Log.i("Andromuks", "AppViewModel: Starting retry of pending operations (new commands can be sent immediately)")
+            retryPendingWebSocketOperations()
             
-            try {
-                android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Starting flush of pending operations")
-                retryPendingWebSocketOperations()
-                
-                // Wait a bit more to ensure all retries are processed
-                delay(500L)
-                
-                val remaining = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
-                android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Flush complete, $remaining operations remain in queue")
-            } finally {
-                // Clear flag to allow new messages
-                isFlushingQueue = false
-            }
+            // Wait a bit more to ensure all retries are processed
+            delay(500L)
+            
+            val remaining = synchronized(pendingOperationsLock) { pendingWebSocketOperations.size }
+            android.util.Log.i("Andromuks", "AppViewModel: Retry complete, $remaining operations remain in queue")
         }
     }
     
@@ -8561,6 +8567,24 @@ class AppViewModel : ViewModel() {
             
             // OPTIMIZATION #4: Fallback to regular requestRoomTimeline if no cache
             // This happens if cache is empty or has < 10 events
+            // CRITICAL FIX: Wait for pending items to finish processing before requesting timeline
+            // This prevents race condition where timeline request is sent while sync_complete is still processing
+            // which can cause the timeline to wait indefinitely for a response
+            if (isProcessingPendingItems) {
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Waiting for pending items to finish before requesting timeline for $roomId")
+                // Wait for pending items to finish (with timeout to avoid infinite wait)
+                withTimeoutOrNull(10_000L) {
+                    while (isProcessingPendingItems) {
+                        delay(100L)
+                    }
+                }
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Pending items finished (or timeout), requesting timeline for $roomId")
+            }
+            
+            // REMOVED: Queue flush waiting - no longer needed since we removed queue blocking
+            // Commands can be sent immediately even while retries are happening
+            // Webmuks handles out-of-order messages and responses are matched by request_id
+            
             requestRoomTimeline(roomId)
         }
     }
@@ -13431,30 +13455,10 @@ class AppViewModel : ViewModel() {
             return WebSocketResult.NOT_CONNECTED
         }
         
-        // QUEUE FLUSHING FIX: If queue is being flushed, queue this message instead of sending immediately
-        // This prevents out-of-order messages
-        if (isFlushingQueue && requestId > 0) {
-            android.util.Log.i("Andromuks", "AppViewModel: QUEUE FLUSHING - Queueing command '$command' (request_id: $requestId) until flush completes")
-            val messageId = java.util.UUID.randomUUID().toString()
-            val acknowledgmentTimeout = System.currentTimeMillis() + 30000L // 30 seconds
-            
-            val operation = PendingWebSocketOperation(
-                type = "command_$command",
-                data = mapOf(
-                    "command" to command,
-                    "requestId" to requestId,
-                    "data" to data
-                ),
-                retryCount = 0,
-                messageId = messageId,
-                timestamp = System.currentTimeMillis(),
-                acknowledged = false,
-                acknowledgmentTimeout = acknowledgmentTimeout
-            )
-            
-            addPendingOperation(operation)
-            return WebSocketResult.SUCCESS // Return success since it's queued
-        }
+        // REMOVED: Queue flushing blocking behavior
+        // Webmuks can handle out-of-order messages and responses are matched by request_id
+        // There's no need to block new commands while retrying old ones
+        // New commands can be sent immediately, and responses will be processed as they arrive
         
         // PHASE 5.2: Track all commands with positive request_id for acknowledgment
         // request_id = 0 means no response expected (like typing)

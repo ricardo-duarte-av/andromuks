@@ -1736,7 +1736,7 @@ fun RoomTimelineScreen(
         appViewModel.promoteToPrimaryIfNeeded("room_timeline_$roomId")
         appViewModel.navigateToRoomWithCache(roomId)
         val requireInitComplete = !appViewModel.isWebSocketConnected()
-        val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete)
+        val readinessResult = appViewModel.awaitRoomDataReadiness(requireInitComplete = requireInitComplete, roomId = roomId)
         readinessCheckComplete = true
         if (!readinessResult && BuildConfig.DEBUG) {
             Log.w("Andromuks", "RoomTimelineScreen: Readiness timeout while opening $roomId - continuing with partial data")
