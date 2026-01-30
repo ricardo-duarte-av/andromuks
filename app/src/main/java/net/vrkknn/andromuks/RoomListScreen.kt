@@ -1378,18 +1378,44 @@ fun RoomListItem(
                 .padding(vertical = 12.dp, horizontal = 16.dp),
             verticalAlignment = Alignment.Top
         ) {
-        // Room avatar
-        net.vrkknn.andromuks.ui.components.AvatarImage(
-            mxcUrl = room.avatarUrl,
-            homeserverUrl = homeserverUrl,
-            authToken = authToken,
-            fallbackText = room.name,
-            size = 48.dp,
-            userId = room.id,
-            displayName = room.name,
-            // AVATAR LOADING OPTIMIZATION: Enable lazy loading for room list performance
-            isVisible = true // Room list items are visible when rendered in LazyColumn
-        )
+        // Room avatar with optional bridge protocol badge
+        Box {
+            net.vrkknn.andromuks.ui.components.AvatarImage(
+                mxcUrl = room.avatarUrl,
+                homeserverUrl = homeserverUrl,
+                authToken = authToken,
+                fallbackText = room.name,
+                size = 48.dp,
+                userId = room.id,
+                displayName = room.name,
+                // AVATAR LOADING OPTIMIZATION: Enable lazy loading for room list performance
+                isVisible = true // Room list items are visible when rendered in LazyColumn
+            )
+            
+            // Bridge protocol avatar badge (bottom-right corner)
+            room.bridgeProtocolAvatarUrl?.let { protocolAvatarUrl ->
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(16.dp)
+                        .background(
+                            MaterialTheme.colorScheme.surface,
+                            CircleShape
+                        )
+                        .padding(1.dp)
+                ) {
+                    net.vrkknn.andromuks.ui.components.AvatarImage(
+                        mxcUrl = protocolAvatarUrl,
+                        homeserverUrl = homeserverUrl,
+                        authToken = authToken,
+                        fallbackText = "",
+                        size = 14.dp,
+                        userId = "",
+                        displayName = ""
+                    )
+                }
+            }
+        }
         
         Spacer(modifier = Modifier.width(12.dp))
         

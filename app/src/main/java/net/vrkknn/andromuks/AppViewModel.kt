@@ -11191,25 +11191,46 @@ class AppViewModel : ViewModel() {
             bridgeInfo = bridgeInfo
         )
         
+        // Extract bridge protocol avatar URL for room list badge display
+        val bridgeProtocolAvatarUrl = bridgeInfo?.protocol?.avatarUrl
+        
         // If bridge metadata says this is a DM, mark the room as direct (helps bridged DMs show in Direct tab).
         val bridgeSaysDm = bridgeInfo?.roomType?.equals("dm", ignoreCase = true) == true ||
             bridgeInfo?.roomTypeV2?.equals("dm", ignoreCase = true) == true
-        if (bridgeSaysDm) {
-            val existing = roomMap[roomId]
-            if (existing != null && existing.isDirectMessage != true) {
-                roomMap[roomId] = existing.copy(isDirectMessage = true)
+        
+        // Update roomMap with bridge info (DM status and protocol avatar) if room exists
+        val existing = roomMap[roomId]
+        if (existing != null) {
+            var updatedRoom = existing
+            var needsUpdate = false
+            
+            // Update DM status if needed
+            if (bridgeSaysDm && !existing.isDirectMessage) {
+                updatedRoom = updatedRoom.copy(isDirectMessage = true)
                 directMessageRoomIds = directMessageRoomIds + roomId
+                needsUpdate = true
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked $roomId as DM via bridge room_type")
+            }
+            
+            // Update bridge protocol avatar if present and different
+            if (bridgeProtocolAvatarUrl != null && existing.bridgeProtocolAvatarUrl != bridgeProtocolAvatarUrl) {
+                updatedRoom = updatedRoom.copy(bridgeProtocolAvatarUrl = bridgeProtocolAvatarUrl)
+                needsUpdate = true
+                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Updated bridge protocol avatar for $roomId: $bridgeProtocolAvatarUrl")
+            }
+            
+            if (needsUpdate) {
+                roomMap[roomId] = updatedRoom
                 allRooms = roomMap.values.sortedByDescending { it.sortingTimestamp ?: 0L }
                 invalidateRoomSectionCache()
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Marked $roomId as DM via bridge room_type")
-            } else if (existing == null) {
-                // No room yet; remember as DM so when the room is added it will be treated as direct.
-                directMessageRoomIds = directMessageRoomIds + roomId
-                if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Recorded $roomId as DM via bridge room_type (no room object yet)")
             }
-
-            // Room state is in-memory only; no local persistence.
+        } else if (bridgeSaysDm) {
+            // No room yet; remember as DM so when the room is added it will be treated as direct.
+            directMessageRoomIds = directMessageRoomIds + roomId
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Recorded $roomId as DM via bridge room_type (no room object yet)")
         }
+
+        // Room state is in-memory only; no local persistence.
         
         // ✓ FIX: Only update currentRoomState if this is the currently open room
         // This prevents the room header from flashing through all rooms during shortcut loading
@@ -11219,7 +11240,7 @@ class AppViewModel : ViewModel() {
             updateCounter++ // Keep for backward compatibility temporarily
             if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: ✓ Updated current room state - Name: $name, Alias: $canonicalAlias, Topic: $topic, Avatar: $avatarUrl, Encrypted: $isEncrypted")
         } else {
-            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsed room state for $roomId (not current room) - Name: $name")
+            if (BuildConfig.DEBUG) android.util.Log.d("Andromuks", "AppViewModel: Parsed room state for $roomId (not current room) - Name: $name, Bridge Protocol Avatar: $bridgeProtocolAvatarUrl")
         }
     }
     

@@ -24,7 +24,8 @@ data class RoomItem(
     val sortingTimestamp: Long? = null,
     val isDirectMessage: Boolean = false,
     val isFavourite: Boolean = false,
-    val isLowPriority: Boolean = false
+    val isLowPriority: Boolean = false,
+    val bridgeProtocolAvatarUrl: String? = null
 )
 
 @Immutable
