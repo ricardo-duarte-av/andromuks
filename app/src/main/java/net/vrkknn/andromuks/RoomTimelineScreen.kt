@@ -2694,7 +2694,14 @@ fun RoomTimelineScreen(
                                             text = when {
                                                 !canSendMessage -> "You don't have permission to send messages"
                                                 !websocketConnected -> "Waiting for connection..."
-                                                else -> "Type a message..."
+                                                else -> {
+                                                    val networkName = currentRoomState?.bridgeInfo?.displayName
+                                                    if (networkName != null && networkName.isNotBlank()) {
+                                                        "Type a $networkName message..."
+                                                    } else {
+                                                        "Type a message..."
+                                                    }
+                                                }
                                             },
                                             style = MaterialTheme.typography.labelSmall,
                                             fontStyle = FontStyle.Italic,

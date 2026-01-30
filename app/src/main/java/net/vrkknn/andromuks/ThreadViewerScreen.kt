@@ -1274,7 +1274,16 @@ fun ThreadViewerScreen(
                                         },
                                         placeholder = {
                                             Text(
-                                                text = if (websocketConnected) "Reply in thread..." else "Waiting for connection...",
+                                                text = if (websocketConnected) {
+                                                    val networkName = appViewModel.currentRoomState?.bridgeInfo?.displayName
+                                                    if (networkName != null && networkName.isNotBlank()) {
+                                                        "Reply in $networkName thread..."
+                                                    } else {
+                                                        "Reply in thread..."
+                                                    }
+                                                } else {
+                                                    "Waiting for connection..."
+                                                },
                                                 style = MaterialTheme.typography.labelSmall,
                                                 fontStyle = FontStyle.Italic,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
